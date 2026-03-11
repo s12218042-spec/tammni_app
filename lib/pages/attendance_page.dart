@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import '../data/dummy_data.dart';
 import '../models/child_model.dart';
-import '../widgets/app_bar_widget.dart';
+import '../theme/app_theme.dart';
+import '../widgets/app_page_scaffold.dart';
 
 class AttendancePage extends StatefulWidget {
   final String sectionFilter; // Nursery / Kindergarten / All
 
-  const AttendancePage({super.key, this.sectionFilter = 'All'});
+  const AttendancePage({
+    super.key,
+    this.sectionFilter = 'All',
+  });
 
   @override
   State<AttendancePage> createState() => _AttendancePageState();
@@ -15,7 +19,27 @@ class AttendancePage extends StatefulWidget {
 class _AttendancePageState extends State<AttendancePage> {
   List<ChildModel> get list {
     if (widget.sectionFilter == 'All') return DummyData.children;
-    return DummyData.children.where((c) => c.section == widget.sectionFilter).toList();
+    return DummyData.children
+        .where((c) => c.section == widget.sectionFilter)
+        .toList();
+  }
+
+  String sectionLabel(String section) {
+    switch (section) {
+      case 'Nursery':
+        return 'حضانة';
+      case 'Kindergarten':
+        return 'روضة';
+      default:
+        return 'الكل';
+    }
+  }
+
+  String pageDescription() {
+    if (widget.sectionFilter == 'All') {
+      return 'عرض وتسجيل حضور جميع الأطفال';
+    }
+    return 'عرض وتسجيل حضور أطفال قسم ${sectionLabel(widget.sectionFilter)}';
   }
 
   @override
@@ -23,93 +47,199 @@ class _AttendancePageState extends State<AttendancePage> {
     final today = DateTime.now();
     final dateText = '${today.year}/${today.month}/${today.day}';
 
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: Scaffold(
-        appBar: const AppBarWidget(
-  title: 'إدارة الأطفال',
-),
-        body: Padding(
-          padding: const EdgeInsets.all(16),
-          child: ListView(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.black12),
-                  borderRadius: BorderRadius.circular(12),
-                  color: const Color(0xFFF6F6FF),
+    return AppPageScaffold(
+      title: 'تسجيل الحضور',
+      child: ListView(
+        children: [
+          Text(
+            'الحضور اليومي',
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
                 ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            pageDescription(),
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: AppColors.textLight,
+                ),
+          ),
+          const SizedBox(height: 16),
+
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor: AppColors.primary.withOpacity(0.12),
+                    child: const Icon(
+                      Icons.calendar_today_outlined,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'تاريخ اليوم: $dateText',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 10),
+
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor: AppColors.primary.withOpacity(0.12),
+                    child: const Icon(
+                      Icons.filter_list,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      widget.sectionFilter == 'All'
+                          ? 'يتم الآن عرض جميع الأطفال'
+                          : 'القسم الحالي: ${sectionLabel(widget.sectionFilter)}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          if (list.isEmpty)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
                 child: Text(
-                  widget.sectionFilter == 'All'
-                      ? 'عرض كل الأطفال'
-                      : 'عرض أطفال قسم: ${widget.sectionFilter}',
+                  'لا يوجد أطفال في هذا القسم حاليًا.',
+                  style: TextStyle(
+                    color: AppColors.textLight,
+                    fontSize: 15,
+                  ),
                 ),
               ),
-              const SizedBox(height: 12),
+            )
+          else
+            ...list.map(
+              (child) => _AttendanceChildCard(
+                child: child,
+                isPresent: DummyData.isPresentToday(child.id),
+                sectionText: sectionLabel(child.section),
+                onChanged: (value) {
+                  setState(() {
+                    DummyData.setPresentToday(child.id, value);
+                  });
+                },
+              ),
+            ),
 
-              ...list.map((child) {
-                final present = DummyData.isPresentToday(child.id);
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 10),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.black12),
+          const SizedBox(height: 16),
+
+          ElevatedButton.icon(
+            onPressed: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('تم حفظ الحضور ✅'),
+                ),
+              );
+              Navigator.pop(context, true);
+            },
+            icon: const Icon(Icons.check_circle_outline),
+            label: const Text('حفظ الحضور'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AttendanceChildCard extends StatelessWidget {
+  final ChildModel child;
+  final bool isPresent;
+  final String sectionText;
+  final ValueChanged<bool> onChanged;
+
+  const _AttendanceChildCard({
+    required this.child,
+    required this.isPresent,
+    required this.sectionText,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 24,
+              backgroundColor: AppColors.primary.withOpacity(0.15),
+              child: const Icon(
+                Icons.child_care,
+                color: AppColors.primary,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    child.name,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
                   ),
-                  child: Row(
-                    children: [
-                      const CircleAvatar(
-                        backgroundColor: Color(0xFF8E97FD),
-                        child: Icon(Icons.child_care, color: Colors.white),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(child.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                            const SizedBox(height: 2),
-                            Text('${child.section} - ${child.group}',
-                                style: const TextStyle(color: Colors.black54, fontSize: 12)),
-                          ],
-                        ),
-                      ),
-                      Switch(
-                        value: present,
-                        onChanged: (v) {
-                          setState(() {
-                            DummyData.setPresentToday(child.id, v);
-                          });
-                        },
-                      ),
-                    ],
+                  const SizedBox(height: 4),
+                  Text(
+                    '$sectionText • ${child.group}',
+                    style: const TextStyle(
+                      color: Colors.black54,
+                      fontSize: 13,
+                    ),
                   ),
-                );
-              }).toList(),
-
-              const SizedBox(height: 12),
-
-              SizedBox(
-                height: 48,
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('تم حفظ الحضور ✅')),
-                    );
-                    Navigator.pop(context, true);
-                  },
-                  icon: const Icon(Icons.check),
-                  label: const Text('حفظ'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF8E97FD),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ],
+              ),
+            ),
+            Column(
+              children: [
+                Switch(
+                  value: isPresent,
+                  onChanged: onChanged,
+                ),
+                Text(
+                  isPresent ? 'حاضر' : 'غائب',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isPresent ? Colors.green : Colors.redAccent,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-              )
-            ],
-          ),
+              ],
+            ),
+          ],
         ),
       ),
     );

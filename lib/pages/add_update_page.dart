@@ -2,13 +2,18 @@ import 'package:flutter/material.dart';
 import '../data/dummy_data.dart';
 import '../models/child_model.dart';
 import '../models/update_model.dart';
-import '../widgets/app_bar_widget.dart';
+import '../theme/app_theme.dart';
+import '../widgets/app_page_scaffold.dart';
 
 class AddUpdatePage extends StatefulWidget {
   final ChildModel child;
   final String byRole; // nursery / teacher
 
-  const AddUpdatePage({super.key, required this.child, required this.byRole});
+  const AddUpdatePage({
+    super.key,
+    required this.child,
+    required this.byRole,
+  });
 
   @override
   State<AddUpdatePage> createState() => _AddUpdatePageState();
@@ -19,15 +24,56 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
 
   String type = 'ملاحظة';
 
-  final List<String> nurseryTypes = ['وجبة', 'نوم', 'حفاض', 'صحة', 'نشاط', 'ملاحظة'];
-  final List<String> teacherTypes = ['نشاط', 'خطة اليوم', 'تقييم', 'واجب', 'ملاحظة'];
+  final List<String> nurseryTypes = [
+    'وجبة',
+    'نوم',
+    'حفاض',
+    'صحة',
+    'نشاط',
+    'ملاحظة',
+  ];
 
-  List<String> get types => widget.byRole == 'nursery' ? nurseryTypes : teacherTypes;
+  final List<String> teacherTypes = [
+    'نشاط',
+    'خطة اليوم',
+    'تقييم',
+    'واجب',
+    'ملاحظة',
+  ];
+
+  List<String> get types =>
+      widget.byRole == 'nursery' ? nurseryTypes : teacherTypes;
+
+  String sectionLabel(String s) {
+    if (s == 'Nursery') return 'حضانة';
+    if (s == 'Kindergarten') return 'روضة';
+    return s;
+  }
+
+  String roleLabel() {
+    return widget.byRole == 'nursery' ? 'موظفة الحضانة' : 'المعلمة';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    if (!types.contains(type)) {
+      type = types.first;
+    }
+  }
+
+  @override
+  void dispose() {
+    noteCtrl.dispose();
+    super.dispose();
+  }
 
   void save() {
     if (noteCtrl.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('اكتبي ملاحظة قصيرة')),
+        const SnackBar(
+          content: Text('اكتبي ملاحظة قصيرة'),
+        ),
       );
       return;
     }
@@ -45,89 +91,170 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
     DummyData.updates.add(update);
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('تم حفظ التحديث ✅')),
+      const SnackBar(
+        content: Text('تم حفظ التحديث ✅'),
+      ),
     );
 
-    Navigator.pop(context, true); // رجّع true عشان نعمل refresh
+    Navigator.pop(context, true);
   }
 
   @override
   Widget build(BuildContext context) {
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: Scaffold(
-        appBar: const AppBarWidget(
-  title: 'إدارة الأطفال',
-),
-        body: Padding(
-          padding: const EdgeInsets.all(16),
-          child: ListView(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.black12),
-                  borderRadius: BorderRadius.circular(12),
-                  color: const Color(0xFFF6F6FF),
+    return AppPageScaffold(
+      title: 'إضافة تحديث',
+      child: ListView(
+        children: [
+          Text(
+            'إضافة تحديث جديد',
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('القسم: ${widget.child.section}'),
-                    const SizedBox(height: 4),
-                    Text('المجموعة/الصف: ${widget.child.group}'),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 16),
-
-              const Text('نوع التحديث', style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-
-              DropdownButtonFormField<String>(
-                value: types.contains(type) ? type : types.first,
-                items: types
-                    .map((t) => DropdownMenuItem(value: t, child: Text(t)))
-                    .toList(),
-                onChanged: (v) => setState(() => type = v ?? types.first),
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                ),
-              ),
-
-              const SizedBox(height: 16),
-
-              const Text('الملاحظة', style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-
-              TextField(
-                controller: noteCtrl,
-                maxLines: 4,
-                decoration: const InputDecoration(
-                  hintText: 'مثال: تناول وجبة الفطور / نشاط تلوين / بحاجة دواء...',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-
-              const SizedBox(height: 16),
-
-              SizedBox(
-                height: 48,
-                child: ElevatedButton.icon(
-                  onPressed: save,
-                  icon: const Icon(Icons.save),
-                  label: const Text('حفظ التحديث'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF8E97FD),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                ),
-              ),
-            ],
           ),
-        ),
+          const SizedBox(height: 6),
+          Text(
+            'أضيفي ملاحظة أو تحديثًا خاصًا بالطفل ليظهر لولي الأمر',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: AppColors.textLight,
+                ),
+          ),
+          const SizedBox(height: 16),
+
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      CircleAvatar(
+                        backgroundColor: AppColors.primary.withOpacity(0.12),
+                        child: const Icon(
+                          Icons.child_care,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          widget.child.name,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.apartment_outlined,
+                        size: 18,
+                        color: Colors.black54,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'القسم: ${sectionLabel(widget.child.section)}',
+                        style: const TextStyle(color: Colors.black87),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.groups_outlined,
+                        size: 18,
+                        color: Colors.black54,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'الصف / المجموعة: ${widget.child.group}',
+                        style: const TextStyle(color: Colors.black87),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.badge_outlined,
+                        size: 18,
+                        color: Colors.black54,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'بواسطة: ${roleLabel()}',
+                        style: const TextStyle(color: Colors.black87),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 18),
+
+          Text(
+            'نوع التحديث',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+          ),
+          const SizedBox(height: 8),
+
+          DropdownButtonFormField<String>(
+            value: types.contains(type) ? type : types.first,
+            decoration: const InputDecoration(
+              prefixIcon: Icon(Icons.category_outlined),
+            ),
+            items: types
+                .map(
+                  (t) => DropdownMenuItem(
+                    value: t,
+                    child: Text(t),
+                  ),
+                )
+                .toList(),
+            onChanged: (v) {
+              setState(() {
+                type = v ?? types.first;
+              });
+            },
+          ),
+
+          const SizedBox(height: 18),
+
+          Text(
+            'الملاحظة',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+          ),
+          const SizedBox(height: 8),
+
+          TextField(
+            controller: noteCtrl,
+            maxLines: 5,
+            decoration: const InputDecoration(
+              hintText:
+                  'مثال: تناول وجبة الفطور / شارك في نشاط تلوين / بحاجة إلى متابعة...',
+              alignLabelWithHint: true,
+              prefixIcon: Icon(Icons.edit_note_outlined),
+            ),
+          ),
+
+          const SizedBox(height: 20),
+
+          ElevatedButton.icon(
+            onPressed: save,
+            icon: const Icon(Icons.save_outlined),
+            label: const Text('حفظ التحديث'),
+          ),
+        ],
       ),
     );
   }

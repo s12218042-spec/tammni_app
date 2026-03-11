@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 import '../data/dummy_data.dart';
 import '../models/child_model.dart';
 import '../models/update_model.dart';
+import '../theme/app_theme.dart';
+import '../widgets/app_page_scaffold.dart';
 import 'attendance_page.dart';
 import 'add_update_page.dart';
 import 'camera_checkin_page.dart';
-import '../widgets/app_bar_widget.dart';
 
 class TeacherHomePage extends StatefulWidget {
   const TeacherHomePage({super.key});
@@ -22,26 +23,38 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
     final res = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => AddUpdatePage(child: child, byRole: 'teacher'),
+        builder: (context) => AddUpdatePage(
+          child: child,
+          byRole: 'teacher',
+        ),
       ),
     );
-    if (res == true) setState(() {});
+
+    if (res == true) {
+      setState(() {});
+    }
   }
 
   Future<void> openAttendance() async {
     final res = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => const AttendancePage(sectionFilter: 'Kindergarten'),
+        builder: (context) =>
+            const AttendancePage(sectionFilter: 'Kindergarten'),
       ),
     );
-    if (res == true) setState(() {});
+
+    if (res == true) {
+      setState(() {});
+    }
   }
 
   Future<void> openCameraCheckin(ChildModel child) async {
     final res = await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const CameraCheckinPage()),
+      MaterialPageRoute(
+        builder: (_) => const CameraCheckinPage(),
+      ),
     );
 
     if (res is Map) {
@@ -67,7 +80,9 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
       );
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم إرسال Check-in من المعلمة ✅')),
+        const SnackBar(
+          content: Text('تم إرسال Check-in من المعلمة ✅'),
+        ),
       );
 
       setState(() {});
@@ -76,114 +91,174 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: Scaffold(
-        appBar: const AppBarWidget(
-  title: 'إدارة الأطفال',
-),
-        body: Padding(
-          padding: const EdgeInsets.all(16),
-          child: ListView(
-            children: [
-              const Text(
-                'أهلاً 👩‍🏫',
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                'اختاري طفل لإضافة نشاط أو إرسال Check-in بالكاميرا',
-                style: TextStyle(color: Colors.black54),
-              ),
-              const SizedBox(height: 16),
+    return AppPageScaffold(
+      title: 'الرئيسية - المعلمة',
+      child: ListView(
+        children: [
+          Text(
+            'أهلاً 👩‍🏫',
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'اختاري طفلًا لإضافة نشاط أو إرسال Check-in بالكاميرا',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: AppColors.textLight,
+                ),
+          ),
+          const SizedBox(height: 20),
 
-              ElevatedButton.icon(
-                onPressed: openAttendance,
-                icon: const Icon(Icons.how_to_reg),
-                label: const Text('تسجيل الحضور'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF8E97FD),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      CircleAvatar(
+                        backgroundColor: AppColors.primary.withOpacity(0.12),
+                        child: const Icon(
+                          Icons.how_to_reg,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Text(
+                          'تسجيل حضور أطفال الروضة',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: openAttendance,
+                      icon: const Icon(Icons.checklist_rtl),
+                      label: const Text('فتح صفحة الحضور'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          if (kgChildren.isEmpty)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  'لا يوجد أطفال في قسم الروضة حاليًا.',
+                  style: TextStyle(
+                    color: AppColors.textLight,
+                    fontSize: 15,
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
-
-              ...kgChildren.map(
-                (c) => _ChildTile(
-                  child: c,
-                  onAddUpdate: () => openAddUpdate(c),
-                  onCamera: () => openCameraCheckin(c),
-                ),
+            )
+          else
+            ...kgChildren.map(
+              (c) => _ChildActionCard(
+                childModel: c,
+                onAddUpdate: () => openAddUpdate(c),
+                onCamera: () => openCameraCheckin(c),
               ),
-            ],
-          ),
-        ),
+            ),
+        ],
       ),
     );
   }
 }
 
-class _ChildTile extends StatelessWidget {
-  final ChildModel child;
+class _ChildActionCard extends StatelessWidget {
+  final ChildModel childModel;
   final VoidCallback onAddUpdate;
   final VoidCallback onCamera;
 
-  const _ChildTile({
-    required this.child,
+  const _ChildActionCard({
+    required this.childModel,
     required this.onAddUpdate,
     required this.onCamera,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.black12),
-      ),
-      child: Row(
-        children: [
-          const CircleAvatar(
-            backgroundColor: Color(0xFF8E97FD),
-            child: Icon(Icons.child_care, color: Colors.white),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          children: [
+            Row(
               children: [
-                Text(
-                  child.name,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
+                CircleAvatar(
+                  backgroundColor: AppColors.primary,
+                  child: const Icon(
+                    Icons.child_care,
+                    color: Colors.white,
+                  ),
                 ),
-                const SizedBox(height: 3),
-                Text(
-                  child.group,
-                  style: const TextStyle(
-                    color: Colors.black54,
-                    fontSize: 12,
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        childModel.name,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        childModel.group,
+                        style: const TextStyle(
+                          color: Colors.black54,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
-          ),
-          IconButton(
-            tooltip: 'كاميرا Check-in',
-            onPressed: onCamera,
-            icon: const Icon(Icons.photo_camera),
-          ),
-          IconButton(
-            tooltip: 'إضافة تحديث',
-            onPressed: onAddUpdate,
-            icon: const Icon(Icons.note_add),
-          ),
-        ],
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onCamera,
+                    icon: const Icon(Icons.photo_camera_outlined),
+                    label: const Text('كاميرا'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(double.infinity, 46),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: onAddUpdate,
+                    icon: const Icon(Icons.note_add_outlined),
+                    label: const Text('إضافة تحديث'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

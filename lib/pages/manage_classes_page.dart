@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../data/dummy_data.dart';
-import '../widgets/app_bar_widget.dart';
+import '../theme/app_theme.dart';
+import '../widgets/app_page_scaffold.dart';
 
 class ManageClassesPage extends StatefulWidget {
   const ManageClassesPage({super.key});
@@ -29,79 +30,118 @@ class _ManageClassesPageState extends State<ManageClassesPage> {
 
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('إضافة صف/مجموعة'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'اسم الصف/المجموعة',
-                ),
-              ),
-              const SizedBox(height: 10),
-              DropdownButtonFormField<String>(
-                value: section,
-                items: const [
-                  DropdownMenuItem(value: 'Nursery', child: Text('حضانة')),
-                  DropdownMenuItem(
-                    value: 'Kindergarten',
-                    child: Text('روضة'),
-                  ),
-                ],
-                onChanged: (v) => setState(() => section = v ?? 'Nursery'),
-                decoration: const InputDecoration(labelText: 'القسم'),
-              ),
-              const SizedBox(height: 10),
-              Row(
+      builder: (_) => StatefulBuilder(
+        builder: (context, setLocal) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            title: const Text('إضافة صف / مجموعة'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text('عدد الأطفال:'),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Slider(
-                      value: count.toDouble(),
-                      min: 1,
-                      max: 30,
-                      divisions: 29,
-                      label: '$count',
-                      onChanged: (v) => setState(() => count = v.toInt()),
+                  TextField(
+                    controller: nameCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'اسم الصف / المجموعة',
+                      prefixIcon: Icon(Icons.class_outlined),
                     ),
                   ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: section,
+                    decoration: const InputDecoration(
+                      labelText: 'القسم',
+                      prefixIcon: Icon(Icons.apartment_outlined),
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'Nursery',
+                        child: Text('حضانة'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'Kindergarten',
+                        child: Text('روضة'),
+                      ),
+                    ],
+                    onChanged: (v) {
+                      setLocal(() {
+                        section = v ?? 'Nursery';
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.groups_outlined,
+                        color: AppColors.primary,
+                      ),
+                      const SizedBox(width: 8),
+                      const Text(
+                        'عدد الأطفال:',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(width: 8),
+                      Text('$count'),
+                    ],
+                  ),
+                  Slider(
+                    value: count.toDouble(),
+                    min: 1,
+                    max: 30,
+                    divisions: 29,
+                    label: '$count',
+                    onChanged: (v) {
+                      setLocal(() {
+                        count = v.toInt();
+                      });
+                    },
+                  ),
                 ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('إلغاء'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  final name = nameCtrl.text.trim();
+
+                  if (name.isEmpty) {
+                    ScaffoldMessenger.of(this.context).showSnackBar(
+                      const SnackBar(
+                        content: Text('اكتبي اسم الصف / المجموعة'),
+                      ),
+                    );
+                    return;
+                  }
+
+                  DummyData.addClass({
+                    'id': DummyData.newId('class'),
+                    'section': section,
+                    'name': name,
+                    'childrenCount': count,
+                  });
+
+                  setState(() {});
+                  Navigator.pop(context);
+
+                  ScaffoldMessenger.of(this.context).showSnackBar(
+                    const SnackBar(
+                      content: Text('تمت إضافة الصف بنجاح ✅'),
+                    ),
+                  );
+                },
+                child: const Text('إضافة'),
               ),
             ],
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('إلغاء'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final name = nameCtrl.text.trim();
-              if (name.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('اكتبي اسم الصف/المجموعة')),
-                );
-                return;
-              }
-
-              DummyData.addClass({
-                'id': DummyData.newId('class'),
-                'section': section,
-                'name': name,
-                'childrenCount': count,
-              });
-
-              setState(() {});
-              Navigator.pop(context);
-            },
-            child: const Text('إضافة'),
-          ),
-        ],
       ),
     );
   }
@@ -115,65 +155,115 @@ class _ManageClassesPageState extends State<ManageClassesPage> {
   Widget build(BuildContext context) {
     final classes = DummyData.classes;
 
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: Scaffold(
-        appBar: const AppBarWidget(
-  title: 'إدارة الأطفال',
-),
-        floatingActionButton: FloatingActionButton(
-          onPressed: openAddDialog,
-          backgroundColor: const Color(0xFF8E97FD),
-          child: const Icon(Icons.add, color: Colors.white),
-        ),
-        body: Padding(
-          padding: const EdgeInsets.all(16),
-          child: ListView.separated(
-            itemCount: classes.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 10),
-            itemBuilder: (context, i) {
-              final c = classes[i];
-              return Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.black12),
+    return AppPageScaffold(
+      title: 'إدارة الصفوف والأقسام',
+      floatingActionButton: FloatingActionButton(
+        onPressed: openAddDialog,
+        backgroundColor: AppColors.primary,
+        child: const Icon(Icons.add, color: Colors.white),
+      ),
+      child: ListView(
+        children: [
+          Text(
+            'إدارة الصفوف والمجموعات',
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
                 ),
-                child: Row(
-                  children: [
-                    const CircleAvatar(
-                      backgroundColor: Color(0xFF8E97FD),
-                      child: Icon(Icons.class_, color: Colors.white),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            c['name'],
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            '${sectionLabel(c['section'])} • عدد الأطفال: ${c['childrenCount']}',
-                            style: const TextStyle(
-                              color: Colors.black54,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () => deleteClass(c['id']),
-                      icon: const Icon(Icons.delete_outline),
-                    ),
-                  ],
-                ),
-              );
-            },
           ),
+          const SizedBox(height: 6),
+          Text(
+            'إضافة وحذف الصفوف وتنظيم الأقسام داخل الحضانة والروضة',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: AppColors.textLight,
+                ),
+          ),
+          const SizedBox(height: 20),
+          if (classes.isEmpty)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  'لا توجد صفوف أو مجموعات حاليًا.',
+                  style: TextStyle(
+                    color: AppColors.textLight,
+                    fontSize: 15,
+                  ),
+                ),
+              ),
+            )
+          else
+            ...classes.map(
+              (c) => _ClassCard(
+                name: c['name'],
+                sectionText: sectionLabel(c['section']),
+                childrenCount: c['childrenCount'],
+                onDelete: () => deleteClass(c['id']),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ClassCard extends StatelessWidget {
+  final String name;
+  final String sectionText;
+  final int childrenCount;
+  final VoidCallback onDelete;
+
+  const _ClassCard({
+    required this.name,
+    required this.sectionText,
+    required this.childrenCount,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 24,
+              backgroundColor: AppColors.primary.withOpacity(0.15),
+              child: const Icon(
+                Icons.class_,
+                color: AppColors.primary,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '$sectionText • عدد الأطفال: $childrenCount',
+                    style: const TextStyle(
+                      color: Colors.black54,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              tooltip: 'حذف',
+              onPressed: onDelete,
+              icon: const Icon(Icons.delete_outline),
+              color: Colors.redAccent,
+            ),
+          ],
         ),
       ),
     );

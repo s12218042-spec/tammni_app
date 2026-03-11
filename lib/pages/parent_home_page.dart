@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
 import '../data/dummy_data.dart';
 import '../models/child_model.dart';
+import '../theme/app_theme.dart';
+import '../widgets/app_page_scaffold.dart';
 import 'parent_updates_page.dart';
 import 'weekly_report_page.dart';
-import '../widgets/app_bar_widget.dart';
 
 class ParentHomePage extends StatefulWidget {
   final String parentUsername;
-  const ParentHomePage({super.key, required this.parentUsername});
+
+  const ParentHomePage({
+    super.key,
+    required this.parentUsername,
+  });
 
   @override
   State<ParentHomePage> createState() => _ParentHomePageState();
@@ -21,47 +26,47 @@ class _ParentHomePageState extends State<ParentHomePage> {
     final children = DummyData.childrenForParent(widget.parentUsername);
 
     if (children.isEmpty) {
-      return Directionality(
-        textDirection: TextDirection.rtl,
-        child: Scaffold(
-          appBar: const AppBarWidget(
-  title: 'إدارة الأطفال',
-),
-          body: const Center(
-            child: Text('لا يوجد أطفال مرتبطون بهذا الحساب'),
+      return const AppPageScaffold(
+        title: 'الرئيسية - ولي الأمر',
+        child: Center(
+          child: Text(
+            'لا يوجد أطفال مرتبطون بهذا الحساب',
+            style: TextStyle(fontSize: 16),
           ),
         ),
       );
     }
 
-    final ChildModel child = children[selectedIndex >= children.length ? 0 : selectedIndex];
+    final ChildModel child =
+        children[selectedIndex >= children.length ? 0 : selectedIndex];
 
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: Scaffold(
-        appBar: const AppBarWidget(
-  title: 'إدارة الأطفال',
-),
-        body: Padding(
-          padding: const EdgeInsets.all(16),
-          child: ListView(
-            children: [
-              const Text(
-                'أهلًا 👋',
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                'هنا بتقدري تتابعي أطفالك بسهولة 💙',
-                style: TextStyle(color: Colors.black54),
-              ),
-              const SizedBox(height: 16),
+    return AppPageScaffold(
+      title: 'الرئيسية - ولي الأمر',
+      child: ListView(
+        children: [
+          Text(
+            'أهلًا 👋',
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'هنا يمكنك متابعة أطفالك بسهولة واطمئنان',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: AppColors.textLight,
+                ),
+          ),
+          const SizedBox(height: 16),
 
-              DropdownButtonFormField<int>(
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: DropdownButtonFormField<int>(
                 value: selectedIndex,
                 decoration: const InputDecoration(
                   labelText: 'اختيار الطفل',
-                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.child_care),
                 ),
                 items: List.generate(
                   children.length,
@@ -78,100 +83,95 @@ class _ParentHomePageState extends State<ParentHomePage> {
                   });
                 },
               ),
+            ),
+          ),
 
-              const SizedBox(height: 16),
+          const SizedBox(height: 16),
 
-              Row(
-                children: [
-                  Expanded(
-                    child: _QuickCard(
-                      title: 'الحضور',
-                      value: DummyData.isPresentToday(child.id)
-                          ? 'داخل المؤسسة ✅'
-                          : 'غائب ❌',
-                      icon: Icons.check_circle,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _QuickCard(
-                      title: 'القسم',
-                      value: child.section == 'Nursery' ? 'حضانة' : 'روضة',
-                      icon: Icons.apartment,
-                    ),
-                  ),
-                ],
+          Row(
+            children: [
+              Expanded(
+                child: _QuickInfoCard(
+                  title: 'الحضور',
+                  value: DummyData.isPresentToday(child.id)
+                      ? 'داخل المؤسسة ✅'
+                      : 'غائب ❌',
+                  icon: Icons.check_circle,
+                ),
               ),
-              const SizedBox(height: 12),
-
-              _QuickCard(
-                title: 'الصف/المجموعة',
-                value: child.group,
-                icon: Icons.groups,
-              ),
-
-              const SizedBox(height: 20),
-
-              const Text(
-                'آخر تحديثات اليوم',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 10),
-
-              ..._buildLastUpdates(child.id),
-
-              const SizedBox(height: 20),
-
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => ParentUpdatesPage(child: child),
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.chat),
-                      label: const Text('التحديثات'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF8E97FD),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => WeeklyReportPage(child: child),
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.description),
-                      label: const Text('التقارير'),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+              const SizedBox(width: 12),
+              Expanded(
+                child: _QuickInfoCard(
+                  title: 'القسم',
+                  value: child.section == 'Nursery' ? 'حضانة' : 'روضة',
+                  icon: Icons.apartment,
+                ),
               ),
             ],
           ),
-        ),
+
+          const SizedBox(height: 12),
+
+          _QuickInfoCard(
+            title: 'الصف / المجموعة',
+            value: child.group,
+            icon: Icons.groups,
+          ),
+
+          const SizedBox(height: 20),
+
+          Text(
+            'آخر تحديثات اليوم',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+          ),
+          const SizedBox(height: 10),
+
+          ..._buildLastUpdates(child.id),
+
+          const SizedBox(height: 20),
+
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => ParentUpdatesPage(child: child),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.chat_bubble_outline),
+                  label: const Text('التحديثات'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => WeeklyReportPage(child: child),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.description_outlined),
+                  label: const Text('التقارير'),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 50),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -180,9 +180,16 @@ class _ParentHomePageState extends State<ParentHomePage> {
     final updates = DummyData.updatesForChild(childId).take(3).toList();
 
     if (updates.isEmpty) {
-      return const [
-        Text('لا يوجد تحديثات اليوم بعد.',
-            style: TextStyle(color: Colors.black54)),
+      return [
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text(
+              'لا يوجد تحديثات اليوم بعد.',
+              style: TextStyle(color: AppColors.textLight),
+            ),
+          ),
+        ),
       ];
     }
 
@@ -203,12 +210,12 @@ class _ParentHomePageState extends State<ParentHomePage> {
   }
 }
 
-class _QuickCard extends StatelessWidget {
+class _QuickInfoCard extends StatelessWidget {
   final String title;
   final String value;
   final IconData icon;
 
-  const _QuickCard({
+  const _QuickInfoCard({
     required this.title,
     required this.value,
     required this.icon,
@@ -216,34 +223,41 @@ class _QuickCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF6F6FF),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.black12),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: const Color(0xFF8E97FD)),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(value, style: const TextStyle(color: Colors.black54)),
-              ],
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 22,
+              backgroundColor: AppColors.primary.withOpacity(0.12),
+              child: Icon(
+                icon,
+                color: AppColors.primary,
+              ),
             ),
-          ),
-        ],
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    value,
+                    style: const TextStyle(color: Colors.black54),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -260,29 +274,33 @@ class _UpdateTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.black12),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: const Color(0xFF8E97FD).withOpacity(0.15),
-              borderRadius: BorderRadius.circular(10),
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 6,
+              ),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                time,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ),
-            child: Text(
-              time,
-              style: const TextStyle(fontWeight: FontWeight.bold),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(text),
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(child: Text(text)),
-        ],
+          ],
+        ),
       ),
     );
   }

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
-import 'pages/welcome_page.dart';
+import 'package:tammni_app/pages/welcome_page.dart';
+import 'package:tammni_app/theme/app_theme.dart';
 
 void main() {
   runApp(const MyApp());
@@ -14,11 +14,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       locale: const Locale('ar'),
-      theme: ThemeData(
-        textTheme: GoogleFonts.cairoTextTheme(),
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF8E97FD)),
-        useMaterial3: true,
-      ),
+      theme: AppTheme.lightTheme,
       home: const WelcomePage(),
     );
   }
