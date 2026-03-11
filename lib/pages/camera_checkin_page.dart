@@ -1,7 +1,8 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import '../widgets/app_bar_widget.dart';
+import '../theme/app_theme.dart';
+import '../widgets/app_page_scaffold.dart';
 
 class CameraCheckinPage extends StatefulWidget {
   const CameraCheckinPage({super.key});
@@ -12,34 +13,87 @@ class CameraCheckinPage extends StatefulWidget {
 
 class _CameraCheckinPageState extends State<CameraCheckinPage> {
   final ImagePicker _picker = ImagePicker();
+
   XFile? picked;
   String mediaType = 'image'; // image / video
+  bool isBusy = false;
 
   Future<void> takePhoto() async {
-    final x = await _picker.pickImage(source: ImageSource.camera, imageQuality: 75);
-    if (x == null) return;
-    setState(() {
-      picked = x;
-      mediaType = 'image';
-    });
+    try {
+      setState(() {
+        isBusy = true;
+      });
+
+      final x = await _picker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 75,
+      );
+
+      if (x == null) {
+        setState(() {
+          isBusy = false;
+        });
+        return;
+      }
+
+      setState(() {
+        picked = x;
+        mediaType = 'image';
+        isBusy = false;
+      });
+    } catch (e) {
+      setState(() {
+        isBusy = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('حدث خطأ أثناء التقاط الصورة: $e')),
+      );
+    }
   }
 
   Future<void> takeVideo() async {
-    final x = await _picker.pickVideo(source: ImageSource.camera, maxDuration: const Duration(seconds: 15));
-    if (x == null) return;
-    setState(() {
-      picked = x;
-      mediaType = 'video';
-    });
+    try {
+      setState(() {
+        isBusy = true;
+      });
+
+      final x = await _picker.pickVideo(
+        source: ImageSource.camera,
+        maxDuration: const Duration(seconds: 15),
+      );
+
+      if (x == null) {
+        setState(() {
+          isBusy = false;
+        });
+        return;
+      }
+
+      setState(() {
+        picked = x;
+        mediaType = 'video';
+        isBusy = false;
+      });
+    } catch (e) {
+      setState(() {
+        isBusy = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('حدث خطأ أثناء تسجيل الفيديو: $e')),
+      );
+    }
   }
 
   void sendBack() {
     if (picked == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('صوّري صورة أو فيديو أولاً')),
+        const SnackBar(content: Text('صوّري صورة أو فيديو أولًا')),
       );
       return;
     }
+
     Navigator.pop(context, {
       'path': picked!.path,
       'type': mediaType,
@@ -50,105 +104,149 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
   Widget build(BuildContext context) {
     final file = picked == null ? null : File(picked!.path);
 
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: Scaffold(
-        appBar: const AppBarWidget(
-  title: 'إدارة الأطفال',
-),
-        body: Padding(
-          padding: const EdgeInsets.all(16),
-          child: ListView(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.black12),
-                  color: const Color(0xFFF6F6FF),
+    return AppPageScaffold(
+      title: 'كاميرا Check-in',
+      child: ListView(
+        children: [
+          Text(
+            'إرسال تحديث بالكاميرا',
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
                 ),
-                child: const Text(
-                  'صوّري صورة أو فيديو قصير للطفل، وسيظهر لوليّ الأمر كتحديث "كاميرا".',
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'صوّري صورة أو فيديو قصير للطفل، وسيظهر لوليّ الأمر كتحديث من نوع "كاميرا".',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: AppColors.textLight,
                 ),
-              ),
-              const SizedBox(height: 12),
+          ),
+          const SizedBox(height: 16),
 
-              if (file == null)
-                Container(
-                  height: 180,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.black12),
-                  ),
-                  child: const Text('لا يوجد معاينة بعد'),
-                )
-              else if (mediaType == 'image')
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Image.file(file, height: 220, fit: BoxFit.cover),
-                )
-              else
-                Container(
-                  height: 180,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.black12),
-                  ),
-                  child: const Text('تم تسجيل فيديو \n(سيظهر لولي الأمر مع زر تشغيل)'),
-                ),
-
-              const SizedBox(height: 12),
-
-              Row(
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
                 children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: takePhoto,
-                      icon: const Icon(Icons.photo_camera),
-                      label: const Text('صورة'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF8E97FD),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
+                  CircleAvatar(
+                    backgroundColor: AppColors.primary.withOpacity(0.12),
+                    child: const Icon(
+                      Icons.info_outline,
+                      color: AppColors.primary,
                     ),
                   ),
                   const SizedBox(width: 12),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: takeVideo,
-                      icon: const Icon(Icons.videocam),
-                      label: const Text('فيديو 15ث'),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
+                  const Expanded(
+                    child: Text(
+                      'يمكنك التقاط صورة أو تسجيل فيديو قصير ثم إرساله مباشرة لوليّ الأمر.',
                     ),
                   ),
                 ],
               ),
+            ),
+          ),
 
-              const SizedBox(height: 12),
+          const SizedBox(height: 16),
 
-              SizedBox(
-                height: 48,
+          if (isBusy)
+            const Card(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(
+                  child: CircularProgressIndicator(),
+                ),
+              ),
+            )
+          else if (file == null)
+            Container(
+              height: 220,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.black12),
+                color: Colors.white,
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.photo_camera_outlined,
+                    size: 48,
+                    color: AppColors.primary.withOpacity(0.8),
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'لا توجد معاينة بعد',
+                    style: TextStyle(fontSize: 16),
+                  ),
+                ],
+              ),
+            )
+          else if (mediaType == 'image')
+            ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: Image.file(
+                file,
+                height: 240,
+                width: double.infinity,
+                fit: BoxFit.cover,
+              ),
+            )
+          else
+            Container(
+              height: 220,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.black12),
+                color: Colors.white,
+              ),
+              child: const Padding(
+                padding: EdgeInsets.all(16),
+                child: Text(
+                  'تم تسجيل فيديو بنجاح 🎥\nسيظهر لوليّ الأمر مع زر تشغيل',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 16),
+                ),
+              ),
+            ),
+
+          const SizedBox(height: 16),
+
+          Row(
+            children: [
+              Expanded(
                 child: ElevatedButton.icon(
-                  onPressed: sendBack,
-                  icon: const Icon(Icons.send),
-                  label: const Text('إرسال لولي الأمر'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF8E97FD),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  onPressed: isBusy ? null : takePhoto,
+                  icon: const Icon(Icons.photo_camera),
+                  label: const Text('صورة'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: isBusy ? null : takeVideo,
+                  icon: const Icon(Icons.videocam),
+                  label: const Text('فيديو 15ث'),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 50),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
                   ),
                 ),
               ),
             ],
           ),
-        ),
+
+          const SizedBox(height: 12),
+
+          ElevatedButton.icon(
+            onPressed: isBusy ? null : sendBack,
+            icon: const Icon(Icons.send_outlined),
+            label: const Text('إرسال لوليّ الأمر'),
+          ),
+        ],
       ),
     );
   }

@@ -1,13 +1,94 @@
-
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'login_page.dart';
 import 'register_role_page.dart';
+import 'parent_home_page.dart';
+import 'nursery_staff_home_page.dart';
+import 'teacher_home_page.dart';
+import 'admin_home_page.dart';
 
-class WelcomePage extends StatelessWidget {
+class WelcomePage extends StatefulWidget {
   const WelcomePage({super.key});
 
   @override
+  State<WelcomePage> createState() => _WelcomePageState();
+}
+
+class _WelcomePageState extends State<WelcomePage> {
+  bool isCheckingUser = true;
+
+  @override
+  void initState() {
+    super.initState();
+    checkLoggedInUser();
+  }
+
+  Future<void> checkLoggedInUser() async {
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user == null) {
+      setState(() {
+        isCheckingUser = false;
+      });
+      return;
+    }
+
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+
+      if (!doc.exists) {
+        setState(() {
+          isCheckingUser = false;
+        });
+        return;
+      }
+
+      final data = doc.data()!;
+      final role = data['role'] ?? '';
+      final username = data['username'] ?? '';
+
+      Widget nextPage;
+
+      if (role == 'parent') {
+        nextPage = ParentHomePage(parentUsername: username);
+      } else if (role == 'nursery') {
+        nextPage = const NurseryStaffHomePage();
+      } else if (role == 'teacher') {
+        nextPage = const TeacherHomePage();
+      } else {
+        nextPage = const AdminHomePage();
+      }
+
+      if (!mounted) return;
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => nextPage),
+      );
+    } catch (e) {
+      setState(() {
+        isCheckingUser = false;
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    if (isCheckingUser) {
+      return const Directionality(
+        textDirection: TextDirection.rtl,
+        child: Scaffold(
+          body: Center(
+            child: CircularProgressIndicator(),
+          ),
+        ),
+      );
+    }
+
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
@@ -29,16 +110,12 @@ class WelcomePage extends StatelessWidget {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-
-                  // شعار التطبيق
                   const Icon(
                     Icons.child_care,
                     size: 120,
                     color: Colors.white,
                   ),
-
                   const SizedBox(height: 20),
-
                   const Text(
                     "مرحباً في تطبيق طمّني",
                     style: TextStyle(
@@ -47,9 +124,7 @@ class WelcomePage extends StatelessWidget {
                       color: Colors.white,
                     ),
                   ),
-
                   const SizedBox(height: 10),
-
                   const Text(
                     "تطبيق يساعد الأهل على متابعة أطفالهم في الحضانة والروضة بسهولة وأمان",
                     textAlign: TextAlign.center,
@@ -58,10 +133,8 @@ class WelcomePage extends StatelessWidget {
                       color: Colors.white70,
                     ),
                   ),
-
                   const SizedBox(height: 60),
 
-                  // زر تسجيل الدخول
                   SizedBox(
                     width: double.infinity,
                     height: 50,
@@ -90,7 +163,6 @@ class WelcomePage extends StatelessWidget {
 
                   const SizedBox(height: 15),
 
-                  // زر إنشاء حساب
                   SizedBox(
                     width: double.infinity,
                     height: 50,

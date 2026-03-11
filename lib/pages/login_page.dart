@@ -1,6 +1,6 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import '../data/dummy_data.dart';
-import '../models/account_model.dart';
+import '../services/auth_service.dart';
 import '../widgets/app_page_scaffold.dart';
 import '../widgets/app_primary_button.dart';
 import 'parent_home_page.dart';
@@ -16,26 +16,28 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  final usernameCtrl = TextEditingController();
+  final emailCtrl = TextEditingController();
   final passwordCtrl = TextEditingController();
+
+  final AuthService _authService = AuthService();
 
   bool obscurePassword = true;
   bool isLoading = false;
 
   @override
   void dispose() {
-    usernameCtrl.dispose();
+    emailCtrl.dispose();
     passwordCtrl.dispose();
     super.dispose();
   }
 
-  void onLogin() {
-    final username = usernameCtrl.text.trim();
+  Future<void> onLogin() async {
+    final email = emailCtrl.text.trim();
     final password = passwordCtrl.text;
 
-    if (username.isEmpty || password.isEmpty) {
+    if (email.isEmpty || password.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('اكتب اسم المستخدم وكلمة المرور')),
+        const SnackBar(content: Text('اكتب الإيميل وكلمة المرور')),
       );
       return;
     }
@@ -44,35 +46,88 @@ class _LoginPageState extends State<LoginPage> {
       isLoading = true;
     });
 
-    final AccountModel? account = DummyData.login(username, password);
+    try {
+      final user = await _authService.login(
+        email: email,
+        password: password,
+      );
 
-    if (account == null) {
-      setState(() {
-        isLoading = false;
-      });
+      if (user == null) {
+        setState(() {
+          isLoading = false;
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('فشل تسجيل الدخول')),
+        );
+        return;
+      }
+
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+
+      if (!doc.exists) {
+        setState(() {
+          isLoading = false;
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('بيانات المستخدم غير موجودة في قاعدة البيانات')),
+        );
+        return;
+      }
+
+      final data = doc.data()!;
+      final role = data['role'] ?? '';
+      final username = data['username'] ?? '';
+
+      Widget nextPage;
+
+      if (role == 'parent') {
+        nextPage = ParentHomePage(parentUsername: username);
+      } else if (role == 'nursery') {
+        nextPage = const NurseryStaffHomePage();
+      } else if (role == 'teacher') {
+        nextPage = const TeacherHomePage();
+      } else {
+        nextPage = const AdminHomePage();
+      }
+
+      if (!mounted) return;
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => nextPage),
+      );
+    } on FirebaseException catch (e) {
+      String message = 'حدث خطأ أثناء تسجيل الدخول';
+
+      if (e.code == 'user-not-found') {
+        message = 'لا يوجد حساب بهذا الإيميل';
+      } else if (e.code == 'wrong-password') {
+        message = 'كلمة المرور غير صحيحة';
+      } else if (e.code == 'invalid-email') {
+        message = 'الإيميل غير صالح';
+      } else if (e.code == 'invalid-credential') {
+        message = 'بيانات الدخول غير صحيحة';
+      }
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('بيانات الدخول غير صحيحة')),
+        SnackBar(content: Text(message)),
       );
-      return;
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('حدث خطأ: $e')),
+      );
     }
 
-    Widget nextPage;
+    if (!mounted) return;
 
-    if (account.role == 'parent') {
-      nextPage = ParentHomePage(parentUsername: account.username);
-    } else if (account.role == 'nursery') {
-      nextPage = const NurseryStaffHomePage();
-    } else if (account.role == 'teacher') {
-      nextPage = const TeacherHomePage();
-    } else {
-      nextPage = const AdminHomePage();
-    }
-
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) => nextPage),
-    );
+    setState(() {
+      isLoading = false;
+    });
   }
 
   @override
@@ -106,10 +161,11 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                   const SizedBox(height: 24),
                   TextField(
-                    controller: usernameCtrl,
+                    controller: emailCtrl,
+                    keyboardType: TextInputType.emailAddress,
                     decoration: const InputDecoration(
-                      labelText: 'اسم المستخدم',
-                      prefixIcon: Icon(Icons.person),
+                      labelText: 'الإيميل',
+                      prefixIcon: Icon(Icons.email_outlined),
                     ),
                   ),
                   const SizedBox(height: 12),

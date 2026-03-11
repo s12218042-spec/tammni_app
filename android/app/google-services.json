@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "488655790669",
+    "project_id": "daycare-app-220c0",
+    "storage_bucket": "daycare-app-220c0.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:488655790669:android:b85c4b7a6ec9f0e05db204",
+        "android_client_info": {
+          "package_name": "com.example.tammni_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB_Gv8l_Pda1Eii5Qd4rqC0dGzAmGIWeSo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

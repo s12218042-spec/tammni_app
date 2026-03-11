@@ -1,5 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import '../data/dummy_data.dart';
 import '../models/child_model.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
@@ -15,6 +15,8 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
   final nameCtrl = TextEditingController();
   final parentCtrl = TextEditingController();
   final parentUsernameCtrl = TextEditingController();
+
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   String section = 'Nursery';
   String group = 'حضانة صغار';
@@ -58,7 +60,14 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
 
   String sectionLabel(String s) => s == 'Nursery' ? 'حضانة' : 'روضة';
 
-  void openAddDialog() {
+  Stream<QuerySnapshot<Map<String, dynamic>>> childrenStream() {
+    return _firestore
+        .collection('children')
+        .orderBy('createdAt', descending: true)
+        .snapshots();
+  }
+
+  Future<void> openAddDialog() async {
     nameCtrl.clear();
     parentCtrl.clear();
     parentUsernameCtrl.clear();
@@ -66,7 +75,7 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
     section = 'Nursery';
     group = 'حضانة صغار';
 
-    showDialog(
+    await showDialog(
       context: context,
       builder: (_) => StatefulBuilder(
         builder: (context, setLocal) => Directionality(
@@ -167,7 +176,7 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
                 child: const Text('إلغاء'),
               ),
               ElevatedButton(
-                onPressed: () {
+                onPressed: () async {
                   final name = nameCtrl.text.trim();
                   final parent = parentCtrl.text.trim();
                   final parentUsername = parentUsernameCtrl.text.trim();
@@ -190,26 +199,32 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
                     return;
                   }
 
-                  DummyData.addChild(
-                    ChildModel(
-                      id: DummyData.newId('c'),
-                      name: name,
-                      section: section,
-                      group: group,
-                      parentName: parent,
-                      birthDate: birthDate!,
-                      parentUsername: parentUsername,
-                    ),
-                  );
+                  try {
+                    await _firestore.collection('children').add({
+                      'name': name,
+                      'section': section,
+                      'group': group,
+                      'parentName': parent,
+                      'parentUsername': parentUsername,
+                      'birthDate': Timestamp.fromDate(birthDate!),
+                      'createdAt': FieldValue.serverTimestamp(),
+                    });
 
-                  setState(() {});
-                  Navigator.pop(context);
+                    if (!mounted) return;
+                    Navigator.pop(context);
 
-                  ScaffoldMessenger.of(this.context).showSnackBar(
-                    const SnackBar(
-                      content: Text('تمت إضافة الطفل بنجاح ✅'),
-                    ),
-                  );
+                    ScaffoldMessenger.of(this.context).showSnackBar(
+                      const SnackBar(
+                        content: Text('تمت إضافة الطفل بنجاح ✅'),
+                      ),
+                    );
+                  } catch (e) {
+                    ScaffoldMessenger.of(this.context).showSnackBar(
+                      SnackBar(
+                        content: Text('حدث خطأ أثناء إضافة الطفل: $e'),
+                      ),
+                    );
+                  }
                 },
                 child: const Text('إضافة'),
               ),
@@ -220,7 +235,7 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
     );
   }
 
-  void openEditDialog(ChildModel child) {
+  Future<void> openEditDialog(ChildModel child) async {
     nameCtrl.text = child.name;
     parentCtrl.text = child.parentName;
     parentUsernameCtrl.text = child.parentUsername;
@@ -228,7 +243,7 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
     group = child.group;
     birthDate = child.birthDate;
 
-    showDialog(
+    await showDialog(
       context: context,
       builder: (_) => StatefulBuilder(
         builder: (context, setLocal) => Directionality(
@@ -329,7 +344,7 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
                 child: const Text('إلغاء'),
               ),
               ElevatedButton(
-                onPressed: () {
+                onPressed: () async {
                   final name = nameCtrl.text.trim();
                   final parent = parentCtrl.text.trim();
                   final parentUsername = parentUsernameCtrl.text.trim();
@@ -352,26 +367,31 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
                     return;
                   }
 
-                  DummyData.updateChild(
-                    ChildModel(
-                      id: child.id,
-                      name: name,
-                      section: section,
-                      group: group,
-                      parentName: parent,
-                      birthDate: birthDate!,
-                      parentUsername: parentUsername,
-                    ),
-                  );
+                  try {
+                    await _firestore.collection('children').doc(child.id).update({
+                      'name': name,
+                      'section': section,
+                      'group': group,
+                      'parentName': parent,
+                      'parentUsername': parentUsername,
+                      'birthDate': Timestamp.fromDate(birthDate!),
+                    });
 
-                  setState(() {});
-                  Navigator.pop(context);
+                    if (!mounted) return;
+                    Navigator.pop(context);
 
-                  ScaffoldMessenger.of(this.context).showSnackBar(
-                    const SnackBar(
-                      content: Text('تم حفظ التعديلات ✅'),
-                    ),
-                  );
+                    ScaffoldMessenger.of(this.context).showSnackBar(
+                      const SnackBar(
+                        content: Text('تم حفظ التعديلات ✅'),
+                      ),
+                    );
+                  } catch (e) {
+                    ScaffoldMessenger.of(this.context).showSnackBar(
+                      SnackBar(
+                        content: Text('حدث خطأ أثناء تعديل الطفل: $e'),
+                      ),
+                    );
+                  }
                 },
                 child: const Text('حفظ'),
               ),
@@ -382,15 +402,28 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
     );
   }
 
-  void deleteChild(String id) {
-    DummyData.deleteChild(id);
-    setState(() {});
+  Future<void> deleteChild(String id) async {
+    try {
+      await _firestore.collection('children').doc(id).delete();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('تم حذف الطفل من النظام ✅'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('حدث خطأ أثناء حذف الطفل: $e'),
+        ),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final children = DummyData.children;
-
     return AppPageScaffold(
       title: 'إدارة الأطفال',
       floatingActionButton: FloatingActionButton(
@@ -398,45 +431,80 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
         backgroundColor: AppColors.primary,
         child: const Icon(Icons.add, color: Colors.white),
       ),
-      child: ListView(
-        children: [
-          Text(
-            'إدارة الأطفال',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'إضافة وتعديل وحذف بيانات الأطفال وربطهم بالأقسام والأهالي',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: AppColors.textLight,
-                ),
-          ),
-          const SizedBox(height: 20),
-          if (children.isEmpty)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Text(
-                  'لا يوجد أطفال حاليًا.',
-                  style: TextStyle(
-                    color: AppColors.textLight,
-                    fontSize: 15,
+      child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: childrenStream(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(
+              child: CircularProgressIndicator(),
+            );
+          }
+
+          if (snapshot.hasError) {
+            return Center(
+              child: Text('حدث خطأ: ${snapshot.error}'),
+            );
+          }
+
+          final docs = snapshot.data?.docs ?? [];
+
+          final children = docs.map((doc) {
+            final data = doc.data();
+
+            return ChildModel(
+              id: doc.id,
+              name: data['name'] ?? '',
+              section: data['section'] ?? 'Nursery',
+              group: data['group'] ?? '',
+              parentName: data['parentName'] ?? '',
+              parentUsername: data['parentUsername'] ?? '',
+              birthDate: data['birthDate'] is Timestamp
+                  ? (data['birthDate'] as Timestamp).toDate()
+                  : DateTime.now(),
+            );
+          }).toList();
+
+          return ListView(
+            children: [
+              Text(
+                'إدارة الأطفال',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'إضافة وتعديل وحذف بيانات الأطفال وربطهم بالأقسام والأهالي',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: AppColors.textLight,
+                    ),
+              ),
+              const SizedBox(height: 20),
+              if (children.isEmpty)
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(
+                      'لا يوجد أطفال حاليًا.',
+                      style: TextStyle(
+                        color: AppColors.textLight,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ),
+                )
+              else
+                ...children.map(
+                  (c) => _ChildCard(
+                    childModel: c,
+                    sectionText: sectionLabel(c.section),
+                    onEdit: () => openEditDialog(c),
+                    onDelete: () => deleteChild(c.id),
                   ),
                 ),
-              ),
-            )
-          else
-            ...children.map(
-              (c) => _ChildCard(
-                childModel: c,
-                sectionText: sectionLabel(c.section),
-                onEdit: () => openEditDialog(c),
-                onDelete: () => deleteChild(c.id),
-              ),
-            ),
-        ],
+            ],
+          );
+        },
       ),
     );
   }

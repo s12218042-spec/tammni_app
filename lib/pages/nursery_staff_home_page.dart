@@ -1,7 +1,6 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import '../data/dummy_data.dart';
 import '../models/child_model.dart';
-import '../models/update_model.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 import 'add_update_page.dart';
@@ -16,8 +15,30 @@ class NurseryStaffHomePage extends StatefulWidget {
 }
 
 class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
-  List<ChildModel> get nurseryChildren =>
-      DummyData.children.where((c) => c.section == 'Nursery').toList();
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  Future<List<ChildModel>> fetchNurseryChildren() async {
+    final snapshot = await _firestore
+        .collection('children')
+        .where('section', isEqualTo: 'Nursery')
+        .get();
+
+    return snapshot.docs.map((doc) {
+      final data = doc.data();
+
+      return ChildModel(
+        id: doc.id,
+        name: data['name'] ?? '',
+        section: data['section'] ?? 'Nursery',
+        group: data['group'] ?? '',
+        parentName: data['parentName'] ?? '',
+        parentUsername: data['parentUsername'] ?? '',
+        birthDate: data['birthDate'] is Timestamp
+            ? (data['birthDate'] as Timestamp).toDate()
+            : DateTime.now(),
+      );
+    }).toList();
+  }
 
   Future<void> openAddUpdate(ChildModel child) async {
     final res = await Navigator.push(
@@ -64,29 +85,39 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
 
       if (path == null || type == null) return;
 
-      DummyData.updates.add(
-        UpdateModel(
-          id: DummyData.newId('u'),
-          childId: child.id,
-          childName: child.name,
-          type: 'كاميرا',
-          note: type == 'image'
+      try {
+        await _firestore.collection('updates').add({
+          'childId': child.id,
+          'childName': child.name,
+          'type': 'كاميرا',
+          'note': type == 'image'
               ? 'صورة للطفل 📸'
               : 'فيديو قصير للطفل 🎥',
-          time: DateTime.now(),
-          byRole: 'nursery',
-          mediaPath: path,
-          mediaType: type,
-        ),
-      );
+          'time': FieldValue.serverTimestamp(),
+          'byRole': 'nursery',
+          'mediaPath': path,
+          'mediaType': type,
+          'mediaUrl': null,
+        });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('تم إرسال Check-in ✅'),
-        ),
-      );
+        if (!mounted) return;
 
-      setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('تم إرسال Check-in ✅'),
+          ),
+        );
+
+        setState(() {});
+      } catch (e) {
+        if (!mounted) return;
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('حدث خطأ أثناء حفظ الـ Check-in: $e'),
+          ),
+        );
+      }
     }
   }
 
@@ -102,101 +133,121 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
   Widget build(BuildContext context) {
     return AppPageScaffold(
       title: 'الرئيسية - موظفة الحضانة',
-      child: ListView(
-        children: [
-          Text(
-            'أهلاً 👩‍🍼',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'اختاري طفلًا لتسجيل تحديث جديد أو إرسال Check-in بالكاميرا',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: AppColors.textLight,
-                ),
-          ),
-          const SizedBox(height: 20),
+      child: FutureBuilder<List<ChildModel>>(
+        future: fetchNurseryChildren(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(
+              child: CircularProgressIndicator(),
+            );
+          }
 
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                children: [
-                  Row(
+          if (snapshot.hasError) {
+            return Center(
+              child: Text('حدث خطأ: ${snapshot.error}'),
+            );
+          }
+
+          final nurseryChildren = snapshot.data ?? [];
+
+          return ListView(
+            children: [
+              Text(
+                'أهلاً 👩‍🍼',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'اختاري طفلًا لتسجيل تحديث جديد أو إرسال Check-in بالكاميرا',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: AppColors.textLight,
+                    ),
+              ),
+              const SizedBox(height: 20),
+
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
                     children: [
-                      CircleAvatar(
-                        backgroundColor: AppColors.primary.withOpacity(0.12),
-                        child: const Icon(
-                          Icons.how_to_reg,
-                          color: AppColors.primary,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      const Expanded(
-                        child: Text(
-                          'تسجيل حضور أطفال الحضانة',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
+                      Row(
+                        children: [
+                          CircleAvatar(
+                            backgroundColor:
+                                AppColors.primary.withOpacity(0.12),
+                            child: const Icon(
+                              Icons.how_to_reg,
+                              color: AppColors.primary,
+                            ),
                           ),
+                          const SizedBox(width: 12),
+                          const Expanded(
+                            child: Text(
+                              'تسجيل حضور أطفال الحضانة',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: openAttendance,
+                          icon: const Icon(Icons.checklist_rtl),
+                          label: const Text('فتح صفحة الحضور'),
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 14),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: openAttendance,
-                      icon: const Icon(Icons.checklist_rtl),
-                      label: const Text('فتح صفحة الحضور'),
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              if (nurseryChildren.isEmpty)
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(
+                      'لا يوجد أطفال في قسم الحضانة حاليًا.',
+                      style: TextStyle(
+                        color: AppColors.textLight,
+                        fontSize: 15,
+                      ),
                     ),
                   ),
-                ],
-              ),
-            ),
-          ),
+                )
+              else
+                ...nurseryChildren.map(
+                  (c) => _ChildActionCard(
+                    childModel: c,
+                    onAddUpdate: () => openAddUpdate(c),
+                    onCamera: () => openCameraCheckin(c),
+                  ),
+                ),
 
-          const SizedBox(height: 16),
+              const SizedBox(height: 10),
 
-          if (nurseryChildren.isEmpty)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Text(
-                  'لا يوجد أطفال في قسم الحضانة حاليًا.',
-                  style: TextStyle(
-                    color: AppColors.textLight,
-                    fontSize: 15,
+              OutlinedButton.icon(
+                onPressed: sendNotificationPlaceholder,
+                icon: const Icon(Icons.notifications_outlined),
+                label: const Text('إرسال إشعار للأهل'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 50),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
                   ),
                 ),
               ),
-            )
-          else
-            ...nurseryChildren.map(
-              (c) => _ChildActionCard(
-                childModel: c,
-                onAddUpdate: () => openAddUpdate(c),
-                onCamera: () => openCameraCheckin(c),
-              ),
-            ),
-
-          const SizedBox(height: 10),
-
-          OutlinedButton.icon(
-            onPressed: sendNotificationPlaceholder,
-            icon: const Icon(Icons.notifications_outlined),
-            label: const Text('إرسال إشعار للأهل'),
-            style: OutlinedButton.styleFrom(
-              minimumSize: const Size(double.infinity, 50),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
-              ),
-            ),
-          ),
-        ],
+            ],
+          );
+        },
       ),
     );
   }

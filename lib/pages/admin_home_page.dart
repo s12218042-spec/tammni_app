@@ -1,17 +1,61 @@
 import 'package:flutter/material.dart';
+import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 import 'manage_users_page.dart';
 import 'manage_children_page.dart';
 import 'manage_classes_page.dart';
+import 'welcome_page.dart';
 
 class AdminHomePage extends StatelessWidget {
   const AdminHomePage({super.key});
+
+  Future<void> logout(BuildContext context) async {
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (_) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('تسجيل الخروج'),
+          content: const Text('هل أنت متأكدة أنك تريدين تسجيل الخروج؟'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('إلغاء'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('خروج'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (shouldLogout != true) return;
+
+    await AuthService().logout();
+
+    if (!context.mounted) return;
+
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (_) => const WelcomePage()),
+      (route) => false,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return AppPageScaffold(
       title: 'الرئيسية - الإدارة',
+      actions: [
+        IconButton(
+          tooltip: 'تسجيل الخروج',
+          onPressed: () => logout(context),
+          icon: const Icon(Icons.logout),
+        ),
+      ],
       child: ListView(
         children: [
           Text(

@@ -1,86 +1,144 @@
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
+import '../widgets/app_page_scaffold.dart';
 import 'register_parent_page.dart';
 import 'register_employee_page.dart';
-import '../widgets/app_bar_widget.dart';
 
 class RegisterRolePage extends StatelessWidget {
   const RegisterRolePage({super.key});
 
   @override
   Widget build(BuildContext context) {
-
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: Scaffold(
-
-       appBar: const AppBarWidget(
-  title: 'إدارة الأطفال',
-),
-
-        body: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-
-              const Text(
-                "اختر نوع الحساب",
-                style: TextStyle(
-                  fontSize: 20,
+    return AppPageScaffold(
+      title: 'إنشاء حساب',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'اختيار نوع الحساب',
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                   fontWeight: FontWeight.bold,
                 ),
-              ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'اختاري نوع الحساب الذي تريدين إنشاءه',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: AppColors.textLight,
+                ),
+          ),
+          const SizedBox(height: 20),
 
-              const SizedBox(height: 20),
-
-              _roleButton(
+          _RoleCard(
+            title: 'ولي أمر',
+            subtitle: 'متابعة الأطفال والاطلاع على التحديثات والتقارير',
+            icon: Icons.family_restroom,
+            onTap: () {
+              Navigator.push(
                 context,
-                title: "ولي أمر",
-                icon: Icons.family_restroom,
-                page: const RegisterParentPage(),
-              ),
+                MaterialPageRoute(
+                  builder: (_) => const RegisterParentPage(),
+                ),
+              );
+            },
+          ),
 
-              _roleButton(
+          _RoleCard(
+            title: 'موظفة حضانة',
+            subtitle: 'تسجيل الحضور وإضافة التحديثات اليومية للأطفال',
+            icon: Icons.child_care,
+            onTap: () {
+              Navigator.push(
                 context,
-                title: "موظف/ة حضانة",
-                icon: Icons.child_care,
-                page: const RegisterEmployeePage(role: "nursery"),
-              ),
+                MaterialPageRoute(
+                  builder: (_) => const RegisterEmployeePage(role: 'nursery'),
+                ),
+              );
+            },
+          ),
 
-              _roleButton(
+          _RoleCard(
+            title: 'معلمة روضة',
+            subtitle: 'إضافة الأنشطة والخطط اليومية ومتابعة الأطفال',
+            icon: Icons.school,
+            onTap: () {
+              Navigator.push(
                 context,
-                title: "موظف/ة روضة",
-                icon: Icons.school,
-                page: const RegisterEmployeePage(role: "teacher"),
+                MaterialPageRoute(
+                  builder: (_) => const RegisterEmployeePage(role: 'teacher'),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RoleCard extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _RoleCard({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 26,
+                backgroundColor: AppColors.primary.withOpacity(0.12),
+                child: Icon(
+                  icon,
+                  color: AppColors.primary,
+                  size: 26,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        color: Colors.black54,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(
+                Icons.arrow_forward_ios_rounded,
+                size: 18,
+                color: Colors.black45,
               ),
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _roleButton(
-      BuildContext context,
-      {required String title,
-      required IconData icon,
-      required Widget page}) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      width: double.infinity,
-      child: ElevatedButton.icon(
-        icon: Icon(icon),
-        label: Text(title),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF8E97FD),
-          foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(vertical: 14),
-        ),
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => page),
-          );
-        },
       ),
     );
   }

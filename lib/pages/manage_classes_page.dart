@@ -1,5 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import '../data/dummy_data.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 
@@ -12,6 +12,8 @@ class ManageClassesPage extends StatefulWidget {
 
 class _ManageClassesPageState extends State<ManageClassesPage> {
   final nameCtrl = TextEditingController();
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
   String section = 'Nursery';
   int count = 10;
 
@@ -23,12 +25,19 @@ class _ManageClassesPageState extends State<ManageClassesPage> {
 
   String sectionLabel(String s) => s == 'Nursery' ? 'حضانة' : 'روضة';
 
-  void openAddDialog() {
+  Stream<QuerySnapshot<Map<String, dynamic>>> classesStream() {
+    return _firestore
+        .collection('classes')
+        .orderBy('createdAt', descending: true)
+        .snapshots();
+  }
+
+  Future<void> openAddDialog() async {
     nameCtrl.clear();
     section = 'Nursery';
     count = 10;
 
-    showDialog(
+    await showDialog(
       context: context,
       builder: (_) => StatefulBuilder(
         builder: (context, setLocal) => Directionality(
@@ -109,7 +118,7 @@ class _ManageClassesPageState extends State<ManageClassesPage> {
                 child: const Text('إلغاء'),
               ),
               ElevatedButton(
-                onPressed: () {
+                onPressed: () async {
                   final name = nameCtrl.text.trim();
 
                   if (name.isEmpty) {
@@ -121,21 +130,29 @@ class _ManageClassesPageState extends State<ManageClassesPage> {
                     return;
                   }
 
-                  DummyData.addClass({
-                    'id': DummyData.newId('class'),
-                    'section': section,
-                    'name': name,
-                    'childrenCount': count,
-                  });
+                  try {
+                    await _firestore.collection('classes').add({
+                      'name': name,
+                      'section': section,
+                      'childrenCount': count,
+                      'createdAt': FieldValue.serverTimestamp(),
+                    });
 
-                  setState(() {});
-                  Navigator.pop(context);
+                    if (!mounted) return;
+                    Navigator.pop(context);
 
-                  ScaffoldMessenger.of(this.context).showSnackBar(
-                    const SnackBar(
-                      content: Text('تمت إضافة الصف بنجاح ✅'),
-                    ),
-                  );
+                    ScaffoldMessenger.of(this.context).showSnackBar(
+                      const SnackBar(
+                        content: Text('تمت إضافة الصف بنجاح ✅'),
+                      ),
+                    );
+                  } catch (e) {
+                    ScaffoldMessenger.of(this.context).showSnackBar(
+                      SnackBar(
+                        content: Text('حدث خطأ أثناء إضافة الصف: $e'),
+                      ),
+                    );
+                  }
                 },
                 child: const Text('إضافة'),
               ),
@@ -146,15 +163,28 @@ class _ManageClassesPageState extends State<ManageClassesPage> {
     );
   }
 
-  void deleteClass(String id) {
-    DummyData.deleteClass(id);
-    setState(() {});
+  Future<void> deleteClass(String id) async {
+    try {
+      await _firestore.collection('classes').doc(id).delete();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('تم حذف الصف من النظام ✅'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('حدث خطأ أثناء حذف الصف: $e'),
+        ),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final classes = DummyData.classes;
-
     return AppPageScaffold(
       title: 'إدارة الصفوف والأقسام',
       floatingActionButton: FloatingActionButton(
@@ -162,45 +192,65 @@ class _ManageClassesPageState extends State<ManageClassesPage> {
         backgroundColor: AppColors.primary,
         child: const Icon(Icons.add, color: Colors.white),
       ),
-      child: ListView(
-        children: [
-          Text(
-            'إدارة الصفوف والمجموعات',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'إضافة وحذف الصفوف وتنظيم الأقسام داخل الحضانة والروضة',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: AppColors.textLight,
-                ),
-          ),
-          const SizedBox(height: 20),
-          if (classes.isEmpty)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Text(
-                  'لا توجد صفوف أو مجموعات حاليًا.',
-                  style: TextStyle(
-                    color: AppColors.textLight,
-                    fontSize: 15,
+      child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: classesStream(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(
+              child: CircularProgressIndicator(),
+            );
+          }
+
+          if (snapshot.hasError) {
+            return Center(
+              child: Text('حدث خطأ: ${snapshot.error}'),
+            );
+          }
+
+          final docs = snapshot.data?.docs ?? [];
+
+          return ListView(
+            children: [
+              Text(
+                'إدارة الصفوف والمجموعات',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'إضافة وحذف الصفوف وتنظيم الأقسام داخل الحضانة والروضة',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: AppColors.textLight,
+                    ),
+              ),
+              const SizedBox(height: 20),
+              if (docs.isEmpty)
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(
+                      'لا توجد صفوف أو مجموعات حاليًا.',
+                      style: TextStyle(
+                        color: AppColors.textLight,
+                        fontSize: 15,
+                      ),
+                    ),
                   ),
-                ),
-              ),
-            )
-          else
-            ...classes.map(
-              (c) => _ClassCard(
-                name: c['name'],
-                sectionText: sectionLabel(c['section']),
-                childrenCount: c['childrenCount'],
-                onDelete: () => deleteClass(c['id']),
-              ),
-            ),
-        ],
+                )
+              else
+                ...docs.map((doc) {
+                  final c = doc.data();
+                  return _ClassCard(
+                    name: c['name'] ?? '',
+                    sectionText: sectionLabel(c['section'] ?? 'Nursery'),
+                    childrenCount: c['childrenCount'] ?? 0,
+                    onDelete: () => deleteClass(doc.id),
+                  );
+                }),
+            ],
+          );
+        },
       ),
     );
   }

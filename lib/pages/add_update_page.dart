@@ -1,7 +1,6 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import '../data/dummy_data.dart';
 import '../models/child_model.dart';
-import '../models/update_model.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 
@@ -21,8 +20,10 @@ class AddUpdatePage extends StatefulWidget {
 
 class _AddUpdatePageState extends State<AddUpdatePage> {
   final TextEditingController noteCtrl = TextEditingController();
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   String type = 'ملاحظة';
+  bool isLoading = false;
 
   final List<String> nurseryTypes = [
     'وجبة',
@@ -68,7 +69,7 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
     super.dispose();
   }
 
-  void save() {
+  Future<void> save() async {
     if (noteCtrl.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -78,25 +79,47 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
       return;
     }
 
-    final update = UpdateModel(
-      id: DummyData.newId('u'),
-      childId: widget.child.id,
-      childName: widget.child.name,
-      type: type,
-      note: noteCtrl.text.trim(),
-      time: DateTime.now(),
-      byRole: widget.byRole,
-    );
+    setState(() {
+      isLoading = true;
+    });
 
-    DummyData.updates.add(update);
+    try {
+      await _firestore.collection('updates').add({
+        'childId': widget.child.id,
+        'childName': widget.child.name,
+        'type': type,
+        'note': noteCtrl.text.trim(),
+        'time': FieldValue.serverTimestamp(),
+        'byRole': widget.byRole,
+        'mediaType': null,
+        'mediaPath': null,
+        'mediaUrl': null,
+      });
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('تم حفظ التحديث ✅'),
-      ),
-    );
+      if (!mounted) return;
 
-    Navigator.pop(context, true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('تم حفظ التحديث ✅'),
+        ),
+      );
+
+      Navigator.pop(context, true);
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('حدث خطأ أثناء حفظ التحديث: $e'),
+        ),
+      );
+    }
+
+    if (!mounted) return;
+
+    setState(() {
+      isLoading = false;
+    });
   }
 
   @override
@@ -113,7 +136,7 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
           ),
           const SizedBox(height: 6),
           Text(
-            'أضيفي ملاحظة أو تحديثًا خاصًا بالطفل ليظهر لولي الأمر',
+            'أضيفي ملاحظة أو تحديثًا خاصًا بالطفل ليظهر لوليّ الأمر',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: AppColors.textLight,
                 ),
@@ -250,9 +273,18 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
           const SizedBox(height: 20),
 
           ElevatedButton.icon(
-            onPressed: save,
-            icon: const Icon(Icons.save_outlined),
-            label: const Text('حفظ التحديث'),
+            onPressed: isLoading ? null : save,
+            icon: isLoading
+                ? const SizedBox(
+                    height: 18,
+                    width: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.save_outlined),
+            label: Text(isLoading ? 'جاري الحفظ...' : 'حفظ التحديث'),
           ),
         ],
       ),
