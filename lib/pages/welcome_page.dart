@@ -1,3 +1,4 @@
+
 import 'package:flutter/material.dart';
 import 'login_page.dart';
 import 'register_role_page.dart';
@@ -10,71 +11,114 @@ class WelcomePage extends StatelessWidget {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        body: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
+        body: Container(
+          width: double.infinity,
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                Color(0xFF23D9D4),
+                Color(0xFF5EE6C4),
+              ],
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+            ),
+          ),
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
 
-              const Icon(
-                Icons.child_care,
-                size: 100,
-                color: Color(0xFF8E97FD),
-              ),
+                  // شعار التطبيق
+                  const Icon(
+                    Icons.child_care,
+                    size: 120,
+                    color: Colors.white,
+                  ),
 
-              const SizedBox(height: 20),
+                  const SizedBox(height: 20),
 
-              const Text(
-                "مرحباً في تطبيق طمّني",
-                style: TextStyle(
-                  fontSize: 26,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+                  const Text(
+                    "مرحباً في تطبيق طمّني",
+                    style: TextStyle(
+                      fontSize: 30,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
 
-              const SizedBox(height: 10),
+                  const SizedBox(height: 10),
 
-              const Text(
-                "تابع طفلك في الحضانة أو الروضة بكل سهولة",
-                style: TextStyle(color: Colors.black54),
-              ),
+                  const Text(
+                    "تطبيق يساعد الأهل على متابعة أطفالهم في الحضانة والروضة بسهولة وأمان",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Colors.white70,
+                    ),
+                  ),
 
-              const SizedBox(height: 40),
+                  const SizedBox(height: 60),
 
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton(
-                  child: const Text("تسجيل دخول"),
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const LoginPage(),
+                  // زر تسجيل الدخول
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: Colors.teal,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
-                    );
-                  },
-                ),
-              ),
-
-              const SizedBox(height: 15),
-
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: OutlinedButton(
-                  child: const Text("إنشاء حساب"),
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const RegisterRolePage(),
+                      child: const Text(
+                        "تسجيل الدخول",
+                        style: TextStyle(fontSize: 18),
                       ),
-                    );
-                  },
-                ),
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const LoginPage(),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+
+                  const SizedBox(height: 15),
+
+                  // زر إنشاء حساب
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Colors.white),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text(
+                        "إنشاء حساب جديد",
+                        style: TextStyle(fontSize: 18),
+                      ),
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const RegisterRolePage(),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
