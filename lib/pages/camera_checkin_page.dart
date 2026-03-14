@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../theme/app_theme.dart';
@@ -102,8 +102,6 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
 
   @override
   Widget build(BuildContext context) {
-    final file = picked == null ? null : File(picked!.path);
-
     return AppPageScaffold(
       title: 'الكاميرا',
       child: ListView(
@@ -157,7 +155,7 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
                 ),
               ),
             )
-          else if (file == null)
+          else if (picked == null)
             Container(
               height: 220,
               alignment: Alignment.center,
@@ -183,13 +181,23 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
               ),
             )
           else if (mediaType == 'image')
-            ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: Image.file(
-                file,
-                height: 240,
-                width: double.infinity,
-                fit: BoxFit.cover,
+            Container(
+              height: 220,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.black12),
+                color: Colors.white,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  kIsWeb
+                      ? 'تم اختيار صورة بنجاح 📸\nالمعاينة المحلية غير مدعومة على Flutter Web'
+                      : 'تم اختيار صورة بنجاح 📸\nيمكنك إرسالها الآن لوليّ الأمر',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 16),
+                ),
               ),
             )
           else

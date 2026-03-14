@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../models/child_model.dart';
+import '../services/gallery_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 import 'add_update_page.dart';
@@ -15,6 +16,7 @@ class NurseryStaffHomePage extends StatefulWidget {
 
 class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final GalleryService _galleryService = GalleryService();
 
   Future<List<ChildModel>> fetchNurseryChildren() async {
     final snapshot = await _firestore
@@ -22,7 +24,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
         .where('section', isEqualTo: 'Nursery')
         .get();
 
-    return snapshot.docs.map((doc) {
+    final children = snapshot.docs.map((doc) {
       final data = doc.data();
 
       return ChildModel(
@@ -37,6 +39,9 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
             : DateTime.now(),
       );
     }).toList();
+
+    children.sort((a, b) => a.name.compareTo(b.name));
+    return children;
   }
 
   Future<void> openAddUpdate(ChildModel child) async {
@@ -70,24 +75,28 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
       if (path == null || type == null) return;
 
       try {
+        final mediaUrl = await _galleryService.uploadChildMedia(
+          childId: child.id,
+          localPath: path,
+          mediaType: type,
+        );
+
         await _firestore.collection('updates').add({
-  'childId': child.id,
-  'childName': child.name,
-  'parentUsername': child.parentUsername,
-  'section': child.section,
-  'group': child.group,
-  'type': 'كاميرا',
-  'note': type == 'image'
-      ? 'صورة للطفل 📸'
-      : 'فيديو قصير للطفل 🎥',
-  'time': FieldValue.serverTimestamp(),
-  'byRole': 'nursery',
-  'mediaPath': path,
-  'mediaType': type,
-  'mediaUrl': null,
-  'hasMedia': true,
-});
-    
+          'childId': child.id,
+          'childName': child.name,
+          'parentUsername': child.parentUsername,
+          'section': child.section,
+          'group': child.group,
+          'type': 'كاميرا',
+          'note': type == 'image' ? 'صورة للطفل 📸' : 'فيديو قصير للطفل 🎥',
+          'createdAt': Timestamp.now(),
+          'time': FieldValue.serverTimestamp(),
+          'byRole': 'nursery',
+          'mediaPath': path,
+          'mediaType': type,
+          'mediaUrl': mediaUrl,
+          'hasMedia': true,
+        });
 
         if (!mounted) return;
 
@@ -113,7 +122,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
   void sendNotificationPlaceholder() {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('ميزة إرسال الإشعار للأهل سنطوّرها لاحقًا '),
+        content: Text('ميزة إرسال الإشعار للأهل سنطوّرها لاحقًا'),
       ),
     );
   }
@@ -155,41 +164,33 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
                     ),
               ),
               const SizedBox(height: 20),
-
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(14),
-                  child: Column(
+                  child: Row(
                     children: [
-                      Row(
-                        children: [
-                          CircleAvatar(
-                            backgroundColor:
-                                AppColors.primary.withOpacity(0.12),
-                            child: const Icon(
-                              Icons.info_outline,
-                              color: AppColors.primary,
-                            ),
+                      CircleAvatar(
+                        backgroundColor: AppColors.primary.withOpacity(0.12),
+                        child: const Icon(
+                          Icons.info_outline,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Text(
+                          'في قسم الحضانة لا يتم اعتماد حضور يومي ثابت، لأن حضور الطفل يكون مرنًا حسب الزيارة. لذلك تعتمد المتابعة هنا على التحديثات والملاحظات والصور.',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            height: 1.5,
                           ),
-                          const SizedBox(width: 12),
-                          const Expanded(
-                            child: Text(
-                              'في قسم الحضانة لا يتم اعتماد حضور يومي ثابت، لأن حضور الطفل يكون مرنًا حسب الزيارة. لذلك تعتمد المتابعة هنا على التحديثات والملاحظات والصور.',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                height: 1.5,
-                              ),
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
                     ],
                   ),
                 ),
               ),
-
               const SizedBox(height: 16),
-
               if (nurseryChildren.isEmpty)
                 Card(
                   child: Padding(
@@ -205,15 +206,16 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
                 )
               else
                 ...nurseryChildren.map(
-                  (c) => _ChildActionCard(
-                    childModel: c,
-                    onAddUpdate: () => openAddUpdate(c),
-                    onCamera: () => openCameraCheckin(c),
+                  (c) => Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _ChildActionCard(
+                      childModel: c,
+                      onAddUpdate: () => openAddUpdate(c),
+                      onCamera: () => openCameraCheckin(c),
+                    ),
                   ),
                 ),
-
               const SizedBox(height: 10),
-
               OutlinedButton.icon(
                 onPressed: sendNotificationPlaceholder,
                 icon: const Icon(Icons.notifications_outlined),

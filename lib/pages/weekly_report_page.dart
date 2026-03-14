@@ -75,22 +75,63 @@ class WeeklyReportPage extends StatelessWidget {
     final snapshot = await FirebaseFirestore.instance
         .collection('updates')
         .where('childId', isEqualTo: child.id)
-        .where(
-          'time',
-          isGreaterThanOrEqualTo: Timestamp.fromDate(sevenDaysAgo),
-        )
-        .orderBy('time', descending: true)
         .get();
 
-    return snapshot.docs.map((doc) {
+    final items = snapshot.docs.map((doc) {
       final data = doc.data();
       return {
         'type': data['type'] ?? '',
         'note': data['note'] ?? '',
         'time': data['time'] as Timestamp?,
+        'createdAt': data['createdAt'] as Timestamp?,
         'byRole': data['byRole'] ?? '',
       };
+    }).where((item) {
+      final ts = (item['createdAt'] as Timestamp?) ?? (item['time'] as Timestamp?);
+      if (ts == null) return false;
+      return ts.toDate().isAfter(sevenDaysAgo) ||
+          ts.toDate().isAtSameMomentAs(sevenDaysAgo);
     }).toList();
+
+    items.sort((a, b) {
+      final aTime = (a['createdAt'] as Timestamp?) ?? (a['time'] as Timestamp?);
+      final bTime = (b['createdAt'] as Timestamp?) ?? (b['time'] as Timestamp?);
+
+      if (aTime == null && bTime == null) return 0;
+      if (aTime == null) return 1;
+      if (bTime == null) return -1;
+
+      return bTime.compareTo(aTime);
+    });
+
+    return items;
+  }
+
+  Future<int> fetchWeeklyAttendanceCount() async {
+    final now = DateTime.now();
+    final sevenDaysAgo = now.subtract(const Duration(days: 7));
+
+    final snapshot = await FirebaseFirestore.instance
+        .collection('attendance')
+        .where('childId', isEqualTo: child.id)
+        .get();
+
+    int count = 0;
+
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      final present = data['present'] == true;
+      final Timestamp? dateTs = data['date'] as Timestamp?;
+
+      if (present && dateTs != null) {
+        final date = dateTs.toDate();
+        if (date.isAfter(sevenDaysAgo) || date.isAtSameMomentAs(sevenDaysAgo)) {
+          count++;
+        }
+      }
+    }
+
+    return count;
   }
 
   Map<String, int> buildTypeCounts(List<Map<String, dynamic>> updates) {
@@ -159,7 +200,6 @@ class WeeklyReportPage extends StatelessWidget {
           final nurseryHealth = countTypes(updates, ['صحة']);
           final nurseryActivities = countTypes(updates, ['نشاط', 'كاميرا']);
 
-          final kgAttendance = countTypes(updates, ['حضور']);
           final kgActivities = countTypes(updates, ['نشاط', 'خطة اليوم']);
           final kgHomework = countTypes(updates, ['واجب']);
           final kgEvaluation = countTypes(updates, ['تقييم']);
@@ -169,7 +209,7 @@ class WeeklyReportPage extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
+                  gradient: const LinearGradient(
                     colors: [
                       AppColors.primary,
                       AppColors.secondary,
@@ -218,9 +258,7 @@ class WeeklyReportPage extends StatelessWidget {
                   ],
                 ),
               ),
-
               const SizedBox(height: 16),
-
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -275,9 +313,7 @@ class WeeklyReportPage extends StatelessWidget {
                   ),
                 ),
               ),
-
               const SizedBox(height: 14),
-
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -301,9 +337,7 @@ class WeeklyReportPage extends StatelessWidget {
                   ),
                 ),
               ),
-
               const SizedBox(height: 18),
-
               Text(
                 'ملخص أسبوعي سريع',
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
@@ -311,7 +345,6 @@ class WeeklyReportPage extends StatelessWidget {
                     ),
               ),
               const SizedBox(height: 10),
-
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -336,9 +369,7 @@ class WeeklyReportPage extends StatelessWidget {
                   ),
                 ),
               ),
-
               const SizedBox(height: 18),
-
               Text(
                 child.section == 'Nursery'
                     ? 'مؤشرات الحضانة'
@@ -348,7 +379,6 @@ class WeeklyReportPage extends StatelessWidget {
                     ),
               ),
               const SizedBox(height: 10),
-
               if (child.section == 'Nursery')
                 Column(
                   children: [
@@ -396,24 +426,31 @@ class WeeklyReportPage extends StatelessWidget {
               else
                 Column(
                   children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _SectionMetricCard(
-                            title: 'الحضور',
-                            value: '$kgAttendance',
-                            icon: Icons.how_to_reg_outlined,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _SectionMetricCard(
-                            title: 'الأنشطة',
-                            value: '$kgActivities',
-                            icon: Icons.event_note_outlined,
-                          ),
-                        ),
-                      ],
+                    FutureBuilder<int>(
+                      future: fetchWeeklyAttendanceCount(),
+                      builder: (context, attendanceSnapshot) {
+                        final attendanceCount = attendanceSnapshot.data ?? 0;
+
+                        return Row(
+                          children: [
+                            Expanded(
+                              child: _SectionMetricCard(
+                                title: 'الحضور',
+                                value: '$attendanceCount',
+                                icon: Icons.how_to_reg_outlined,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _SectionMetricCard(
+                                title: 'الأنشطة',
+                                value: '$kgActivities',
+                                icon: Icons.event_note_outlined,
+                              ),
+                            ),
+                          ],
+                        );
+                      },
                     ),
                     const SizedBox(height: 10),
                     Row(
@@ -437,9 +474,7 @@ class WeeklyReportPage extends StatelessWidget {
                     ),
                   ],
                 ),
-
               const SizedBox(height: 18),
-
               Text(
                 'أكثر التحديثات تكرارًا',
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
@@ -447,14 +482,13 @@ class WeeklyReportPage extends StatelessWidget {
                     ),
               ),
               const SizedBox(height: 10),
-
               if (topThree.isEmpty)
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Text(
                       'لا توجد بيانات كافية لعرض الأنواع الأكثر تكرارًا',
-                      style: TextStyle(
+                      style: const TextStyle(
                         color: AppColors.textLight,
                         fontSize: 14.5,
                       ),
@@ -506,9 +540,7 @@ class WeeklyReportPage extends StatelessWidget {
                     ),
                   ),
                 ),
-
               const SizedBox(height: 18),
-
               Text(
                 'آخر التحديثات الأسبوعية',
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
@@ -516,7 +548,6 @@ class WeeklyReportPage extends StatelessWidget {
                     ),
               ),
               const SizedBox(height: 10),
-
               if (updates.isEmpty)
                 Card(
                   child: Padding(
@@ -544,7 +575,7 @@ class WeeklyReportPage extends StatelessWidget {
                         const SizedBox(height: 6),
                         Text(
                           'عند إضافة تحديثات جديدة خلال الأسبوع ستظهر هنا بشكل منظم.',
-                          style: TextStyle(
+                          style: const TextStyle(
                             color: AppColors.textLight,
                             fontSize: 13.5,
                           ),
@@ -556,16 +587,20 @@ class WeeklyReportPage extends StatelessWidget {
                 )
               else
                 ...updates.take(5).map(
-                  (u) => _WeeklyUpdateTile(
-                    type: u['type'] ?? '',
-                    note: u['note'] ?? '',
-                    date: dateText(u['time'] as Timestamp?),
-                    time: timeText(u['time'] as Timestamp?),
-                  ),
+                  (u) {
+                    final Timestamp? displayTime =
+                        (u['time'] as Timestamp?) ??
+                        (u['createdAt'] as Timestamp?);
+
+                    return _WeeklyUpdateTile(
+                      type: u['type'] ?? '',
+                      note: u['note'] ?? '',
+                      date: dateText(displayTime),
+                      time: timeText(displayTime),
+                    );
+                  },
                 ),
-
               const SizedBox(height: 18),
-
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -584,7 +619,7 @@ class WeeklyReportPage extends StatelessWidget {
                         child: Text(
                           child.section == 'Nursery'
                               ? 'يعتمد هذا التقرير على التحديثات المسجلة خلال آخر 7 أيام، ويمكن تطويره لاحقًا ليشمل ملخصًا أدق للنوم، التغذية، الزيارات، والصور.'
-                              : 'يعتمد هذا التقرير على التحديثات المسجلة خلال آخر 7 أيام، ويمكن تطويره لاحقًا ليشمل الحضور التفصيلي، الواجبات، التقييمات، والخطة التعليمية بشكل أوسع.',
+                              : 'يعتمد هذا التقرير على التحديثات المسجلة خلال آخر 7 أيام بالإضافة إلى الحضور الأسبوعي، ويمكن تطويره لاحقًا ليشمل تفاصيل تعليمية أوسع.',
                           style: const TextStyle(fontSize: 14),
                         ),
                       ),
@@ -631,7 +666,7 @@ class _ReportInfoMiniCard extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             title,
-            style: TextStyle(
+            style: const TextStyle(
               color: AppColors.textLight,
               fontSize: 13,
             ),
@@ -688,7 +723,7 @@ class _StatBox extends StatelessWidget {
           Text(
             title,
             textAlign: TextAlign.center,
-            style: TextStyle(
+            style: const TextStyle(
               color: AppColors.textLight,
               fontSize: 12.5,
             ),

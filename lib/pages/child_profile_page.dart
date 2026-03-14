@@ -80,18 +80,30 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
     final snapshot = await _firestore
         .collection('updates')
         .where('childId', isEqualTo: widget.child.id)
-        .orderBy('time', descending: true)
-        .limit(3)
         .get();
 
-    return snapshot.docs.map((doc) {
+    final items = snapshot.docs.map((doc) {
       final data = doc.data();
       return {
         'type': data['type'] ?? '',
         'note': data['note'] ?? '',
-        'time': data['time'],
+        'time': data['time'] as Timestamp?,
+        'createdAt': data['createdAt'] as Timestamp?,
       };
     }).toList();
+
+    items.sort((a, b) {
+      final aTime = (a['createdAt'] as Timestamp?) ?? (a['time'] as Timestamp?);
+      final bTime = (b['createdAt'] as Timestamp?) ?? (b['time'] as Timestamp?);
+
+      if (aTime == null && bTime == null) return 0;
+      if (aTime == null) return 1;
+      if (bTime == null) return -1;
+
+      return bTime.compareTo(aTime);
+    });
+
+    return items.take(3).toList();
   }
 
   String timeText(dynamic rawTime) {
@@ -116,7 +128,7 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
           Container(
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
-              gradient: LinearGradient(
+              gradient: const LinearGradient(
                 colors: [
                   AppColors.primary,
                   AppColors.secondary,
@@ -226,7 +238,7 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
                     ),
                     child: Row(
                       children: [
-                        Icon(
+                        const Icon(
                           Icons.person_outline,
                           color: AppColors.primary,
                         ),
@@ -320,7 +332,7 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
                 children: updates
                     .map(
                       (u) => _RecentUpdateTile(
-                        time: timeText(u['time']),
+                        time: timeText(u['time'] ?? u['createdAt']),
                         type: u['type'] ?? '',
                         note: u['note'] ?? '',
                       ),
@@ -406,7 +418,7 @@ class _ProfileInfoBox extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             title,
-            style: TextStyle(
+            style: const TextStyle(
               color: AppColors.textLight,
               fontSize: 13,
             ),

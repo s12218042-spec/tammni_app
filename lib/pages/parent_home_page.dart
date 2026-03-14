@@ -99,28 +99,30 @@ class _ParentHomePageState extends State<ParentHomePage> {
     final snapshot = await _firestore
         .collection('updates')
         .where('childId', isEqualTo: childId)
-        .orderBy('time', descending: true)
-        .limit(2)
         .get();
 
-    return snapshot.docs.map((doc) {
+    final items = snapshot.docs.map((doc) {
       final data = doc.data();
       return {
         'type': data['type'] ?? '',
         'note': data['note'] ?? '',
         'time': data['time'],
+        'createdAt': data['createdAt'],
       };
     }).toList();
-  }
 
-  String timeText(dynamic rawTime) {
-    if (rawTime is Timestamp) {
-      final t = rawTime.toDate();
-      final h = t.hour.toString().padLeft(2, '0');
-      final m = t.minute.toString().padLeft(2, '0');
-      return '$h:$m';
-    }
-    return '--:--';
+    items.sort((a, b) {
+      final aTime = (a['createdAt'] as Timestamp?) ?? (a['time'] as Timestamp?);
+      final bTime = (b['createdAt'] as Timestamp?) ?? (b['time'] as Timestamp?);
+
+      if (aTime == null && bTime == null) return 0;
+      if (aTime == null) return 1;
+      if (bTime == null) return -1;
+
+      return bTime.compareTo(aTime);
+    });
+
+    return items.take(2).toList();
   }
 
   String firstLetter(String name) {
@@ -198,7 +200,6 @@ class _ParentHomePageState extends State<ParentHomePage> {
             children: [
               _WelcomeHeader(parentUsername: widget.parentUsername),
               const SizedBox(height: 16),
-
               _SummaryCard(
                 totalChildren: children.length,
                 nurseryCount:
@@ -206,9 +207,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
                 kgCount:
                     children.where((c) => c.section == 'Kindergarten').length,
               ),
-
               const SizedBox(height: 20),
-
               Text(
                 'أطفالي',
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
@@ -216,7 +215,6 @@ class _ParentHomePageState extends State<ParentHomePage> {
                     ),
               ),
               const SizedBox(height: 10),
-
               ...children.map(
                 (child) => Padding(
                   padding: const EdgeInsets.only(bottom: 12),
@@ -260,7 +258,7 @@ class _WelcomeHeader extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
+        gradient: const LinearGradient(
           colors: [
             AppColors.primary,
             AppColors.secondary,
@@ -384,7 +382,7 @@ class _MiniStatItem extends StatelessWidget {
         const SizedBox(height: 4),
         Text(
           title,
-          style: TextStyle(
+          style: const TextStyle(
             color: AppColors.textLight,
             fontSize: 12,
           ),
@@ -450,7 +448,7 @@ class _ChildDashboardCard extends StatelessWidget {
                       const SizedBox(height: 4),
                       Text(
                         'العمر: $ageText',
-                        style: TextStyle(
+                        style: const TextStyle(
                           color: AppColors.textLight,
                           fontSize: 13,
                         ),
@@ -475,9 +473,7 @@ class _ChildDashboardCard extends StatelessWidget {
                 ),
               ],
             ),
-
             const SizedBox(height: 14),
-
             Row(
               children: [
                 Expanded(
@@ -490,9 +486,7 @@ class _ChildDashboardCard extends StatelessWidget {
                 ),
               ],
             ),
-
             const SizedBox(height: 12),
-
             if (childModel.section == 'Kindergarten')
               FutureBuilder<bool>(
                 future: attendanceFuture,
@@ -514,9 +508,7 @@ class _ChildDashboardCard extends StatelessWidget {
                 title: 'نظام المتابعة',
                 value: 'مرن حسب الزيارة والتحديثات',
               ),
-
             const SizedBox(height: 14),
-
             Align(
               alignment: Alignment.centerRight,
               child: Text(
@@ -527,7 +519,6 @@ class _ChildDashboardCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
-
             FutureBuilder<List<Map<String, dynamic>>>(
               future: updatesFuture,
               builder: (context, snapshot) {
@@ -550,7 +541,7 @@ class _ChildDashboardCard extends StatelessWidget {
                       color: AppColors.background,
                       borderRadius: BorderRadius.circular(14),
                     ),
-                    child: Text(
+                    child: const Text(
                       'لا يوجد تحديثات بعد',
                       style: TextStyle(
                         color: AppColors.textLight,
@@ -581,7 +572,7 @@ class _ChildDashboardCard extends StatelessWidget {
                               borderRadius: BorderRadius.circular(10),
                             ),
                             child: Text(
-                              _timeText(u['time']),
+                              _timeText(u['time'] ?? u['createdAt']),
                               style: const TextStyle(
                                 fontWeight: FontWeight.bold,
                                 fontSize: 12,
@@ -602,67 +593,65 @@ class _ChildDashboardCard extends StatelessWidget {
                 );
               },
             ),
-
             const SizedBox(height: 14),
-
-           Row(
-  children: [
-    Expanded(
-      child: ElevatedButton.icon(
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => ChildProfilePage(child: childModel),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ChildProfilePage(child: childModel),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.person_outline),
+                    label: const Text('ملف الطفل'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => ParentUpdatesPage(child: childModel),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.chat_bubble_outline),
+                    label: const Text('التحديثات'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(double.infinity, 50),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
-          );
-        },
-        icon: const Icon(Icons.person_outline),
-        label: const Text('ملف الطفل'),
-      ),
-    ),
-    const SizedBox(width: 10),
-    Expanded(
-      child: OutlinedButton.icon(
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => ParentUpdatesPage(child: childModel),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => WeeklyReportPage(child: childModel),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.description_outlined),
+              label: const Text('التقرير الأسبوعي'),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(double.infinity, 50),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
             ),
-          );
-        },
-        icon: const Icon(Icons.chat_bubble_outline),
-        label: const Text('التحديثات'),
-        style: OutlinedButton.styleFrom(
-          minimumSize: const Size(double.infinity, 50),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-        ),
-      ),
-    ),
-  ],
-),
-const SizedBox(height: 10),
-OutlinedButton.icon(
-  onPressed: () {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => WeeklyReportPage(child: childModel),
-      ),
-    );
-  },
-  icon: const Icon(Icons.description_outlined),
-  label: const Text('التقرير الأسبوعي'),
-  style: OutlinedButton.styleFrom(
-    minimumSize: const Size(double.infinity, 50),
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(14),
-    ),
-  ),
-),
           ],
         ),
       ),

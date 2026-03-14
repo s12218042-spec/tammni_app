@@ -1,5 +1,6 @@
-import 'dart:io';
+import 'dart:io' show File;
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../models/child_model.dart';
 import '../theme/app_theme.dart';
@@ -151,10 +152,9 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
     final snapshot = await _firestore
         .collection('updates')
         .where('childId', isEqualTo: widget.child.id)
-        .orderBy('time', descending: true)
         .get();
 
-    return snapshot.docs.map((doc) {
+    final items = snapshot.docs.map((doc) {
       final data = doc.data();
       return {
         'id': doc.id,
@@ -162,11 +162,26 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
         'note': data['note'] ?? '',
         'byRole': data['byRole'] ?? '',
         'time': data['time'] as Timestamp?,
+        'createdAt': data['createdAt'] as Timestamp?,
         'mediaUrl': data['mediaUrl'],
         'mediaType': data['mediaType'],
         'mediaPath': data['mediaPath'],
+        'hasMedia': data['hasMedia'] == true,
       };
     }).toList();
+
+    items.sort((a, b) {
+      final aTime = (a['createdAt'] as Timestamp?) ?? (a['time'] as Timestamp?);
+      final bTime = (b['createdAt'] as Timestamp?) ?? (b['time'] as Timestamp?);
+
+      if (aTime == null && bTime == null) return 0;
+      if (aTime == null) return 1;
+      if (bTime == null) return -1;
+
+      return bTime.compareTo(aTime);
+    });
+
+    return items;
   }
 
   @override
@@ -198,7 +213,7 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
               Container(
                 padding: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
+                  gradient: const LinearGradient(
                     colors: [
                       AppColors.primary,
                       AppColors.secondary,
@@ -247,9 +262,7 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
                   ],
                 ),
               ),
-
               const SizedBox(height: 16),
-
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -305,9 +318,7 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
                   ),
                 ),
               ),
-
               const SizedBox(height: 14),
-
               if (child.section == 'Kindergarten')
                 FutureBuilder<bool>(
                   future: fetchAttendance(),
@@ -330,9 +341,7 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
                   title: 'نظام المتابعة',
                   value: 'مرن حسب الزيارة والتحديثات',
                 ),
-
               const SizedBox(height: 18),
-
               Text(
                 'كل التحديثات',
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
@@ -340,7 +349,6 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
                     ),
               ),
               const SizedBox(height: 10),
-
               if (updates.isEmpty)
                 Card(
                   child: Padding(
@@ -371,7 +379,7 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
                           child.section == 'Nursery'
                               ? 'ستظهر هنا تحديثات الزيارة، الأنشطة، الصور والملاحظات الخاصة بالحضانة.'
                               : 'ستظهر هنا تحديثات الحضور، الأنشطة، الواجبات والملاحظات الخاصة بالروضة.',
-                          style: TextStyle(
+                          style: const TextStyle(
                             color: AppColors.textLight,
                             fontSize: 13.5,
                           ),
@@ -383,18 +391,24 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
                 )
               else
                 ...updates.map(
-                  (u) => _UpdateCard(
-                    type: u['type'] ?? '',
-                    note: u['note'] ?? '',
-                    senderText: senderLabel(u['byRole'] ?? ''),
-                    badgeColor: typeColor(u['type'] ?? ''),
-                    icon: typeIcon(u['type'] ?? ''),
-                    timeTextValue: timeText(u['time'] as Timestamp?),
-                    dateTextValue: dateText(u['time'] as Timestamp?),
-                    mediaUrl: u['mediaUrl'],
-                    mediaType: u['mediaType'],
-                    mediaPath: u['mediaPath'],
-                  ),
+                  (u) {
+                    final Timestamp? displayTime =
+                        (u['time'] as Timestamp?) ??
+                        (u['createdAt'] as Timestamp?);
+
+                    return _UpdateCard(
+                      type: u['type'] ?? '',
+                      note: u['note'] ?? '',
+                      senderText: senderLabel(u['byRole'] ?? ''),
+                      badgeColor: typeColor(u['type'] ?? ''),
+                      icon: typeIcon(u['type'] ?? ''),
+                      timeTextValue: timeText(displayTime),
+                      dateTextValue: dateText(displayTime),
+                      mediaUrl: u['mediaUrl'],
+                      mediaType: u['mediaType'],
+                      mediaPath: u['mediaPath'],
+                    );
+                  },
                 ),
             ],
           );
@@ -435,7 +449,7 @@ class _InfoMiniCard extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             title,
-            style: TextStyle(
+            style: const TextStyle(
               color: AppColors.textLight,
               fontSize: 13,
             ),
@@ -527,10 +541,10 @@ class _UpdateCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasImageFile = mediaPath != null && mediaType == 'image';
-    final hasVideoFile = mediaPath != null && mediaType == 'video';
     final hasRemoteImage = mediaUrl != null && mediaType == 'image';
     final hasRemoteVideo = mediaUrl != null && mediaType == 'video';
+    final hasLocalImage = !kIsWeb && mediaPath != null && mediaType == 'image';
+    final hasLocalVideo = !kIsWeb && mediaPath != null && mediaType == 'video';
 
     return Card(
       child: Padding(
@@ -542,10 +556,7 @@ class _UpdateCard extends StatelessWidget {
               children: [
                 CircleAvatar(
                   backgroundColor: badgeColor.withOpacity(0.14),
-                  child: Icon(
-                    icon,
-                    color: badgeColor,
-                  ),
+                  child: Icon(icon, color: badgeColor),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -591,28 +602,20 @@ class _UpdateCard extends StatelessWidget {
                 ),
               ],
             ),
-
             const SizedBox(height: 12),
-
-            if (note.trim().isNotEmpty)
-              Text(
-                note,
-                style: const TextStyle(
-                  fontSize: 15,
-                  height: 1.5,
-                ),
-              )
-            else
-              Text(
-                'لا توجد ملاحظة مضافة لهذا التحديث',
-                style: TextStyle(
-                  color: AppColors.textLight,
-                  fontSize: 14,
-                ),
+            Text(
+              note.trim().isNotEmpty
+                  ? note
+                  : 'لا توجد ملاحظة مضافة لهذا التحديث',
+              style: TextStyle(
+                fontSize: 15,
+                height: 1.5,
+                color: note.trim().isNotEmpty
+                    ? AppColors.textDark
+                    : AppColors.textLight,
               ),
-
+            ),
             const SizedBox(height: 10),
-
             Row(
               children: [
                 const Icon(
@@ -632,9 +635,7 @@ class _UpdateCard extends StatelessWidget {
                 ),
               ],
             ),
-
             const SizedBox(height: 6),
-
             Row(
               children: [
                 const Icon(
@@ -654,21 +655,6 @@ class _UpdateCard extends StatelessWidget {
                 ),
               ],
             ),
-
-            if (hasImageFile)
-              Padding(
-                padding: const EdgeInsets.only(top: 12),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: Image.file(
-                    File(mediaPath!),
-                    height: 190,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
-                  ),
-                ),
-              ),
-
             if (hasRemoteImage)
               Padding(
                 padding: const EdgeInsets.only(top: 12),
@@ -693,34 +679,19 @@ class _UpdateCard extends StatelessWidget {
                   ),
                 ),
               ),
-
-            if (hasVideoFile)
-              Padding(
-                padding: const EdgeInsets.only(top: 12),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => VideoPreviewPage(
-                            path: mediaPath!,
-                          ),
-                        ),
-                      );
-                    },
-                    icon: const Icon(Icons.play_circle_outline),
-                    label: const Text('تشغيل الفيديو'),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size(double.infinity, 48),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
+            if (hasLocalImage)
+  Padding(
+    padding: const EdgeInsets.only(top: 12),
+    child: ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: Image.file(
+        File(mediaPath!),
+        height: 190,
+        width: double.infinity,
+        fit: BoxFit.cover,
+      ),
+    ),
+  ),
 
             if (hasRemoteVideo)
               Padding(
@@ -731,18 +702,49 @@ class _UpdateCard extends StatelessWidget {
                     onPressed: () {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
-                          content:
-                              Text('الفيديو محفوظ كرابط، سنربطه بالمشغل لاحقًا'),
+                          content: Text('الفيديو مرفوع، ويمكن ربطه بمشغل لاحقًا'),
                         ),
                       );
                     },
                     icon: const Icon(Icons.play_circle_outline),
                     label: const Text('عرض الفيديو'),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size(double.infinity, 48),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
+                  ),
+                ),
+              ),
+            if (hasLocalVideo)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => VideoPreviewPage(path: mediaPath!),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.play_circle_outline),
+                    label: const Text('تشغيل الفيديو'),
+                  ),
+                ),
+              ),
+            if (kIsWeb && mediaPath != null && mediaUrl == null)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.10),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Text(
+                    'تم حفظ مرفق محلي، لكن Flutter Web لا يعرض الملفات المحلية مباشرة. سيظهر المرفق عند نجاح رفعه كرابط.',
+                    style: TextStyle(
+                      color: Colors.orange,
+                      height: 1.5,
                     ),
                   ),
                 ),
