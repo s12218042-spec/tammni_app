@@ -27,10 +27,17 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
     return s;
   }
 
+  Color sectionColor(String section) {
+    return section == 'Nursery'
+        ? const Color(0xFFEFA7C8)
+        : const Color(0xFF7BB6FF);
+  }
+
   String senderLabel(String byRole) {
     if (byRole == 'nursery') return 'موظفة الحضانة';
     if (byRole == 'teacher') return 'المعلمة';
-    return byRole;
+    if (byRole == 'admin') return 'الإدارة';
+    return byRole.isEmpty ? 'غير محدد' : byRole;
   }
 
   Color typeColor(String type) {
@@ -58,12 +65,73 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
     }
   }
 
+  IconData typeIcon(String type) {
+    switch (type) {
+      case 'وجبة':
+        return Icons.restaurant_outlined;
+      case 'نوم':
+        return Icons.bedtime_outlined;
+      case 'حفاض':
+        return Icons.child_care_outlined;
+      case 'صحة':
+        return Icons.health_and_safety_outlined;
+      case 'نشاط':
+        return Icons.toys_outlined;
+      case 'واجب':
+        return Icons.menu_book_outlined;
+      case 'تقييم':
+        return Icons.star_outline;
+      case 'خطة اليوم':
+        return Icons.event_note_outlined;
+      case 'كاميرا':
+        return Icons.camera_alt_outlined;
+      default:
+        return Icons.notifications_none;
+    }
+  }
+
   String timeText(Timestamp? timestamp) {
     if (timestamp == null) return '--:--';
     final t = timestamp.toDate();
     final h = t.hour.toString().padLeft(2, '0');
     final m = t.minute.toString().padLeft(2, '0');
     return '$h:$m';
+  }
+
+  String dateText(Timestamp? timestamp) {
+    if (timestamp == null) return '--/--/----';
+    final t = timestamp.toDate();
+    return '${t.year}/${t.month}/${t.day}';
+  }
+
+  String firstLetter(String name) {
+    if (name.trim().isEmpty) return 'ط';
+    return name.trim().substring(0, 1);
+  }
+
+  String childAgeText(DateTime birthDate) {
+    final now = DateTime.now();
+    int years = now.year - birthDate.year;
+    int months = now.month - birthDate.month;
+
+    if (now.day < birthDate.day) {
+      months--;
+    }
+
+    if (months < 0) {
+      years--;
+      months += 12;
+    }
+
+    if (years <= 0) {
+      return '$months شهر';
+    }
+
+    if (months == 0) {
+      return '$years سنة';
+    }
+
+    return '$years سنة و $months شهر';
   }
 
   String get dateKey {
@@ -103,222 +171,330 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
 
   @override
   Widget build(BuildContext context) {
-    final isNursery = widget.child.section == 'Nursery';
+    final child = widget.child;
+    final badgeColor = sectionColor(child.section);
 
     return AppPageScaffold(
       title: 'تحديثات الطفل',
-      child: FutureBuilder<bool>(
-        future: isNursery ? Future.value(false) : fetchAttendance(),
-        builder: (context, attendanceSnapshot) {
-          final present = attendanceSnapshot.data ?? false;
+      child: FutureBuilder<List<Map<String, dynamic>>>(
+        future: fetchUpdates(),
+        builder: (context, updatesSnapshot) {
+          if (updatesSnapshot.connectionState == ConnectionState.waiting) {
+            return const Center(
+              child: CircularProgressIndicator(),
+            );
+          }
 
-          return FutureBuilder<List<Map<String, dynamic>>>(
-            future: fetchUpdates(),
-            builder: (context, updatesSnapshot) {
-              if (updatesSnapshot.connectionState == ConnectionState.waiting ||
-                  (!isNursery &&
-                      attendanceSnapshot.connectionState ==
-                          ConnectionState.waiting)) {
-                return const Center(
-                  child: CircularProgressIndicator(),
-                );
-              }
+          if (updatesSnapshot.hasError) {
+            return const Center(
+              child: Text('حدث خطأ أثناء تحميل التحديثات'),
+            );
+          }
 
-              if (updatesSnapshot.hasError) {
-                return const Center(
-                  child: Text('حدث خطأ أثناء تحميل التحديثات'),
-                );
-              }
+          final updates = updatesSnapshot.data ?? [];
 
-              if (!isNursery && attendanceSnapshot.hasError) {
-                return const Center(
-                  child: Text('حدث خطأ أثناء تحميل الحضور'),
-                );
-              }
-
-              final updates = updatesSnapshot.data ?? [];
-
-              return ListView(
-                children: [
-                  Text(
-                    'متابعة الطفل',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+          return ListView(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      AppColors.primary,
+                      AppColors.secondary,
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(22),
+                ),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 30,
+                      backgroundColor: Colors.white.withOpacity(0.18),
+                      child: Text(
+                        firstLetter(child.name),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 24,
                           fontWeight: FontWeight.bold,
                         ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'شاهدي آخر التحديثات الخاصة بطفلك',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: AppColors.textLight,
-                        ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
                       child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
-                            children: [
-                              CircleAvatar(
-                                backgroundColor:
-                                    AppColors.primary.withOpacity(0.12),
-                                child: const Icon(
-                                  Icons.child_care,
-                                  color: AppColors.primary,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  widget.child.name,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              const Icon(
-                                Icons.apartment_outlined,
-                                size: 18,
-                                color: Colors.black54,
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                'القسم: ${sectionLabel(widget.child.section)}',
-                                style: const TextStyle(color: Colors.black87),
-                              ),
-                            ],
+                          Text(
+                            child.name,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 20,
+                            ),
                           ),
                           const SizedBox(height: 6),
-                          Row(
-                            children: [
-                              const Icon(
-                                Icons.groups_outlined,
-                                size: 18,
-                                color: Colors.black54,
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                'الصف / المجموعة: ${widget.child.group}',
-                                style: const TextStyle(color: Colors.black87),
-                              ),
-                            ],
+                          Text(
+                            'متابعة آخر المستجدات الخاصة بالطفل',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.95),
+                              fontSize: 13.5,
+                            ),
                           ),
                         ],
                       ),
                     ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _InfoMiniCard(
+                              icon: Icons.cake_outlined,
+                              title: 'العمر',
+                              value: childAgeText(child.birthDate),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _InfoMiniCard(
+                              icon: Icons.groups_outlined,
+                              title: 'المجموعة',
+                              value:
+                                  child.group.isEmpty ? 'غير محدد' : child.group,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: badgeColor.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.apartment_outlined,
+                              color: badgeColor,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'القسم: ${sectionLabel(child.section)}',
+                              style: TextStyle(
+                                color: badgeColor,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 15,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
+                ),
+              ),
 
-                  const SizedBox(height: 12),
+              const SizedBox(height: 14),
 
-                  if (isNursery)
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(14),
-                        child: Row(
-                          children: [
-                            CircleAvatar(
-                              backgroundColor:
-                                  AppColors.warning.withOpacity(0.12),
-                              child: const Icon(
-                                Icons.info_outline,
-                                color: AppColors.warning,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            const Expanded(
-                              child: Text(
-                                'نظام المتابعة في الحضانة مرن حسب الزيارة والتحديثات اليومية، ولا يعتمد على حضور أو غياب ثابت كل يوم.',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 15,
-                                  height: 1.5,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    )
-                  else
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(14),
-                        child: Row(
-                          children: [
-                            CircleAvatar(
-                              backgroundColor: present
-                                  ? Colors.green.withOpacity(0.12)
-                                  : Colors.red.withOpacity(0.12),
-                              child: Icon(
-                                present ? Icons.check_circle : Icons.cancel,
-                                color: present ? Colors.green : Colors.redAccent,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                'الحضور اليوم: ${present ? "حاضر" : "غائب"}',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 15,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+              if (child.section == 'Kindergarten')
+                FutureBuilder<bool>(
+                  future: fetchAttendance(),
+                  builder: (context, attendanceSnapshot) {
+                    final present = attendanceSnapshot.data ?? false;
+
+                    return _StatusCard(
+                      icon:
+                          present ? Icons.check_circle : Icons.cancel_outlined,
+                      color: present ? Colors.green : Colors.redAccent,
+                      title: 'الحضور اليوم',
+                      value: present ? 'حاضر' : 'غائب',
+                    );
+                  },
+                )
+              else
+                const _StatusCard(
+                  icon: Icons.info_outline,
+                  color: AppColors.primary,
+                  title: 'نظام المتابعة',
+                  value: 'مرن حسب الزيارة والتحديثات',
+                ),
+
+              const SizedBox(height: 18),
+
+              Text(
+                'كل التحديثات',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
                     ),
+              ),
+              const SizedBox(height: 10),
 
-                  const SizedBox(height: 16),
-
-                  Text(
-                    'آخر التحديثات',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                  ),
-                  const SizedBox(height: 10),
-
-                  if (updates.isEmpty)
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Text(
-                          'لا يوجد تحديثات بعد.',
-                          style: TextStyle(
-                            color: AppColors.textLight,
-                            fontSize: 15,
+              if (updates.isEmpty)
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      children: [
+                        CircleAvatar(
+                          radius: 26,
+                          backgroundColor:
+                              AppColors.primary.withOpacity(0.12),
+                          child: const Icon(
+                            Icons.notifications_none,
+                            color: AppColors.primary,
+                            size: 26,
                           ),
                         ),
-                      ),
-                    )
-                  else
-                    ...updates.map(
-                      (u) => _UpdateCard(
-                        type: u['type'] ?? '',
-                        note: u['note'] ?? '',
-                        senderText: senderLabel(u['byRole'] ?? ''),
-                        badgeColor: typeColor(u['type'] ?? ''),
-                        timeTextValue: timeText(u['time'] as Timestamp?),
-                        mediaUrl: u['mediaUrl'],
-                        mediaType: u['mediaType'],
-                        mediaPath: u['mediaPath'],
-                      ),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'لا توجد تحديثات مسجلة لهذا الطفل بعد',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          child.section == 'Nursery'
+                              ? 'ستظهر هنا تحديثات الزيارة، الأنشطة، الصور والملاحظات الخاصة بالحضانة.'
+                              : 'ستظهر هنا تحديثات الحضور، الأنشطة، الواجبات والملاحظات الخاصة بالروضة.',
+                          style: TextStyle(
+                            color: AppColors.textLight,
+                            fontSize: 13.5,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
                     ),
-                ],
-              );
-            },
+                  ),
+                )
+              else
+                ...updates.map(
+                  (u) => _UpdateCard(
+                    type: u['type'] ?? '',
+                    note: u['note'] ?? '',
+                    senderText: senderLabel(u['byRole'] ?? ''),
+                    badgeColor: typeColor(u['type'] ?? ''),
+                    icon: typeIcon(u['type'] ?? ''),
+                    timeTextValue: timeText(u['time'] as Timestamp?),
+                    dateTextValue: dateText(u['time'] as Timestamp?),
+                    mediaUrl: u['mediaUrl'],
+                    mediaType: u['mediaType'],
+                    mediaPath: u['mediaPath'],
+                  ),
+                ),
+            ],
           );
         },
+      ),
+    );
+  }
+}
+
+class _InfoMiniCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String value;
+
+  const _InfoMiniCard({
+    required this.icon,
+    required this.title,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        children: [
+          CircleAvatar(
+            backgroundColor: AppColors.primary.withOpacity(0.12),
+            child: Icon(
+              icon,
+              color: AppColors.primary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            title,
+            style: TextStyle(
+              color: AppColors.textLight,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 14.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatusCard extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String value;
+
+  const _StatusCard({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            CircleAvatar(
+              backgroundColor: color.withOpacity(0.14),
+              child: Icon(
+                icon,
+                color: color,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                '$title: $value',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 15,
+                  color: color == AppColors.primary ? AppColors.textDark : color,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -329,7 +505,9 @@ class _UpdateCard extends StatelessWidget {
   final String note;
   final String senderText;
   final Color badgeColor;
+  final IconData icon;
   final String timeTextValue;
+  final String dateTextValue;
   final String? mediaUrl;
   final String? mediaType;
   final String? mediaPath;
@@ -339,7 +517,9 @@ class _UpdateCard extends StatelessWidget {
     required this.note,
     required this.senderText,
     required this.badgeColor,
+    required this.icon,
     required this.timeTextValue,
+    required this.dateTextValue,
     this.mediaUrl,
     this.mediaType,
     this.mediaPath,
@@ -360,64 +540,129 @@ class _UpdateCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text(
-                    timeTextValue,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                    ),
+                CircleAvatar(
+                  backgroundColor: badgeColor.withOpacity(0.14),
+                  child: Icon(
+                    icon,
+                    color: badgeColor,
                   ),
                 ),
                 const SizedBox(width: 10),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
+                Expanded(
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: badgeColor.withOpacity(0.14),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          type.isEmpty ? 'تحديث' : type,
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: badgeColor,
+                          ),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          timeTextValue,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  decoration: BoxDecoration(
-                    color: badgeColor.withOpacity(0.14),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 12),
+
+            if (note.trim().isNotEmpty)
+              Text(
+                note,
+                style: const TextStyle(
+                  fontSize: 15,
+                  height: 1.5,
+                ),
+              )
+            else
+              Text(
+                'لا توجد ملاحظة مضافة لهذا التحديث',
+                style: TextStyle(
+                  color: AppColors.textLight,
+                  fontSize: 14,
+                ),
+              ),
+
+            const SizedBox(height: 10),
+
+            Row(
+              children: [
+                const Icon(
+                  Icons.person_outline,
+                  size: 18,
+                  color: Colors.black54,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
                   child: Text(
-                    type,
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: badgeColor,
+                    'بواسطة: $senderText',
+                    style: const TextStyle(
+                      color: Colors.black54,
+                      fontSize: 13,
                     ),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 10),
-            Text(
-              note,
-              style: const TextStyle(fontSize: 15),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'بواسطة: $senderText',
-              style: const TextStyle(
-                color: Colors.black54,
-                fontSize: 13,
-              ),
+
+            const SizedBox(height: 6),
+
+            Row(
+              children: [
+                const Icon(
+                  Icons.calendar_today_outlined,
+                  size: 18,
+                  color: Colors.black54,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'التاريخ: $dateTextValue',
+                    style: const TextStyle(
+                      color: Colors.black54,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              ],
             ),
 
             if (hasImageFile)
               Padding(
                 padding: const EdgeInsets.only(top: 12),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(16),
                   child: Image.file(
                     File(mediaPath!),
-                    height: 180,
+                    height: 190,
                     width: double.infinity,
                     fit: BoxFit.cover,
                   ),
@@ -428,12 +673,23 @@ class _UpdateCard extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(top: 12),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(16),
                   child: Image.network(
                     mediaUrl!,
-                    height: 180,
+                    height: 190,
                     width: double.infinity,
                     fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        height: 120,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: AppColors.background,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: const Text('تعذر تحميل الصورة'),
+                      );
+                    },
                   ),
                 ),
               ),
@@ -475,7 +731,8 @@ class _UpdateCard extends StatelessWidget {
                     onPressed: () {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
-                          content: Text('الفيديو محفوظ كرابط، سنربطه بالمشغل لاحقًا'),
+                          content:
+                              Text('الفيديو محفوظ كرابط، سنربطه بالمشغل لاحقًا'),
                         ),
                       );
                     },

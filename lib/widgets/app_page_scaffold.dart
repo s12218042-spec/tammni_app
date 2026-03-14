@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 import 'app_bar_widget.dart';
 
 class AppPageScaffold extends StatelessWidget {
@@ -7,14 +8,16 @@ class AppPageScaffold extends StatelessWidget {
   final List<Widget>? actions;
   final EdgeInsetsGeometry padding;
   final Widget? floatingActionButton;
+  final bool resizeToAvoidBottomInset;
 
   const AppPageScaffold({
     super.key,
     required this.title,
     required this.child,
     this.actions,
-    this.padding = const EdgeInsets.all(16),
+    this.padding = const EdgeInsets.fromLTRB(16, 18, 16, 16),
     this.floatingActionButton,
+    this.resizeToAvoidBottomInset = true,
   });
 
   @override
@@ -22,6 +25,8 @@ class AppPageScaffold extends StatelessWidget {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
+        backgroundColor: AppColors.background,
+        resizeToAvoidBottomInset: resizeToAvoidBottomInset,
         appBar: AppBarWidget(
           title: title,
           actions: actions,

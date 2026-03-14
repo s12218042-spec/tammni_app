@@ -5,6 +5,7 @@ import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 import 'parent_updates_page.dart';
 import 'weekly_report_page.dart';
+import 'child_profile_page.dart';
 
 class ParentHomePage extends StatefulWidget {
   final String parentUsername;
@@ -19,12 +20,41 @@ class ParentHomePage extends StatefulWidget {
 }
 
 class _ParentHomePageState extends State<ParentHomePage> {
-  int selectedIndex = 0;
-
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   String sectionLabel(String section) {
     return section == 'Nursery' ? 'حضانة' : 'روضة';
+  }
+
+  Color sectionColor(String section) {
+    return section == 'Nursery'
+        ? const Color(0xFFEFA7C8)
+        : const Color(0xFF7BB6FF);
+  }
+
+  String childAgeText(DateTime birthDate) {
+    final now = DateTime.now();
+    int years = now.year - birthDate.year;
+    int months = now.month - birthDate.month;
+
+    if (now.day < birthDate.day) {
+      months--;
+    }
+
+    if (months < 0) {
+      years--;
+      months += 12;
+    }
+
+    if (years <= 0) {
+      return '$months شهر';
+    }
+
+    if (months == 0) {
+      return '$years سنة';
+    }
+
+    return '$years سنة و $months شهر';
   }
 
   Future<List<ChildModel>> fetchChildren() async {
@@ -62,7 +92,6 @@ class _ParentHomePageState extends State<ParentHomePage> {
         .get();
 
     if (snapshot.docs.isEmpty) return false;
-
     return snapshot.docs.first.data()['present'] == true;
   }
 
@@ -71,7 +100,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
         .collection('updates')
         .where('childId', isEqualTo: childId)
         .orderBy('time', descending: true)
-        .limit(3)
+        .limit(2)
         .get();
 
     return snapshot.docs.map((doc) {
@@ -94,300 +123,228 @@ class _ParentHomePageState extends State<ParentHomePage> {
     return '--:--';
   }
 
+  String firstLetter(String name) {
+    if (name.trim().isEmpty) return 'ط';
+    return name.trim().substring(0, 1);
+  }
+
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<ChildModel>>(
-      future: fetchChildren(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const AppPageScaffold(
-            title: 'الرئيسية - ولي الأمر',
-            child: Center(child: CircularProgressIndicator()),
-          );
-        }
+    return AppPageScaffold(
+      title: 'الرئيسية - ولي الأمر',
+      child: FutureBuilder<List<ChildModel>>(
+        future: fetchChildren(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(
+              child: CircularProgressIndicator(),
+            );
+          }
 
-        if (snapshot.hasError) {
-          return AppPageScaffold(
-            title: 'الرئيسية - ولي الأمر',
-            child: Center(
-              child: Text('حدث خطأ: ${snapshot.error}'),
-            ),
-          );
-        }
+          if (snapshot.hasError) {
+            return Center(
+              child: Text('حدث خطأ أثناء تحميل البيانات: ${snapshot.error}'),
+            );
+          }
 
-        final children = snapshot.data ?? [];
+          final children = snapshot.data ?? [];
 
-        if (children.isEmpty) {
-          return const AppPageScaffold(
-            title: 'الرئيسية - ولي الأمر',
-            child: Center(
-              child: Text(
-                'لا يوجد أطفال مرتبطون بهذا الحساب',
-                style: TextStyle(fontSize: 16),
-              ),
-            ),
-          );
-        }
-
-        final currentIndex = selectedIndex >= children.length ? 0 : selectedIndex;
-        final child = children[currentIndex];
-        final isNursery = child.section == 'Nursery';
-
-        return AppPageScaffold(
-          title: 'الرئيسية - ولي الأمر',
-          child: ListView(
-            children: [
-              Text(
-                'أهلًا 👋',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'هنا يمكنك متابعة أطفالك بسهولة واطمئنان',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: AppColors.textLight,
-                    ),
-              ),
-              const SizedBox(height: 16),
-
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: DropdownButtonFormField<int>(
-                    value: currentIndex,
-                    decoration: const InputDecoration(
-                      labelText: 'اختيار الطفل',
-                      prefixIcon: Icon(Icons.child_care),
-                    ),
-                    items: List.generate(
-                      children.length,
-                      (i) => DropdownMenuItem(
-                        value: i,
-                        child: Text(
-                          '${children[i].name} - ${sectionLabel(children[i].section)}',
-                        ),
-                      ),
-                    ),
-                    onChanged: (v) {
-                      setState(() {
-                        selectedIndex = v ?? 0;
-                      });
-                    },
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 16),
-
-              if (isNursery)
-                Row(
-                  children: [
-                    Expanded(
-                      child: _QuickInfoCard(
-                        title: 'نظام الحضور',
-                        value: 'مرن حسب الزيارة',
-                        icon: Icons.access_time,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _QuickInfoCard(
-                        title: 'القسم',
-                        value: sectionLabel(child.section),
-                        icon: Icons.apartment,
-                      ),
-                    ),
-                  ],
-                )
-              else
-                FutureBuilder<bool>(
-                  future: isPresentToday(child.id),
-                  builder: (context, attendanceSnapshot) {
-                    final present = attendanceSnapshot.data ?? false;
-
-                    return Row(
+          if (children.isEmpty) {
+            return ListView(
+              children: [
+                _WelcomeHeader(parentUsername: widget.parentUsername),
+                const SizedBox(height: 16),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(18),
+                    child: Column(
                       children: [
-                        Expanded(
-                          child: _QuickInfoCard(
-                            title: 'الحضور اليوم',
-                            value: present ? 'حاضر' : 'غائب',
-                            icon: present ? Icons.check_circle : Icons.cancel,
+                        CircleAvatar(
+                          radius: 28,
+                          backgroundColor: AppColors.primary.withOpacity(0.12),
+                          child: const Icon(
+                            Icons.child_care,
+                            color: AppColors.primary,
+                            size: 28,
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _QuickInfoCard(
-                            title: 'القسم',
-                            value: sectionLabel(child.section),
-                            icon: Icons.apartment,
+                        const SizedBox(height: 12),
+                        const Text(
+                          'لا يوجد أطفال مرتبطون بهذا الحساب',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
                           ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'يمكنك مراجعة الإدارة لإضافة الأطفال وربطهم بحساب ولي الأمر.',
+                          style: TextStyle(
+                            color: AppColors.textLight,
+                            fontSize: 14,
+                          ),
+                          textAlign: TextAlign.center,
                         ),
                       ],
-                    );
-                  },
+                    ),
+                  ),
                 ),
+              ],
+            );
+          }
 
-              const SizedBox(height: 12),
+          return ListView(
+            children: [
+              _WelcomeHeader(parentUsername: widget.parentUsername),
+              const SizedBox(height: 16),
 
-              _QuickInfoCard(
-                title: 'الصف / المجموعة',
-                value: child.group.isEmpty ? 'غير محدد' : child.group,
-                icon: Icons.groups,
+              _SummaryCard(
+                totalChildren: children.length,
+                nurseryCount:
+                    children.where((c) => c.section == 'Nursery').length,
+                kgCount:
+                    children.where((c) => c.section == 'Kindergarten').length,
               ),
 
               const SizedBox(height: 20),
 
               Text(
-                'آخر التحديثات',
+                'أطفالي',
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
               ),
               const SizedBox(height: 10),
 
-              FutureBuilder<List<Map<String, dynamic>>>(
-                future: fetchLastUpdates(child.id),
-                builder: (context, updatesSnapshot) {
-                  if (updatesSnapshot.connectionState == ConnectionState.waiting) {
-                    return const Card(
-                      child: Padding(
-                        padding: EdgeInsets.all(16),
-                        child: Center(child: CircularProgressIndicator()),
-                      ),
-                    );
-                  }
-
-                  if (updatesSnapshot.hasError) {
-                    return const Card(
-                      child: Padding(
-                        padding: EdgeInsets.all(16),
-                        child: Text('حدث خطأ أثناء تحميل التحديثات'),
-                      ),
-                    );
-                  }
-
-                  final updates = updatesSnapshot.data ?? [];
-
-                  if (updates.isEmpty) {
-                    return Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Text(
-                          'لا يوجد تحديثات بعد.',
-                          style: TextStyle(color: AppColors.textLight),
-                        ),
-                      ),
-                    );
-                  }
-
-                  return Column(
-                    children: updates
-                        .map(
-                          (u) => _UpdateTile(
-                            time: timeText(u['time']),
-                            text: '${u['type']}: ${u['note']}',
-                          ),
-                        )
-                        .toList(),
-                  );
-                },
-              ),
-
-              const SizedBox(height: 20),
-
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => ParentUpdatesPage(child: child),
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.chat_bubble_outline),
-                      label: const Text('التحديثات'),
-                    ),
+              ...children.map(
+                (child) => Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: _ChildDashboardCard(
+                    childModel: child,
+                    sectionText: sectionLabel(child.section),
+                    sectionBadgeColor: sectionColor(child.section),
+                    ageText: childAgeText(child.birthDate),
+                    letter: firstLetter(child.name),
+                    attendanceFuture: child.section == 'Kindergarten'
+                        ? isPresentToday(child.id)
+                        : null,
+                    updatesFuture: fetchLastUpdates(child.id),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => WeeklyReportPage(child: child),
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.description_outlined),
-                      label: const Text('التقارير'),
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size(double.infinity, 50),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+                ),
               ),
             ],
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 }
 
-class _QuickInfoCard extends StatelessWidget {
-  final String title;
-  final String value;
-  final IconData icon;
+class _WelcomeHeader extends StatelessWidget {
+  final String parentUsername;
 
-  const _QuickInfoCard({
-    required this.title,
-    required this.value,
-    required this.icon,
+  const _WelcomeHeader({
+    required this.parentUsername,
+  });
+
+  String greetingText() {
+    final hour = DateTime.now().hour;
+    if (hour < 12) return 'صباح الخير';
+    if (hour < 18) return 'مساء الخير';
+    return 'أهلًا بك';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            AppColors.primary,
+            AppColors.secondary,
+          ],
+        ),
+        borderRadius: BorderRadius.circular(22),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '${greetingText()} 👋',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'يسعدنا متابعتك لأطفالك بكل سهولة واطمئنان',
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.95),
+              fontSize: 14,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.18),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Text(
+              'اسم المستخدم: $parentUsername',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SummaryCard extends StatelessWidget {
+  final int totalChildren;
+  final int nurseryCount;
+  final int kgCount;
+
+  const _SummaryCard({
+    required this.totalChildren,
+    required this.nurseryCount,
+    required this.kgCount,
   });
 
   @override
   Widget build(BuildContext context) {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(16),
         child: Row(
           children: [
-            CircleAvatar(
-              radius: 22,
-              backgroundColor: AppColors.primary.withOpacity(0.12),
-              child: Icon(
-                icon,
-                color: AppColors.primary,
+            Expanded(
+              child: _MiniStatItem(
+                title: 'إجمالي الأطفال',
+                value: '$totalChildren',
+                icon: Icons.child_friendly,
               ),
             ),
-            const SizedBox(width: 10),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    value,
-                    style: const TextStyle(color: Colors.black54),
-                  ),
-                ],
+              child: _MiniStatItem(
+                title: 'الحضانة',
+                value: '$nurseryCount',
+                icon: Icons.baby_changing_station,
+              ),
+            ),
+            Expanded(
+              child: _MiniStatItem(
+                title: 'الروضة',
+                value: '$kgCount',
+                icon: Icons.menu_book_rounded,
               ),
             ),
           ],
@@ -397,44 +354,413 @@ class _QuickInfoCard extends StatelessWidget {
   }
 }
 
-class _UpdateTile extends StatelessWidget {
-  final String time;
-  final String text;
+class _MiniStatItem extends StatelessWidget {
+  final String title;
+  final String value;
+  final IconData icon;
 
-  const _UpdateTile({
-    required this.time,
-    required this.text,
+  const _MiniStatItem({
+    required this.title,
+    required this.value,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        CircleAvatar(
+          backgroundColor: AppColors.primary.withOpacity(0.12),
+          child: Icon(icon, color: AppColors.primary),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          value,
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 18,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          title,
+          style: TextStyle(
+            color: AppColors.textLight,
+            fontSize: 12,
+          ),
+          textAlign: TextAlign.center,
+        ),
+      ],
+    );
+  }
+}
+
+class _ChildDashboardCard extends StatelessWidget {
+  final ChildModel childModel;
+  final String sectionText;
+  final Color sectionBadgeColor;
+  final String ageText;
+  final String letter;
+  final Future<bool>? attendanceFuture;
+  final Future<List<Map<String, dynamic>>> updatesFuture;
+
+  const _ChildDashboardCard({
+    required this.childModel,
+    required this.sectionText,
+    required this.sectionBadgeColor,
+    required this.ageText,
+    required this.letter,
+    required this.attendanceFuture,
+    required this.updatesFuture,
   });
 
   @override
   Widget build(BuildContext context) {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
+        padding: const EdgeInsets.all(16),
+        child: Column(
           children: [
-            Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 10,
-                vertical: 6,
-              ),
-              decoration: BoxDecoration(
-                color: AppColors.primary.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Text(
-                time,
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 28,
+                  backgroundColor: sectionBadgeColor.withOpacity(0.18),
+                  child: Text(
+                    letter,
+                    style: TextStyle(
+                      color: sectionBadgeColor,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 22,
+                    ),
+                  ),
                 ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        childModel.name,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 17,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'العمر: $ageText',
+                        style: TextStyle(
+                          color: AppColors.textLight,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: sectionBadgeColor.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Text(
+                    sectionText,
+                    style: TextStyle(
+                      color: sectionBadgeColor,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 14),
+
+            Row(
+              children: [
+                Expanded(
+                  child: _InfoPill(
+                    icon: Icons.groups_2_outlined,
+                    text: childModel.group.isEmpty
+                        ? 'لا توجد مجموعة'
+                        : childModel.group,
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 12),
+
+            if (childModel.section == 'Kindergarten')
+              FutureBuilder<bool>(
+                future: attendanceFuture,
+                builder: (context, snapshot) {
+                  final present = snapshot.data ?? false;
+
+                  return _StatusBox(
+                    icon: present ? Icons.check_circle : Icons.cancel_outlined,
+                    color: present ? Colors.green : Colors.redAccent,
+                    title: 'الحضور اليوم',
+                    value: present ? 'حاضر' : 'غائب',
+                  );
+                },
+              )
+            else
+              const _StatusBox(
+                icon: Icons.info_outline,
+                color: AppColors.primary,
+                title: 'نظام المتابعة',
+                value: 'مرن حسب الزيارة والتحديثات',
+              ),
+
+            const SizedBox(height: 14),
+
+            Align(
+              alignment: Alignment.centerRight,
+              child: Text(
+                'آخر التحديثات',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
               ),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(text),
+            const SizedBox(height: 8),
+
+            FutureBuilder<List<Map<String, dynamic>>>(
+              future: updatesFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8),
+                    child: Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                  );
+                }
+
+                final updates = snapshot.data ?? [];
+
+                if (updates.isEmpty) {
+                  return Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.background,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Text(
+                      'لا يوجد تحديثات بعد',
+                      style: TextStyle(
+                        color: AppColors.textLight,
+                      ),
+                    ),
+                  );
+                }
+
+                return Column(
+                  children: updates.map((u) {
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppColors.background,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              _timeText(u['time']),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              '${u['type']}: ${u['note']}',
+                              style: const TextStyle(fontSize: 13.5),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                );
+              },
             ),
+
+            const SizedBox(height: 14),
+
+           Row(
+  children: [
+    Expanded(
+      child: ElevatedButton.icon(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ChildProfilePage(child: childModel),
+            ),
+          );
+        },
+        icon: const Icon(Icons.person_outline),
+        label: const Text('ملف الطفل'),
+      ),
+    ),
+    const SizedBox(width: 10),
+    Expanded(
+      child: OutlinedButton.icon(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => ParentUpdatesPage(child: childModel),
+            ),
+          );
+        },
+        icon: const Icon(Icons.chat_bubble_outline),
+        label: const Text('التحديثات'),
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size(double.infinity, 50),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+      ),
+    ),
+  ],
+),
+const SizedBox(height: 10),
+OutlinedButton.icon(
+  onPressed: () {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => WeeklyReportPage(child: childModel),
+      ),
+    );
+  },
+  icon: const Icon(Icons.description_outlined),
+  label: const Text('التقرير الأسبوعي'),
+  style: OutlinedButton.styleFrom(
+    minimumSize: const Size(double.infinity, 50),
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(14),
+    ),
+  ),
+),
           ],
         ),
+      ),
+    );
+  }
+
+  static String _timeText(dynamic rawTime) {
+    if (rawTime is Timestamp) {
+      final t = rawTime.toDate();
+      final h = t.hour.toString().padLeft(2, '0');
+      final m = t.minute.toString().padLeft(2, '0');
+      return '$h:$m';
+    }
+    return '--:--';
+  }
+}
+
+class _InfoPill extends StatelessWidget {
+  final IconData icon;
+  final String text;
+
+  const _InfoPill({
+    required this.icon,
+    required this.text,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            color: AppColors.primary,
+            size: 18,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatusBox extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String value;
+
+  const _StatusBox({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: color.withOpacity(0.18),
+        ),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            backgroundColor: color.withOpacity(0.14),
+            child: Icon(icon, color: color),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              '$title: $value',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: color == AppColors.primary ? AppColors.textDark : color,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

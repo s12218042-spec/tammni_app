@@ -18,16 +18,67 @@ class WeeklyReportPage extends StatelessWidget {
     return s;
   }
 
-  bool get isNursery => child.section == 'Nursery';
+  Color sectionColor(String section) {
+    return section == 'Nursery'
+        ? const Color(0xFFEFA7C8)
+        : const Color(0xFF7BB6FF);
+  }
+
+  String firstLetter(String name) {
+    if (name.trim().isEmpty) return 'ط';
+    return name.trim().substring(0, 1);
+  }
+
+  String childAgeText(DateTime birthDate) {
+    final now = DateTime.now();
+    int years = now.year - birthDate.year;
+    int months = now.month - birthDate.month;
+
+    if (now.day < birthDate.day) {
+      months--;
+    }
+
+    if (months < 0) {
+      years--;
+      months += 12;
+    }
+
+    if (years <= 0) {
+      return '$months شهر';
+    }
+
+    if (months == 0) {
+      return '$years سنة';
+    }
+
+    return '$years سنة و $months شهر';
+  }
+
+  String timeText(Timestamp? timestamp) {
+    if (timestamp == null) return '--:--';
+    final t = timestamp.toDate();
+    final h = t.hour.toString().padLeft(2, '0');
+    final m = t.minute.toString().padLeft(2, '0');
+    return '$h:$m';
+  }
+
+  String dateText(Timestamp? timestamp) {
+    if (timestamp == null) return '--/--/----';
+    final t = timestamp.toDate();
+    return '${t.year}/${t.month}/${t.day}';
+  }
 
   Future<List<Map<String, dynamic>>> fetchWeeklyUpdates() async {
     final now = DateTime.now();
-    final weekAgo = now.subtract(const Duration(days: 7));
+    final sevenDaysAgo = now.subtract(const Duration(days: 7));
 
     final snapshot = await FirebaseFirestore.instance
         .collection('updates')
         .where('childId', isEqualTo: child.id)
-        .where('time', isGreaterThanOrEqualTo: Timestamp.fromDate(weekAgo))
+        .where(
+          'time',
+          isGreaterThanOrEqualTo: Timestamp.fromDate(sevenDaysAgo),
+        )
         .orderBy('time', descending: true)
         .get();
 
@@ -36,17 +87,52 @@ class WeeklyReportPage extends StatelessWidget {
       return {
         'type': data['type'] ?? '',
         'note': data['note'] ?? '',
-        'time': data['time'],
+        'time': data['time'] as Timestamp?,
+        'byRole': data['byRole'] ?? '',
       };
     }).toList();
   }
 
-  int countType(List<Map<String, dynamic>> updates, String type) {
-    return updates.where((u) => u['type'] == type).length;
+  Map<String, int> buildTypeCounts(List<Map<String, dynamic>> updates) {
+    final Map<String, int> counts = {};
+
+    for (final update in updates) {
+      final type = (update['type'] ?? '').toString().trim();
+      if (type.isEmpty) continue;
+      counts[type] = (counts[type] ?? 0) + 1;
+    }
+
+    return counts;
+  }
+
+  int countTypes(List<Map<String, dynamic>> updates, List<String> targets) {
+    int total = 0;
+    for (final update in updates) {
+      final type = (update['type'] ?? '').toString().trim();
+      if (targets.contains(type)) {
+        total++;
+      }
+    }
+    return total;
+  }
+
+  List<MapEntry<String, int>> topTypes(Map<String, int> counts) {
+    final entries = counts.entries.toList();
+    entries.sort((a, b) => b.value.compareTo(a.value));
+    return entries.take(3).toList();
+  }
+
+  String reportHintBySection() {
+    if (child.section == 'Nursery') {
+      return 'يركز هذا الملخص على الرعاية اليومية، الأنشطة، النوم، الوجبات، والصحة خلال آخر 7 أيام.';
+    }
+    return 'يركز هذا الملخص على الحضور، الأنشطة، الواجبات، التقييمات، وخطة اليوم خلال آخر 7 أيام.';
   }
 
   @override
   Widget build(BuildContext context) {
+    final badgeColor = sectionColor(child.section);
+
     return AppPageScaffold(
       title: 'التقرير الأسبوعي',
       child: FutureBuilder<List<Map<String, dynamic>>>(
@@ -65,45 +151,124 @@ class WeeklyReportPage extends StatelessWidget {
           }
 
           final updates = snapshot.data ?? [];
-          final top3 = updates.take(3).toList();
+          final counts = buildTypeCounts(updates);
+          final topThree = topTypes(counts);
+
+          final nurseryMeals = countTypes(updates, ['وجبة']);
+          final nurserySleep = countTypes(updates, ['نوم']);
+          final nurseryHealth = countTypes(updates, ['صحة']);
+          final nurseryActivities = countTypes(updates, ['نشاط', 'كاميرا']);
+
+          final kgAttendance = countTypes(updates, ['حضور']);
+          final kgActivities = countTypes(updates, ['نشاط', 'خطة اليوم']);
+          final kgHomework = countTypes(updates, ['واجب']);
+          final kgEvaluation = countTypes(updates, ['تقييم']);
 
           return ListView(
             children: [
-              Text(
-                'ملخص أسبوعي',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      AppColors.primary,
+                      AppColors.secondary,
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(22),
+                ),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 30,
+                      backgroundColor: Colors.white.withOpacity(0.18),
+                      child: Text(
+                        firstLetter(child.name),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'ملخص لآخر 7 أيام حول حالة الطفل والتحديثات المسجلة',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: AppColors.textLight,
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            child.name,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 20,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'ملخص آخر 7 أيام للطفل',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.95),
+                              fontSize: 13.5,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
+                  ],
+                ),
               ),
+
               const SizedBox(height: 16),
 
               Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Row(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
                     children: [
-                      CircleAvatar(
-                        backgroundColor: AppColors.primary.withOpacity(0.12),
-                        child: const Icon(
-                          Icons.child_care,
-                          color: AppColors.primary,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          child.name,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _ReportInfoMiniCard(
+                              icon: Icons.cake_outlined,
+                              title: 'العمر',
+                              value: childAgeText(child.birthDate),
+                            ),
                           ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _ReportInfoMiniCard(
+                              icon: Icons.groups_outlined,
+                              title: 'المجموعة',
+                              value: child.group.isEmpty ? 'غير محدد' : child.group,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: badgeColor.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.apartment_outlined,
+                              color: badgeColor,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'القسم: ${sectionLabel(child.section)}',
+                              style: TextStyle(
+                                color: badgeColor,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 15,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
@@ -111,124 +276,229 @@ class WeeklyReportPage extends StatelessWidget {
                 ),
               ),
 
-              const SizedBox(height: 10),
+              const SizedBox(height: 14),
 
-              _ReportInfoCard(
-                title: 'القسم',
-                value: sectionLabel(child.section),
-                icon: Icons.apartment_outlined,
-              ),
-              _ReportInfoCard(
-                title: 'الصف / المجموعة',
-                value: child.group.isEmpty ? 'غير محدد' : child.group,
-                icon: Icons.groups_outlined,
-              ),
-              _ReportInfoCard(
-                title: 'عدد تحديثات آخر 7 أيام',
-                value: '${updates.length}',
-                icon: Icons.analytics_outlined,
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      CircleAvatar(
+                        backgroundColor: AppColors.primary.withOpacity(0.12),
+                        child: const Icon(
+                          Icons.info_outline,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          reportHintBySection(),
+                          style: const TextStyle(fontSize: 14.5),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
 
               const SizedBox(height: 18),
 
               Text(
-                'ملخص سريع',
+                'ملخص أسبوعي سريع',
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
               ),
               const SizedBox(height: 10),
 
-              if (isNursery) ...[
-                _ReportInfoCard(
-                  title: 'الوجبات',
-                  value: '${countType(updates, 'وجبة')}',
-                  icon: Icons.restaurant_outlined,
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _StatBox(
+                          title: 'إجمالي التحديثات',
+                          value: '${updates.length}',
+                          icon: Icons.analytics_outlined,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _StatBox(
+                          title: 'الأنواع المسجلة',
+                          value: '${counts.length}',
+                          icon: Icons.category_outlined,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                _ReportInfoCard(
-                  title: 'النوم',
-                  value: '${countType(updates, 'نوم')}',
-                  icon: Icons.bedtime_outlined,
-                ),
-                _ReportInfoCard(
-                  title: 'الصحة',
-                  value: '${countType(updates, 'صحة')}',
-                  icon: Icons.health_and_safety_outlined,
-                ),
-                _ReportInfoCard(
-                  title: 'النشاطات',
-                  value: '${countType(updates, 'نشاط')}',
-                  icon: Icons.celebration_outlined,
-                ),
-              ] else ...[
-                _ReportInfoCard(
-                  title: 'النشاطات',
-                  value: '${countType(updates, 'نشاط')}',
-                  icon: Icons.celebration_outlined,
-                ),
-                _ReportInfoCard(
-                  title: 'الواجبات',
-                  value: '${countType(updates, 'واجب')}',
-                  icon: Icons.menu_book_outlined,
-                ),
-                _ReportInfoCard(
-                  title: 'التقييمات',
-                  value: '${countType(updates, 'تقييم')}',
-                  icon: Icons.grading_outlined,
-                ),
-                _ReportInfoCard(
-                  title: 'خطة اليوم',
-                  value: '${countType(updates, 'خطة اليوم')}',
-                  icon: Icons.today_outlined,
-                ),
-              ],
+              ),
 
               const SizedBox(height: 18),
 
               Text(
-                'أهم التحديثات',
+                child.section == 'Nursery'
+                    ? 'مؤشرات الحضانة'
+                    : 'مؤشرات الروضة',
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
               ),
               const SizedBox(height: 10),
 
-              if (top3.isEmpty)
+              if (child.section == 'Nursery')
+                Column(
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _SectionMetricCard(
+                            title: 'الوجبات',
+                            value: '$nurseryMeals',
+                            icon: Icons.restaurant_outlined,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _SectionMetricCard(
+                            title: 'النوم',
+                            value: '$nurserySleep',
+                            icon: Icons.bedtime_outlined,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _SectionMetricCard(
+                            title: 'الصحة',
+                            value: '$nurseryHealth',
+                            icon: Icons.health_and_safety_outlined,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _SectionMetricCard(
+                            title: 'الأنشطة',
+                            value: '$nurseryActivities',
+                            icon: Icons.toys_outlined,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                )
+              else
+                Column(
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _SectionMetricCard(
+                            title: 'الحضور',
+                            value: '$kgAttendance',
+                            icon: Icons.how_to_reg_outlined,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _SectionMetricCard(
+                            title: 'الأنشطة',
+                            value: '$kgActivities',
+                            icon: Icons.event_note_outlined,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _SectionMetricCard(
+                            title: 'الواجبات',
+                            value: '$kgHomework',
+                            icon: Icons.menu_book_outlined,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _SectionMetricCard(
+                            title: 'التقييمات',
+                            value: '$kgEvaluation',
+                            icon: Icons.star_outline,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+
+              const SizedBox(height: 18),
+
+              Text(
+                'أكثر التحديثات تكرارًا',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              const SizedBox(height: 10),
+
+              if (topThree.isEmpty)
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Text(
-                      'لا يوجد تحديثات خلال آخر 7 أيام.',
+                      'لا توجد بيانات كافية لعرض الأنواع الأكثر تكرارًا',
                       style: TextStyle(
                         color: AppColors.textLight,
-                        fontSize: 15,
+                        fontSize: 14.5,
                       ),
                     ),
                   ),
                 )
               else
-                ...top3.map(
-                  (u) => Card(
+                ...topThree.map(
+                  (entry) => Card(
                     child: Padding(
                       padding: const EdgeInsets.all(14),
                       child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           CircleAvatar(
-                            radius: 18,
-                            backgroundColor:
-                                AppColors.primary.withOpacity(0.12),
+                            backgroundColor: AppColors.primary.withOpacity(0.12),
                             child: const Icon(
-                              Icons.notes,
+                              Icons.bar_chart_outlined,
                               color: AppColors.primary,
-                              size: 18,
                             ),
                           ),
-                          const SizedBox(width: 10),
+                          const SizedBox(width: 12),
                           Expanded(
                             child: Text(
-                              '${u['type']}: ${u['note']}',
-                              style: const TextStyle(fontSize: 14),
+                              entry.key,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 15,
+                              ),
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 7,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.background,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              '${entry.value}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ),
                         ],
@@ -239,26 +509,83 @@ class WeeklyReportPage extends StatelessWidget {
 
               const SizedBox(height: 18),
 
+              Text(
+                'آخر التحديثات الأسبوعية',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              const SizedBox(height: 10),
+
+              if (updates.isEmpty)
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(18),
+                    child: Column(
+                      children: [
+                        CircleAvatar(
+                          radius: 26,
+                          backgroundColor: AppColors.primary.withOpacity(0.12),
+                          child: const Icon(
+                            Icons.description_outlined,
+                            color: AppColors.primary,
+                            size: 26,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'لا توجد تحديثات أسبوعية لهذا الطفل بعد',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'عند إضافة تحديثات جديدة خلال الأسبوع ستظهر هنا بشكل منظم.',
+                          style: TextStyle(
+                            color: AppColors.textLight,
+                            fontSize: 13.5,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              else
+                ...updates.take(5).map(
+                  (u) => _WeeklyUpdateTile(
+                    type: u['type'] ?? '',
+                    note: u['note'] ?? '',
+                    date: dateText(u['time'] as Timestamp?),
+                    time: timeText(u['time'] as Timestamp?),
+                  ),
+                ),
+
+              const SizedBox(height: 18),
+
               Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(14),
+                  padding: const EdgeInsets.all(16),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       CircleAvatar(
                         backgroundColor: Colors.amber.withOpacity(0.18),
                         child: const Icon(
-                          Icons.info_outline,
+                          Icons.lightbulb_outline,
                           color: Colors.orange,
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
-                          isNursery
-                              ? 'هذا التقرير يعرض ملخصًا أسبوعيًا مرنًا لأطفال الحضانة اعتمادًا على التحديثات اليومية مثل الوجبات والنوم والنشاط والصحة.'
-                              : 'هذا التقرير يعرض ملخصًا أسبوعيًا لأطفال الروضة اعتمادًا على التحديثات التعليمية واليومية مثل النشاطات والواجبات والتقييمات.',
-                          style: const TextStyle(fontSize: 14, height: 1.5),
+                          child.section == 'Nursery'
+                              ? 'يعتمد هذا التقرير على التحديثات المسجلة خلال آخر 7 أيام، ويمكن تطويره لاحقًا ليشمل ملخصًا أدق للنوم، التغذية، الزيارات، والصور.'
+                              : 'يعتمد هذا التقرير على التحديثات المسجلة خلال آخر 7 أيام، ويمكن تطويره لاحقًا ليشمل الحضور التفصيلي، الواجبات، التقييمات، والخطة التعليمية بشكل أوسع.',
+                          style: const TextStyle(fontSize: 14),
                         ),
                       ),
                     ],
@@ -273,12 +600,111 @@ class WeeklyReportPage extends StatelessWidget {
   }
 }
 
-class _ReportInfoCard extends StatelessWidget {
+class _ReportInfoMiniCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String value;
+
+  const _ReportInfoMiniCard({
+    required this.icon,
+    required this.title,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        children: [
+          CircleAvatar(
+            backgroundColor: AppColors.primary.withOpacity(0.12),
+            child: Icon(
+              icon,
+              color: AppColors.primary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            title,
+            style: TextStyle(
+              color: AppColors.textLight,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 14.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatBox extends StatelessWidget {
   final String title;
   final String value;
   final IconData icon;
 
-  const _ReportInfoCard({
+  const _StatBox({
+    required this.title,
+    required this.value,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        children: [
+          CircleAvatar(
+            backgroundColor: AppColors.primary.withOpacity(0.12),
+            child: Icon(icon, color: AppColors.primary),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 18,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: AppColors.textLight,
+              fontSize: 12.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SectionMetricCard extends StatelessWidget {
+  final String title;
+  final String value;
+  final IconData icon;
+
+  const _SectionMetricCard({
     required this.title,
     required this.value,
     required this.icon,
@@ -309,7 +735,100 @@ class _ReportInfoCard extends StatelessWidget {
             ),
             Text(
               value,
-              style: const TextStyle(fontSize: 14),
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _WeeklyUpdateTile extends StatelessWidget {
+  final String type;
+  final String note;
+  final String date;
+  final String time;
+
+  const _WeeklyUpdateTile({
+    required this.type,
+    required this.note,
+    required this.date,
+    required this.time,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    type.isEmpty ? 'تحديث' : type,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.background,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    date,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.background,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    time,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              note.trim().isEmpty ? 'لا توجد ملاحظة مضافة لهذا التحديث' : note,
+              style: const TextStyle(
+                fontSize: 14.5,
+                height: 1.5,
+              ),
             ),
           ],
         ),
