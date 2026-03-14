@@ -129,11 +129,9 @@ class _ParentHomePageState extends State<ParentHomePage> {
           );
         }
 
-        if (selectedIndex >= children.length) {
-          selectedIndex = 0;
-        }
-
-        final child = children[selectedIndex];
+        final currentIndex = selectedIndex >= children.length ? 0 : selectedIndex;
+        final child = children[currentIndex];
+        final isNursery = child.section == 'Nursery';
 
         return AppPageScaffold(
           title: 'الرئيسية - ولي الأمر',
@@ -158,7 +156,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: DropdownButtonFormField<int>(
-                    value: selectedIndex,
+                    value: currentIndex,
                     decoration: const InputDecoration(
                       labelText: 'اختيار الطفل',
                       prefixIcon: Icon(Icons.child_care),
@@ -183,45 +181,66 @@ class _ParentHomePageState extends State<ParentHomePage> {
 
               const SizedBox(height: 16),
 
-              FutureBuilder<bool>(
-                future: isPresentToday(child.id),
-                builder: (context, attendanceSnapshot) {
-                  final present = attendanceSnapshot.data ?? false;
+              if (isNursery)
+                Row(
+                  children: [
+                    Expanded(
+                      child: _QuickInfoCard(
+                        title: 'نظام الحضور',
+                        value: 'مرن حسب الزيارة',
+                        icon: Icons.access_time,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _QuickInfoCard(
+                        title: 'القسم',
+                        value: sectionLabel(child.section),
+                        icon: Icons.apartment,
+                      ),
+                    ),
+                  ],
+                )
+              else
+                FutureBuilder<bool>(
+                  future: isPresentToday(child.id),
+                  builder: (context, attendanceSnapshot) {
+                    final present = attendanceSnapshot.data ?? false;
 
-                  return Row(
-                    children: [
-                      Expanded(
-                        child: _QuickInfoCard(
-                          title: 'الحضور',
-                          value: present ? 'داخل المؤسسة' : 'غائب',
-                          icon: Icons.check_circle,
+                    return Row(
+                      children: [
+                        Expanded(
+                          child: _QuickInfoCard(
+                            title: 'الحضور اليوم',
+                            value: present ? 'حاضر' : 'غائب',
+                            icon: present ? Icons.check_circle : Icons.cancel,
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _QuickInfoCard(
-                          title: 'القسم',
-                          value: sectionLabel(child.section),
-                          icon: Icons.apartment,
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _QuickInfoCard(
+                            title: 'القسم',
+                            value: sectionLabel(child.section),
+                            icon: Icons.apartment,
+                          ),
                         ),
-                      ),
-                    ],
-                  );
-                },
-              ),
+                      ],
+                    );
+                  },
+                ),
 
               const SizedBox(height: 12),
 
               _QuickInfoCard(
                 title: 'الصف / المجموعة',
-                value: child.group,
+                value: child.group.isEmpty ? 'غير محدد' : child.group,
                 icon: Icons.groups,
               ),
 
               const SizedBox(height: 20),
 
               Text(
-                'آخر تحديثات اليوم',
+                'آخر التحديثات',
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
@@ -241,9 +260,9 @@ class _ParentHomePageState extends State<ParentHomePage> {
                   }
 
                   if (updatesSnapshot.hasError) {
-                    return Card(
+                    return const Card(
                       child: Padding(
-                        padding: const EdgeInsets.all(16),
+                        padding: EdgeInsets.all(16),
                         child: Text('حدث خطأ أثناء تحميل التحديثات'),
                       ),
                     );
@@ -256,7 +275,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
                       child: Padding(
                         padding: const EdgeInsets.all(16),
                         child: Text(
-                          'لا يوجد تحديثات اليوم بعد.',
+                          'لا يوجد تحديثات بعد.',
                           style: TextStyle(color: AppColors.textLight),
                         ),
                       ),

@@ -18,10 +18,16 @@ class WeeklyReportPage extends StatelessWidget {
     return s;
   }
 
-  Future<List<Map<String, dynamic>>> fetchUpdates() async {
+  bool get isNursery => child.section == 'Nursery';
+
+  Future<List<Map<String, dynamic>>> fetchWeeklyUpdates() async {
+    final now = DateTime.now();
+    final weekAgo = now.subtract(const Duration(days: 7));
+
     final snapshot = await FirebaseFirestore.instance
         .collection('updates')
         .where('childId', isEqualTo: child.id)
+        .where('time', isGreaterThanOrEqualTo: Timestamp.fromDate(weekAgo))
         .orderBy('time', descending: true)
         .get();
 
@@ -35,12 +41,16 @@ class WeeklyReportPage extends StatelessWidget {
     }).toList();
   }
 
+  int countType(List<Map<String, dynamic>> updates, String type) {
+    return updates.where((u) => u['type'] == type).length;
+  }
+
   @override
   Widget build(BuildContext context) {
     return AppPageScaffold(
       title: 'التقرير الأسبوعي',
       child: FutureBuilder<List<Map<String, dynamic>>>(
-        future: fetchUpdates(),
+        future: fetchWeeklyUpdates(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(
@@ -67,7 +77,7 @@ class WeeklyReportPage extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               Text(
-                'ملخص مبسط عن حالة الطفل وآخر التحديثات المسجلة',
+                'ملخص لآخر 7 أيام حول حالة الطفل والتحديثات المسجلة',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: AppColors.textLight,
                     ),
@@ -110,14 +120,68 @@ class WeeklyReportPage extends StatelessWidget {
               ),
               _ReportInfoCard(
                 title: 'الصف / المجموعة',
-                value: child.group,
+                value: child.group.isEmpty ? 'غير محدد' : child.group,
                 icon: Icons.groups_outlined,
               ),
               _ReportInfoCard(
-                title: 'عدد التحديثات المسجلة',
+                title: 'عدد تحديثات آخر 7 أيام',
                 value: '${updates.length}',
                 icon: Icons.analytics_outlined,
               ),
+
+              const SizedBox(height: 18),
+
+              Text(
+                'ملخص سريع',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              const SizedBox(height: 10),
+
+              if (isNursery) ...[
+                _ReportInfoCard(
+                  title: 'الوجبات',
+                  value: '${countType(updates, 'وجبة')}',
+                  icon: Icons.restaurant_outlined,
+                ),
+                _ReportInfoCard(
+                  title: 'النوم',
+                  value: '${countType(updates, 'نوم')}',
+                  icon: Icons.bedtime_outlined,
+                ),
+                _ReportInfoCard(
+                  title: 'الصحة',
+                  value: '${countType(updates, 'صحة')}',
+                  icon: Icons.health_and_safety_outlined,
+                ),
+                _ReportInfoCard(
+                  title: 'النشاطات',
+                  value: '${countType(updates, 'نشاط')}',
+                  icon: Icons.celebration_outlined,
+                ),
+              ] else ...[
+                _ReportInfoCard(
+                  title: 'النشاطات',
+                  value: '${countType(updates, 'نشاط')}',
+                  icon: Icons.celebration_outlined,
+                ),
+                _ReportInfoCard(
+                  title: 'الواجبات',
+                  value: '${countType(updates, 'واجب')}',
+                  icon: Icons.menu_book_outlined,
+                ),
+                _ReportInfoCard(
+                  title: 'التقييمات',
+                  value: '${countType(updates, 'تقييم')}',
+                  icon: Icons.grading_outlined,
+                ),
+                _ReportInfoCard(
+                  title: 'خطة اليوم',
+                  value: '${countType(updates, 'خطة اليوم')}',
+                  icon: Icons.today_outlined,
+                ),
+              ],
 
               const SizedBox(height: 18),
 
@@ -134,7 +198,7 @@ class WeeklyReportPage extends StatelessWidget {
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Text(
-                      'لا يوجد تحديثات بعد.',
+                      'لا يوجد تحديثات خلال آخر 7 أيام.',
                       style: TextStyle(
                         color: AppColors.textLight,
                         fontSize: 15,
@@ -189,10 +253,12 @@ class WeeklyReportPage extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 12),
-                      const Expanded(
+                      Expanded(
                         child: Text(
-                          'ملاحظة عامة: هذا تقرير تجريبي ويمكن لاحقًا تطويره ليشمل الحضور، النشاطات، النوم، الوجبات، والمهارات.',
-                          style: TextStyle(fontSize: 14),
+                          isNursery
+                              ? 'هذا التقرير يعرض ملخصًا أسبوعيًا مرنًا لأطفال الحضانة اعتمادًا على التحديثات اليومية مثل الوجبات والنوم والنشاط والصحة.'
+                              : 'هذا التقرير يعرض ملخصًا أسبوعيًا لأطفال الروضة اعتمادًا على التحديثات التعليمية واليومية مثل النشاطات والواجبات والتقييمات.',
+                          style: const TextStyle(fontSize: 14, height: 1.5),
                         ),
                       ),
                     ],

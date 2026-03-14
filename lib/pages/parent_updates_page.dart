@@ -103,10 +103,12 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
 
   @override
   Widget build(BuildContext context) {
+    final isNursery = widget.child.section == 'Nursery';
+
     return AppPageScaffold(
       title: 'تحديثات الطفل',
       child: FutureBuilder<bool>(
-        future: fetchAttendance(),
+        future: isNursery ? Future.value(false) : fetchAttendance(),
         builder: (context, attendanceSnapshot) {
           final present = attendanceSnapshot.data ?? false;
 
@@ -114,20 +116,22 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
             future: fetchUpdates(),
             builder: (context, updatesSnapshot) {
               if (updatesSnapshot.connectionState == ConnectionState.waiting ||
-                  attendanceSnapshot.connectionState == ConnectionState.waiting) {
+                  (!isNursery &&
+                      attendanceSnapshot.connectionState ==
+                          ConnectionState.waiting)) {
                 return const Center(
                   child: CircularProgressIndicator(),
                 );
               }
 
               if (updatesSnapshot.hasError) {
-                return Center(
+                return const Center(
                   child: Text('حدث خطأ أثناء تحميل التحديثات'),
                 );
               }
 
-              if (attendanceSnapshot.hasError) {
-                return Center(
+              if (!isNursery && attendanceSnapshot.hasError) {
+                return const Center(
                   child: Text('حدث خطأ أثناء تحميل الحضور'),
                 );
               }
@@ -144,7 +148,7 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'شاهدي آخر التحديثات اليومية الخاصة بطفلك',
+                    'شاهدي آخر التحديثات الخاصة بطفلك',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: AppColors.textLight,
                         ),
@@ -215,34 +219,64 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
 
                   const SizedBox(height: 12),
 
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Row(
-                        children: [
-                          CircleAvatar(
-                            backgroundColor: present
-                                ? Colors.green.withOpacity(0.12)
-                                : Colors.red.withOpacity(0.12),
-                            child: Icon(
-                              present ? Icons.check_circle : Icons.cancel,
-                              color: present ? Colors.green : Colors.redAccent,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              'الحضور اليوم: ${present ? "داخل المؤسسة" : "غائب"}',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 15,
+                  if (isNursery)
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Row(
+                          children: [
+                            CircleAvatar(
+                              backgroundColor:
+                                  AppColors.warning.withOpacity(0.12),
+                              child: const Icon(
+                                Icons.info_outline,
+                                color: AppColors.warning,
                               ),
                             ),
-                          ),
-                        ],
+                            const SizedBox(width: 12),
+                            const Expanded(
+                              child: Text(
+                                'نظام المتابعة في الحضانة مرن حسب الزيارة والتحديثات اليومية، ولا يعتمد على حضور أو غياب ثابت كل يوم.',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 15,
+                                  height: 1.5,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  else
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Row(
+                          children: [
+                            CircleAvatar(
+                              backgroundColor: present
+                                  ? Colors.green.withOpacity(0.12)
+                                  : Colors.red.withOpacity(0.12),
+                              child: Icon(
+                                present ? Icons.check_circle : Icons.cancel,
+                                color: present ? Colors.green : Colors.redAccent,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                'الحضور اليوم: ${present ? "حاضر" : "غائب"}',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 15,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
 
                   const SizedBox(height: 16),
 

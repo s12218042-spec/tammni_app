@@ -4,7 +4,6 @@ import '../models/child_model.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 import 'add_update_page.dart';
-import 'attendance_page.dart';
 import 'camera_checkin_page.dart';
 
 class NurseryStaffHomePage extends StatefulWidget {
@@ -56,21 +55,6 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
     }
   }
 
-  Future<void> openAttendance() async {
-    final res = await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const AttendancePage(
-          sectionFilter: 'Nursery',
-        ),
-      ),
-    );
-
-    if (res == true) {
-      setState(() {});
-    }
-  }
-
   Future<void> openCameraCheckin(ChildModel child) async {
     final res = await Navigator.push(
       context,
@@ -87,24 +71,29 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
 
       try {
         await _firestore.collection('updates').add({
-          'childId': child.id,
-          'childName': child.name,
-          'type': 'كاميرا',
-          'note': type == 'image'
-              ? 'صورة للطفل 📸'
-              : 'فيديو قصير للطفل 🎥',
-          'time': FieldValue.serverTimestamp(),
-          'byRole': 'nursery',
-          'mediaPath': path,
-          'mediaType': type,
-          'mediaUrl': null,
-        });
+  'childId': child.id,
+  'childName': child.name,
+  'parentUsername': child.parentUsername,
+  'section': child.section,
+  'group': child.group,
+  'type': 'كاميرا',
+  'note': type == 'image'
+      ? 'صورة للطفل 📸'
+      : 'فيديو قصير للطفل 🎥',
+  'time': FieldValue.serverTimestamp(),
+  'byRole': 'nursery',
+  'mediaPath': path,
+  'mediaType': type,
+  'mediaUrl': null,
+  'hasMedia': true,
+});
+    
 
         if (!mounted) return;
 
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('تم إرسال Check-in ✅'),
+            content: Text('تم إرسال التحديث بالكاميرا'),
           ),
         );
 
@@ -114,7 +103,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('حدث خطأ أثناء حفظ الـ Check-in: $e'),
+            content: Text('حدث خطأ أثناء حفظ التحديث بالكاميرا: $e'),
           ),
         );
       }
@@ -124,7 +113,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
   void sendNotificationPlaceholder() {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('ميزة إرسال الإشعار للأهل سنطوّرها لاحقًا ✅'),
+        content: Text('ميزة إرسال الإشعار للأهل سنطوّرها لاحقًا '),
       ),
     );
   }
@@ -160,7 +149,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
               ),
               const SizedBox(height: 6),
               Text(
-                'اختاري طفلًا لتسجيل تحديث جديد أو إرسال Check-in بالكاميرا',
+                'يمكنكِ متابعة أطفال الحضانة من خلال التحديثات اليومية والصور والملاحظات.',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: AppColors.textLight,
                     ),
@@ -178,30 +167,21 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
                             backgroundColor:
                                 AppColors.primary.withOpacity(0.12),
                             child: const Icon(
-                              Icons.how_to_reg,
+                              Icons.info_outline,
                               color: AppColors.primary,
                             ),
                           ),
                           const SizedBox(width: 12),
                           const Expanded(
                             child: Text(
-                              'تسجيل حضور أطفال الحضانة',
+                              'في قسم الحضانة لا يتم اعتماد حضور يومي ثابت، لأن حضور الطفل يكون مرنًا حسب الزيارة. لذلك تعتمد المتابعة هنا على التحديثات والملاحظات والصور.',
                               style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                height: 1.5,
                               ),
                             ),
                           ),
                         ],
-                      ),
-                      const SizedBox(height: 14),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: openAttendance,
-                          icon: const Icon(Icons.checklist_rtl),
-                          label: const Text('فتح صفحة الحضور'),
-                        ),
                       ),
                     ],
                   ),
@@ -294,7 +274,9 @@ class _ChildActionCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        childModel.group,
+                        childModel.group.isEmpty
+                            ? 'بدون مجموعة'
+                            : childModel.group,
                         style: const TextStyle(
                           color: Colors.black54,
                           fontSize: 13,

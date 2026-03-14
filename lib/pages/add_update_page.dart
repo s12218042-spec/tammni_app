@@ -85,18 +85,20 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
 
     try {
       await _firestore.collection('updates').add({
-        'childId': widget.child.id,
-        'childName': widget.child.name,
-        'parentUsername': widget.child.parentUsername,
-        'type': type,
-        'note': noteCtrl.text.trim(),
-        'time': FieldValue.serverTimestamp(),
-        'byRole': widget.byRole,
-        'mediaType': null,
-        'mediaPath': null,
-        'mediaUrl': null,
-        'hasMedia': false,
-      });
+  'childId': widget.child.id,
+  'childName': widget.child.name,
+  'parentUsername': widget.child.parentUsername,
+  'section': widget.child.section,
+  'group': widget.child.group,
+  'type': type,
+  'note': noteCtrl.text.trim(),
+  'time': FieldValue.serverTimestamp(),
+  'byRole': widget.byRole,
+  'mediaType': null,
+  'mediaPath': null,
+  'mediaUrl': null,
+  'hasMedia': false,
+});
 
       if (!mounted) return;
 

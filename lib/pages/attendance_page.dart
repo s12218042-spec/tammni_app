@@ -5,11 +5,11 @@ import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 
 class AttendancePage extends StatefulWidget {
-  final String sectionFilter; // Nursery / Kindergarten / All
+  final String sectionFilter; // Kindergarten only here
 
   const AttendancePage({
     super.key,
-    this.sectionFilter = 'All',
+    this.sectionFilter = 'Kindergarten',
   });
 
   @override
@@ -21,6 +21,8 @@ class _AttendancePageState extends State<AttendancePage> {
 
   final Map<String, bool> attendanceValues = {};
   bool isSaving = false;
+
+  bool get isSupportedSection => widget.sectionFilter == 'Kindergarten';
 
   String sectionLabel(String section) {
     switch (section) {
@@ -34,10 +36,7 @@ class _AttendancePageState extends State<AttendancePage> {
   }
 
   String pageDescription() {
-    if (widget.sectionFilter == 'All') {
-      return 'عرض وتسجيل حضور جميع الأطفال';
-    }
-    return 'عرض وتسجيل حضور أطفال قسم ${sectionLabel(widget.sectionFilter)}';
+    return 'عرض وتسجيل حضور أطفال قسم الروضة';
   }
 
   String get dateKey {
@@ -46,13 +45,10 @@ class _AttendancePageState extends State<AttendancePage> {
   }
 
   Future<List<ChildModel>> fetchChildren() async {
-    Query<Map<String, dynamic>> query = _firestore.collection('children');
-
-    if (widget.sectionFilter != 'All') {
-      query = query.where('section', isEqualTo: widget.sectionFilter);
-    }
-
-    final snapshot = await query.get();
+    final snapshot = await _firestore
+        .collection('children')
+        .where('section', isEqualTo: 'Kindergarten')
+        .get();
 
     return snapshot.docs.map((doc) {
       final data = doc.data();
@@ -60,7 +56,7 @@ class _AttendancePageState extends State<AttendancePage> {
       return ChildModel(
         id: doc.id,
         name: data['name'] ?? '',
-        section: data['section'] ?? 'Nursery',
+        section: data['section'] ?? 'Kindergarten',
         group: data['group'] ?? '',
         parentName: data['parentName'] ?? '',
         parentUsername: data['parentUsername'] ?? '',
@@ -107,7 +103,7 @@ class _AttendancePageState extends State<AttendancePage> {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم حفظ الحضور ✅')),
+        const SnackBar(content: Text('تم حفظ حضور أطفال الروضة ✅')),
       );
 
       Navigator.pop(context, true);
@@ -130,6 +126,56 @@ class _AttendancePageState extends State<AttendancePage> {
   Widget build(BuildContext context) {
     final today = DateTime.now();
     final dateText = '${today.year}/${today.month}/${today.day}';
+
+    if (!isSupportedSection) {
+      return AppPageScaffold(
+        title: 'تسجيل الحضور',
+        child: ListView(
+          children: [
+            Text(
+              'تسجيل الحضور',
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'هذه الصفحة مخصصة لأطفال الروضة فقط.',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: AppColors.textLight,
+                  ),
+            ),
+            const SizedBox(height: 20),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      backgroundColor: AppColors.warning.withOpacity(0.12),
+                      child: const Icon(
+                        Icons.info_outline,
+                        color: AppColors.warning,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Text(
+                        'لا يتم استخدام الحضور اليومي الثابت في قسم الحضانة، لأن حضور الطفل يكون مرنًا حسب الزيارة. يمكن متابعة أطفال الحضانة عبر التحديثات والصور والملاحظات.',
+                        style: TextStyle(
+                          fontSize: 15,
+                          height: 1.5,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
 
     return AppPageScaffold(
       title: 'تسجيل الحضور',
@@ -216,17 +262,15 @@ class _AttendancePageState extends State<AttendancePage> {
                             backgroundColor:
                                 AppColors.primary.withOpacity(0.12),
                             child: const Icon(
-                              Icons.filter_list,
+                              Icons.school_outlined,
                               color: AppColors.primary,
                             ),
                           ),
                           const SizedBox(width: 12),
-                          Expanded(
+                          const Expanded(
                             child: Text(
-                              widget.sectionFilter == 'All'
-                                  ? 'يتم الآن عرض جميع الأطفال'
-                                  : 'القسم الحالي: ${sectionLabel(widget.sectionFilter)}',
-                              style: const TextStyle(
+                              'القسم الحالي: روضة',
+                              style: TextStyle(
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -243,7 +287,7 @@ class _AttendancePageState extends State<AttendancePage> {
                       child: Padding(
                         padding: const EdgeInsets.all(16),
                         child: Text(
-                          'لا يوجد أطفال في هذا القسم حاليًا.',
+                          'لا يوجد أطفال في قسم الروضة حاليًا.',
                           style: TextStyle(
                             color: AppColors.textLight,
                             fontSize: 15,

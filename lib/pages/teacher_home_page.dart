@@ -85,25 +85,29 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
       if (path == null || type == null) return;
 
       try {
-        await _firestore.collection('updates').add({
-          'childId': child.id,
-          'childName': child.name,
-          'type': 'كاميرا',
-          'note': type == 'image'
-              ? 'صورة من المعلمة للطفل 📸'
-              : 'فيديو قصير من المعلمة للطفل 🎥',
-          'time': FieldValue.serverTimestamp(),
-          'byRole': 'teacher',
-          'mediaPath': path,
-          'mediaType': type,
-          'mediaUrl': null,
-        });
+       await _firestore.collection('updates').add({
+  'childId': child.id,
+  'childName': child.name,
+  'parentUsername': child.parentUsername,
+  'section': child.section,
+  'group': child.group,
+  'type': 'كاميرا',
+  'note': type == 'image'
+      ? 'صورة للطفل 📸'
+      : 'فيديو قصير للطفل 🎥',
+  'time': FieldValue.serverTimestamp(),
+  'byRole': 'teacher',
+  'mediaPath': path,
+  'mediaType': type,
+  'mediaUrl': null,
+  'hasMedia': true,
+});
 
         if (!mounted) return;
 
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('تم إرسال Check-in من المعلمة ✅'),
+            content: Text('تم إرسال التحديث بالكاميرا من المعلمة '),
           ),
         );
 
@@ -113,7 +117,7 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('حدث خطأ أثناء حفظ الـ Check-in: $e'),
+            content: Text('حدث خطأ أثناء حفظ التحديث بالكاميرا: $e'),
           ),
         );
       }
@@ -151,7 +155,7 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
               ),
               const SizedBox(height: 6),
               Text(
-                'اختاري طفلًا لإضافة نشاط أو إرسال Check-in بالكاميرا',
+                'اختاري طفلًا لإضافة نشاط أو إرسال تحديث بالكاميرا',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: AppColors.textLight,
                     ),

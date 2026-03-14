@@ -105,7 +105,7 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
     final file = picked == null ? null : File(picked!.path);
 
     return AppPageScaffold(
-      title: 'كاميرا Check-in',
+      title: 'الكاميرا',
       child: ListView(
         children: [
           Text(
@@ -116,7 +116,7 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
           ),
           const SizedBox(height: 6),
           Text(
-            'صوّري صورة أو فيديو قصير للطفل، وسيظهر لوليّ الأمر كتحديث من نوع "كاميرا".',
+            'صوّري صورة أو فيديو قصير للطفل، وسيظهر لوليّ الأمر كتحديث داخل التطبيق.',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: AppColors.textLight,
                 ),
@@ -138,7 +138,7 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
                   const SizedBox(width: 12),
                   const Expanded(
                     child: Text(
-                      'يمكنك التقاط صورة أو تسجيل فيديو قصير ثم إرساله مباشرة لوليّ الأمر.',
+                      'يمكنك التقاط صورة أو تسجيل فيديو قصير ثم إرساله مباشرة كجزء من تحديثات الطفل.',
                     ),
                   ),
                 ],
@@ -244,7 +244,7 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
           ElevatedButton.icon(
             onPressed: isBusy ? null : sendBack,
             icon: const Icon(Icons.send_outlined),
-            label: const Text('إرسال لوليّ الأمر'),
+            label: const Text('إرسال التحديث'),
           ),
         ],
       ),
