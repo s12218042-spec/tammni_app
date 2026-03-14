@@ -87,6 +87,7 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
       await _firestore.collection('updates').add({
         'childId': widget.child.id,
         'childName': widget.child.name,
+        'parentUsername': widget.child.parentUsername,
         'type': type,
         'note': noteCtrl.text.trim(),
         'time': FieldValue.serverTimestamp(),
@@ -94,13 +95,14 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
         'mediaType': null,
         'mediaPath': null,
         'mediaUrl': null,
+        'hasMedia': false,
       });
 
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('تم حفظ التحديث ✅'),
+          content: Text('تم حفظ التحديث'),
         ),
       );
 
@@ -142,7 +144,6 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
                 ),
           ),
           const SizedBox(height: 16),
-
           Card(
             child: Padding(
               padding: const EdgeInsets.all(14),
@@ -218,9 +219,7 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
               ),
             ),
           ),
-
           const SizedBox(height: 18),
-
           Text(
             'نوع التحديث',
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
@@ -228,7 +227,6 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
                 ),
           ),
           const SizedBox(height: 8),
-
           DropdownButtonFormField<String>(
             value: types.contains(type) ? type : types.first,
             decoration: const InputDecoration(
@@ -248,9 +246,7 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
               });
             },
           ),
-
           const SizedBox(height: 18),
-
           Text(
             'الملاحظة',
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
@@ -258,7 +254,6 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
                 ),
           ),
           const SizedBox(height: 8),
-
           TextField(
             controller: noteCtrl,
             maxLines: 5,
@@ -269,9 +264,7 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
               prefixIcon: Icon(Icons.edit_note_outlined),
             ),
           ),
-
           const SizedBox(height: 20),
-
           ElevatedButton.icon(
             onPressed: isLoading ? null : save,
             icon: isLoading

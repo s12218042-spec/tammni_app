@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../widgets/app_page_scaffold.dart';
 import 'login_page.dart';
+import '../services/notification_service.dart';
 
 class RegisterParentPage extends StatefulWidget {
   const RegisterParentPage({super.key});
@@ -193,13 +194,16 @@ class _RegisterParentPageState extends State<RegisterParentPage> {
       }
 
       await _firestore.collection('users').doc(user.uid).set({
-        'uid': user.uid,
-        'displayName': displayName,
-        'username': username,
-        'email': email,
-        'role': 'parent',
-        'createdAt': FieldValue.serverTimestamp(),
+      'uid': user.uid,
+      'displayName': displayName,
+      'username': username,
+      'email': email,
+      'role': 'parent',
+      'fcmTokens': [],
+      'createdAt': FieldValue.serverTimestamp(),
       });
+
+    await NotificationService.instance.saveCurrentUserToken();
 
       for (int i = 0; i < childrenCount; i++) {
         final birthDate = birthDates[i]!;

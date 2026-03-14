@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
+import '../services/notification_service.dart';
 import '../widgets/app_page_scaffold.dart';
 import '../widgets/app_primary_button.dart';
 import 'parent_home_page.dart';
@@ -82,6 +83,8 @@ class _LoginPageState extends State<LoginPage> {
       final data = doc.data()!;
       final role = data['role'] ?? '';
       final username = data['username'] ?? '';
+
+      await NotificationService.instance.saveCurrentUserToken();
 
       Widget nextPage;
 
