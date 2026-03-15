@@ -10,24 +10,24 @@ class MessageService {
 
   Stream<List<MessageModel>> getConversationMessages({
     required String childId,
-    required String parentUsername,
+    required String currentUserId,
     required String targetUserId,
   }) {
     return _messagesRef
         .where('childId', isEqualTo: childId)
-        .where('participants', arrayContains: parentUsername)
+        .where('participants', arrayContains: currentUserId)
         .snapshots()
         .map((snapshot) {
       final messages = snapshot.docs
           .map((doc) => MessageModel.fromMap(doc.id, doc.data()))
           .where((message) {
-        final sameTarget = message.senderId == targetUserId ||
-            message.receiverId == targetUserId;
+        final hasCurrentUser =
+            message.senderId == currentUserId || message.receiverId == currentUserId;
 
-        final hasParent =
-            message.senderRole == 'parent' || message.receiverRole == 'parent';
+        final hasTargetUser =
+            message.senderId == targetUserId || message.receiverId == targetUserId;
 
-        return sameTarget && hasParent;
+        return hasCurrentUser && hasTargetUser;
       }).toList();
 
       messages.sort((a, b) => a.sentAt.compareTo(b.sentAt));
@@ -35,11 +35,11 @@ class MessageService {
     });
   }
 
-  Stream<List<MessageModel>> getLatestChatsForParent({
-    required String parentUsername,
+  Stream<List<MessageModel>> getLatestChatsForUser({
+    required String currentUserId,
   }) {
     return _messagesRef
-        .where('participants', arrayContains: parentUsername)
+        .where('participants', arrayContains: currentUserId)
         .snapshots()
         .map((snapshot) {
       final allMessages = snapshot.docs
@@ -52,7 +52,7 @@ class MessageService {
 
       for (final message in allMessages) {
         final otherUserId =
-            message.senderRole == 'parent' ? message.receiverId : message.senderId;
+            message.senderId == currentUserId ? message.receiverId : message.senderId;
 
         final key = '${message.childId}_$otherUserId';
 
@@ -64,17 +64,16 @@ class MessageService {
     });
   }
 
-  Stream<int> getUnreadMessagesCountForParent({
-  required String parentUsername,
-}) {
-  return _messagesRef
-      .where('participants', arrayContains: parentUsername)
-      .where('receiverRole', isEqualTo: 'parent')
-      .where('isRead', isEqualTo: false)
-      .snapshots()
-      .map((snapshot) => snapshot.docs.length);
-}
-
+  Stream<int> getUnreadMessagesCountForUser({
+    required String currentUserId,
+  }) {
+    return _messagesRef
+        .where('participants', arrayContains: currentUserId)
+        .where('receiverId', isEqualTo: currentUserId)
+        .where('isRead', isEqualTo: false)
+        .snapshots()
+        .map((snapshot) => snapshot.docs.length);
+  }
 
   Future<void> sendMessage({
     required String childId,
@@ -85,7 +84,6 @@ class MessageService {
     required String receiverId,
     required String receiverName,
     required String receiverRole,
-    required String parentUsername,
     required String text,
   }) async {
     final cleanText = text.trim();
@@ -104,33 +102,31 @@ class MessageService {
       'sentAt': Timestamp.now(),
       'isRead': false,
       'participants': [
-        parentUsername,
-        childId,
-        'parent',
+        senderId,
         receiverId,
+        childId,
       ],
     });
   }
 
   Future<void> markConversationAsRead({
     required String childId,
-    required String currentUserRole,
+    required String currentUserId,
     required String targetUserId,
-    required String parentUsername,
   }) async {
     final snapshot = await _messagesRef
         .where('childId', isEqualTo: childId)
-        .where('participants', arrayContains: parentUsername)
+        .where('participants', arrayContains: currentUserId)
         .get();
 
     final docsToUpdate = snapshot.docs.where((doc) {
       final data = doc.data();
 
-      final receiverRole = data['receiverRole'] ?? '';
+      final receiverId = data['receiverId'] ?? '';
       final senderId = data['senderId'] ?? '';
       final isRead = data['isRead'] ?? false;
 
-      return receiverRole == currentUserRole &&
+      return receiverId == currentUserId &&
           senderId == targetUserId &&
           isRead == false;
     }).toList();

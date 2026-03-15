@@ -9,24 +9,23 @@ import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 import 'messages_page.dart';
 
-class ParentChatsPage extends StatefulWidget {
+class NurseryChatsPage extends StatefulWidget {
   final List<ChildModel> children;
 
-  const ParentChatsPage({
+  const NurseryChatsPage({
     super.key,
     required this.children,
   });
 
   @override
-  State<ParentChatsPage> createState() => _ParentChatsPageState();
+  State<NurseryChatsPage> createState() => _NurseryChatsPageState();
 }
 
-class _ParentChatsPageState extends State<ParentChatsPage> {
+class _NurseryChatsPageState extends State<NurseryChatsPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final MessageService _messageService = MessageService();
   final TextEditingController searchCtrl = TextEditingController();
 
-  String selectedFilter = 'all';
   String selectedTab = 'recent';
 
   String? get currentUserId => FirebaseAuth.instance.currentUser?.uid;
@@ -38,55 +37,6 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
   }
 
   List<ChildModel> get activeChildren => widget.children;
-
-  Set<String> get allowedSections {
-    final sections = <String>{};
-
-    for (final child in activeChildren) {
-      if (child.section.trim().isNotEmpty) {
-        sections.add(child.section.trim());
-      }
-    }
-
-    return sections;
-  }
-
-  bool get hasNursery => allowedSections.contains('Nursery');
-  bool get hasKg => allowedSections.contains('Kindergarten');
-
-  List<ChildModel> get nurseryChildren =>
-      activeChildren.where((c) => c.section == 'Nursery').toList();
-
-  List<ChildModel> get kgChildren =>
-      activeChildren.where((c) => c.section == 'Kindergarten').toList();
-
-  String sectionLabel(String section) {
-    if (section == 'Nursery') return 'حضانة';
-    if (section == 'Kindergarten') return 'روضة';
-    return section;
-  }
-
-  String roleLabel(String role) {
-    if (role == 'nursery') return 'موظف حضانة';
-    if (role == 'teacher') return 'معلمة';
-    if (role == 'admin') return 'الإدارة';
-    if (role == 'parent') return 'ولي أمر';
-    return role;
-  }
-
-  Color sectionColor(String section) {
-    if (section == 'Nursery') return const Color(0xFFEFA7C8);
-    if (section == 'Kindergarten') return const Color(0xFF7BB6FF);
-    return AppColors.primary;
-  }
-
-  IconData roleIcon(String role) {
-    if (role == 'nursery') return Icons.child_care_outlined;
-    if (role == 'teacher') return Icons.school_outlined;
-    if (role == 'admin') return Icons.business_outlined;
-    if (role == 'parent') return Icons.person_outline;
-    return Icons.person_outline;
-  }
 
   String formatTime(Timestamp timestamp) {
     final date = timestamp.toDate();
@@ -108,10 +58,37 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
     return '${date.day}/${date.month}';
   }
 
-  Future<List<Map<String, dynamic>>> fetchAllowedPeople() async {
-    final sections = allowedSections.toList();
+  String firstLetter(String name) {
+    if (name.trim().isEmpty) return 'و';
+    return name.trim().substring(0, 1);
+  }
 
-    if (sections.isEmpty) return [];
+  ChildModel pickChildForParentUsername(String parentUsername) {
+    try {
+      return activeChildren.firstWhere(
+        (child) => child.parentUsername == parentUsername,
+      );
+    } catch (_) {
+      return activeChildren.first;
+    }
+  }
+
+  ChildModel pickChildForMessage(MessageModel message) {
+    try {
+      return activeChildren.firstWhere((child) => child.id == message.childId);
+    } catch (_) {
+      return activeChildren.first;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> fetchParents() async {
+    final parentUsernames = activeChildren
+        .map((c) => c.parentUsername.trim().toLowerCase())
+        .where((u) => u.isNotEmpty)
+        .toSet()
+        .toList();
+
+    if (parentUsernames.isEmpty) return [];
 
     final snapshot = await _firestore.collection('users').get();
     final searchText = searchCtrl.text.trim().toLowerCase();
@@ -125,68 +102,28 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
         'username': data['username'] ?? '',
         'email': data['email'] ?? '',
         'role': data['role'] ?? '',
-        'section': data['section'] ?? '',
-        'group': data['group'] ?? '',
       };
-    }).where((person) {
-      final role = (person['role'] ?? '').toString();
-      final section = (person['section'] ?? '').toString();
-      final name = (person['displayName'] ?? '').toString().toLowerCase();
-      final username = (person['username'] ?? '').toString().toLowerCase();
+    }).where((user) {
+      final role = (user['role'] ?? '').toString();
+      final username = (user['username'] ?? '').toString().trim().toLowerCase();
+      final displayName =
+          (user['displayName'] ?? '').toString().trim().toLowerCase();
 
-      final allowedRole =
-          role == 'teacher' || role == 'nursery' || role == 'admin';
-
-      if (!allowedRole) return false;
-
-      if (role == 'admin') {
-        if (section.isNotEmpty && !sections.contains(section)) {
-          return false;
-        }
-      } else {
-        if (!sections.contains(section)) {
-          return false;
-        }
-      }
-
-      if (selectedFilter == 'nursery' && section != 'Nursery') return false;
-      if (selectedFilter == 'kg' && section != 'Kindergarten') return false;
-      if (selectedFilter == 'admin' && role != 'admin') return false;
+      if (role != 'parent') return false;
+      if (!parentUsernames.contains(username)) return false;
 
       if (searchText.isEmpty) return true;
 
-      return name.contains(searchText) || username.contains(searchText);
+      return username.contains(searchText) || displayName.contains(searchText);
     }).toList();
 
     results.sort((a, b) {
-      final nameA = (a['displayName'] ?? '').toString();
-      final nameB = (b['displayName'] ?? '').toString();
-      return nameA.compareTo(nameB);
+      final aName = (a['displayName'] ?? '').toString();
+      final bName = (b['displayName'] ?? '').toString();
+      return aName.compareTo(bName);
     });
 
     return results;
-  }
-
-  ChildModel pickChildForPerson(Map<String, dynamic> person) {
-    final personSection = (person['section'] ?? '').toString();
-
-    if (personSection == 'Nursery' && nurseryChildren.isNotEmpty) {
-      return nurseryChildren.first;
-    }
-
-    if (personSection == 'Kindergarten' && kgChildren.isNotEmpty) {
-      return kgChildren.first;
-    }
-
-    return activeChildren.first;
-  }
-
-  ChildModel pickChildForMessage(MessageModel message) {
-    try {
-      return activeChildren.firstWhere((child) => child.id == message.childId);
-    } catch (_) {
-      return activeChildren.first;
-    }
   }
 
   Widget buildTopTab({
@@ -229,75 +166,13 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
     );
   }
 
-  Widget buildFilterChip({
-    required String label,
-    required String value,
-  }) {
-    final isSelected = selectedFilter == value;
-
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          selectedFilter = value;
-        });
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 220),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: isSelected ? AppColors.secondary : Colors.white,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: isSelected
-                ? AppColors.secondary
-                : AppColors.primary.withOpacity(0.16),
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? Colors.white : AppColors.textDark,
-            fontWeight: FontWeight.w700,
-            fontSize: 13,
-          ),
-        ),
-      ),
-    );
-  }
-
-  List<Widget> buildDynamicFilterChips() {
-    final chips = <Widget>[
-      buildFilterChip(label: 'الكل', value: 'all'),
-    ];
-
-    if (hasNursery) {
-      chips.add(const SizedBox(width: 8));
-      chips.add(buildFilterChip(label: 'الحضانة', value: 'nursery'));
-    }
-
-    if (hasKg) {
-      chips.add(const SizedBox(width: 8));
-      chips.add(buildFilterChip(label: 'الروضة', value: 'kg'));
-    }
-
-    chips.add(const SizedBox(width: 8));
-    chips.add(buildFilterChip(label: 'الإدارة', value: 'admin'));
-
-    return chips;
-  }
-
   Widget buildRecentChatCard(MessageModel message) {
     final childForChat = pickChildForMessage(message);
-    final isParentSender = message.senderRole == 'parent';
+    final isNurserySender = message.senderRole == 'nursery';
 
-    final targetUserId = isParentSender ? message.receiverId : message.senderId;
+    final targetUserId = isNurserySender ? message.receiverId : message.senderId;
     final targetUserName =
-        isParentSender ? message.receiverName : message.senderName;
-    final targetRole =
-        isParentSender ? message.receiverRole : message.senderRole;
-    final targetSection = childForChat.section;
-
-    final color = sectionColor(targetSection);
+        isNurserySender ? message.receiverName : message.senderName;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -321,11 +196,11 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
             MaterialPageRoute(
               builder: (_) => MessagesPage(
                 child: childForChat,
-                targetRole: targetRole,
+                targetRole: 'parent',
                 targetUserId: targetUserId,
                 targetUserName:
-                    targetUserName.isEmpty ? 'بدون اسم' : targetUserName,
-                targetSection: targetSection,
+                    targetUserName.isEmpty ? 'ولي الأمر' : targetUserName,
+                targetSection: 'Nursery',
               ),
             ),
           );
@@ -334,10 +209,10 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
           children: [
             CircleAvatar(
               radius: 25,
-              backgroundColor: color.withOpacity(0.14),
-              child: Icon(
-                roleIcon(targetRole),
-                color: color,
+              backgroundColor: const Color(0xFFEFA7C8).withOpacity(0.14),
+              child: const Icon(
+                Icons.person_outline,
+                color: Color(0xFFEFA7C8),
               ),
             ),
             const SizedBox(width: 12),
@@ -346,7 +221,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    targetUserName.isEmpty ? 'بدون اسم' : targetUserName,
+                    targetUserName.isEmpty ? 'ولي الأمر' : targetUserName,
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w800,
@@ -355,7 +230,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '${roleLabel(targetRole)} • بخصوص ${childForChat.name}',
+                    'بخصوص ${childForChat.name}',
                     style: const TextStyle(
                       fontSize: 13,
                       color: AppColors.textLight,
@@ -400,14 +275,10 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
     );
   }
 
-  Widget buildPersonCard(Map<String, dynamic> person) {
-    final name = (person['displayName'] ?? '').toString();
-    final role = (person['role'] ?? '').toString();
-    final section = (person['section'] ?? '').toString();
-    final group = (person['group'] ?? '').toString();
-
-    final color = sectionColor(section);
-    final childForChat = pickChildForPerson(person);
+  Widget buildParentCard(Map<String, dynamic> parent) {
+    final parentName = (parent['displayName'] ?? '').toString();
+    final parentUsername = (parent['username'] ?? '').toString();
+    final childForChat = pickChildForParentUsername(parentUsername);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -427,10 +298,14 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
         children: [
           CircleAvatar(
             radius: 25,
-            backgroundColor: color.withOpacity(0.14),
-            child: Icon(
-              roleIcon(role),
-              color: color,
+            backgroundColor: const Color(0xFFEFA7C8).withOpacity(0.14),
+            child: Text(
+              firstLetter(parentName),
+              style: const TextStyle(
+                color: Color(0xFFEFA7C8),
+                fontWeight: FontWeight.w800,
+                fontSize: 18,
+              ),
             ),
           ),
           const SizedBox(width: 12),
@@ -439,7 +314,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  name.isEmpty ? 'بدون اسم' : name,
+                  parentName.isEmpty ? 'ولي الأمر' : parentName,
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w800,
@@ -448,29 +323,19 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '${roleLabel(role)} • ${sectionLabel(section)}',
+                  'اسم المستخدم: $parentUsername',
                   style: const TextStyle(
                     fontSize: 13,
                     color: AppColors.textLight,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                if (group.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    'المجموعة: $group',
-                    style: const TextStyle(
-                      fontSize: 12.5,
-                      color: AppColors.textLight,
-                    ),
-                  ),
-                ],
                 const SizedBox(height: 6),
                 Text(
-                  'سيتم فتح المحادثة عبر الطفل: ${childForChat.name}',
-                  style: TextStyle(
+                  'المحادثة عبر الطفل: ${childForChat.name}',
+                  style: const TextStyle(
                     fontSize: 12.5,
-                    color: color,
+                    color: Color(0xFFEFA7C8),
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -485,10 +350,11 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
                 MaterialPageRoute(
                   builder: (_) => MessagesPage(
                     child: childForChat,
-                    targetRole: role,
-                    targetUserId: (person['id'] ?? '').toString(),
-                    targetUserName: name,
-                    targetSection: section,
+                    targetRole: 'parent',
+                    targetUserId: (parent['id'] ?? '').toString(),
+                    targetUserName:
+                        parentName.isEmpty ? 'ولي الأمر' : parentName,
+                    targetSection: 'Nursery',
                   ),
                 ),
               );
@@ -541,7 +407,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
         }
 
         final chats = (snapshot.data ?? [])
-            .where((m) => m.senderRole == 'parent' || m.receiverRole == 'parent')
+            .where((m) => m.senderRole == 'nursery' || m.receiverRole == 'nursery')
             .toList();
 
         if (chats.isEmpty) {
@@ -572,7 +438,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
                   ),
                   SizedBox(height: 8),
                   Text(
-                    'عندما تبدأ أول محادثة ستظهر هنا آخر الرسائل',
+                    'عندما تبدأ أول محادثة مع ولي أمر ستظهر هنا',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 14,
@@ -630,7 +496,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'البحث عن الأشخاص',
+                          'البحث عن أولياء الأمور',
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.w800,
@@ -639,7 +505,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
                         ),
                         SizedBox(height: 4),
                         Text(
-                          'تظهر لك الجهات المسموح لك بالتواصل معها حسب أطفالك',
+                          'تظهر لك أولياء أمور أطفال الحضانة النشطين',
                           style: TextStyle(
                             fontSize: 13,
                             color: AppColors.textLight,
@@ -669,20 +535,13 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
                         ),
                 ),
               ),
-              const SizedBox(height: 12),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: buildDynamicFilterChips(),
-                ),
-              ),
             ],
           ),
         ),
         const SizedBox(height: 16),
         Expanded(
           child: FutureBuilder<List<Map<String, dynamic>>>(
-            future: fetchAllowedPeople(),
+            future: fetchParents(),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(
@@ -693,7 +552,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
               if (snapshot.hasError) {
                 return Center(
                   child: Text(
-                    'حدث خطأ أثناء تحميل الأشخاص',
+                    'حدث خطأ أثناء تحميل أولياء الأمور',
                     style: TextStyle(
                       color: Colors.red.shade700,
                       fontWeight: FontWeight.w700,
@@ -702,9 +561,9 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
                 );
               }
 
-              final people = snapshot.data ?? [];
+              final parents = snapshot.data ?? [];
 
-              if (people.isEmpty) {
+              if (parents.isEmpty) {
                 return Center(
                   child: Container(
                     width: double.infinity,
@@ -732,7 +591,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
                         ),
                         SizedBox(height: 8),
                         Text(
-                          'لم يتم العثور على أشخاص مطابقين للبحث أو للفلاتر الحالية',
+                          'لم يتم العثور على أولياء أمور مطابقين للبحث',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             fontSize: 14,
@@ -747,9 +606,9 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
               }
 
               return ListView.builder(
-                itemCount: people.length,
+                itemCount: parents.length,
                 itemBuilder: (context, index) {
-                  return buildPersonCard(people[index]);
+                  return buildParentCard(parents[index]);
                 },
               );
             },

@@ -1,11 +1,13 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+
 import '../models/child_model.dart';
 import '../services/gallery_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 import 'add_update_page.dart';
 import 'camera_checkin_page.dart';
+import 'nursery_chats_page.dart';
 
 class NurseryStaffHomePage extends StatefulWidget {
   const NurseryStaffHomePage({super.key});
@@ -20,11 +22,10 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
 
   Future<List<ChildModel>> fetchNurseryChildren() async {
     final snapshot = await _firestore
-    .collection('children')
-    .where('section', isEqualTo: 'Nursery')
-    .where('isActive', isEqualTo: true)
-    .get();
-
+        .collection('children')
+        .where('section', isEqualTo: 'Nursery')
+        .where('isActive', isEqualTo: true)
+        .get();
 
     final children = snapshot.docs.map((doc) {
       final data = doc.data();
@@ -90,7 +91,9 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
           'section': child.section,
           'group': child.group,
           'type': 'كاميرا',
-          'note': type == 'image' ? 'صورة للطفل 📸' : 'فيديو قصير للطفل 🎥',
+          'note': type == 'image'
+              ? 'صورة للطفل'
+              : 'فيديو قصير للطفل',
           'createdAt': Timestamp.now(),
           'time': FieldValue.serverTimestamp(),
           'byRole': 'nursery',
@@ -101,17 +104,14 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
         });
 
         if (!mounted) return;
-
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('تم إرسال التحديث بالكاميرا'),
           ),
         );
-
         setState(() {});
       } catch (e) {
         if (!mounted) return;
-
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('حدث خطأ أثناء حفظ التحديث بالكاميرا: $e'),
@@ -131,108 +131,142 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    return AppPageScaffold(
-      title: 'الرئيسية - موظفة الحضانة',
-      child: FutureBuilder<List<ChildModel>>(
-        future: fetchNurseryChildren(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(
-              child: CircularProgressIndicator(),
-            );
-          }
+    return FutureBuilder<List<ChildModel>>(
+      future: fetchNurseryChildren(),
+      builder: (context, snapshot) {
+        return AppPageScaffold(
+          title: 'الرئيسية - موظفة الحضانة',
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.send_outlined),
+              tooltip: 'المراسلات',
+              onPressed: snapshot.connectionState == ConnectionState.waiting
+                  ? null
+                  : () {
+                      final children = snapshot.data ?? [];
 
-          if (snapshot.hasError) {
-            return Center(
-              child: Text('حدث خطأ: ${snapshot.error}'),
-            );
-          }
+                      if (children.isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'لا توجد مراسلات متاحة لأنه لا يوجد أطفال نشطون في الحضانة',
+                            ),
+                          ),
+                        );
+                        return;
+                      }
 
-          final nurseryChildren = snapshot.data ?? [];
-
-          return ListView(
-            children: [
-              Text(
-                'أهلاً 👩‍🍼',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'يمكنكِ متابعة أطفال الحضانة من خلال التحديثات اليومية والصور والملاحظات.',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: AppColors.textLight,
-                    ),
-              ),
-              const SizedBox(height: 20),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Row(
-                    children: [
-                      CircleAvatar(
-                        backgroundColor: AppColors.primary.withOpacity(0.12),
-                        child: const Icon(
-                          Icons.info_outline,
-                          color: AppColors.primary,
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => NurseryChatsPage(children: children),
                         ),
+                      );
+                    },
+            ),
+          ],
+          child: Builder(
+            builder: (context) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(
+                  child: CircularProgressIndicator(),
+                );
+              }
+
+              if (snapshot.hasError) {
+                return Center(
+                  child: Text('حدث خطأ: ${snapshot.error}'),
+                );
+              }
+
+              final nurseryChildren = snapshot.data ?? [];
+
+              return ListView(
+                children: [
+                  Text(
+                    'أهلاً بكِ',
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'يمكنكِ متابعة أطفال الحضانة من خلال التحديثات اليومية والصور والملاحظات.',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: AppColors.textLight,
+                        ),
+                  ),
+                  const SizedBox(height: 20),
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Row(
+                        children: [
+                          CircleAvatar(
+                            backgroundColor:
+                                AppColors.primary.withOpacity(0.12),
+                            child: const Icon(
+                              Icons.info_outline,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          const Expanded(
+                            child: Text(
+                              'في قسم الحضانة لا يتم اعتماد حضور يومي ثابت، لأن حضور الطفل يكون مرنًا حسب الزيارة.\nلذلك تعتمد المتابعة هنا على التحديثات والملاحظات والصور.',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                height: 1.5,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 12),
-                      const Expanded(
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  if (nurseryChildren.isEmpty)
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
                         child: Text(
-                          'في قسم الحضانة لا يتم اعتماد حضور يومي ثابت، لأن حضور الطفل يكون مرنًا حسب الزيارة. لذلك تعتمد المتابعة هنا على التحديثات والملاحظات والصور.',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            height: 1.5,
+                          'لا يوجد أطفال نشطون في قسم الحضانة حاليًا.',
+                          style: const TextStyle(
+                            color: AppColors.textLight,
+                            fontSize: 15,
                           ),
                         ),
                       ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              if (nurseryChildren.isEmpty)
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Text(
-                      'لا يوجد أطفال في قسم الحضانة حاليًا.',
-                      style: TextStyle(
-                        color: AppColors.textLight,
-                        fontSize: 15,
+                    )
+                  else
+                    ...nurseryChildren.map(
+                      (c) => Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: _ChildActionCard(
+                          childModel: c,
+                          onAddUpdate: () => openAddUpdate(c),
+                          onCamera: () => openCameraCheckin(c),
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: sendNotificationPlaceholder,
+                    icon: const Icon(Icons.notifications_outlined),
+                    label: const Text('إرسال إشعار للأهل'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(double.infinity, 50),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
                       ),
                     ),
                   ),
-                )
-              else
-                ...nurseryChildren.map(
-                  (c) => Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: _ChildActionCard(
-                      childModel: c,
-                      onAddUpdate: () => openAddUpdate(c),
-                      onCamera: () => openCameraCheckin(c),
-                    ),
-                  ),
-                ),
-              const SizedBox(height: 10),
-              OutlinedButton.icon(
-                onPressed: sendNotificationPlaceholder,
-                icon: const Icon(Icons.notifications_outlined),
-                label: const Text('إرسال إشعار للأهل'),
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size(double.infinity, 50),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
-              ),
-            ],
-          );
-        },
-      ),
+                ],
+              );
+            },
+          ),
+        );
+      },
     );
   }
 }

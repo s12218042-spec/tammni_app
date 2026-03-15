@@ -9,6 +9,7 @@ import 'parent_chats_page.dart';
 import 'parent_updates_page.dart';
 import 'weekly_report_page.dart';
 import '../services/message_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 
 class ParentHomePage extends StatefulWidget {
@@ -26,6 +27,8 @@ class ParentHomePage extends StatefulWidget {
 class _ParentHomePageState extends State<ParentHomePage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final MessageService _messageService = MessageService();
+
+String? get currentUserId => FirebaseAuth.instance.currentUser?.uid;
 
   String sectionLabel(String section) {
     return section == 'Nursery' ? 'حضانة' : 'روضة';
@@ -154,9 +157,10 @@ class _ParentHomePageState extends State<ParentHomePage> {
         return AppPageScaffold(
           title: 'الرئيسية - ولي الأمر',
           actions: [
+  if (currentUserId != null)
   StreamBuilder<int>(
-    stream: _messageService.getUnreadMessagesCountForParent(
-      parentUsername: widget.parentUsername,
+    stream: _messageService.getUnreadMessagesCountForUser(
+      currentUserId: currentUserId!,
     ),
     builder: (context, unreadSnapshot) {
       final unreadCount = unreadSnapshot.data ?? 0;
@@ -226,7 +230,14 @@ class _ParentHomePageState extends State<ParentHomePage> {
         ],
       );
     },
+  )
+else
+  IconButton(
+    icon: const Icon(Icons.send_outlined),
+    tooltip: 'المراسلات',
+    onPressed: null,
   ),
+
 ],
 
           child: Builder(
@@ -719,7 +730,8 @@ class _ChildDashboardCard extends StatelessWidget {
                         ),
                       );
                     },
-                    icon: const Icon(Icons.chat_bubble_outline),
+                    icon: const Icon(Icons.notifications_none_outlined),
+
                     label: const Text('التحديثات'),
                     style: OutlinedButton.styleFrom(
                       minimumSize: const Size(double.infinity, 50),

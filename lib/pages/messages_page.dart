@@ -1,5 +1,6 @@
-import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 
 import '../models/child_model.dart';
 import '../models/message_model.dart';
@@ -32,20 +33,25 @@ class _MessagesPageState extends State<MessagesPage> {
   final TextEditingController messageCtrl = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
-  String get parentUsername => widget.child.parentUsername;
+  String? currentUserId;
+  String currentUserName = '';
+  String currentUserRole = '';
+  bool loadingIdentity = true;
 
   String get targetDisplayName => widget.targetUserName;
 
   IconData get targetIcon {
     if (widget.targetRole == 'teacher') return Icons.school_outlined;
     if (widget.targetRole == 'nursery') return Icons.child_care_outlined;
+    if (widget.targetRole == 'parent') return Icons.person_outline;
     if (widget.targetRole == 'admin') return Icons.business_outlined;
-    return Icons.chat_bubble_outline_rounded;
+    return Icons.send_outlined;
   }
 
   Color get targetColor {
     if (widget.targetRole == 'teacher') return const Color(0xFF7BB6FF);
     if (widget.targetRole == 'nursery') return const Color(0xFFEFA7C8);
+    if (widget.targetRole == 'parent') return AppColors.secondary;
     if (widget.targetRole == 'admin') return AppColors.secondary;
     return AppColors.primary;
   }
@@ -59,6 +65,7 @@ class _MessagesPageState extends State<MessagesPage> {
   String roleLabel(String role) {
     if (role == 'teacher') return 'معلمة';
     if (role == 'nursery') return 'موظف حضانة';
+    if (role == 'parent') return 'ولي أمر';
     if (role == 'admin') return 'إدارة';
     return role;
   }
@@ -66,17 +73,42 @@ class _MessagesPageState extends State<MessagesPage> {
   @override
   void initState() {
     super.initState();
-    markAsRead();
+    loadCurrentUserIdentity();
   }
 
-  Future<void> markAsRead() async {
-    await _messageService.markConversationAsRead(
-  childId: widget.child.id,
-  currentUserRole: 'parent',
-  targetUserId: widget.targetUserId,
-  parentUsername: parentUsername,
-);
+  Future<void> loadCurrentUserIdentity() async {
+    final user = FirebaseAuth.instance.currentUser;
 
+    if (user == null) {
+      if (!mounted) return;
+      setState(() {
+        loadingIdentity = false;
+      });
+      return;
+    }
+
+    final doc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .get();
+
+    final data = doc.data() ?? {};
+
+    currentUserId = user.uid;
+    currentUserName =
+        (data['displayName'] ?? data['name'] ?? data['username'] ?? '').toString();
+    currentUserRole = (data['role'] ?? '').toString();
+
+    await _messageService.markConversationAsRead(
+      childId: widget.child.id,
+      currentUserId: user.uid,
+      targetUserId: widget.targetUserId,
+    );
+
+    if (!mounted) return;
+    setState(() {
+      loadingIdentity = false;
+    });
   }
 
   @override
@@ -98,18 +130,17 @@ class _MessagesPageState extends State<MessagesPage> {
 
   Future<void> sendCurrentMessage() async {
     final text = messageCtrl.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty || currentUserId == null || currentUserRole.isEmpty) return;
 
     await _messageService.sendMessage(
       childId: widget.child.id,
       childName: widget.child.name,
-      senderId: parentUsername,
-      senderName: widget.child.parentName,
-      senderRole: 'parent',
+      senderId: currentUserId!,
+      senderName: currentUserName,
+      senderRole: currentUserRole,
       receiverId: widget.targetUserId,
       receiverName: widget.targetUserName,
       receiverRole: widget.targetRole,
-      parentUsername: parentUsername,
       text: text,
     );
 
@@ -126,7 +157,7 @@ class _MessagesPageState extends State<MessagesPage> {
   }
 
   Widget buildMessageBubble(MessageModel message) {
-    final isMe = message.senderRole == 'parent';
+    final isMe = message.senderId == currentUserId;
 
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
@@ -300,6 +331,28 @@ class _MessagesPageState extends State<MessagesPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (loadingIdentity) {
+      return const Directionality(
+        textDirection: TextDirection.rtl,
+        child: Scaffold(
+          body: Center(
+            child: CircularProgressIndicator(),
+          ),
+        ),
+      );
+    }
+
+    if (currentUserId == null) {
+      return const Directionality(
+        textDirection: TextDirection.rtl,
+        child: Scaffold(
+          body: Center(
+            child: Text('تعذر تحميل هوية المستخدم'),
+          ),
+        ),
+      );
+    }
+
     return AppPageScaffold(
       title: 'المحادثة',
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
@@ -310,11 +363,10 @@ class _MessagesPageState extends State<MessagesPage> {
           Expanded(
             child: StreamBuilder<List<MessageModel>>(
               stream: _messageService.getConversationMessages(
-  childId: widget.child.id,
-  parentUsername: parentUsername,
-  targetUserId: widget.targetUserId,
-),
-
+                childId: widget.child.id,
+                currentUserId: currentUserId!,
+                targetUserId: widget.targetUserId,
+              ),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(
@@ -335,7 +387,6 @@ class _MessagesPageState extends State<MessagesPage> {
                 }
 
                 final messages = snapshot.data ?? [];
-
 
                 if (messages.isEmpty) {
                   return Center(

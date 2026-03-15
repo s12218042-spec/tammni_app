@@ -83,41 +83,48 @@ class _WeeklyReportPageState extends State<WeeklyReportPage> {
     };
   }
 
-  Future<List<Map<String, dynamic>>> fetchWeeklyUpdates() async {
-    final now = DateTime.now();
-    final start = Timestamp.fromDate(
-      DateTime(now.year, now.month, now.day).subtract(const Duration(days: 6)),
-    );
+Future<List<Map<String, dynamic>>> fetchWeeklyUpdates() async {
+  final now = DateTime.now();
+  final startDate = DateTime(now.year, now.month, now.day)
+      .subtract(const Duration(days: 6));
 
-    final snapshot = await _firestore
-        .collection('updates')
-        .where('childId', isEqualTo: widget.child.id)
-        .where('time', isGreaterThanOrEqualTo: start)
-        .get();
+  final snapshot = await _firestore
+      .collection('updates')
+      .where('childId', isEqualTo: widget.child.id)
+      .get();
 
-    final items = snapshot.docs.map((doc) {
-      final data = doc.data();
-      return {
-        'id': doc.id,
-        'type': data['type'] ?? '',
-        'note': data['note'] ?? '',
-        'time': data['time'] as Timestamp?,
-        'createdAt': data['createdAt'] as Timestamp?,
-      };
-    }).toList();
+  final items = snapshot.docs.map((doc) {
+    final data = doc.data();
+    return {
+      'id': doc.id,
+      'type': data['type'] ?? '',
+      'note': data['note'] ?? '',
+      'time': data['time'] as Timestamp?,
+      'createdAt': data['createdAt'] as Timestamp?,
+    };
+  }).where((item) {
+    final ts =
+        (item['time'] as Timestamp?) ?? (item['createdAt'] as Timestamp?);
 
-    items.sort((a, b) {
-      final aTime = (a['time'] as Timestamp?) ?? (a['createdAt'] as Timestamp?);
-      final bTime = (b['time'] as Timestamp?) ?? (b['createdAt'] as Timestamp?);
+    if (ts == null) return false;
 
-      if (aTime == null && bTime == null) return 0;
-      if (aTime == null) return 1;
-      if (bTime == null) return -1;
-      return bTime.compareTo(aTime);
-    });
+    return !ts.toDate().isBefore(startDate);
+  }).toList();
 
-    return items;
-  }
+  items.sort((a, b) {
+    final aTime = (a['time'] as Timestamp?) ?? (a['createdAt'] as Timestamp?);
+    final bTime = (b['time'] as Timestamp?) ?? (b['createdAt'] as Timestamp?);
+
+    if (aTime == null && bTime == null) return 0;
+    if (aTime == null) return 1;
+    if (bTime == null) return -1;
+
+    return bTime.compareTo(aTime);
+  });
+
+  return items;
+}
+
 
   Future<int> fetchWeeklyAttendanceCount() async {
     final now = DateTime.now();

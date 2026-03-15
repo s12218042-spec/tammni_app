@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+
 import '../models/child_model.dart';
 import '../services/gallery_service.dart';
 import '../theme/app_theme.dart';
@@ -7,6 +8,7 @@ import '../widgets/app_page_scaffold.dart';
 import 'attendance_page.dart';
 import 'add_update_page.dart';
 import 'camera_checkin_page.dart';
+import 'teacher_chats_page.dart';
 
 class TeacherHomePage extends StatefulWidget {
   const TeacherHomePage({super.key});
@@ -21,11 +23,10 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
 
   Future<List<ChildModel>> fetchKgChildren() async {
     final snapshot = await _firestore
-    .collection('children')
-    .where('section', isEqualTo: 'Kindergarten')
-    .where('isActive', isEqualTo: true)
-    .get();
-
+        .collection('children')
+        .where('section', isEqualTo: 'Kindergarten')
+        .where('isActive', isEqualTo: true)
+        .get();
 
     final children = snapshot.docs.map((doc) {
       final data = doc.data();
@@ -71,8 +72,9 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
     final res = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) =>
-            const AttendancePage(sectionFilter: 'Kindergarten'),
+        builder: (context) => const AttendancePage(
+          sectionFilter: 'Kindergarten',
+        ),
       ),
     );
 
@@ -109,7 +111,7 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
           'section': child.section,
           'group': child.group,
           'type': 'كاميرا',
-          'note': type == 'image' ? 'صورة للطفل 📸' : 'فيديو قصير للطفل 🎥',
+          'note': type == 'image' ? 'صورة للطفل' : 'فيديو قصير للطفل',
           'createdAt': Timestamp.now(),
           'time': FieldValue.serverTimestamp(),
           'byRole': 'teacher',
@@ -120,17 +122,14 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
         });
 
         if (!mounted) return;
-
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('تم إرسال التحديث بالكاميرا بنجاح'),
           ),
         );
-
         setState(() {});
       } catch (e) {
         if (!mounted) return;
-
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('حدث خطأ أثناء حفظ التحديث بالكاميرا: $e'),
@@ -142,66 +141,99 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    return AppPageScaffold(
-      title: 'الرئيسية - المعلمة',
-      child: FutureBuilder<List<ChildModel>>(
-        future: fetchKgChildren(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(
-              child: CircularProgressIndicator(),
-            );
-          }
+    return FutureBuilder<List<ChildModel>>(
+      future: fetchKgChildren(),
+      builder: (context, snapshot) {
+        return AppPageScaffold(
+          title: 'الرئيسية - المعلمة',
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.send_outlined),
+              tooltip: 'المراسلات',
+              onPressed: snapshot.connectionState == ConnectionState.waiting
+                  ? null
+                  : () {
+                      final children = snapshot.data ?? [];
 
-          if (snapshot.hasError) {
-            return Center(
-              child: Text(
-                'حدث خطأ أثناء تحميل البيانات',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-            );
-          }
+                      if (children.isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'لا توجد مراسلات متاحة لأنه لا يوجد أطفال نشطون في الروضة',
+                            ),
+                          ),
+                        );
+                        return;
+                      }
 
-          final kgChildren = snapshot.data ?? [];
-
-          return RefreshIndicator(
-            onRefresh: refreshPage,
-            child: ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              children: [
-                _buildHeader(context),
-                const SizedBox(height: 18),
-                _buildQuickInfoCard(context, kgChildren.length),
-                const SizedBox(height: 16),
-                _buildAttendanceCard(),
-                const SizedBox(height: 20),
-                Text(
-                  'أطفال الروضة',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.textDark,
-                      ),
-                ),
-                const SizedBox(height: 10),
-                if (kgChildren.isEmpty)
-                  _buildEmptyState()
-                else
-                  ...kgChildren.map(
-                    (child) => Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _ChildActionCard(
-                        childModel: child,
-                        onAddUpdate: () => openAddUpdate(child),
-                        onCamera: () => openCameraCheckin(child),
-                      ),
-                    ),
-                  ),
-                const SizedBox(height: 8),
-              ],
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => TeacherChatsPage(children: children),
+                        ),
+                      );
+                    },
             ),
-          );
-        },
-      ),
+          ],
+          child: Builder(
+            builder: (context) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(
+                  child: CircularProgressIndicator(),
+                );
+              }
+
+              if (snapshot.hasError) {
+                return Center(
+                  child: Text(
+                    'حدث خطأ أثناء تحميل البيانات',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                );
+              }
+
+              final kgChildren = snapshot.data ?? [];
+
+              return RefreshIndicator(
+                onRefresh: refreshPage,
+                child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  children: [
+                    _buildHeader(context),
+                    const SizedBox(height: 18),
+                    _buildQuickInfoCard(context, kgChildren.length),
+                    const SizedBox(height: 16),
+                    _buildAttendanceCard(),
+                    const SizedBox(height: 20),
+                    Text(
+                      'أطفال الروضة',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.textDark,
+                          ),
+                    ),
+                    const SizedBox(height: 10),
+                    if (kgChildren.isEmpty)
+                      _buildEmptyState()
+                    else
+                      ...kgChildren.map(
+                        (child) => Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: _ChildActionCard(
+                            childModel: child,
+                            onAddUpdate: () => openAddUpdate(child),
+                            onCamera: () => openCameraCheckin(child),
+                          ),
+                        ),
+                      ),
+                    const SizedBox(height: 8),
+                  ],
+                ),
+              );
+            },
+          ),
+        );
+      },
     );
   }
 
@@ -250,7 +282,7 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'أهلاً بكِ 👩‍🏫',
+                  'أهلاً بكِ',
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w800,
                         color: AppColors.textDark,

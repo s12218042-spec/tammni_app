@@ -534,7 +534,8 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
                           ),
                         );
                       },
-                      icon: const Icon(Icons.chat_bubble_outline),
+                      icon: const Icon(Icons.notifications_none_outlined),
+
                       label: const Text('كل التحديثات'),
                     ),
                   ),
