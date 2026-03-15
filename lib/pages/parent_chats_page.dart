@@ -34,10 +34,12 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
     super.dispose();
   }
 
+  List<ChildModel> get activeChildren => widget.children;
+
   Set<String> get allowedSections {
     final sections = <String>{};
 
-    for (final child in widget.children) {
+    for (final child in activeChildren) {
       if (child.section.trim().isNotEmpty) {
         sections.add(child.section.trim());
       }
@@ -46,11 +48,14 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
     return sections;
   }
 
+  bool get hasNursery => allowedSections.contains('Nursery');
+  bool get hasKg => allowedSections.contains('Kindergarten');
+
   List<ChildModel> get nurseryChildren =>
-      widget.children.where((c) => c.section == 'Nursery').toList();
+      activeChildren.where((c) => c.section == 'Nursery').toList();
 
   List<ChildModel> get kgChildren =>
-      widget.children.where((c) => c.section == 'Kindergarten').toList();
+      activeChildren.where((c) => c.section == 'Kindergarten').toList();
 
   String sectionLabel(String section) {
     if (section == 'Nursery') return 'حضانة';
@@ -61,7 +66,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
   String roleLabel(String role) {
     if (role == 'nursery') return 'موظف حضانة';
     if (role == 'teacher') return 'معلمة';
-    if (role == 'admin') return 'إدارة';
+    if (role == 'admin') return 'الإدارة';
     return role;
   }
 
@@ -129,6 +134,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
 
       if (!allowedRole) return false;
 
+      // الإدارة تظهر فقط إذا كانت مرتبطة بأحد أقسام أطفال ولي الأمر
       if (role == 'admin') {
         if (section.isNotEmpty && !sections.contains(section)) {
           return false;
@@ -139,13 +145,10 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
         }
       }
 
+      // الفلاتر الديناميكية
       if (selectedFilter == 'nursery' && section != 'Nursery') return false;
       if (selectedFilter == 'kg' && section != 'Kindergarten') return false;
       if (selectedFilter == 'admin' && role != 'admin') return false;
-      if (selectedFilter == 'staff' &&
-          !(role == 'teacher' || role == 'nursery')) {
-        return false;
-      }
 
       if (searchText.isEmpty) return true;
 
@@ -172,14 +175,14 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
       return kgChildren.first;
     }
 
-    return widget.children.first;
+    return activeChildren.first;
   }
 
   ChildModel pickChildForMessage(MessageModel message) {
     try {
-      return widget.children.firstWhere((child) => child.id == message.childId);
+      return activeChildren.firstWhere((child) => child.id == message.childId);
     } catch (_) {
-      return widget.children.first;
+      return activeChildren.first;
     }
   }
 
@@ -257,6 +260,27 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
         ),
       ),
     );
+  }
+
+  List<Widget> buildDynamicFilterChips() {
+    final chips = <Widget>[
+      buildFilterChip(label: 'الكل', value: 'all'),
+    ];
+
+    if (hasNursery) {
+      chips.add(const SizedBox(width: 8));
+      chips.add(buildFilterChip(label: 'الحضانة', value: 'nursery'));
+    }
+
+    if (hasKg) {
+      chips.add(const SizedBox(width: 8));
+      chips.add(buildFilterChip(label: 'الروضة', value: 'kg'));
+    }
+
+    chips.add(const SizedBox(width: 8));
+    chips.add(buildFilterChip(label: 'الإدارة', value: 'admin'));
+
+    return chips;
   }
 
   Widget buildRecentChatCard(MessageModel message) {
@@ -473,7 +497,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
                 borderRadius: BorderRadius.circular(18),
               ),
               child: const Icon(
-                Icons.chat_bubble_outline_rounded,
+                Icons.send_outlined,
                 color: Colors.white,
               ),
             ),
@@ -484,7 +508,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
   }
 
   Widget buildRecentChatsTab() {
-    final parentUsername = widget.children.first.parentUsername;
+    final parentUsername = activeChildren.first.parentUsername;
 
     return StreamBuilder<List<MessageModel>>(
       stream: _messageService.getLatestChatsForParent(
@@ -524,7 +548,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
-                    Icons.chat_bubble_outline_rounded,
+                    Icons.send_outlined,
                     size: 52,
                     color: AppColors.textLight,
                   ),
@@ -640,17 +664,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
-                  children: [
-                    buildFilterChip(label: 'الكل', value: 'all'),
-                    const SizedBox(width: 8),
-                    buildFilterChip(label: 'الحضانة', value: 'nursery'),
-                    const SizedBox(width: 8),
-                    buildFilterChip(label: 'الروضة', value: 'kg'),
-                    const SizedBox(width: 8),
-                    buildFilterChip(label: 'الموظفون', value: 'staff'),
-                    const SizedBox(width: 8),
-                    buildFilterChip(label: 'الإدارة', value: 'admin'),
-                  ],
+                  children: buildDynamicFilterChips(),
                 ),
               ),
             ],

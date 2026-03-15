@@ -21,9 +21,11 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
 
   Future<List<ChildModel>> fetchKgChildren() async {
     final snapshot = await _firestore
-        .collection('children')
-        .where('section', isEqualTo: 'Kindergarten')
-        .get();
+    .collection('children')
+    .where('section', isEqualTo: 'Kindergarten')
+    .where('isActive', isEqualTo: true)
+    .get();
+
 
     final children = snapshot.docs.map((doc) {
       final data = doc.data();

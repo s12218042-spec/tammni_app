@@ -1,7 +1,9 @@
 import 'dart:io' show File;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+
 import '../models/child_model.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
@@ -32,6 +34,14 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
     return section == 'Nursery'
         ? const Color(0xFFEFA7C8)
         : const Color(0xFF7BB6FF);
+  }
+
+  String statusLabel(String status, bool isActive) {
+    if (!isActive) return 'مؤرشف';
+    if (status == 'active') return 'نشط';
+    if (status == 'transferred') return 'منقول';
+    if (status == 'graduated') return 'متخرج';
+    return 'نشط';
   }
 
   String senderLabel(String byRole) {
@@ -140,10 +150,28 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
     return '${now.year}-${now.month}-${now.day}';
   }
 
+  Future<Map<String, dynamic>?> fetchChildDetails() async {
+    final doc = await _firestore.collection('children').doc(widget.child.id).get();
+    if (!doc.exists) return null;
+
+    final data = doc.data()!;
+    return {
+      'id': doc.id,
+      'name': data['name'] ?? widget.child.name,
+      'section': data['section'] ?? widget.child.section,
+      'group': data['group'] ?? widget.child.group,
+      'parentName': data['parentName'] ?? widget.child.parentName,
+      'parentUsername': data['parentUsername'] ?? widget.child.parentUsername,
+      'birthDate': data['birthDate'] ?? Timestamp.fromDate(widget.child.birthDate),
+      'isActive': data['isActive'] ?? true,
+      'status': data['status'] ?? 'active',
+      'updatedAt': data['updatedAt'],
+    };
+  }
+
   Future<bool> fetchAttendance() async {
     final docId = '${widget.child.id}_$dateKey';
     final doc = await _firestore.collection('attendance').doc(docId).get();
-
     if (!doc.exists) return false;
     return doc.data()?['present'] == true;
   }
@@ -187,230 +215,266 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
   @override
   Widget build(BuildContext context) {
     final child = widget.child;
-    final badgeColor = sectionColor(child.section);
 
     return AppPageScaffold(
       title: 'تحديثات الطفل',
-      child: FutureBuilder<List<Map<String, dynamic>>>(
-        future: fetchUpdates(),
-        builder: (context, updatesSnapshot) {
-          if (updatesSnapshot.connectionState == ConnectionState.waiting) {
-            return const Center(
-              child: CircularProgressIndicator(),
-            );
-          }
+      child: FutureBuilder<Map<String, dynamic>?>(
+        future: fetchChildDetails(),
+        builder: (context, childSnapshot) {
+          final currentData = childSnapshot.data;
+          final currentName = (currentData?['name'] ?? child.name).toString();
+          final currentSection =
+              (currentData?['section'] ?? child.section).toString();
+          final currentGroup = (currentData?['group'] ?? child.group).toString();
+          final currentBirthRaw = currentData?['birthDate'];
+          final currentBirthDate = currentBirthRaw is Timestamp
+              ? currentBirthRaw.toDate()
+              : child.birthDate;
+          final isActive = currentData?['isActive'] ?? true;
+          final status = (currentData?['status'] ?? 'active').toString();
 
-          if (updatesSnapshot.hasError) {
-            return const Center(
-              child: Text('حدث خطأ أثناء تحميل التحديثات'),
-            );
-          }
+          final badgeColor = sectionColor(currentSection);
 
-          final updates = updatesSnapshot.data ?? [];
+          return FutureBuilder<List<Map<String, dynamic>>>(
+            future: fetchUpdates(),
+            builder: (context, updatesSnapshot) {
+              if (updatesSnapshot.connectionState == ConnectionState.waiting) {
+                return const Center(
+                  child: CircularProgressIndicator(),
+                );
+              }
 
-          return ListView(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [
-                      AppColors.primary,
-                      AppColors.secondary,
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(22),
-                ),
-                child: Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 30,
-                      backgroundColor: Colors.white.withOpacity(0.18),
-                      child: Text(
-                        firstLetter(child.name),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            child.name,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 20,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'متابعة آخر المستجدات الخاصة بالطفل',
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.95),
-                              fontSize: 13.5,
-                            ),
-                          ),
+              if (updatesSnapshot.hasError) {
+                return const Center(
+                  child: Text('حدث خطأ أثناء تحميل التحديثات'),
+                );
+              }
+
+              final updates = updatesSnapshot.data ?? [];
+
+              return ListView(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [
+                          AppColors.primary,
+                          AppColors.secondary,
                         ],
                       ),
+                      borderRadius: BorderRadius.circular(22),
                     ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _InfoMiniCard(
-                              icon: Icons.cake_outlined,
-                              title: 'العمر',
-                              value: childAgeText(child.birthDate),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: _InfoMiniCard(
-                              icon: Icons.groups_outlined,
-                              title: 'المجموعة',
-                              value:
-                                  child.group.isEmpty ? 'غير محدد' : child.group,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: badgeColor.withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.apartment_outlined,
-                              color: badgeColor,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              'القسم: ${sectionLabel(child.section)}',
-                              style: TextStyle(
-                                color: badgeColor,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 15,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 14),
-              if (child.section == 'Kindergarten')
-                FutureBuilder<bool>(
-                  future: fetchAttendance(),
-                  builder: (context, attendanceSnapshot) {
-                    final present = attendanceSnapshot.data ?? false;
-
-                    return _StatusCard(
-                      icon:
-                          present ? Icons.check_circle : Icons.cancel_outlined,
-                      color: present ? Colors.green : Colors.redAccent,
-                      title: 'الحضور اليوم',
-                      value: present ? 'حاضر' : 'غائب',
-                    );
-                  },
-                )
-              else
-                const _StatusCard(
-                  icon: Icons.info_outline,
-                  color: AppColors.primary,
-                  title: 'نظام المتابعة',
-                  value: 'مرن حسب الزيارة والتحديثات',
-                ),
-              const SizedBox(height: 18),
-              Text(
-                'كل التحديثات',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-              const SizedBox(height: 10),
-              if (updates.isEmpty)
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: Column(
+                    child: Row(
                       children: [
                         CircleAvatar(
-                          radius: 26,
-                          backgroundColor:
-                              AppColors.primary.withOpacity(0.12),
-                          child: const Icon(
-                            Icons.notifications_none,
-                            color: AppColors.primary,
-                            size: 26,
+                          radius: 30,
+                          backgroundColor: Colors.white.withOpacity(0.18),
+                          child: Text(
+                            firstLetter(currentName),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
-                        const SizedBox(height: 12),
-                        const Text(
-                          'لا توجد تحديثات مسجلة لهذا الطفل بعد',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 15,
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                currentName,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 20,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                'متابعة آخر المستجدات الخاصة بالطفل',
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.95),
+                                  fontSize: 13.5,
+                                ),
+                              ),
+                            ],
                           ),
-                          textAlign: TextAlign.center,
                         ),
-                        const SizedBox(height: 6),
-                        Text(
-                          child.section == 'Nursery'
-                              ? 'ستظهر هنا تحديثات الزيارة، الأنشطة، الصور والملاحظات الخاصة بالحضانة.'
-                              : 'ستظهر هنا تحديثات الحضور، الأنشطة، الواجبات والملاحظات الخاصة بالروضة.',
-                          style: const TextStyle(
-                            color: AppColors.textLight,
-                            fontSize: 13.5,
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 7,
                           ),
-                          textAlign: TextAlign.center,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.18),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Text(
+                            statusLabel(status, isActive),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
                         ),
                       ],
                     ),
                   ),
-                )
-              else
-                ...updates.map(
-                  (u) {
-                    final Timestamp? displayTime =
-                        (u['time'] as Timestamp?) ??
-                        (u['createdAt'] as Timestamp?);
+                  const SizedBox(height: 16),
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _InfoMiniCard(
+                                  icon: Icons.cake_outlined,
+                                  title: 'العمر',
+                                  value: childAgeText(currentBirthDate),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: _InfoMiniCard(
+                                  icon: Icons.groups_outlined,
+                                  title: 'المجموعة',
+                                  value: currentGroup.isEmpty
+                                      ? 'غير محدد'
+                                      : currentGroup,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: badgeColor.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.apartment_outlined,
+                                  color: badgeColor,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'القسم الحالي: ${sectionLabel(currentSection)}',
+                                  style: TextStyle(
+                                    color: badgeColor,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 15,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  if (currentSection == 'Kindergarten')
+                    FutureBuilder<bool>(
+                      future: fetchAttendance(),
+                      builder: (context, attendanceSnapshot) {
+                        final present = attendanceSnapshot.data ?? false;
+                        return _StatusCard(
+                          icon: present
+                              ? Icons.check_circle
+                              : Icons.cancel_outlined,
+                          color: present ? Colors.green : Colors.redAccent,
+                          title: 'الحضور اليوم',
+                          value: present ? 'حاضر' : 'غائب',
+                        );
+                      },
+                    )
+                  else
+                    const _StatusCard(
+                      icon: Icons.info_outline,
+                      color: AppColors.primary,
+                      title: 'نظام المتابعة',
+                      value: 'مرن حسب الزيارة والتحديثات',
+                    ),
+                  const SizedBox(height: 18),
+                  Text(
+                    'كل التحديثات',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
+                  const SizedBox(height: 10),
+                  if (updates.isEmpty)
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Column(
+                          children: [
+                            CircleAvatar(
+                              radius: 26,
+                              backgroundColor:
+                                  AppColors.primary.withOpacity(0.12),
+                              child: const Icon(
+                                Icons.notifications_none,
+                                color: AppColors.primary,
+                                size: 26,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            const Text(
+                              'لا توجد تحديثات مسجلة لهذا الطفل بعد',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 15,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              currentSection == 'Nursery'
+                                  ? 'ستظهر هنا تحديثات الزيارة، الأنشطة، الصور والملاحظات الخاصة بالحضانة.'
+                                  : 'ستظهر هنا تحديثات الحضور، الأنشطة، الواجبات والملاحظات الخاصة بالروضة.',
+                              style: const TextStyle(
+                                color: AppColors.textLight,
+                                fontSize: 13.5,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  else
+                    ...updates.map(
+                      (u) {
+                        final Timestamp? displayTime =
+                            (u['time'] as Timestamp?) ??
+                                (u['createdAt'] as Timestamp?);
 
-                    return _UpdateCard(
-                      type: u['type'] ?? '',
-                      note: u['note'] ?? '',
-                      senderText: senderLabel(u['byRole'] ?? ''),
-                      badgeColor: typeColor(u['type'] ?? ''),
-                      icon: typeIcon(u['type'] ?? ''),
-                      timeTextValue: timeText(displayTime),
-                      dateTextValue: dateText(displayTime),
-                      mediaUrl: u['mediaUrl'],
-                      mediaType: u['mediaType'],
-                      mediaPath: u['mediaPath'],
-                    );
-                  },
-                ),
-            ],
+                        return _UpdateCard(
+                          type: (u['type'] ?? '').toString(),
+                          note: (u['note'] ?? '').toString(),
+                          senderText: senderLabel((u['byRole'] ?? '').toString()),
+                          badgeColor: typeColor((u['type'] ?? '').toString()),
+                          icon: typeIcon((u['type'] ?? '').toString()),
+                          timeTextValue: timeText(displayTime),
+                          dateTextValue: dateText(displayTime),
+                          mediaUrl: u['mediaUrl']?.toString(),
+                          mediaType: u['mediaType']?.toString(),
+                          mediaPath: u['mediaPath']?.toString(),
+                        );
+                      },
+                    ),
+                ],
+              );
+            },
           );
         },
       ),
@@ -503,7 +567,8 @@ class _StatusCard extends StatelessWidget {
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 15,
-                  color: color == AppColors.primary ? AppColors.textDark : color,
+                  color:
+                      color == AppColors.primary ? AppColors.textDark : color,
                 ),
               ),
             ),
@@ -680,19 +745,18 @@ class _UpdateCard extends StatelessWidget {
                 ),
               ),
             if (hasLocalImage)
-  Padding(
-    padding: const EdgeInsets.only(top: 12),
-    child: ClipRRect(
-      borderRadius: BorderRadius.circular(16),
-      child: Image.file(
-        File(mediaPath!),
-        height: 190,
-        width: double.infinity,
-        fit: BoxFit.cover,
-      ),
-    ),
-  ),
-
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: Image.file(
+                    File(mediaPath!),
+                    height: 190,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+              ),
             if (hasRemoteVideo)
               Padding(
                 padding: const EdgeInsets.only(top: 12),
@@ -741,7 +805,7 @@ class _UpdateCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: const Text(
-                    'تم حفظ مرفق محلي، لكن Flutter Web لا يعرض الملفات المحلية مباشرة. سيظهر المرفق عند نجاح رفعه كرابط.',
+                    'تم حفظ مرفق محلي، لكن Flutter Web لا يعرض الملفات المحلية مباشرة.\nسيظهر المرفق عند نجاح رفعه كرابط.',
                     style: TextStyle(
                       color: Colors.orange,
                       height: 1.5,

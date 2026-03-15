@@ -46,9 +46,11 @@ class _AttendancePageState extends State<AttendancePage> {
 
   Future<List<ChildModel>> fetchChildren() async {
     final snapshot = await _firestore
-        .collection('children')
-        .where('section', isEqualTo: 'Kindergarten')
-        .get();
+    .collection('children')
+    .where('section', isEqualTo: 'Kindergarten')
+    .where('isActive', isEqualTo: true)
+    .get();
+
 
     return snapshot.docs.map((doc) {
       final data = doc.data();

@@ -63,27 +63,38 @@ class _ParentHomePageState extends State<ParentHomePage> {
   }
 
   Future<List<ChildModel>> fetchChildren() async {
-    final snapshot = await _firestore
-        .collection('children')
-        .where('parentUsername', isEqualTo: widget.parentUsername)
-        .get();
+  final snapshot = await _firestore
+      .collection('children')
+      .where('parentUsername', isEqualTo: widget.parentUsername)
+      .where('isActive', isEqualTo: true)
+      .get();
 
-    return snapshot.docs.map((doc) {
-      final data = doc.data();
+  return snapshot.docs.map((doc) {
+    final data = doc.data();
 
-      return ChildModel(
-        id: doc.id,
-        name: data['name'] ?? '',
-        section: data['section'] ?? 'Nursery',
-        group: data['group'] ?? '',
-        parentName: data['parentName'] ?? '',
-        parentUsername: data['parentUsername'] ?? '',
-        birthDate: data['birthDate'] is Timestamp
-            ? (data['birthDate'] as Timestamp).toDate()
-            : DateTime.now(),
-      );
-    }).toList();
-  }
+    return ChildModel(
+      id: doc.id,
+      name: data['name'] ?? '',
+      section: data['section'] ?? 'Nursery',
+      group: data['group'] ?? '',
+      parentName: data['parentName'] ?? '',
+      parentUsername: data['parentUsername'] ?? '',
+      birthDate: data['birthDate'] is Timestamp
+          ? (data['birthDate'] as Timestamp).toDate()
+          : DateTime.now(),
+      isActive: data['isActive'] ?? true,
+      status: data['status'] ?? 'active',
+      createdAt: data['createdAt'] is Timestamp
+          ? (data['createdAt'] as Timestamp).toDate()
+          : null,
+      updatedAt: data['updatedAt'] is Timestamp
+          ? (data['updatedAt'] as Timestamp).toDate()
+          : null,
+      history: const [],
+    );
+  }).toList();
+}
+
 
   Future<bool> isPresentToday(String childId) async {
     final now = DateTime.now();
@@ -154,7 +165,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
         clipBehavior: Clip.none,
         children: [
           IconButton(
-            icon: const Icon(Icons.chat_bubble_outline_rounded),
+            icon: const Icon(Icons.send_outlined),
             tooltip: 'المراسلات',
             onPressed: snapshot.connectionState == ConnectionState.waiting
                 ? null

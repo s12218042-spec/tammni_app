@@ -20,9 +20,11 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
 
   Future<List<ChildModel>> fetchNurseryChildren() async {
     final snapshot = await _firestore
-        .collection('children')
-        .where('section', isEqualTo: 'Nursery')
-        .get();
+    .collection('children')
+    .where('section', isEqualTo: 'Nursery')
+    .where('isActive', isEqualTo: true)
+    .get();
+
 
     final children = snapshot.docs.map((doc) {
       final data = doc.data();

@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import '../models/child_model.dart';
+
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 
@@ -12,585 +12,689 @@ class ManageChildrenPage extends StatefulWidget {
 }
 
 class _ManageChildrenPageState extends State<ManageChildrenPage> {
-  final nameCtrl = TextEditingController();
-  final parentCtrl = TextEditingController();
-  final parentUsernameCtrl = TextEditingController();
-
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  String section = 'Nursery';
-  String group = 'حضانة صغار';
-  DateTime? birthDate;
+  String selectedView = 'active'; // active / archived / all
 
-  @override
-  void dispose() {
-    nameCtrl.dispose();
-    parentCtrl.dispose();
-    parentUsernameCtrl.dispose();
-    super.dispose();
+  String sectionLabel(String section) {
+    if (section == 'Nursery') return 'حضانة';
+    if (section == 'Kindergarten') return 'روضة';
+    return section;
   }
 
-  List<String> get groupsBySection {
-    if (section == 'Nursery') {
-      return ['حضانة صغار', 'حضانة كبار'];
+  Color sectionColor(String section) {
+    if (section == 'Nursery') return const Color(0xFFEFA7C8);
+    if (section == 'Kindergarten') return const Color(0xFF7BB6FF);
+    return AppColors.primary;
+  }
+
+  Future<List<Map<String, dynamic>>> fetchChildren() async {
+    final snapshot = await _firestore.collection('children').get();
+
+    final items = snapshot.docs.map((doc) {
+      final data = doc.data();
+
+      return {
+        'id': doc.id,
+        'name': data['name'] ?? '',
+        'section': data['section'] ?? 'Nursery',
+        'group': data['group'] ?? '',
+        'parentName': data['parentName'] ?? '',
+        'parentUsername': data['parentUsername'] ?? '',
+        'birthDate': data['birthDate'],
+        'isActive': data['isActive'] ?? true,
+        'status': data['status'] ?? 'active',
+        'createdAt': data['createdAt'],
+        'updatedAt': data['updatedAt'],
+        'history': (data['history'] as List?) ?? [],
+      };
+    }).toList();
+
+    final filtered = items.where((child) {
+      final isActive = child['isActive'] == true;
+
+      if (selectedView == 'active') return isActive;
+      if (selectedView == 'archived') return !isActive;
+      return true;
+    }).toList();
+
+    filtered.sort((a, b) {
+      final aName = (a['name'] ?? '').toString();
+      final bName = (b['name'] ?? '').toString();
+      return aName.compareTo(bName);
+    });
+
+    return filtered;
+  }
+
+  String formatBirthDate(dynamic raw) {
+    if (raw is Timestamp) {
+      final date = raw.toDate();
+      return '${date.year}/${date.month}/${date.day}';
     }
-    return ['KG1', 'KG2'];
+    return 'غير محدد';
   }
 
-  Future<void> pickBirthDate(StateSetter setLocal) async {
-    final now = DateTime.now();
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: DateTime(now.year - 2),
-      firstDate: DateTime(now.year - 10),
-      lastDate: now,
-    );
+  Future<void> showChildForm({
+    Map<String, dynamic>? child,
+  }) async {
+    final nameCtrl = TextEditingController(text: child?['name'] ?? '');
+    final parentNameCtrl =
+        TextEditingController(text: child?['parentName'] ?? '');
+    final parentUsernameCtrl =
+        TextEditingController(text: child?['parentUsername'] ?? '');
+    final groupCtrl = TextEditingController(text: child?['group'] ?? '');
 
-    if (picked != null) {
-      setLocal(() {
-        birthDate = picked;
-      });
-    }
-  }
+    String selectedSection = child?['section'] ?? 'Nursery';
+    DateTime selectedBirthDate = child?['birthDate'] is Timestamp
+        ? (child!['birthDate'] as Timestamp).toDate()
+        : DateTime(2023, 1, 1);
 
-  String birthDateText() {
-    if (birthDate == null) return 'اختيار تاريخ الميلاد';
-    return '${birthDate!.year}/${birthDate!.month}/${birthDate!.day}';
-  }
-
-  String sectionLabel(String s) => s == 'Nursery' ? 'حضانة' : 'روضة';
-
-  Stream<QuerySnapshot<Map<String, dynamic>>> childrenStream() {
-    return _firestore
-        .collection('children')
-        .orderBy('createdAt', descending: true)
-        .snapshots();
-  }
-
-  Future<void> openAddDialog() async {
-    nameCtrl.clear();
-    parentCtrl.clear();
-    parentUsernameCtrl.clear();
-    birthDate = null;
-    section = 'Nursery';
-    group = 'حضانة صغار';
+    final formKey = GlobalKey<FormState>();
 
     await showDialog(
       context: context,
-      builder: (_) => StatefulBuilder(
-        builder: (context, setLocal) => Directionality(
-          textDirection: TextDirection.rtl,
-          child: AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20),
-            ),
-            title: const Text('إضافة طفل'),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: nameCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'اسم الطفل',
-                      prefixIcon: Icon(Icons.child_care),
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setLocalState) {
+            return AlertDialog(
+              title: Text(child == null ? 'إضافة طفل جديد' : 'تعديل بيانات الطفل'),
+              content: SizedBox(
+                width: 420,
+                child: Form(
+                  key: formKey,
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TextFormField(
+                          controller: nameCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'اسم الطفل',
+                            prefixIcon: Icon(Icons.child_care_outlined),
+                          ),
+                          validator: (value) {
+                            if ((value ?? '').trim().isEmpty) {
+                              return 'اكتب اسم الطفل';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: parentNameCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'اسم ولي الأمر',
+                            prefixIcon: Icon(Icons.person_outline),
+                          ),
+                          validator: (value) {
+                            if ((value ?? '').trim().isEmpty) {
+                              return 'اكتب اسم ولي الأمر';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: parentUsernameCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'اسم مستخدم ولي الأمر',
+                            prefixIcon: Icon(Icons.alternate_email),
+                          ),
+                          validator: (value) {
+                            if ((value ?? '').trim().isEmpty) {
+                              return 'اكتب اسم مستخدم ولي الأمر';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String>(
+                          initialValue: selectedSection,
+                          decoration: const InputDecoration(
+                            labelText: 'القسم الحالي',
+                            prefixIcon: Icon(Icons.apartment_outlined),
+                          ),
+                          items: const [
+                            DropdownMenuItem(
+                              value: 'Nursery',
+                              child: Text('حضانة'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'Kindergarten',
+                              child: Text('روضة'),
+                            ),
+                          ],
+                          onChanged: (value) {
+                            if (value == null) return;
+                            setLocalState(() {
+                              selectedSection = value;
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: groupCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'المجموعة / الصف',
+                            prefixIcon: Icon(Icons.groups_2_outlined),
+                          ),
+                          validator: (value) {
+                            if ((value ?? '').trim().isEmpty) {
+                              return 'اكتب اسم المجموعة أو الصف';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        InkWell(
+                          onTap: () async {
+                            final picked = await showDatePicker(
+                              context: context,
+                              initialDate: selectedBirthDate,
+                              firstDate: DateTime(2018),
+                              lastDate: DateTime.now(),
+                            );
+
+                            if (picked != null) {
+                              setLocalState(() {
+                                selectedBirthDate = picked;
+                              });
+                            }
+                          },
+                          child: InputDecorator(
+                            decoration: const InputDecoration(
+                              labelText: 'تاريخ الميلاد',
+                              prefixIcon: Icon(Icons.calendar_today_outlined),
+                            ),
+                            child: Text(
+                              '${selectedBirthDate.year}/${selectedBirthDate.month}/${selectedBirthDate.day}',
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: parentCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'اسم ولي الأمر',
-                      prefixIcon: Icon(Icons.family_restroom),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: parentUsernameCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'اسم مستخدم ولي الأمر',
-                      prefixIcon: Icon(Icons.person_outline),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: () => pickBirthDate(setLocal),
-                      icon: const Icon(Icons.calendar_month),
-                      label: Text(birthDateText()),
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size(double.infinity, 50),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('إلغاء'),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    if (!formKey.currentState!.validate()) return;
+
+                    final nowTs = Timestamp.now();
+
+                    final cleanName = nameCtrl.text.trim();
+                    final cleanParentName = parentNameCtrl.text.trim();
+                    final cleanParentUsername =
+                        parentUsernameCtrl.text.trim().toLowerCase();
+                    final cleanGroup = groupCtrl.text.trim();
+
+                    if (child == null) {
+                      await _firestore.collection('children').add({
+                        'name': cleanName,
+                        'section': selectedSection,
+                        'group': cleanGroup,
+                        'parentName': cleanParentName,
+                        'parentUsername': cleanParentUsername,
+                        'birthDate': Timestamp.fromDate(selectedBirthDate),
+                        'isActive': true,
+                        'status': 'active',
+                        'createdAt': FieldValue.serverTimestamp(),
+                        'updatedAt': FieldValue.serverTimestamp(),
+                        'history': [
+                          {
+                            'section': selectedSection,
+                            'group': cleanGroup,
+                            'from': nowTs,
+                            'to': null,
+                          }
+                        ],
+                      });
+                    } else {
+                      final oldSection = (child['section'] ?? '').toString();
+                      final oldGroup = (child['group'] ?? '').toString();
+                      final oldHistory = List<Map<String, dynamic>>.from(
+                        (child['history'] as List?) ?? [],
+                      );
+
+                      List<Map<String, dynamic>> newHistory = oldHistory;
+
+                      final sectionChanged = oldSection != selectedSection;
+                      final groupChanged = oldGroup != cleanGroup;
+
+                      if (sectionChanged || groupChanged) {
+                        newHistory = oldHistory.map((item) {
+                          final updated = Map<String, dynamic>.from(item);
+                          if (updated['to'] == null) {
+                            updated['to'] = nowTs;
+                          }
+                          return updated;
+                        }).toList();
+
+                        newHistory.add({
+                          'section': selectedSection,
+                          'group': cleanGroup,
+                          'from': nowTs,
+                          'to': null,
+                        });
+                      }
+
+                      await _firestore
+                          .collection('children')
+                          .doc(child['id'])
+                          .update({
+                        'name': cleanName,
+                        'section': selectedSection,
+                        'group': cleanGroup,
+                        'parentName': cleanParentName,
+                        'parentUsername': cleanParentUsername,
+                        'birthDate': Timestamp.fromDate(selectedBirthDate),
+                        'updatedAt': FieldValue.serverTimestamp(),
+                        'history': newHistory,
+                      });
+                    }
+
+                    if (!mounted) return;
+                    Navigator.pop(dialogContext);
+                    setState(() {});
+
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          child == null
+                              ? 'تمت إضافة الطفل بنجاح'
+                              : 'تم تحديث بيانات الطفل بنجاح',
                         ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    value: section,
-                    decoration: const InputDecoration(
-                      labelText: 'القسم',
-                      prefixIcon: Icon(Icons.apartment_outlined),
-                    ),
-                    items: const [
-                      DropdownMenuItem(
-                        value: 'Nursery',
-                        child: Text('حضانة'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'Kindergarten',
-                        child: Text('روضة'),
-                      ),
-                    ],
-                    onChanged: (v) {
-                      setLocal(() {
-                        section = v ?? 'Nursery';
-                        group = groupsBySection.first;
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    value: group,
-                    decoration: const InputDecoration(
-                      labelText: 'الصف / المجموعة',
-                      prefixIcon: Icon(Icons.groups_outlined),
-                    ),
-                    items: groupsBySection
-                        .map((g) => DropdownMenuItem(value: g, child: Text(g)))
-                        .toList(),
-                    onChanged: (v) {
-                      setLocal(() {
-                        group = v ?? groupsBySection.first;
-                      });
-                    },
-                  ),
-                ],
-              ),
+                    );
+                  },
+                  child: Text(child == null ? 'إضافة' : 'حفظ'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> archiveChild(Map<String, dynamic> child) async {
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('أرشفة الطفل'),
+            content: Text(
+              'هل تريد أرشفة الطفل "${child['name']}"؟\n\nلن يتم حذفه من قاعدة البيانات، لكن سيختفي من الأطفال النشطين.',
             ),
             actions: [
               TextButton(
-                onPressed: () => Navigator.pop(context),
+                onPressed: () => Navigator.pop(context, false),
                 child: const Text('إلغاء'),
               ),
               ElevatedButton(
-                onPressed: () async {
-                  final name = nameCtrl.text.trim();
-                  final parent = parentCtrl.text.trim();
-                  final parentUsername = parentUsernameCtrl.text.trim();
-
-                  if (name.isEmpty || parent.isEmpty || parentUsername.isEmpty) {
-                    ScaffoldMessenger.of(this.context).showSnackBar(
-                      const SnackBar(
-                        content: Text('اكتبي اسم الطفل وولي الأمر واسم المستخدم'),
-                      ),
-                    );
-                    return;
-                  }
-
-                  if (birthDate == null) {
-                    ScaffoldMessenger.of(this.context).showSnackBar(
-                      const SnackBar(
-                        content: Text('اختاري تاريخ الميلاد'),
-                      ),
-                    );
-                    return;
-                  }
-
-                  try {
-                    await _firestore.collection('children').add({
-                      'name': name,
-                      'section': section,
-                      'group': group,
-                      'parentName': parent,
-                      'parentUsername': parentUsername,
-                      'birthDate': Timestamp.fromDate(birthDate!),
-                      'createdAt': FieldValue.serverTimestamp(),
-                    });
-
-                    if (!mounted) return;
-                    Navigator.pop(context);
-
-                    ScaffoldMessenger.of(this.context).showSnackBar(
-                      const SnackBar(
-                        content: Text('تمت إضافة الطفل بنجاح ✅'),
-                      ),
-                    );
-                  } catch (e) {
-                    ScaffoldMessenger.of(this.context).showSnackBar(
-                      SnackBar(
-                        content: Text('حدث خطأ أثناء إضافة الطفل: $e'),
-                      ),
-                    );
-                  }
-                },
-                child: const Text('إضافة'),
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('أرشفة'),
               ),
             ],
+          ),
+        ) ??
+        false;
+
+    if (!confirmed) return;
+
+    await _firestore.collection('children').doc(child['id']).update({
+      'isActive': false,
+      'status': 'archived',
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    if (!mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('تمت أرشفة الطفل')),
+    );
+  }
+
+  Future<void> restoreChild(Map<String, dynamic> child) async {
+    await _firestore.collection('children').doc(child['id']).update({
+      'isActive': true,
+      'status': 'active',
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    if (!mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('تمت استعادة الطفل إلى القائمة النشطة')),
+    );
+  }
+
+  Widget buildTopFilter({
+    required String label,
+    required String value,
+  }) {
+    final isSelected = selectedView == value;
+
+    return Expanded(
+      child: GestureDetector(
+        onTap: () {
+          setState(() {
+            selectedView = value;
+          });
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          padding: const EdgeInsets.symmetric(vertical: 13),
+          decoration: BoxDecoration(
+            color: isSelected ? AppColors.secondary : Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: isSelected
+                  ? AppColors.secondary
+                  : AppColors.primary.withOpacity(0.14),
+            ),
+          ),
+          child: Center(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? Colors.white : AppColors.textDark,
+                fontWeight: FontWeight.w800,
+                fontSize: 14,
+              ),
+            ),
           ),
         ),
       ),
     );
   }
 
-  Future<void> openEditDialog(ChildModel child) async {
-    nameCtrl.text = child.name;
-    parentCtrl.text = child.parentName;
-    parentUsernameCtrl.text = child.parentUsername;
-    section = child.section;
-    group = child.group;
-    birthDate = child.birthDate;
+  Widget buildChildCard(Map<String, dynamic> child) {
+    final name = (child['name'] ?? '').toString();
+    final section = (child['section'] ?? '').toString();
+    final group = (child['group'] ?? '').toString();
+    final parentName = (child['parentName'] ?? '').toString();
+    final parentUsername = (child['parentUsername'] ?? '').toString();
+    final isActive = child['isActive'] == true;
+    final color = sectionColor(section);
 
-    await showDialog(
-      context: context,
-      builder: (_) => StatefulBuilder(
-        builder: (context, setLocal) => Directionality(
-          textDirection: TextDirection.rtl,
-          child: AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20),
-            ),
-            title: const Text('تعديل طفل'),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: nameCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'اسم الطفل',
-                      prefixIcon: Icon(Icons.child_care),
-                    ),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 27,
+                backgroundColor: color.withOpacity(0.15),
+                child: Text(
+                  name.isEmpty ? 'ط' : name.substring(0, 1),
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
                   ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: parentCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'اسم ولي الأمر',
-                      prefixIcon: Icon(Icons.family_restroom),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: parentUsernameCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'اسم مستخدم ولي الأمر',
-                      prefixIcon: Icon(Icons.person_outline),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: () => pickBirthDate(setLocal),
-                      icon: const Icon(Icons.calendar_month),
-                      label: Text(birthDateText()),
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size(double.infinity, 50),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    value: section,
-                    decoration: const InputDecoration(
-                      labelText: 'القسم',
-                      prefixIcon: Icon(Icons.apartment_outlined),
-                    ),
-                    items: const [
-                      DropdownMenuItem(
-                        value: 'Nursery',
-                        child: Text('حضانة'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'Kindergarten',
-                        child: Text('روضة'),
-                      ),
-                    ],
-                    onChanged: (v) {
-                      setLocal(() {
-                        section = v ?? child.section;
-                        group = groupsBySection.first;
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    value: group,
-                    decoration: const InputDecoration(
-                      labelText: 'الصف / المجموعة',
-                      prefixIcon: Icon(Icons.groups_outlined),
-                    ),
-                    items: groupsBySection
-                        .map((g) => DropdownMenuItem(value: g, child: Text(g)))
-                        .toList(),
-                    onChanged: (v) {
-                      setLocal(() {
-                        group = v ?? child.group;
-                      });
-                    },
-                  ),
-                ],
+                ),
               ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('إلغاء'),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name.isEmpty ? 'بدون اسم' : name,
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.textDark,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${sectionLabel(section)} • $group',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppColors.textLight,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              ElevatedButton(
-                onPressed: () async {
-                  final name = nameCtrl.text.trim();
-                  final parent = parentCtrl.text.trim();
-                  final parentUsername = parentUsernameCtrl.text.trim();
-
-                  if (name.isEmpty || parent.isEmpty || parentUsername.isEmpty) {
-                    ScaffoldMessenger.of(this.context).showSnackBar(
-                      const SnackBar(
-                        content: Text('اكتبي اسم الطفل وولي الأمر واسم المستخدم'),
-                      ),
-                    );
-                    return;
-                  }
-
-                  if (birthDate == null) {
-                    ScaffoldMessenger.of(this.context).showSnackBar(
-                      const SnackBar(
-                        content: Text('اختاري تاريخ الميلاد'),
-                      ),
-                    );
-                    return;
-                  }
-
-                  try {
-                    await _firestore.collection('children').doc(child.id).update({
-                      'name': name,
-                      'section': section,
-                      'group': group,
-                      'parentName': parent,
-                      'parentUsername': parentUsername,
-                      'birthDate': Timestamp.fromDate(birthDate!),
-                    });
-
-                    if (!mounted) return;
-                    Navigator.pop(context);
-
-                    ScaffoldMessenger.of(this.context).showSnackBar(
-                      const SnackBar(
-                        content: Text('تم حفظ التعديلات ✅'),
-                      ),
-                    );
-                  } catch (e) {
-                    ScaffoldMessenger.of(this.context).showSnackBar(
-                      SnackBar(
-                        content: Text('حدث خطأ أثناء تعديل الطفل: $e'),
-                      ),
-                    );
-                  }
-                },
-                child: const Text('حفظ'),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                decoration: BoxDecoration(
+                  color: isActive
+                      ? Colors.green.withOpacity(0.12)
+                      : Colors.orange.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Text(
+                  isActive ? 'نشط' : 'مؤرشف',
+                  style: TextStyle(
+                    color: isActive ? Colors.green : Colors.orange,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
               ),
             ],
           ),
-        ),
+          const SizedBox(height: 14),
+          _infoRow(Icons.person_outline, 'ولي الأمر', parentName),
+          const SizedBox(height: 8),
+          _infoRow(Icons.alternate_email, 'اسم المستخدم', parentUsername),
+          const SizedBox(height: 8),
+          _infoRow(
+            Icons.calendar_today_outlined,
+            'تاريخ الميلاد',
+            formatBirthDate(child['birthDate']),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () => showChildForm(child: child),
+                  icon: const Icon(Icons.edit_outlined),
+                  label: const Text('تعديل'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    if (isActive) {
+                      archiveChild(child);
+                    } else {
+                      restoreChild(child);
+                    }
+                  },
+                  icon: Icon(
+                    isActive
+                        ? Icons.archive_outlined
+                        : Icons.restore_outlined,
+                  ),
+                  label: Text(isActive ? 'أرشفة' : 'استعادة'),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 50),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
 
-  Future<void> deleteChild(String id) async {
-    try {
-      await _firestore.collection('children').doc(id).delete();
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('تم حذف الطفل من النظام ✅'),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('حدث خطأ أثناء حذف الطفل: $e'),
-        ),
-      );
-    }
+  Widget _infoRow(IconData icon, String title, String value) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: AppColors.primary),
+          const SizedBox(width: 8),
+          Text(
+            '$title: ',
+            style: const TextStyle(
+              fontWeight: FontWeight.w700,
+              color: AppColors.textDark,
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value.isEmpty ? '-' : value,
+              style: const TextStyle(
+                color: AppColors.textLight,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return AppPageScaffold(
       title: 'إدارة الأطفال',
-      floatingActionButton: FloatingActionButton(
-        onPressed: openAddDialog,
-        backgroundColor: AppColors.primary,
-        child: const Icon(Icons.add, color: Colors.white),
-      ),
-      child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: childrenStream(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(
-              child: CircularProgressIndicator(),
-            );
-          }
-
-          if (snapshot.hasError) {
-            return Center(
-              child: Text('حدث خطأ: ${snapshot.error}'),
-            );
-          }
-
-          final docs = snapshot.data?.docs ?? [];
-
-          final children = docs.map((doc) {
-            final data = doc.data();
-
-            return ChildModel(
-              id: doc.id,
-              name: data['name'] ?? '',
-              section: data['section'] ?? 'Nursery',
-              group: data['group'] ?? '',
-              parentName: data['parentName'] ?? '',
-              parentUsername: data['parentUsername'] ?? '',
-              birthDate: data['birthDate'] is Timestamp
-                  ? (data['birthDate'] as Timestamp).toDate()
-                  : DateTime.now(),
-            );
-          }).toList();
-
-          return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.add_circle_outline),
+          tooltip: 'إضافة طفل',
+          onPressed: () => showChildForm(),
+        ),
+      ],
+      child: Column(
+        children: [
+          Row(
             children: [
-              Text(
-                'إدارة الأطفال',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'إضافة وتعديل وحذف بيانات الأطفال وربطهم بالأقسام والأهالي',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: AppColors.textLight,
-                    ),
-              ),
-              const SizedBox(height: 20),
-              if (children.isEmpty)
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
+              buildTopFilter(label: 'النشطون', value: 'active'),
+              const SizedBox(width: 10),
+              buildTopFilter(label: 'المؤرشفون', value: 'archived'),
+              const SizedBox(width: 10),
+              buildTopFilter(label: 'الكل', value: 'all'),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Expanded(
+            child: FutureBuilder<List<Map<String, dynamic>>>(
+              future: fetchChildren(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(
+                    child: CircularProgressIndicator(),
+                  );
+                }
+
+                if (snapshot.hasError) {
+                  return Center(
                     child: Text(
-                      'لا يوجد أطفال حاليًا.',
+                      'حدث خطأ أثناء تحميل الأطفال',
                       style: TextStyle(
-                        color: AppColors.textLight,
-                        fontSize: 15,
+                        color: Colors.red.shade700,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
-                  ),
-                )
-              else
-                ...children.map(
-                  (c) => _ChildCard(
-                    childModel: c,
-                    sectionText: sectionLabel(c.section),
-                    onEdit: () => openEditDialog(c),
-                    onDelete: () => deleteChild(c.id),
-                  ),
-                ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-}
+                  );
+                }
 
-class _ChildCard extends StatelessWidget {
-  final ChildModel childModel;
-  final String sectionText;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
+                final children = snapshot.data ?? [];
 
-  const _ChildCard({
-    required this.childModel,
-    required this.sectionText,
-    required this.onEdit,
-    required this.onDelete,
-  });
+                if (children.isEmpty) {
+                  return Center(
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.child_care_outlined,
+                            size: 52,
+                            color: AppColors.textLight,
+                          ),
+                          const SizedBox(height: 12),
+                          const Text(
+                            'لا يوجد أطفال في هذا القسم',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.textDark,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            selectedView == 'active'
+                                ? 'ابدأ بإضافة طفل جديد'
+                                : selectedView == 'archived'
+                                    ? 'لا يوجد أطفال مؤرشفون حاليًا'
+                                    : 'لا توجد بيانات بعد',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: AppColors.textLight,
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          ElevatedButton.icon(
+                            onPressed: () => showChildForm(),
+                            icon: const Icon(Icons.add),
+                            label: const Text('إضافة طفل'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }
 
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          children: [
-            CircleAvatar(
-              radius: 24,
-              backgroundColor: AppColors.primary.withOpacity(0.15),
-              child: const Icon(
-                Icons.child_care,
-                color: AppColors.primary,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    childModel.name,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
+                return RefreshIndicator(
+                  onRefresh: () async {
+                    setState(() {});
+                  },
+                  child: ListView.builder(
+                    itemCount: children.length,
+                    itemBuilder: (context, index) {
+                      return buildChildCard(children[index]);
+                    },
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '$sectionText • ${childModel.group}',
-                    style: const TextStyle(
-                      color: Colors.black54,
-                      fontSize: 13,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    'ولي الأمر: ${childModel.parentName}',
-                    style: const TextStyle(
-                      color: Colors.black54,
-                      fontSize: 13,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    'اسم المستخدم: ${childModel.parentUsername}',
-                    style: const TextStyle(
-                      color: Colors.black54,
-                      fontSize: 13,
-                    ),
-                  ),
-                ],
-              ),
+                );
+              },
             ),
-            IconButton(
-              tooltip: 'تعديل',
-              onPressed: onEdit,
-              icon: const Icon(Icons.edit_outlined),
-              color: AppColors.primary,
-            ),
-            IconButton(
-              tooltip: 'حذف',
-              onPressed: onDelete,
-              icon: const Icon(Icons.delete_outline),
-              color: Colors.redAccent,
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
