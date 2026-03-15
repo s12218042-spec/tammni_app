@@ -2,7 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../widgets/app_page_scaffold.dart';
-import 'login_page.dart';
+import 'welcome_page.dart';
 import '../services/notification_service.dart';
 
 class RegisterParentPage extends StatefulWidget {
@@ -230,7 +230,7 @@ class _RegisterParentPageState extends State<RegisterParentPage> {
 
       Navigator.pushAndRemoveUntil(
         context,
-        MaterialPageRoute(builder: (_) => const LoginPage()),
+        MaterialPageRoute(builder: (_) => const WelcomePage()),
         (route) => false,
       );
     } on FirebaseException catch (e) {

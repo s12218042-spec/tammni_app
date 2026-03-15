@@ -5,6 +5,9 @@ import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 import 'parent_updates_page.dart';
 import 'weekly_report_page.dart';
+import 'gallery_page.dart';
+
+
 
 class ChildProfilePage extends StatefulWidget {
   final ChildModel child;
@@ -381,6 +384,23 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
               ),
             ],
           ),
+          const SizedBox(height: 10),
+SizedBox(
+  width: double.infinity,
+  child: ElevatedButton.icon(
+    onPressed: () {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => GalleryPage(child: child),
+        ),
+      );
+    },
+    icon: const Icon(Icons.photo_library_outlined),
+    label: const Text('معرض الصور'),
+  ),
+),
+
         ],
       ),
     );

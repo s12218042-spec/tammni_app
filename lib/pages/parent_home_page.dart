@@ -1,11 +1,15 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+
 import '../models/child_model.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
+import 'child_profile_page.dart';
+import 'parent_chats_page.dart';
 import 'parent_updates_page.dart';
 import 'weekly_report_page.dart';
-import 'child_profile_page.dart';
+import '../services/message_service.dart';
+
 
 class ParentHomePage extends StatefulWidget {
   final String parentUsername;
@@ -21,6 +25,7 @@ class ParentHomePage extends StatefulWidget {
 
 class _ParentHomePageState extends State<ParentHomePage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final MessageService _messageService = MessageService();
 
   String sectionLabel(String section) {
     return section == 'Nursery' ? 'حضانة' : 'روضة';
@@ -132,109 +137,191 @@ class _ParentHomePageState extends State<ParentHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    return AppPageScaffold(
-      title: 'الرئيسية - ولي الأمر',
-      child: FutureBuilder<List<ChildModel>>(
-        future: fetchChildren(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(
-              child: CircularProgressIndicator(),
-            );
-          }
+    return FutureBuilder<List<ChildModel>>(
+      future: fetchChildren(),
+      builder: (context, snapshot) {
+        return AppPageScaffold(
+          title: 'الرئيسية - ولي الأمر',
+          actions: [
+  StreamBuilder<int>(
+    stream: _messageService.getUnreadMessagesCountForParent(
+      parentUsername: widget.parentUsername,
+    ),
+    builder: (context, unreadSnapshot) {
+      final unreadCount = unreadSnapshot.data ?? 0;
 
-          if (snapshot.hasError) {
-            return Center(
-              child: Text('حدث خطأ أثناء تحميل البيانات: ${snapshot.error}'),
-            );
-          }
+      return Stack(
+        clipBehavior: Clip.none,
+        children: [
+          IconButton(
+            icon: const Icon(Icons.chat_bubble_outline_rounded),
+            tooltip: 'المراسلات',
+            onPressed: snapshot.connectionState == ConnectionState.waiting
+                ? null
+                : () {
+                    final children = snapshot.data ?? [];
 
-          final children = snapshot.data ?? [];
-
-          if (children.isEmpty) {
-            return ListView(
-              children: [
-                _WelcomeHeader(parentUsername: widget.parentUsername),
-                const SizedBox(height: 16),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(18),
-                    child: Column(
-                      children: [
-                        CircleAvatar(
-                          radius: 28,
-                          backgroundColor: AppColors.primary.withOpacity(0.12),
-                          child: const Icon(
-                            Icons.child_care,
-                            color: AppColors.primary,
-                            size: 28,
+                    if (children.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'لا توجد محادثات متاحة لأنه لا يوجد أطفال مرتبطون بهذا الحساب',
                           ),
                         ),
-                        const SizedBox(height: 12),
-                        const Text(
-                          'لا يوجد أطفال مرتبطون بهذا الحساب',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'يمكنك مراجعة الإدارة لإضافة الأطفال وربطهم بحساب ولي الأمر.',
-                          style: TextStyle(
-                            color: AppColors.textLight,
-                            fontSize: 14,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
-                    ),
+                      );
+                      return;
+                    }
+
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => ParentChatsPage(children: children),
+                      ),
+                    );
+                  },
+          ),
+          if (unreadCount > 0)
+            Positioned(
+              top: 6,
+              right: 6,
+              child: Container(
+                constraints: const BoxConstraints(
+                  minWidth: 18,
+                  minHeight: 18,
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 5,
+                  vertical: 2,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.redAccent,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: Colors.white,
+                    width: 1.5,
                   ),
                 ),
-              ],
-            );
-          }
-
-          return ListView(
-            children: [
-              _WelcomeHeader(parentUsername: widget.parentUsername),
-              const SizedBox(height: 16),
-              _SummaryCard(
-                totalChildren: children.length,
-                nurseryCount:
-                    children.where((c) => c.section == 'Nursery').length,
-                kgCount:
-                    children.where((c) => c.section == 'Kindergarten').length,
-              ),
-              const SizedBox(height: 20),
-              Text(
-                'أطفالي',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-              const SizedBox(height: 10),
-              ...children.map(
-                (child) => Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: _ChildDashboardCard(
-                    childModel: child,
-                    sectionText: sectionLabel(child.section),
-                    sectionBadgeColor: sectionColor(child.section),
-                    ageText: childAgeText(child.birthDate),
-                    letter: firstLetter(child.name),
-                    attendanceFuture: child.section == 'Kindergarten'
-                        ? isPresentToday(child.id)
-                        : null,
-                    updatesFuture: fetchLastUpdates(child.id),
+                child: Text(
+                  unreadCount > 99 ? '99+' : '$unreadCount',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
               ),
-            ],
-          );
-        },
-      ),
+            ),
+        ],
+      );
+    },
+  ),
+],
+
+          child: Builder(
+            builder: (context) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(
+                  child: CircularProgressIndicator(),
+                );
+              }
+
+              if (snapshot.hasError) {
+                return Center(
+                  child: Text('حدث خطأ أثناء تحميل البيانات: ${snapshot.error}'),
+                );
+              }
+
+              final children = snapshot.data ?? [];
+
+              if (children.isEmpty) {
+                return ListView(
+                  children: [
+                    _WelcomeHeader(parentUsername: widget.parentUsername),
+                    const SizedBox(height: 16),
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(18),
+                        child: Column(
+                          children: [
+                            CircleAvatar(
+                              radius: 28,
+                              backgroundColor:
+                                  AppColors.primary.withOpacity(0.12),
+                              child: const Icon(
+                                Icons.child_care,
+                                color: AppColors.primary,
+                                size: 28,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            const Text(
+                              'لا يوجد أطفال مرتبطون بهذا الحساب',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'يمكنك مراجعة الإدارة لإضافة الأطفال وربطهم بحساب ولي الأمر.',
+                              style: const TextStyle(
+                                color: AppColors.textLight,
+                                fontSize: 14,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              }
+
+              return ListView(
+                children: [
+                  _WelcomeHeader(parentUsername: widget.parentUsername),
+                  const SizedBox(height: 16),
+                  _SummaryCard(
+                    totalChildren: children.length,
+                    nurseryCount:
+                        children.where((c) => c.section == 'Nursery').length,
+                    kgCount: children
+                        .where((c) => c.section == 'Kindergarten')
+                        .length,
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    'أطفالي',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
+                  const SizedBox(height: 10),
+                  ...children.map(
+                    (child) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _ChildDashboardCard(
+                        childModel: child,
+                        sectionText: sectionLabel(child.section),
+                        sectionBadgeColor: sectionColor(child.section),
+                        ageText: childAgeText(child.birthDate),
+                        letter: firstLetter(child.name),
+                        attendanceFuture: child.section == 'Kindergarten'
+                            ? isPresentToday(child.id)
+                            : null,
+                        updatesFuture: fetchLastUpdates(child.id),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        );
+      },
     );
   }
 }
@@ -270,7 +357,7 @@ class _WelcomeHeader extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '${greetingText()} 👋',
+            '${greetingText()} ',
             style: const TextStyle(
               color: Colors.white,
               fontSize: 22,
@@ -492,7 +579,6 @@ class _ChildDashboardCard extends StatelessWidget {
                 future: attendanceFuture,
                 builder: (context, snapshot) {
                   final present = snapshot.data ?? false;
-
                   return _StatusBox(
                     icon: present ? Icons.check_circle : Icons.cancel_outlined,
                     color: present ? Colors.green : Colors.redAccent,
@@ -617,7 +703,8 @@ class _ChildDashboardCard extends StatelessWidget {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => ParentUpdatesPage(child: childModel),
+                          builder: (context) =>
+                              ParentUpdatesPage(child: childModel),
                         ),
                       );
                     },

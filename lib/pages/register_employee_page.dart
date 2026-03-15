@@ -2,7 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../widgets/app_page_scaffold.dart';
-import 'login_page.dart';
+import 'welcome_page.dart';
 
 class RegisterEmployeePage extends StatefulWidget {
   final String role; // nursery / teacher
@@ -173,10 +173,11 @@ class _RegisterEmployeePageState extends State<RegisterEmployeePage> {
       );
 
       Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (_) => const LoginPage()),
-        (route) => false,
-      );
+  context,
+  MaterialPageRoute(builder: (_) => const WelcomePage()),
+  (route) => false,
+);
+
     } on FirebaseException catch (e) {
       String message = 'حدث خطأ أثناء إنشاء الحساب';
 

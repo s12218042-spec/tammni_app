@@ -22,7 +22,7 @@ class WelcomePage extends StatefulWidget {
 }
 
 class _WelcomePageState extends State<WelcomePage> {
-  final emailCtrl = TextEditingController();
+  final usernameCtrl = TextEditingController();
   final passwordCtrl = TextEditingController();
   final _formKey = GlobalKey<FormState>();
 
@@ -41,7 +41,7 @@ class _WelcomePageState extends State<WelcomePage> {
 
   @override
   void dispose() {
-    emailCtrl.dispose();
+    usernameCtrl.dispose();
     passwordCtrl.dispose();
     super.dispose();
   }
@@ -67,16 +67,15 @@ class _WelcomePageState extends State<WelcomePage> {
     }
   }
 
-  String? validateEmail(String? value) {
-    final email = value?.trim() ?? '';
+  String? validateUsername(String? value) {
+    final username = value?.trim() ?? '';
 
-    if (email.isEmpty) {
-      return 'الرجاء إدخال البريد الإلكتروني';
+    if (username.isEmpty) {
+      return 'الرجاء إدخال اسم المستخدم';
     }
 
-    final emailRegex = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
-    if (!emailRegex.hasMatch(email)) {
-      return 'الرجاء إدخال بريد إلكتروني صحيح';
+    if (username.length < 3) {
+      return 'اسم المستخدم قصير جدًا';
     }
 
     return null;
@@ -105,7 +104,7 @@ class _WelcomePageState extends State<WelcomePage> {
 
     try {
       final user = await _authService.login(
-        email: emailCtrl.text.trim(),
+        username: usernameCtrl.text.trim(),
         password: passwordCtrl.text,
       );
 
@@ -120,11 +119,11 @@ class _WelcomePageState extends State<WelcomePage> {
       String message = 'حدث خطأ أثناء تسجيل الدخول';
 
       if (e.code == 'user-not-found') {
-        message = 'لا يوجد حساب بهذا البريد الإلكتروني';
+        message = 'اسم المستخدم غير موجود';
       } else if (e.code == 'wrong-password') {
         message = 'كلمة المرور غير صحيحة';
       } else if (e.code == 'invalid-email') {
-        message = 'البريد الإلكتروني غير صالح';
+        message = 'لا يوجد بريد إلكتروني مرتبط بهذا المستخدم';
       } else if (e.code == 'invalid-credential') {
         message = 'بيانات الدخول غير صحيحة';
       }
@@ -141,35 +140,9 @@ class _WelcomePageState extends State<WelcomePage> {
   }
 
   Future<void> onForgotPassword() async {
-    final email = emailCtrl.text.trim();
-
-    if (email.isEmpty) {
-      _showSnack('أدخلي البريد الإلكتروني أولاً');
-      return;
-    }
-
-    final emailError = validateEmail(email);
-    if (emailError != null) {
-      _showSnack(emailError);
-      return;
-    }
-
-    try {
-      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
-      _showSnack('تم إرسال رابط إعادة تعيين كلمة المرور إلى بريدك الإلكتروني');
-    } on FirebaseAuthException catch (e) {
-      String message = 'تعذر إرسال رابط إعادة التعيين';
-
-      if (e.code == 'user-not-found') {
-        message = 'لا يوجد حساب بهذا البريد الإلكتروني';
-      } else if (e.code == 'invalid-email') {
-        message = 'البريد الإلكتروني غير صالح';
-      }
-
-      _showSnack(message);
-    } catch (_) {
-      _showSnack('حدث خطأ أثناء إرسال رابط إعادة التعيين');
-    }
+    _showSnack(
+      'إعادة تعيين كلمة المرور ما زالت مرتبطة بالبريد الإلكتروني، ويمكن تطويرها لاحقًا بصفحة مستقلة.',
+    );
   }
 
   Future<void> onGoogleLogin() async {
@@ -211,7 +184,7 @@ class _WelcomePageState extends State<WelcomePage> {
         await googleSignIn.signOut();
 
         _showSnack(
-          'تم تسجيل الدخول عبر Google لكن لا يوجد حساب مكتمل لهذا المستخدم داخل التطبيق. أنشئي حسابًا أولاً.',
+          'تم تسجيل الدخول عبر Google لكن لا يوجد حساب مكتمل لهذا المستخدم داخل التطبيق. أنشئ حسابًا أولًا.',
         );
         return;
       }
@@ -410,11 +383,11 @@ class _WelcomePageState extends State<WelcomePage> {
                               child: Column(
                                 children: [
                                   _buildTextField(
-                                    controller: emailCtrl,
-                                    hint: 'البريد الإلكتروني أو اسم المستخدم',
-                                    icon: Icons.mail_outline_rounded,
-                                    validator: validateEmail,
-                                    keyboardType: TextInputType.emailAddress,
+                                    controller: usernameCtrl,
+                                    hint: 'اسم المستخدم',
+                                    icon: Icons.person_outline_rounded,
+                                    validator: validateUsername,
+                                    keyboardType: TextInputType.text,
                                   ),
                                   const SizedBox(height: 14),
                                   _buildTextField(
