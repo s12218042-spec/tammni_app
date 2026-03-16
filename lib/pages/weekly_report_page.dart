@@ -20,6 +20,11 @@ class WeeklyReportPage extends StatefulWidget {
 class _WeeklyReportPageState extends State<WeeklyReportPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
+  Future<void> _refreshPage() async {
+    if (!mounted) return;
+    setState(() {});
+  }
+
   String sectionLabel(String section) {
     if (section == 'Nursery') return 'حضانة';
     if (section == 'Kindergarten') return 'روضة';
@@ -63,13 +68,17 @@ class _WeeklyReportPageState extends State<WeeklyReportPage> {
   }
 
   String formatDate(Timestamp? timestamp) {
-    if (timestamp == null) return '--/--';
+    if (timestamp == null) return '--/--/----';
     final t = timestamp.toDate();
-    return '${t.year}/${t.month}/${t.day}';
+    final y = t.year.toString();
+    final m = t.month.toString().padLeft(2, '0');
+    final d = t.day.toString().padLeft(2, '0');
+    return '$y/$m/$d';
   }
 
   Future<Map<String, dynamic>?> fetchChildDetails() async {
     final doc = await _firestore.collection('children').doc(widget.child.id).get();
+
     if (!doc.exists) return null;
 
     final data = doc.data()!;
@@ -83,53 +92,51 @@ class _WeeklyReportPageState extends State<WeeklyReportPage> {
     };
   }
 
-Future<List<Map<String, dynamic>>> fetchWeeklyUpdates() async {
-  final now = DateTime.now();
-  final startDate = DateTime(now.year, now.month, now.day)
-      .subtract(const Duration(days: 6));
+  Future<List<Map<String, dynamic>>> fetchWeeklyUpdates() async {
+    final now = DateTime.now();
+    final startDate =
+        DateTime(now.year, now.month, now.day).subtract(const Duration(days: 6));
 
-  final snapshot = await _firestore
-      .collection('updates')
-      .where('childId', isEqualTo: widget.child.id)
-      .get();
+    final snapshot = await _firestore
+        .collection('updates')
+        .where('childId', isEqualTo: widget.child.id)
+        .get();
 
-  final items = snapshot.docs.map((doc) {
-    final data = doc.data();
-    return {
-      'id': doc.id,
-      'type': data['type'] ?? '',
-      'note': data['note'] ?? '',
-      'time': data['time'] as Timestamp?,
-      'createdAt': data['createdAt'] as Timestamp?,
-    };
-  }).where((item) {
-    final ts =
-        (item['time'] as Timestamp?) ?? (item['createdAt'] as Timestamp?);
+    final items = snapshot.docs.map((doc) {
+      final data = doc.data();
+      return {
+        'id': doc.id,
+        'type': data['type'] ?? '',
+        'note': data['note'] ?? '',
+        'time': data['time'] as Timestamp?,
+        'createdAt': data['createdAt'] as Timestamp?,
+        'hasMedia': data['hasMedia'] == true,
+        'mediaType': data['mediaType'] ?? '',
+      };
+    }).where((item) {
+      final ts = (item['time'] as Timestamp?) ?? (item['createdAt'] as Timestamp?);
+      if (ts == null) return false;
+      return !ts.toDate().isBefore(startDate);
+    }).toList();
 
-    if (ts == null) return false;
+    items.sort((a, b) {
+      final aTime = (a['time'] as Timestamp?) ?? (a['createdAt'] as Timestamp?);
+      final bTime = (b['time'] as Timestamp?) ?? (b['createdAt'] as Timestamp?);
 
-    return !ts.toDate().isBefore(startDate);
-  }).toList();
+      if (aTime == null && bTime == null) return 0;
+      if (aTime == null) return 1;
+      if (bTime == null) return -1;
 
-  items.sort((a, b) {
-    final aTime = (a['time'] as Timestamp?) ?? (a['createdAt'] as Timestamp?);
-    final bTime = (b['time'] as Timestamp?) ?? (b['createdAt'] as Timestamp?);
+      return bTime.compareTo(aTime);
+    });
 
-    if (aTime == null && bTime == null) return 0;
-    if (aTime == null) return 1;
-    if (bTime == null) return -1;
-
-    return bTime.compareTo(aTime);
-  });
-
-  return items;
-}
-
+    return items;
+  }
 
   Future<int> fetchWeeklyAttendanceCount() async {
     final now = DateTime.now();
-    final start = DateTime(now.year, now.month, now.day)
-        .subtract(const Duration(days: 6));
+    final start =
+        DateTime(now.year, now.month, now.day).subtract(const Duration(days: 6));
 
     final snapshot = await _firestore
         .collection('attendance')
@@ -179,9 +186,11 @@ Future<List<Map<String, dynamic>>> fetchWeeklyUpdates() async {
 
   String topTypeText(List<Map<String, dynamic>> updates) {
     if (updates.isEmpty) return 'لا يوجد';
+
     final map = buildTypeMap(updates);
     final sorted = map.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
+
     return sorted.first.key;
   }
 
@@ -191,403 +200,432 @@ Future<List<Map<String, dynamic>>> fetchWeeklyUpdates() async {
 
     return AppPageScaffold(
       title: 'التقرير الأسبوعي',
-      child: FutureBuilder<Map<String, dynamic>?>(
-        future: fetchChildDetails(),
-        builder: (context, childSnapshot) {
-          final currentData = childSnapshot.data;
-          final currentName = (currentData?['name'] ?? child.name).toString();
-          final currentSection =
-              (currentData?['section'] ?? child.section).toString();
-          final currentGroup = (currentData?['group'] ?? child.group).toString();
-          final currentBirthRaw = currentData?['birthDate'];
-          final currentBirthDate = currentBirthRaw is Timestamp
-              ? currentBirthRaw.toDate()
-              : child.birthDate;
-          final isActive = currentData?['isActive'] ?? true;
+      child: RefreshIndicator(
+        onRefresh: _refreshPage,
+        child: FutureBuilder<Map<String, dynamic>?>(
+          future: fetchChildDetails(),
+          builder: (context, childSnapshot) {
+            final currentData = childSnapshot.data;
 
-          final badgeColor = sectionColor(currentSection);
+            final currentName = (currentData?['name'] ?? child.name).toString();
+            final currentSection =
+                (currentData?['section'] ?? child.section).toString();
+            final currentGroup = (currentData?['group'] ?? child.group).toString();
 
-          return FutureBuilder<List<Map<String, dynamic>>>(
-            future: fetchWeeklyUpdates(),
-            builder: (context, updatesSnapshot) {
-              if (updatesSnapshot.connectionState == ConnectionState.waiting) {
-                return const Center(
-                  child: CircularProgressIndicator(),
-                );
-              }
+            final currentBirthRaw = currentData?['birthDate'];
+            final currentBirthDate = currentBirthRaw is Timestamp
+                ? currentBirthRaw.toDate()
+                : child.birthDate;
 
-              if (updatesSnapshot.hasError) {
-                return const Center(
-                  child: Text('حدث خطأ أثناء تحميل التقرير'),
-                );
-              }
+            final isActive = currentData?['isActive'] ?? true;
+            final status = (currentData?['status'] ?? 'active').toString();
 
-              final updates = updatesSnapshot.data ?? [];
+            final badgeColor = sectionColor(currentSection);
 
-              final mealsCount = countByTypes(updates, ['وجبة']);
-              final sleepCount = countByTypes(updates, ['نوم']);
-              final healthCount = countByTypes(updates, ['صحة']);
-              final activitiesCount = countByTypes(updates, ['نشاط']);
-              final homeworkCount = countByTypes(updates, ['واجب']);
-              final evaluationCount = countByTypes(updates, ['تقييم']);
-              final planCount = countByTypes(updates, ['خطة اليوم']);
-              final cameraCount = countByTypes(updates, ['كاميرا']);
+            return FutureBuilder<List<Map<String, dynamic>>>(
+              future: fetchWeeklyUpdates(),
+              builder: (context, updatesSnapshot) {
+                if (updatesSnapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(
+                    child: CircularProgressIndicator(),
+                  );
+                }
 
-              return ListView(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(18),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [
-                          AppColors.primary,
-                          AppColors.secondary,
-                        ],
+                if (updatesSnapshot.hasError) {
+                  return ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      const SizedBox(height: 100),
+                      Center(
+                        child: Text(
+                          'حدث خطأ أثناء تحميل التقرير: ${updatesSnapshot.error}',
+                        ),
                       ),
-                      borderRadius: BorderRadius.circular(22),
-                    ),
-                    child: Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 30,
-                          backgroundColor: Colors.white.withOpacity(0.18),
-                          child: Text(
-                            firstLetter(currentName),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
+                    ],
+                  );
+                }
+
+                final updates = updatesSnapshot.data ?? [];
+
+                final mealsCount = countByTypes(updates, ['وجبة']);
+                final sleepCount = countByTypes(updates, ['نوم']);
+                final healthCount = countByTypes(updates, ['صحة']);
+                final activitiesCount = countByTypes(updates, ['نشاط']);
+                final homeworkCount = countByTypes(updates, ['واجب']);
+                final evaluationCount = countByTypes(updates, ['تقييم']);
+                final planCount = countByTypes(updates, ['خطة اليوم']);
+                final cameraCount = countByTypes(updates, ['كاميرا']);
+
+                return ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(18),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [
+                            AppColors.primary,
+                            AppColors.secondary,
+                          ],
                         ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                currentName,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 20,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                'ملخص آخر 7 أيام للطفل',
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.95),
-                                  fontSize: 13.5,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        if (!isActive)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 7,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.18),
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                            child: const Text(
-                              'مؤرشف',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
+                        borderRadius: BorderRadius.circular(22),
+                      ),
+                      child: Row(
                         children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: _InfoMiniCard(
-                                  icon: Icons.cake_outlined,
-                                  title: 'العمر',
-                                  value: childAgeText(currentBirthDate),
-                                ),
+                          CircleAvatar(
+                            radius: 30,
+                            backgroundColor: Colors.white.withOpacity(0.18),
+                            child: Text(
+                              firstLetter(currentName),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
                               ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: _InfoMiniCard(
-                                  icon: Icons.groups_outlined,
-                                  title: 'المجموعة',
-                                  value: currentGroup.isEmpty
-                                      ? 'غير محدد'
-                                      : currentGroup,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: badgeColor.withOpacity(0.12),
-                              borderRadius: BorderRadius.circular(16),
                             ),
-                            child: Row(
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Icon(
-                                  Icons.apartment_outlined,
-                                  color: badgeColor,
-                                ),
-                                const SizedBox(width: 8),
                                 Text(
-                                  'القسم الحالي: ${sectionLabel(currentSection)}',
-                                  style: TextStyle(
-                                    color: badgeColor,
+                                  currentName,
+                                  style: const TextStyle(
+                                    color: Colors.white,
                                     fontWeight: FontWeight.bold,
-                                    fontSize: 15,
+                                    fontSize: 20,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  'ملخص آخر 7 أيام للطفل',
+                                  style: TextStyle(
+                                    color: Colors.white.withOpacity(0.95),
+                                    fontSize: 13.5,
                                   ),
                                 ),
                               ],
                             ),
                           ),
+                          if (!isActive || status.toLowerCase() == 'archived')
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 7,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.18),
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: const Text(
+                                'مؤرشف',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
                         ],
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'ملخص الأسبوع',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _StatCard(
-                          title: 'كل التحديثات',
-                          value: '${updates.length}',
-                          icon: Icons.notifications_none,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _StatCard(
-                          title: 'الأكثر تكرارًا',
-                          value: topTypeText(updates),
-                          icon: Icons.insights_outlined,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  if (currentSection == 'Kindergarten')
-                    FutureBuilder<int>(
-                      future: fetchWeeklyAttendanceCount(),
-                      builder: (context, attendanceSnapshot) {
-                        final attendance = attendanceSnapshot.data ?? 0;
-                        return _WideInfoCard(
-                          icon: Icons.check_circle_outline,
-                          color: Colors.green,
-                          title: 'الحضور خلال آخر 7 أيام',
-                          value: '$attendance أيام حضور',
-                        );
-                      },
-                    )
-                  else
-                    const _WideInfoCard(
-                      icon: Icons.info_outline,
-                      color: AppColors.primary,
-                      title: 'نظام المتابعة',
-                      value: 'الحضانة تعتمد على الزيارات والتحديثات وليس الحضور اليومي الثابت',
-                    ),
-                  const SizedBox(height: 18),
-                  Text(
-                    currentSection == 'Nursery'
-                        ? 'تفاصيل الحضانة'
-                        : 'تفاصيل الروضة',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                  ),
-                  const SizedBox(height: 10),
-                  if (currentSection == 'Nursery') ...[
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _StatCard(
-                            title: 'الوجبات',
-                            value: '$mealsCount',
-                            icon: Icons.restaurant_outlined,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _StatCard(
-                            title: 'النوم',
-                            value: '$sleepCount',
-                            icon: Icons.bedtime_outlined,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _StatCard(
-                            title: 'الصحة',
-                            value: '$healthCount',
-                            icon: Icons.health_and_safety_outlined,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _StatCard(
-                            title: 'الأنشطة',
-                            value: '$activitiesCount',
-                            icon: Icons.toys_outlined,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    _WideInfoCard(
-                      icon: Icons.camera_alt_outlined,
-                      color: AppColors.secondary,
-                      title: 'وسائط الكاميرا',
-                      value: '$cameraCount مرفقات هذا الأسبوع',
-                    ),
-                  ] else ...[
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _StatCard(
-                            title: 'الأنشطة',
-                            value: '$activitiesCount',
-                            icon: Icons.toys_outlined,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _StatCard(
-                            title: 'الواجبات',
-                            value: '$homeworkCount',
-                            icon: Icons.menu_book_outlined,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _StatCard(
-                            title: 'التقييمات',
-                            value: '$evaluationCount',
-                            icon: Icons.star_outline,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _StatCard(
-                            title: 'خطة اليوم',
-                            value: '$planCount',
-                            icon: Icons.event_note_outlined,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                  const SizedBox(height: 18),
-                  Text(
-                    'أحدث تحديثات الأسبوع',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                  ),
-                  const SizedBox(height: 10),
-                  if (updates.isEmpty)
+                    const SizedBox(height: 16),
+
                     Card(
                       child: Padding(
-                        padding: const EdgeInsets.all(20),
+                        padding: const EdgeInsets.all(16),
                         child: Column(
                           children: [
-                            CircleAvatar(
-                              radius: 26,
-                              backgroundColor:
-                                  AppColors.primary.withOpacity(0.12),
-                              child: const Icon(
-                                Icons.description_outlined,
-                                color: AppColors.primary,
-                                size: 26,
-                              ),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _InfoMiniCard(
+                                    icon: Icons.cake_outlined,
+                                    title: 'العمر',
+                                    value: childAgeText(currentBirthDate),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: _InfoMiniCard(
+                                    icon: Icons.groups_outlined,
+                                    title: 'المجموعة',
+                                    value: currentGroup.isEmpty ? 'غير محدد' : currentGroup,
+                                  ),
+                                ),
+                              ],
                             ),
-                            const SizedBox(height: 12),
-                            const Text(
-                              'لا توجد بيانات أسبوعية بعد',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 15,
+                            const SizedBox(height: 10),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: badgeColor.withOpacity(0.12),
+                                borderRadius: BorderRadius.circular(16),
                               ),
-                              textAlign: TextAlign.center,
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.apartment_outlined,
+                                    color: badgeColor,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'القسم الحالي: ${sectionLabel(currentSection)}',
+                                    style: TextStyle(
+                                      color: badgeColor,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 15,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ],
                         ),
                       ),
-                    )
-                  else
-                    ...updates.take(5).map(
-                      (u) => Card(
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    Text(
+                      'ملخص الأسبوع',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
+                    const SizedBox(height: 10),
+
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _StatCard(
+                            title: 'كل التحديثات',
+                            value: '${updates.length}',
+                            icon: Icons.notifications_none,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _StatCard(
+                            title: 'الأكثر تكرارًا',
+                            value: topTypeText(updates),
+                            icon: Icons.insights_outlined,
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 10),
+
+                    if (currentSection == 'Kindergarten')
+                      FutureBuilder<int>(
+                        future: fetchWeeklyAttendanceCount(),
+                        builder: (context, attendanceSnapshot) {
+                          final attendance = attendanceSnapshot.data ?? 0;
+
+                          return _WideInfoCard(
+                            icon: Icons.check_circle_outline,
+                            color: Colors.green,
+                            title: 'الحضور خلال آخر 7 أيام',
+                            value: '$attendance أيام حضور',
+                          );
+                        },
+                      )
+                    else
+                      const _WideInfoCard(
+                        icon: Icons.info_outline,
+                        color: AppColors.primary,
+                        title: 'نظام المتابعة',
+                        value:
+                            'الحضانة تعتمد على الزيارات والتحديثات وليس الحضور اليومي الثابت',
+                      ),
+
+                    const SizedBox(height: 18),
+
+                    Text(
+                      currentSection == 'Nursery' ? 'تفاصيل الحضانة' : 'تفاصيل الروضة',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
+                    const SizedBox(height: 10),
+
+                    if (currentSection == 'Nursery') ...[
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _StatCard(
+                              title: 'الوجبات',
+                              value: '$mealsCount',
+                              icon: Icons.restaurant_outlined,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _StatCard(
+                              title: 'النوم',
+                              value: '$sleepCount',
+                              icon: Icons.bedtime_outlined,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _StatCard(
+                              title: 'الصحة',
+                              value: '$healthCount',
+                              icon: Icons.health_and_safety_outlined,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _StatCard(
+                              title: 'الأنشطة',
+                              value: '$activitiesCount',
+                              icon: Icons.toys_outlined,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      _WideInfoCard(
+                        icon: Icons.camera_alt_outlined,
+                        color: AppColors.secondary,
+                        title: 'وسائط الكاميرا',
+                        value: '$cameraCount مرفقات هذا الأسبوع',
+                      ),
+                    ] else ...[
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _StatCard(
+                              title: 'الأنشطة',
+                              value: '$activitiesCount',
+                              icon: Icons.toys_outlined,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _StatCard(
+                              title: 'الواجبات',
+                              value: '$homeworkCount',
+                              icon: Icons.menu_book_outlined,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _StatCard(
+                              title: 'التقييمات',
+                              value: '$evaluationCount',
+                              icon: Icons.star_outline,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _StatCard(
+                              title: 'خطة اليوم',
+                              value: '$planCount',
+                              icon: Icons.event_note_outlined,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+
+                    const SizedBox(height: 18),
+
+                    Text(
+                      'أحدث تحديثات الأسبوع',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
+                    const SizedBox(height: 10),
+
+                    if (updates.isEmpty)
+                      Card(
                         child: Padding(
-                          padding: const EdgeInsets.all(14),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                          padding: const EdgeInsets.all(20),
+                          child: Column(
                             children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 6,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: AppColors.primary.withOpacity(0.12),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Text(
-                                  formatDate((u['time'] as Timestamp?) ??
-                                      (u['createdAt'] as Timestamp?)),
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 12.5,
-                                  ),
+                              CircleAvatar(
+                                radius: 26,
+                                backgroundColor: AppColors.primary.withOpacity(0.12),
+                                child: const Icon(
+                                  Icons.description_outlined,
+                                  color: AppColors.primary,
+                                  size: 26,
                                 ),
                               ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  '${u['type']}: ${u['note']}',
-                                  style: const TextStyle(fontSize: 14),
+                              const SizedBox(height: 12),
+                              const Text(
+                                'لا توجد بيانات أسبوعية بعد',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 15,
                                 ),
+                                textAlign: TextAlign.center,
                               ),
                             ],
                           ),
                         ),
+                      )
+                    else
+                      ...updates.take(5).map(
+                        (u) {
+                          final ts = (u['time'] as Timestamp?) ??
+                              (u['createdAt'] as Timestamp?);
+
+                          return Card(
+                            child: Padding(
+                              padding: const EdgeInsets.all(14),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 6,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.primary.withOpacity(0.12),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Text(
+                                      formatDate(ts),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12.5,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      '${u['type']}: ${u['note']}',
+                                      style: const TextStyle(fontSize: 14),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
                       ),
-                    ),
-                ],
-              );
-            },
-          );
-        },
+                  ],
+                );
+              },
+            );
+          },
+        ),
       ),
     );
   }

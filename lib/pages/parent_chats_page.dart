@@ -37,6 +37,11 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
     super.dispose();
   }
 
+  Future<void> _refreshPage() async {
+    if (!mounted) return;
+    setState(() {});
+  }
+
   List<ChildModel> get activeChildren => widget.children;
 
   Set<String> get allowedSections {
@@ -129,10 +134,13 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
         'group': data['group'] ?? '',
       };
     }).where((person) {
+      final id = (person['id'] ?? '').toString();
       final role = (person['role'] ?? '').toString();
       final section = (person['section'] ?? '').toString();
       final name = (person['displayName'] ?? '').toString().toLowerCase();
       final username = (person['username'] ?? '').toString().toLowerCase();
+
+      if (id == currentUserId) return false;
 
       final allowedRole =
           role == 'teacher' || role == 'nursery' || role == 'admin';
@@ -152,6 +160,9 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
       if (selectedFilter == 'nursery' && section != 'Nursery') return false;
       if (selectedFilter == 'kg' && section != 'Kindergarten') return false;
       if (selectedFilter == 'admin' && role != 'admin') return false;
+      if (selectedFilter != 'admin' && selectedFilter != 'all' && role == 'admin') {
+        return false;
+      }
 
       if (searchText.isEmpty) return true;
 
@@ -187,6 +198,21 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
     } catch (_) {
       return activeChildren.first;
     }
+  }
+
+  bool matchesRecentFilter(MessageModel message) {
+    final child = pickChildForMessage(message);
+
+    if (selectedFilter == 'all') return true;
+    if (selectedFilter == 'nursery') return child.section == 'Nursery';
+    if (selectedFilter == 'kg') return child.section == 'Kindergarten';
+    if (selectedFilter == 'admin') {
+      final otherRole =
+          message.senderRole == 'parent' ? message.receiverRole : message.senderRole;
+      return otherRole == 'admin';
+    }
+
+    return true;
   }
 
   Widget buildTopTab({
@@ -315,8 +341,8 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(24),
-        onTap: () {
-          Navigator.push(
+        onTap: () async {
+          await Navigator.push(
             context,
             MaterialPageRoute(
               builder: (_) => MessagesPage(
@@ -329,6 +355,9 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
               ),
             ),
           );
+
+          if (!mounted) return;
+          setState(() {});
         },
         child: Row(
           children: [
@@ -448,14 +477,14 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '${roleLabel(role)} • ${sectionLabel(section)}',
+                  '${roleLabel(role)} • ${role == 'admin' ? 'الإدارة' : sectionLabel(section)}',
                   style: const TextStyle(
                     fontSize: 13,
                     color: AppColors.textLight,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                if (group.isNotEmpty) ...[
+                if (group.isNotEmpty && role != 'admin') ...[
                   const SizedBox(height: 4),
                   Text(
                     'المجموعة: $group',
@@ -479,19 +508,22 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
           ),
           const SizedBox(width: 8),
           GestureDetector(
-            onTap: () {
-              Navigator.push(
+            onTap: () async {
+              await Navigator.push(
                 context,
                 MaterialPageRoute(
                   builder: (_) => MessagesPage(
                     child: childForChat,
                     targetRole: role,
                     targetUserId: (person['id'] ?? '').toString(),
-                    targetUserName: name,
+                    targetUserName: name.isEmpty ? 'بدون اسم' : name,
                     targetSection: section,
                   ),
                 ),
               );
+
+              if (!mounted) return;
+              setState(() {});
             },
             child: Container(
               padding: const EdgeInsets.all(12),
@@ -517,82 +549,105 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
       );
     }
 
-    return StreamBuilder<List<MessageModel>>(
-      stream: _messageService.getLatestChatsForUser(
-        currentUserId: currentUserId!,
-      ),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(
-            child: CircularProgressIndicator(),
-          );
-        }
-
-        if (snapshot.hasError) {
-          return Center(
-            child: Text(
-              'حدث خطأ أثناء تحميل المحادثات',
-              style: TextStyle(
-                color: Colors.red.shade700,
-                fontWeight: FontWeight.w700,
-              ),
+    return Column(
+      children: [
+        if (activeChildren.isNotEmpty) ...[
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: buildDynamicFilterChips(),
             ),
-          );
-        }
+          ),
+          const SizedBox(height: 16),
+        ],
+        Expanded(
+          child: StreamBuilder<List<MessageModel>>(
+            stream: _messageService.getLatestChatsForUser(
+              currentUserId: currentUserId!,
+            ),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(
+                  child: CircularProgressIndicator(),
+                );
+              }
 
-        final chats = (snapshot.data ?? [])
-            .where((m) => m.senderRole == 'parent' || m.receiverRole == 'parent')
-            .toList();
-
-        if (chats.isEmpty) {
-          return Center(
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(24),
-              ),
-              child: const Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.send_outlined,
-                    size: 52,
-                    color: AppColors.textLight,
-                  ),
-                  SizedBox(height: 12),
-                  Text(
-                    'لا توجد محادثات بعد',
+              if (snapshot.hasError) {
+                return Center(
+                  child: Text(
+                    'حدث خطأ أثناء تحميل المحادثات: ${snapshot.error}',
                     style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.textDark,
+                      color: Colors.red.shade700,
+                      fontWeight: FontWeight.w700,
                     ),
-                  ),
-                  SizedBox(height: 8),
-                  Text(
-                    'عندما تبدأ أول محادثة ستظهر هنا آخر الرسائل',
                     textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: AppColors.textLight,
-                      height: 1.5,
+                  ),
+                );
+              }
+
+              final chats = (snapshot.data ?? [])
+                  .where((m) =>
+                      m.senderRole == 'parent' || m.receiverRole == 'parent')
+                  .where((m) {
+                    if (activeChildren.isEmpty) return false;
+                    final child = pickChildForMessage(m);
+                    return allowedSections.contains(child.section);
+                  })
+                  .where(matchesRecentFilter)
+                  .toList();
+
+              if (chats.isEmpty) {
+                return Center(
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    child: const Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.send_outlined,
+                          size: 52,
+                          color: AppColors.textLight,
+                        ),
+                        SizedBox(height: 12),
+                        Text(
+                          'لا توجد محادثات بعد',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.textDark,
+                          ),
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          'عندما تبدأ أول محادثة ستظهر هنا آخر الرسائل',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: AppColors.textLight,
+                            height: 1.5,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ],
-              ),
-            ),
-          );
-        }
+                );
+              }
 
-        return ListView.builder(
-          itemCount: chats.length,
-          itemBuilder: (context, index) {
-            return buildRecentChatCard(chats[index]);
-          },
-        );
-      },
+              return ListView.builder(
+                itemCount: chats.length,
+                itemBuilder: (context, index) {
+                  return buildRecentChatCard(chats[index]);
+                },
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 
@@ -693,11 +748,12 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
               if (snapshot.hasError) {
                 return Center(
                   child: Text(
-                    'حدث خطأ أثناء تحميل الأشخاص',
+                    'حدث خطأ أثناء تحميل الأشخاص: ${snapshot.error}',
                     style: TextStyle(
                       color: Colors.red.shade700,
                       fontWeight: FontWeight.w700,
                     ),
+                    textAlign: TextAlign.center,
                   ),
                 );
               }
@@ -764,22 +820,25 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
     return AppPageScaffold(
       title: 'المراسلات',
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              buildTopTab(label: 'المحادثات', value: 'recent'),
-              const SizedBox(width: 10),
-              buildTopTab(label: 'البحث', value: 'search'),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: selectedTab == 'recent'
-                ? buildRecentChatsTab()
-                : buildSearchTab(),
-          ),
-        ],
+      child: RefreshIndicator(
+        onRefresh: _refreshPage,
+        child: Column(
+          children: [
+            Row(
+              children: [
+                buildTopTab(label: 'المحادثات', value: 'recent'),
+                const SizedBox(width: 10),
+                buildTopTab(label: 'البحث', value: 'search'),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Expanded(
+              child: selectedTab == 'recent'
+                  ? buildRecentChatsTab()
+                  : buildSearchTab(),
+            ),
+          ],
+        ),
       ),
     );
   }

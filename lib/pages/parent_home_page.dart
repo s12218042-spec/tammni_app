@@ -1,16 +1,15 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../models/child_model.dart';
+import '../services/message_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 import 'child_profile_page.dart';
 import 'parent_chats_page.dart';
 import 'parent_updates_page.dart';
 import 'weekly_report_page.dart';
-import '../services/message_service.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-
 
 class ParentHomePage extends StatefulWidget {
   final String parentUsername;
@@ -28,7 +27,12 @@ class _ParentHomePageState extends State<ParentHomePage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final MessageService _messageService = MessageService();
 
-String? get currentUserId => FirebaseAuth.instance.currentUser?.uid;
+  String? get currentUserId => FirebaseAuth.instance.currentUser?.uid;
+
+  Future<void> _refreshPage() async {
+    if (!mounted) return;
+    setState(() {});
+  }
 
   String sectionLabel(String section) {
     return section == 'Nursery' ? 'حضانة' : 'روضة';
@@ -66,42 +70,45 @@ String? get currentUserId => FirebaseAuth.instance.currentUser?.uid;
   }
 
   Future<List<ChildModel>> fetchChildren() async {
-  final snapshot = await _firestore
-      .collection('children')
-      .where('parentUsername', isEqualTo: widget.parentUsername)
-      .where('isActive', isEqualTo: true)
-      .get();
+    final snapshot = await _firestore
+        .collection('children')
+        .where('parentUsername', isEqualTo: widget.parentUsername)
+        .where('isActive', isEqualTo: true)
+        .get();
 
-  return snapshot.docs.map((doc) {
-    final data = doc.data();
+    final children = snapshot.docs.map((doc) {
+      final data = doc.data();
 
-    return ChildModel(
-      id: doc.id,
-      name: data['name'] ?? '',
-      section: data['section'] ?? 'Nursery',
-      group: data['group'] ?? '',
-      parentName: data['parentName'] ?? '',
-      parentUsername: data['parentUsername'] ?? '',
-      birthDate: data['birthDate'] is Timestamp
-          ? (data['birthDate'] as Timestamp).toDate()
-          : DateTime.now(),
-      isActive: data['isActive'] ?? true,
-      status: data['status'] ?? 'active',
-      createdAt: data['createdAt'] is Timestamp
-          ? (data['createdAt'] as Timestamp).toDate()
-          : null,
-      updatedAt: data['updatedAt'] is Timestamp
-          ? (data['updatedAt'] as Timestamp).toDate()
-          : null,
-      history: const [],
-    );
-  }).toList();
-}
+      return ChildModel(
+        id: doc.id,
+        name: data['name'] ?? '',
+        section: data['section'] ?? 'Nursery',
+        group: data['group'] ?? '',
+        parentName: data['parentName'] ?? '',
+        parentUsername: data['parentUsername'] ?? '',
+        birthDate: data['birthDate'] is Timestamp
+            ? (data['birthDate'] as Timestamp).toDate()
+            : DateTime.now(),
+        isActive: data['isActive'] ?? true,
+        status: data['status'] ?? 'active',
+        createdAt: data['createdAt'] is Timestamp
+            ? (data['createdAt'] as Timestamp).toDate()
+            : null,
+        updatedAt: data['updatedAt'] is Timestamp
+            ? (data['updatedAt'] as Timestamp).toDate()
+            : null,
+        history: const [],
+      );
+    }).toList();
 
+    children.sort((a, b) => a.name.compareTo(b.name));
+    return children;
+  }
 
   Future<bool> isPresentToday(String childId) async {
     final now = DateTime.now();
-    final dateKey = '${now.year}-${now.month}-${now.day}';
+    final dateKey =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
 
     final snapshot = await _firestore
         .collection('attendance')
@@ -131,8 +138,8 @@ String? get currentUserId => FirebaseAuth.instance.currentUser?.uid;
     }).toList();
 
     items.sort((a, b) {
-      final aTime = (a['createdAt'] as Timestamp?) ?? (a['time'] as Timestamp?);
-      final bTime = (b['createdAt'] as Timestamp?) ?? (b['time'] as Timestamp?);
+      final aTime = (a['time'] as Timestamp?) ?? (a['createdAt'] as Timestamp?);
+      final bTime = (b['time'] as Timestamp?) ?? (b['createdAt'] as Timestamp?);
 
       if (aTime == null && bTime == null) return 0;
       if (aTime == null) return 1;
@@ -149,6 +156,65 @@ String? get currentUserId => FirebaseAuth.instance.currentUser?.uid;
     return name.trim().substring(0, 1);
   }
 
+  Future<void> _openChildProfile(ChildModel child) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChildProfilePage(child: child),
+      ),
+    );
+
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  Future<void> _openUpdates(ChildModel child) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ParentUpdatesPage(child: child),
+      ),
+    );
+
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  Future<void> _openWeeklyReport(ChildModel child) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => WeeklyReportPage(child: child),
+      ),
+    );
+
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  Future<void> _openChats(List<ChildModel> children) async {
+    if (children.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'لا توجد محادثات متاحة لأنه لا يوجد أطفال مرتبطون بهذا الحساب',
+          ),
+        ),
+      );
+      return;
+    }
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ParentChatsPage(children: children),
+      ),
+    );
+
+    if (!mounted) return;
+    setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<ChildModel>>(
@@ -157,89 +223,68 @@ String? get currentUserId => FirebaseAuth.instance.currentUser?.uid;
         return AppPageScaffold(
           title: 'الرئيسية - ولي الأمر',
           actions: [
-  if (currentUserId != null)
-  StreamBuilder<int>(
-    stream: _messageService.getUnreadMessagesCountForUser(
-      currentUserId: currentUserId!,
-    ),
-    builder: (context, unreadSnapshot) {
-      final unreadCount = unreadSnapshot.data ?? 0;
+            if (currentUserId != null)
+              StreamBuilder<int>(
+                stream: _messageService.getUnreadMessagesCountForUser(
+                  currentUserId: currentUserId!,
+                ),
+                builder: (context, unreadSnapshot) {
+                  final unreadCount = unreadSnapshot.data ?? 0;
 
-      return Stack(
-        clipBehavior: Clip.none,
-        children: [
-          IconButton(
-            icon: const Icon(Icons.send_outlined),
-            tooltip: 'المراسلات',
-            onPressed: snapshot.connectionState == ConnectionState.waiting
-                ? null
-                : () {
-                    final children = snapshot.data ?? [];
-
-                    if (children.isEmpty) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'لا توجد محادثات متاحة لأنه لا يوجد أطفال مرتبطون بهذا الحساب',
+                  return Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.send_outlined),
+                        tooltip: 'المراسلات',
+                        onPressed: snapshot.connectionState ==
+                                ConnectionState.waiting
+                            ? null
+                            : () => _openChats(snapshot.data ?? []),
+                      ),
+                      if (unreadCount > 0)
+                        Positioned(
+                          top: 6,
+                          right: 6,
+                          child: Container(
+                            constraints: const BoxConstraints(
+                              minWidth: 18,
+                              minHeight: 18,
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 5,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.redAccent,
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: Colors.white,
+                                width: 1.5,
+                              ),
+                            ),
+                            child: Text(
+                              unreadCount > 99 ? '99+' : '$unreadCount',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
                           ),
                         ),
-                      );
-                      return;
-                    }
-
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => ParentChatsPage(children: children),
-                      ),
-                    );
-                  },
-          ),
-          if (unreadCount > 0)
-            Positioned(
-              top: 6,
-              right: 6,
-              child: Container(
-                constraints: const BoxConstraints(
-                  minWidth: 18,
-                  minHeight: 18,
-                ),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 5,
-                  vertical: 2,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.redAccent,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: Colors.white,
-                    width: 1.5,
-                  ),
-                ),
-                child: Text(
-                  unreadCount > 99 ? '99+' : '$unreadCount',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
+                    ],
+                  );
+                },
+              )
+            else
+              IconButton(
+                icon: const Icon(Icons.send_outlined),
+                tooltip: 'المراسلات',
+                onPressed: null,
               ),
-            ),
-        ],
-      );
-    },
-  )
-else
-  IconButton(
-    icon: const Icon(Icons.send_outlined),
-    tooltip: 'المراسلات',
-    onPressed: null,
-  ),
-
-],
-
+          ],
           child: Builder(
             builder: (context) {
               if (snapshot.connectionState == ConnectionState.waiting) {
@@ -256,89 +301,98 @@ else
 
               final children = snapshot.data ?? [];
 
-              if (children.isEmpty) {
-                return ListView(
-                  children: [
-                    _WelcomeHeader(parentUsername: widget.parentUsername),
-                    const SizedBox(height: 16),
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(18),
-                        child: Column(
-                          children: [
-                            CircleAvatar(
-                              radius: 28,
-                              backgroundColor:
-                                  AppColors.primary.withOpacity(0.12),
-                              child: const Icon(
-                                Icons.child_care,
-                                color: AppColors.primary,
-                                size: 28,
+              return RefreshIndicator(
+                onRefresh: _refreshPage,
+                child: children.isEmpty
+                    ? ListView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        children: [
+                          _WelcomeHeader(parentUsername: widget.parentUsername),
+                          const SizedBox(height: 16),
+                          Card(
+                            child: Padding(
+                              padding: const EdgeInsets.all(18),
+                              child: Column(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 28,
+                                    backgroundColor:
+                                        AppColors.primary.withOpacity(0.12),
+                                    child: const Icon(
+                                      Icons.child_care,
+                                      color: AppColors.primary,
+                                      size: 28,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  const Text(
+                                    'لا يوجد أطفال مرتبطون بهذا الحساب',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  const Text(
+                                    'يمكنك مراجعة الإدارة لإضافة الأطفال وربطهم بحساب ولي الأمر.',
+                                    style: TextStyle(
+                                      color: AppColors.textLight,
+                                      fontSize: 14,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ],
                               ),
                             ),
-                            const SizedBox(height: 12),
-                            const Text(
-                              'لا يوجد أطفال مرتبطون بهذا الحساب',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
+                          ),
+                        ],
+                      )
+                    : ListView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        children: [
+                          _WelcomeHeader(parentUsername: widget.parentUsername),
+                          const SizedBox(height: 16),
+                          _SummaryCard(
+                            totalChildren: children.length,
+                            nurseryCount: children
+                                .where((c) => c.section == 'Nursery')
+                                .length,
+                            kgCount: children
+                                .where((c) => c.section == 'Kindergarten')
+                                .length,
+                          ),
+                          const SizedBox(height: 20),
+                          Text(
+                            'أطفالي',
+                            style:
+                                Theme.of(context).textTheme.titleLarge?.copyWith(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                          ),
+                          const SizedBox(height: 10),
+                          ...children.map(
+                            (child) => Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: _ChildDashboardCard(
+                                childModel: child,
+                                sectionText: sectionLabel(child.section),
+                                sectionBadgeColor: sectionColor(child.section),
+                                ageText: childAgeText(child.birthDate),
+                                letter: firstLetter(child.name),
+                                attendanceFuture: child.section == 'Kindergarten'
+                                    ? isPresentToday(child.id)
+                                    : null,
+                                updatesFuture: fetchLastUpdates(child.id),
+                                onOpenProfile: () => _openChildProfile(child),
+                                onOpenUpdates: () => _openUpdates(child),
+                                onOpenWeeklyReport: () =>
+                                    _openWeeklyReport(child),
                               ),
-                              textAlign: TextAlign.center,
                             ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'يمكنك مراجعة الإدارة لإضافة الأطفال وربطهم بحساب ولي الأمر.',
-                              style: const TextStyle(
-                                color: AppColors.textLight,
-                                fontSize: 14,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
-                    ),
-                  ],
-                );
-              }
-
-              return ListView(
-                children: [
-                  _WelcomeHeader(parentUsername: widget.parentUsername),
-                  const SizedBox(height: 16),
-                  _SummaryCard(
-                    totalChildren: children.length,
-                    nurseryCount:
-                        children.where((c) => c.section == 'Nursery').length,
-                    kgCount: children
-                        .where((c) => c.section == 'Kindergarten')
-                        .length,
-                  ),
-                  const SizedBox(height: 20),
-                  Text(
-                    'أطفالي',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                  ),
-                  const SizedBox(height: 10),
-                  ...children.map(
-                    (child) => Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _ChildDashboardCard(
-                        childModel: child,
-                        sectionText: sectionLabel(child.section),
-                        sectionBadgeColor: sectionColor(child.section),
-                        ageText: childAgeText(child.birthDate),
-                        letter: firstLetter(child.name),
-                        attendanceFuture: child.section == 'Kindergarten'
-                            ? isPresentToday(child.id)
-                            : null,
-                        updatesFuture: fetchLastUpdates(child.id),
-                      ),
-                    ),
-                  ),
-                ],
               );
             },
           ),
@@ -379,7 +433,7 @@ class _WelcomeHeader extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '${greetingText()} ',
+            greetingText(),
             style: const TextStyle(
               color: Colors.white,
               fontSize: 22,
@@ -510,6 +564,9 @@ class _ChildDashboardCard extends StatelessWidget {
   final String letter;
   final Future<bool>? attendanceFuture;
   final Future<List<Map<String, dynamic>>> updatesFuture;
+  final VoidCallback onOpenProfile;
+  final VoidCallback onOpenUpdates;
+  final VoidCallback onOpenWeeklyReport;
 
   const _ChildDashboardCard({
     required this.childModel,
@@ -519,6 +576,9 @@ class _ChildDashboardCard extends StatelessWidget {
     required this.letter,
     required this.attendanceFuture,
     required this.updatesFuture,
+    required this.onOpenProfile,
+    required this.onOpenUpdates,
+    required this.onOpenWeeklyReport,
   });
 
   @override
@@ -706,14 +766,7 @@ class _ChildDashboardCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => ChildProfilePage(child: childModel),
-                        ),
-                      );
-                    },
+                    onPressed: onOpenProfile,
                     icon: const Icon(Icons.person_outline),
                     label: const Text('ملف الطفل'),
                   ),
@@ -721,17 +774,8 @@ class _ChildDashboardCard extends StatelessWidget {
                 const SizedBox(width: 10),
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) =>
-                              ParentUpdatesPage(child: childModel),
-                        ),
-                      );
-                    },
+                    onPressed: onOpenUpdates,
                     icon: const Icon(Icons.notifications_none_outlined),
-
                     label: const Text('التحديثات'),
                     style: OutlinedButton.styleFrom(
                       minimumSize: const Size(double.infinity, 50),
@@ -745,14 +789,7 @@ class _ChildDashboardCard extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             OutlinedButton.icon(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => WeeklyReportPage(child: childModel),
-                  ),
-                );
-              },
+              onPressed: onOpenWeeklyReport,
               icon: const Icon(Icons.description_outlined),
               label: const Text('التقرير الأسبوعي'),
               style: OutlinedButton.styleFrom(

@@ -37,8 +37,10 @@ class _MessagesPageState extends State<MessagesPage> {
   String currentUserName = '';
   String currentUserRole = '';
   bool loadingIdentity = true;
+  bool isSending = false;
 
-  String get targetDisplayName => widget.targetUserName;
+  String get targetDisplayName =>
+      widget.targetUserName.trim().isEmpty ? 'بدون اسم' : widget.targetUserName;
 
   IconData get targetIcon {
     if (widget.targetRole == 'teacher') return Icons.school_outlined;
@@ -66,8 +68,18 @@ class _MessagesPageState extends State<MessagesPage> {
     if (role == 'teacher') return 'معلمة';
     if (role == 'nursery') return 'موظف حضانة';
     if (role == 'parent') return 'ولي أمر';
-    if (role == 'admin') return 'إدارة';
+    if (role == 'admin') return 'الإدارة';
     return role;
+  }
+
+  String headerSubtitle() {
+    final roleText = roleLabel(widget.targetRole);
+
+    if (widget.targetRole == 'admin' || widget.targetSection.trim().isEmpty) {
+      return '$roleText • متابعة بخصوص الطفل';
+    }
+
+    return '$roleText • ${sectionLabel(widget.targetSection)}';
   }
 
   @override
@@ -77,38 +89,46 @@ class _MessagesPageState extends State<MessagesPage> {
   }
 
   Future<void> loadCurrentUserIdentity() async {
-    final user = FirebaseAuth.instance.currentUser;
+    try {
+      final user = FirebaseAuth.instance.currentUser;
 
-    if (user == null) {
+      if (user == null) {
+        if (!mounted) return;
+        setState(() {
+          loadingIdentity = false;
+        });
+        return;
+      }
+
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+
+      final data = doc.data() ?? {};
+
+      currentUserId = user.uid;
+      currentUserName =
+          (data['displayName'] ?? data['name'] ?? data['username'] ?? '')
+              .toString();
+      currentUserRole = (data['role'] ?? '').toString();
+
+      await _messageService.markConversationAsRead(
+        childId: widget.child.id,
+        currentUserId: user.uid,
+        targetUserId: widget.targetUserId,
+      );
+
       if (!mounted) return;
       setState(() {
         loadingIdentity = false;
       });
-      return;
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        loadingIdentity = false;
+      });
     }
-
-    final doc = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid)
-        .get();
-
-    final data = doc.data() ?? {};
-
-    currentUserId = user.uid;
-    currentUserName =
-        (data['displayName'] ?? data['name'] ?? data['username'] ?? '').toString();
-    currentUserRole = (data['role'] ?? '').toString();
-
-    await _messageService.markConversationAsRead(
-      childId: widget.child.id,
-      currentUserId: user.uid,
-      targetUserId: widget.targetUserId,
-    );
-
-    if (!mounted) return;
-    setState(() {
-      loadingIdentity = false;
-    });
   }
 
   @override
@@ -120,39 +140,63 @@ class _MessagesPageState extends State<MessagesPage> {
 
   String formatTime(Timestamp timestamp) {
     final date = timestamp.toDate();
-    final hour = date.hour > 12
-        ? date.hour - 12
-        : (date.hour == 0 ? 12 : date.hour);
+    final hour =
+        date.hour > 12 ? date.hour - 12 : (date.hour == 0 ? 12 : date.hour);
     final minute = date.minute.toString().padLeft(2, '0');
     final period = date.hour >= 12 ? 'م' : 'ص';
     return '$hour:$minute $period';
   }
 
-  Future<void> sendCurrentMessage() async {
-    final text = messageCtrl.text.trim();
-    if (text.isEmpty || currentUserId == null || currentUserRole.isEmpty) return;
+  Future<void> scrollToBottom({bool animated = true}) async {
+    await Future.delayed(const Duration(milliseconds: 60));
 
-    await _messageService.sendMessage(
-      childId: widget.child.id,
-      childName: widget.child.name,
-      senderId: currentUserId!,
-      senderName: currentUserName,
-      senderRole: currentUserRole,
-      receiverId: widget.targetUserId,
-      receiverName: widget.targetUserName,
-      receiverRole: widget.targetRole,
-      text: text,
-    );
+    if (!_scrollController.hasClients) return;
 
-    messageCtrl.clear();
+    final target = _scrollController.position.maxScrollExtent;
 
-    await Future.delayed(const Duration(milliseconds: 150));
-    if (_scrollController.hasClients) {
-      _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent + 100,
+    if (animated) {
+      await _scrollController.animateTo(
+        target,
         duration: const Duration(milliseconds: 250),
         curve: Curves.easeOut,
       );
+    } else {
+      _scrollController.jumpTo(target);
+    }
+  }
+
+  Future<void> sendCurrentMessage() async {
+    final text = messageCtrl.text.trim();
+
+    if (text.isEmpty || currentUserId == null || currentUserRole.isEmpty) return;
+    if (isSending) return;
+
+    setState(() {
+      isSending = true;
+    });
+
+    try {
+      await _messageService.sendMessage(
+        childId: widget.child.id,
+        childName: widget.child.name,
+        senderId: currentUserId!,
+        senderName: currentUserName,
+        senderRole: currentUserRole,
+        receiverId: widget.targetUserId,
+        receiverName: widget.targetUserName,
+        receiverRole: widget.targetRole,
+        text: text,
+      );
+
+      messageCtrl.clear();
+
+      if (!mounted) return;
+      await scrollToBottom();
+    } finally {
+      if (!mounted) return;
+      setState(() {
+        isSending = false;
+      });
     }
   }
 
@@ -257,7 +301,7 @@ class _MessagesPageState extends State<MessagesPage> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '${roleLabel(widget.targetRole)} • ${sectionLabel(widget.targetSection)}',
+                  headerSubtitle(),
                   style: const TextStyle(
                     fontSize: 13,
                     color: AppColors.textLight,
@@ -307,21 +351,34 @@ class _MessagesPageState extends State<MessagesPage> {
                 hintText: 'اكتب رسالتك إلى $targetDisplayName...',
                 border: InputBorder.none,
               ),
+              onSubmitted: (_) {},
             ),
           ),
           const SizedBox(width: 8),
           GestureDetector(
-            onTap: sendCurrentMessage,
+            onTap: isSending ? null : sendCurrentMessage,
             child: Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: AppColors.secondary,
+                color: isSending
+                    ? AppColors.secondary.withOpacity(0.6)
+                    : AppColors.secondary,
                 borderRadius: BorderRadius.circular(18),
               ),
-              child: const Icon(
-                Icons.send_rounded,
-                color: Colors.white,
-              ),
+              child: isSending
+                  ? const SizedBox(
+                      height: 22,
+                      width: 22,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.2,
+                        valueColor:
+                            AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : const Icon(
+                      Icons.send_rounded,
+                      color: Colors.white,
+                    ),
             ),
           ),
         ],
@@ -377,16 +434,23 @@ class _MessagesPageState extends State<MessagesPage> {
                 if (snapshot.hasError) {
                   return Center(
                     child: Text(
-                      'حدث خطأ أثناء تحميل الرسائل',
+                      'حدث خطأ أثناء تحميل الرسائل: ${snapshot.error}',
                       style: TextStyle(
                         color: Colors.red.shade700,
                         fontWeight: FontWeight.w700,
                       ),
+                      textAlign: TextAlign.center,
                     ),
                   );
                 }
 
                 final messages = snapshot.data ?? [];
+
+                if (messages.isNotEmpty) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    scrollToBottom(animated: false);
+                  });
+                }
 
                 if (messages.isEmpty) {
                   return Center(
@@ -429,14 +493,6 @@ class _MessagesPageState extends State<MessagesPage> {
                     ),
                   );
                 }
-
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (_scrollController.hasClients) {
-                    _scrollController.jumpTo(
-                      _scrollController.position.maxScrollExtent,
-                    );
-                  }
-                });
 
                 return ListView.builder(
                   controller: _scrollController,
