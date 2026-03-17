@@ -6,6 +6,11 @@ import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 import 'parent_updates_page.dart';
 import 'weekly_report_page.dart';
+import 'parent_grades_page.dart';
+import 'parent_assignments_page.dart';
+import 'parent_rewards_page.dart';
+import 'parent_attendance_details_page.dart';
+import 'parent_nursery_log_page.dart';
 
 class ChildProfilePage extends StatefulWidget {
   final ChildModel child;
@@ -223,13 +228,13 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
                           child: _ProfileInfoBox(
                             icon: Icons.groups_outlined,
                             title: 'المجموعة',
-                            value: child.group.isEmpty ? 'غير محدد' : child.group,
+                            value:
+                                child.group.isEmpty ? 'غير محدد' : child.group,
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 10),
-
                     Row(
                       children: [
                         Expanded(
@@ -263,7 +268,6 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
                       ],
                     ),
                     const SizedBox(height: 10),
-
                     Row(
                       children: [
                         Expanded(
@@ -300,7 +304,6 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
                       ],
                     ),
                     const SizedBox(height: 10),
-
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(14),
@@ -326,7 +329,6 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
                         ],
                       ),
                     ),
-
                     if (child.parentUsername.trim().isNotEmpty) ...[
                       const SizedBox(height: 10),
                       Container(
@@ -450,6 +452,143 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
                 );
               },
             ),
+
+            const SizedBox(height: 18),
+
+            Text(
+              child.section == 'Kindergarten'
+                  ? 'المتابعة التعليمية'
+                  : 'متابعة الحضانة',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(height: 10),
+
+            if (child.section == 'Kindergarten') ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => ParentGradesPage(child: child),
+                          ),
+                        );
+                        if (!mounted) return;
+                        setState(() {});
+                      },
+                      icon: const Icon(Icons.grade_outlined),
+                      label: const Text('الدرجات'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(double.infinity, 50),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                ParentAssignmentsPage(child: child),
+                          ),
+                        );
+                        if (!mounted) return;
+                        setState(() {});
+                      },
+                      icon: const Icon(Icons.assignment_outlined),
+                      label: const Text('الواجبات'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(double.infinity, 50),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => ParentRewardsPage(child: child),
+                          ),
+                        );
+                        if (!mounted) return;
+                        setState(() {});
+                      },
+                      icon: const Icon(Icons.emoji_events_outlined),
+                      label: const Text('التعزيز'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(double.infinity, 50),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                ParentAttendanceDetailsPage(child: child),
+                          ),
+                        );
+                        if (!mounted) return;
+                        setState(() {});
+                      },
+                      icon: const Icon(Icons.fact_check_outlined),
+                      label: const Text('الحضور'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(double.infinity, 50),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ] else ...[
+              OutlinedButton.icon(
+                onPressed: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ParentNurseryLogPage(child: child),
+                    ),
+                  );
+                  if (!mounted) return;
+                  setState(() {});
+                },
+                icon: const Icon(Icons.history_toggle_off_rounded),
+                label: const Text('سجل الدخول والخروج'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 50),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+              ),
+            ],
 
             const SizedBox(height: 18),
 

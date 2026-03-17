@@ -125,8 +125,8 @@ class _RegisterParentPageState extends State<RegisterParentPage> {
 
   Future<void> register() async {
     final displayName = displayNameCtrl.text.trim();
-    final username = usernameCtrl.text.trim();
-    final email = emailCtrl.text.trim();
+    final username = usernameCtrl.text.trim().toLowerCase();
+    final email = emailCtrl.text.trim().toLowerCase();
     final password = passwordCtrl.text;
     final confirmPassword = confirmPasswordCtrl.text;
 
@@ -194,14 +194,15 @@ class _RegisterParentPageState extends State<RegisterParentPage> {
       }
 
       await _firestore.collection('users').doc(user.uid).set({
-      'uid': user.uid,
-      'displayName': displayName,
-      'username': username,
-      'email': email,
-      'role': 'parent',
-      'fcmTokens': [],
-      'createdAt': FieldValue.serverTimestamp(),
-      });
+  'uid': user.uid,
+  'displayName': displayName,
+  'username': username,
+  'email': email,
+  'role': 'parent',
+  'fcmTokens': [],
+  'createdAt': FieldValue.serverTimestamp(),
+  'updatedAt': FieldValue.serverTimestamp(),
+});
 
     await NotificationService.instance.saveCurrentUserToken();
 
@@ -211,15 +212,26 @@ class _RegisterParentPageState extends State<RegisterParentPage> {
         final group = defaultGroupForSection(section);
 
         await _firestore.collection('children').add({
-          'name': childNameCtrls[i].text.trim(),
-          'section': section,
-          'group': group,
-          'parentName': displayName,
-          'parentUsername': username,
-          'parentUid': user.uid,
-          'birthDate': Timestamp.fromDate(birthDate),
-          'createdAt': FieldValue.serverTimestamp(),
-        });
+  'name': childNameCtrls[i].text.trim(),
+  'section': section,
+  'group': group,
+  'parentName': displayName,
+  'parentUsername': username,
+  'parentUid': user.uid,
+  'birthDate': Timestamp.fromDate(birthDate),
+  'isActive': true,
+  'status': 'active',
+  'createdAt': FieldValue.serverTimestamp(),
+  'updatedAt': FieldValue.serverTimestamp(),
+  'history': [
+    {
+      'section': section,
+      'group': group,
+      'from': Timestamp.now(),
+      'to': null,
+    }
+  ],
+});
       }
 
       if (!mounted) return;

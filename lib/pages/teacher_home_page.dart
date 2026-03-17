@@ -7,8 +7,17 @@ import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 import 'attendance_page.dart';
 import 'add_update_page.dart';
+import 'assignments_page.dart';
+import 'bulk_attendance_page.dart';
+import 'bulk_grade_entry_page.dart';
 import 'camera_checkin_page.dart';
+import 'detailed_attendance_page.dart';
+import 'grades_page.dart';
+import 'rewards_page.dart';
 import 'teacher_chats_page.dart';
+import 'teacher_groups_page.dart';
+import 'teacher_reports_page.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class TeacherHomePage extends StatefulWidget {
   const TeacherHomePage({super.key});
@@ -20,33 +29,158 @@ class TeacherHomePage extends StatefulWidget {
 class _TeacherHomePageState extends State<TeacherHomePage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final GalleryService _galleryService = GalleryService();
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+
+  Future<Map<String, String>> fetchCurrentUserInfo() async {
+  final currentUser = _auth.currentUser;
+
+  if (currentUser == null) {
+    return {
+      'uid': '',
+      'name': 'مستخدم غير معروف',
+      'role': '',
+    };
+  }
+
+  final userDoc =
+      await _firestore.collection('users').doc(currentUser.uid).get();
+
+  final data = userDoc.data() ?? {};
+
+  return {
+    'uid': currentUser.uid,
+    'name': (data['displayName'] ?? data['username'] ?? 'مستخدم').toString(),
+    'role': (data['role'] ?? '').toString(),
+  };
+}
+  Future<List<String>> fetchAssignedGroups() async {
+  final currentUser = _auth.currentUser;
+  if (currentUser == null) return [];
+
+  final userDoc =
+      await _firestore.collection('users').doc(currentUser.uid).get();
+
+  if (!userDoc.exists) return [];
+
+  final data = userDoc.data() ?? {};
+  final rawGroups = data['assignedGroups'];
+
+  if (rawGroups is List) {
+    return rawGroups
+        .map((e) => e.toString().trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+  }
+
+  return [];
+}
+
+  void openTeacherGroupsPage() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const TeacherGroupsPage(),
+      ),
+    );
+  }
+
+  void openGradesPage() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const GradesPage(),
+      ),
+    );
+  }
+
+  void openAssignmentsPage() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const AssignmentsPage(),
+      ),
+    );
+  }
+
+  void openRewardsPage() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const RewardsPage(),
+      ),
+    );
+  }
+
+  void openDetailedAttendancePage() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const DetailedAttendancePage(),
+      ),
+    );
+  }
+
+  void openBulkAttendancePage() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const BulkAttendancePage(),
+      ),
+    );
+  }
+
+  void openBulkGradeEntryPage() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const BulkGradeEntryPage(),
+      ),
+    );
+  }
+
+  void openTeacherReportsPage() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const TeacherReportsPage(),
+      ),
+    );
+  }
 
   Future<List<ChildModel>> fetchKgChildren() async {
-    final snapshot = await _firestore
-        .collection('children')
-        .where('section', isEqualTo: 'Kindergarten')
-        .where('isActive', isEqualTo: true)
-        .get();
+  final assignedGroups = await fetchAssignedGroups();
 
-    final children = snapshot.docs.map((doc) {
-      final data = doc.data();
-
-      return ChildModel(
-        id: doc.id,
-        name: data['name'] ?? '',
-        section: data['section'] ?? 'Kindergarten',
-        group: data['group'] ?? '',
-        parentName: data['parentName'] ?? '',
-        parentUsername: data['parentUsername'] ?? '',
-        birthDate: data['birthDate'] is Timestamp
-            ? (data['birthDate'] as Timestamp).toDate()
-            : DateTime.now(),
-      );
-    }).toList();
-
-    children.sort((a, b) => a.name.compareTo(b.name));
-    return children;
+  if (assignedGroups.isEmpty) {
+    return [];
   }
+
+  final snapshot = await _firestore
+      .collection('children')
+      .where('section', isEqualTo: 'Kindergarten')
+      .where('isActive', isEqualTo: true)
+      .get();
+
+  final children = snapshot.docs.map((doc) {
+    final data = doc.data();
+
+    return ChildModel(
+      id: doc.id,
+      name: data['name'] ?? '',
+      section: data['section'] ?? 'Kindergarten',
+      group: data['group'] ?? '',
+      parentName: data['parentName'] ?? '',
+      parentUsername: data['parentUsername'] ?? '',
+      birthDate: data['birthDate'] is Timestamp
+          ? (data['birthDate'] as Timestamp).toDate()
+          : DateTime.now(),
+    );
+  }).where((child) {
+    return assignedGroups.contains(child.group.trim());
+  }).toList();
+
+  children.sort((a, b) => a.name.compareTo(b.name));
+  return children;
+}
 
   Future<void> refreshPage() async {
     setState(() {});
@@ -83,6 +217,28 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
     }
   }
 
+  Future<void> openTeacherChats(List<ChildModel> children) async {
+    if (children.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('لا توجد مراسلات متاحة لأنه لا يوجد أطفال نشطون في الروضة'),
+        ),
+      );
+      return;
+    }
+
+    final res = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TeacherChatsPage(children: children),
+      ),
+    );
+
+    if (res == true) {
+      setState(() {});
+    }
+  }
+
   Future<void> openCameraCheckin(ChildModel child) async {
     final res = await Navigator.push(
       context,
@@ -103,7 +259,7 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
           localPath: path,
           mediaType: type,
         );
-
+        final userInfo = await fetchCurrentUserInfo();
         await _firestore.collection('updates').add({
           'childId': child.id,
           'childName': child.name,
@@ -114,7 +270,10 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
           'note': type == 'image' ? 'صورة للطفل' : 'فيديو قصير للطفل',
           'createdAt': Timestamp.now(),
           'time': FieldValue.serverTimestamp(),
-          'byRole': 'teacher',
+          'byRole': userInfo['role'],
+          'createdByUid': userInfo['uid'],
+          'createdByName': userInfo['name'],
+          'createdByRole': userInfo['role'],
           'mediaPath': path,
           'mediaType': type,
           'mediaUrl': mediaUrl,
@@ -139,40 +298,34 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
     }
   }
 
+  List<String> extractGroups(List<ChildModel> children) {
+    final groups = children
+        .map((child) => child.group.trim())
+        .where((group) => group.isNotEmpty)
+        .toSet()
+        .toList();
+
+    groups.sort();
+    return groups;
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<ChildModel>>(
       future: fetchKgChildren(),
       builder: (context, snapshot) {
+        final children = snapshot.data ?? [];
+        final groups = extractGroups(children);
+
         return AppPageScaffold(
-          title: 'الرئيسية - المعلمة',
+          title: 'لوحة المعلمة',
           actions: [
             IconButton(
               icon: const Icon(Icons.send_outlined),
               tooltip: 'المراسلات',
               onPressed: snapshot.connectionState == ConnectionState.waiting
                   ? null
-                  : () {
-                      final children = snapshot.data ?? [];
-
-                      if (children.isEmpty) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'لا توجد مراسلات متاحة لأنه لا يوجد أطفال نشطون في الروضة',
-                            ),
-                          ),
-                        );
-                        return;
-                      }
-
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => TeacherChatsPage(children: children),
-                        ),
-                      );
-                    },
+                  : () => openTeacherChats(children),
             ),
           ],
           child: Builder(
@@ -192,8 +345,6 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
                 );
               }
 
-              final kgChildren = snapshot.data ?? [];
-
               return RefreshIndicator(
                 onRefresh: refreshPage,
                 child: ListView(
@@ -201,10 +352,18 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
                   children: [
                     _buildHeader(context),
                     const SizedBox(height: 18),
-                    _buildQuickInfoCard(context, kgChildren.length),
-                    const SizedBox(height: 16),
+                    _buildStatsSection(children.length, groups.length),
+                    const SizedBox(height: 18),
+                    _buildQuickActions(children),
+                    const SizedBox(height: 18),
+                    _buildAcademicSection(),
+                    const SizedBox(height: 18),
+                    _buildMonitoringSection(),
+                    const SizedBox(height: 18),
+                    _buildGroupsSection(groups),
+                    const SizedBox(height: 18),
                     _buildAttendanceCard(),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 22),
                     Text(
                       'أطفال الروضة',
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
@@ -213,10 +372,10 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
                           ),
                     ),
                     const SizedBox(height: 10),
-                    if (kgChildren.isEmpty)
+                    if (children.isEmpty)
                       _buildEmptyState()
                     else
-                      ...kgChildren.map(
+                      ...children.map(
                         (child) => Padding(
                           padding: const EdgeInsets.only(bottom: 12),
                           child: _ChildActionCard(
@@ -290,7 +449,7 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'يمكنكِ من هنا تسجيل حضور أطفال الروضة وإرسال التحديثات والصور بسهولة.',
+                  'لوحة المعلمة لمتابعة الأطفال، المجموعات، الحضور، التقييمات، الواجبات، والتعزيز.',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: AppColors.textLight,
                         height: 1.6,
@@ -304,42 +463,299 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
     );
   }
 
-  Widget _buildQuickInfoCard(BuildContext context, int totalChildren) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
+  Widget _buildStatsSection(int totalChildren, int totalGroups) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'ملخص سريع',
+          style: TextStyle(
+            fontSize: 17,
+            fontWeight: FontWeight.w800,
+            color: AppColors.textDark,
           ),
-        ],
-        border: Border.all(
-          color: AppColors.border.withOpacity(0.7),
         ),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: _InfoBox(
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            _StatCard(
               title: 'القسم',
               value: 'الروضة',
               icon: Icons.auto_stories_rounded,
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _InfoBox(
+            _StatCard(
               title: 'عدد الأطفال',
               value: '$totalChildren',
               icon: Icons.groups_rounded,
             ),
+            _StatCard(
+              title: 'عدد المجموعات',
+              value: '$totalGroups',
+              icon: Icons.view_module_rounded,
+            ),
+            const _StatCard(
+              title: 'نوع العمل',
+              value: 'متابعة يومية',
+              icon: Icons.task_alt_rounded,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildQuickActions(List<ChildModel> children) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'إجراءات سريعة',
+          style: TextStyle(
+            fontSize: 17,
+            fontWeight: FontWeight.w800,
+            color: AppColors.textDark,
           ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 12),
+        Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: _QuickActionButton(
+                    title: 'الحضور',
+                    subtitle: 'تسجيل حضور اليوم',
+                    icon: Icons.how_to_reg_rounded,
+                    onTap: openAttendance,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _QuickActionButton(
+                    title: 'المراسلات',
+                    subtitle: 'فتح محادثات المعلمة',
+                    icon: Icons.send_outlined,
+                    onTap: () => openTeacherChats(children),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _QuickActionButton(
+              title: 'المجموعات',
+              subtitle: 'عرض مجموعات المعلمة والطلاب',
+              icon: Icons.groups_2_rounded,
+              onTap: openTeacherGroupsPage,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAcademicSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'الأدوات الأكاديمية',
+          style: TextStyle(
+            fontSize: 17,
+            fontWeight: FontWeight.w800,
+            color: AppColors.textDark,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: _QuickActionButton(
+                    title: 'التقييمات',
+                    subtitle: 'عرض وإضافة الدرجات',
+                    icon: Icons.grade_outlined,
+                    onTap: openGradesPage,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _QuickActionButton(
+                    title: 'الواجبات',
+                    subtitle: 'إدارة واجبات الطلاب',
+                    icon: Icons.assignment_outlined,
+                    onTap: openAssignmentsPage,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _QuickActionButton(
+                    title: 'التعزيز',
+                    subtitle: 'نجوم وشارات وتشجيع',
+                    icon: Icons.emoji_events_outlined,
+                    onTap: openRewardsPage,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _QuickActionButton(
+                    title: 'درجات جماعية',
+                    subtitle: 'إدخال درجات دفعة واحدة',
+                    icon: Icons.playlist_add_check_circle_outlined,
+                    onTap: openBulkGradeEntryPage,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMonitoringSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'المتابعة والتقارير',
+          style: TextStyle(
+            fontSize: 17,
+            fontWeight: FontWeight.w800,
+            color: AppColors.textDark,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: _QuickActionButton(
+                    title: 'الحضور التفصيلي',
+                    subtitle: 'عرض سجل الحضور الكامل',
+                    icon: Icons.fact_check_outlined,
+                    onTap: openDetailedAttendancePage,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _QuickActionButton(
+                    title: 'حضور جماعي',
+                    subtitle: 'إدخال الحضور دفعة واحدة',
+                    icon: Icons.checklist_rtl_outlined,
+                    onTap: openBulkAttendancePage,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _QuickActionButton(
+              title: 'التقارير',
+              subtitle: 'ملخصات وإحصائيات المعلمة',
+              icon: Icons.analytics_outlined,
+              onTap: openTeacherReportsPage,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildGroupsSection(List<String> groups) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'المجموعات الحالية',
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.textDark,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: openTeacherGroupsPage,
+              child: const Text('عرض الكل'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        if (groups.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: AppColors.border.withOpacity(0.8),
+              ),
+            ),
+            child: const Text(
+              'لا توجد مجموعات محددة حالياً للأطفال.',
+              style: TextStyle(
+                fontSize: 14,
+                color: AppColors.textLight,
+              ),
+            ),
+          )
+        else
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: groups
+                .map(
+                  (group) => InkWell(
+                    onTap: openTeacherGroupsPage,
+                    borderRadius: BorderRadius.circular(16),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: AppColors.border.withOpacity(0.85),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.groups_2_rounded,
+                            size: 18,
+                            color: AppColors.primary.withOpacity(0.9),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            group,
+                            style: const TextStyle(
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.textDark,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                )
+                .toList(),
+          ),
+      ],
     );
   }
 
@@ -431,37 +847,37 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
             color: AppColors.textLight.withOpacity(0.8),
           ),
           const SizedBox(height: 10),
-          const Text(
-            'لا يوجد أطفال في قسم الروضة حالياً',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 15.5,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textDark,
-            ),
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            'عند إضافة أطفال جدد سيظهرون هنا مباشرة.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 13.5,
-              color: AppColors.textLight,
-              height: 1.5,
-            ),
-          ),
+           const Text(
+  'لا توجد مجموعات أو أطفال مخصصون لهذه المعلمة حالياً',
+  textAlign: TextAlign.center,
+  style: TextStyle(
+    fontSize: 15.5,
+    fontWeight: FontWeight.w700,
+    color: AppColors.textDark,
+  ),
+),
+const SizedBox(height: 6),
+const Text(
+  'عند ربط المعلمة بمجموعاتها سيظهر الأطفال هنا مباشرة.',
+  textAlign: TextAlign.center,
+  style: TextStyle(
+    fontSize: 13.5,
+    color: AppColors.textLight,
+    height: 1.5,
+  ),
+),
         ],
       ),
     );
   }
 }
 
-class _InfoBox extends StatelessWidget {
+class _StatCard extends StatelessWidget {
   final String title;
   final String value;
   final IconData icon;
 
-  const _InfoBox({
+  const _StatCard({
     required this.title,
     required this.value,
     required this.icon,
@@ -470,10 +886,21 @@ class _InfoBox extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      width: 160,
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.background,
-        borderRadius: BorderRadius.circular(18),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: AppColors.border.withOpacity(0.8),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 14,
+            offset: const Offset(0, 7),
+          ),
+        ],
       ),
       child: Row(
         children: [
@@ -506,6 +933,8 @@ class _InfoBox extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text(
                   value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 15.5,
                     color: AppColors.textDark,
@@ -516,6 +945,84 @@ class _InfoBox extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _QuickActionButton extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _QuickActionButton({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(22),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(22),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(
+              color: AppColors.border.withOpacity(0.8),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.03),
+                blurRadius: 14,
+                offset: const Offset(0, 7),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  icon,
+                  color: AppColors.primary,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.textDark,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  color: AppColors.textLight,
+                  height: 1.4,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

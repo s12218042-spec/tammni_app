@@ -9,6 +9,7 @@ import '../widgets/app_page_scaffold.dart';
 import 'camera_checkin_page.dart';
 import 'video_preview_page.dart';
 import 'package:flutter/foundation.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class AddUpdatePage extends StatefulWidget {
   final ChildModel child;
@@ -28,6 +29,7 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
   final TextEditingController noteCtrl = TextEditingController();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final GalleryService _galleryService = GalleryService();
+  final FirebaseAuth _auth = FirebaseAuth.instance;
 
   String type = 'ملاحظة';
   bool isLoading = false;
@@ -117,6 +119,28 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
         return AppColors.textLight;
     }
   }
+Future<Map<String, String>> fetchCurrentUserInfo() async {
+  final currentUser = _auth.currentUser;
+
+  if (currentUser == null) {
+    return {
+      'uid': '',
+      'name': 'مستخدم غير معروف',
+      'role': '',
+    };
+  }
+
+  final userDoc =
+      await _firestore.collection('users').doc(currentUser.uid).get();
+
+  final data = userDoc.data() ?? {};
+
+  return {
+    'uid': currentUser.uid,
+    'name': (data['displayName'] ?? data['username'] ?? 'مستخدم').toString(),
+    'role': (data['role'] ?? '').toString(),
+  };
+}
 
   @override
   void initState() {
@@ -186,7 +210,7 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
           mediaType: selectedMediaType!,
         );
       }
-
+      final userInfo = await fetchCurrentUserInfo();
       await _firestore.collection('updates').add({
         'childId': widget.child.id,
         'childName': widget.child.name,
@@ -197,7 +221,10 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
         'note': noteCtrl.text.trim(),
         'createdAt': now,
         'time': FieldValue.serverTimestamp(),
-        'byRole': widget.byRole,
+        'byRole': userInfo['role'],
+        'createdByUid': userInfo['uid'],
+        'createdByName': userInfo['name'],
+        'createdByRole': userInfo['role'],
         'mediaType': selectedMediaType,
         'mediaPath': selectedMediaPath,
         'mediaUrl': uploadedMediaUrl,

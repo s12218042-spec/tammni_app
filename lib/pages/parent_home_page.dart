@@ -70,9 +70,52 @@ class _ParentHomePageState extends State<ParentHomePage> {
   }
 
   Future<List<ChildModel>> fetchChildren() async {
-    final snapshot = await _firestore
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final cleanParentUsername = widget.parentUsername.trim().toLowerCase();
+
+    QuerySnapshot<Map<String, dynamic>> snapshot;
+
+    if (uid != null) {
+      snapshot = await _firestore
+          .collection('children')
+          .where('parentUid', isEqualTo: uid)
+          .where('isActive', isEqualTo: true)
+          .get();
+
+      if (snapshot.docs.isNotEmpty) {
+        final children = snapshot.docs.map((doc) {
+          final data = doc.data();
+
+          return ChildModel(
+            id: doc.id,
+            name: data['name'] ?? '',
+            section: data['section'] ?? 'Nursery',
+            group: data['group'] ?? '',
+            parentName: data['parentName'] ?? '',
+            parentUsername: data['parentUsername'] ?? '',
+            birthDate: data['birthDate'] is Timestamp
+                ? (data['birthDate'] as Timestamp).toDate()
+                : DateTime.now(),
+            isActive: data['isActive'] ?? true,
+            status: data['status'] ?? 'active',
+            createdAt: data['createdAt'] is Timestamp
+                ? (data['createdAt'] as Timestamp).toDate()
+                : null,
+            updatedAt: data['updatedAt'] is Timestamp
+                ? (data['updatedAt'] as Timestamp).toDate()
+                : null,
+            history: const [],
+          );
+        }).toList();
+
+        children.sort((a, b) => a.name.compareTo(b.name));
+        return children;
+      }
+    }
+
+    snapshot = await _firestore
         .collection('children')
-        .where('parentUsername', isEqualTo: widget.parentUsername)
+        .where('parentUsername', isEqualTo: cleanParentUsername)
         .where('isActive', isEqualTo: true)
         .get();
 
@@ -307,7 +350,10 @@ class _ParentHomePageState extends State<ParentHomePage> {
                     ? ListView(
                         physics: const AlwaysScrollableScrollPhysics(),
                         children: [
-                          _WelcomeHeader(parentUsername: widget.parentUsername),
+                          _WelcomeHeader(
+                            parentUsername:
+                                widget.parentUsername.trim().toLowerCase(),
+                          ),
                           const SizedBox(height: 16),
                           Card(
                             child: Padding(
@@ -351,7 +397,10 @@ class _ParentHomePageState extends State<ParentHomePage> {
                     : ListView(
                         physics: const AlwaysScrollableScrollPhysics(),
                         children: [
-                          _WelcomeHeader(parentUsername: widget.parentUsername),
+                          _WelcomeHeader(
+                            parentUsername:
+                                widget.parentUsername.trim().toLowerCase(),
+                          ),
                           const SizedBox(height: 16),
                           _SummaryCard(
                             totalChildren: children.length,

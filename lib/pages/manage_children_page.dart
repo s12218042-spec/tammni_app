@@ -41,6 +41,7 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
         'group': data['group'] ?? '',
         'parentName': data['parentName'] ?? '',
         'parentUsername': data['parentUsername'] ?? '',
+        'parentUid': data['parentUid'] ?? '',
         'birthDate': data['birthDate'],
         'isActive': data['isActive'] ?? true,
         'status': data['status'] ?? 'active',
@@ -234,6 +235,26 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
                         parentUsernameCtrl.text.trim().toLowerCase();
                     final cleanGroup = groupCtrl.text.trim();
 
+                    final parentQuery = await _firestore
+                        .collection('users')
+                        .where('username', isEqualTo: cleanParentUsername)
+                        .limit(1)
+                        .get();
+
+                    if (parentQuery.docs.isEmpty) {
+                      if (!mounted) return;
+
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('لم يتم العثور على حساب ولي الأمر بهذا الاسم'),
+                        ),
+                      );
+                      return;
+                    }
+
+                    final parentData = parentQuery.docs.first.data();
+                    final parentUid = parentData['uid'] ?? parentQuery.docs.first.id;
+
                     if (child == null) {
                       await _firestore.collection('children').add({
                         'name': cleanName,
@@ -241,6 +262,7 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
                         'group': cleanGroup,
                         'parentName': cleanParentName,
                         'parentUsername': cleanParentUsername,
+                        'parentUid': parentUid,
                         'birthDate': Timestamp.fromDate(selectedBirthDate),
                         'isActive': true,
                         'status': 'active',
@@ -293,6 +315,7 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
                         'group': cleanGroup,
                         'parentName': cleanParentName,
                         'parentUsername': cleanParentUsername,
+                        'parentUid': parentUid,
                         'birthDate': Timestamp.fromDate(selectedBirthDate),
                         'updatedAt': FieldValue.serverTimestamp(),
                         'history': newHistory,
@@ -420,6 +443,7 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
     final group = (child['group'] ?? '').toString();
     final parentName = (child['parentName'] ?? '').toString();
     final parentUsername = (child['parentUsername'] ?? '').toString();
+    final parentUid = (child['parentUid'] ?? '').toString();
     final isActive = child['isActive'] == true;
     final color = sectionColor(section);
 
@@ -501,6 +525,8 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
           _infoRow(Icons.person_outline, 'ولي الأمر', parentName),
           const SizedBox(height: 8),
           _infoRow(Icons.alternate_email, 'اسم المستخدم', parentUsername),
+          const SizedBox(height: 8),
+          _infoRow(Icons.badge_outlined, 'Parent UID', parentUid),
           const SizedBox(height: 8),
           _infoRow(
             Icons.calendar_today_outlined,

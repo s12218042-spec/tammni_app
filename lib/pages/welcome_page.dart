@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
@@ -140,9 +141,143 @@ class _WelcomePageState extends State<WelcomePage> {
   }
 
   Future<void> onForgotPassword() async {
-    _showSnack(
-      'إعادة تعيين كلمة المرور ما زالت مرتبطة بالبريد الإلكتروني، ويمكن تطويرها لاحقًا بصفحة مستقلة.',
-    );
+    final usernameController = TextEditingController();
+
+    try {
+      final enteredUsername = await showDialog<String>(
+        context: context,
+        barrierDismissible: true,
+        builder: (context) {
+          final dialogFormKey = GlobalKey<FormState>();
+
+          return Directionality(
+            textDirection: TextDirection.rtl,
+            child: AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(22),
+              ),
+              title: const Text(
+                'استعادة كلمة المرور',
+                textAlign: TextAlign.center,
+              ),
+              content: Form(
+                key: dialogFormKey,
+                child: TextFormField(
+                  controller: usernameController,
+                  textAlign: TextAlign.right,
+                  decoration: InputDecoration(
+                    hintText: 'أدخل اسم المستخدم',
+                    prefixIcon: const Icon(Icons.person_outline_rounded),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                  validator: (value) {
+                    final username = value?.trim() ?? '';
+                    if (username.isEmpty) {
+                      return 'الرجاء إدخال اسم المستخدم';
+                    }
+                    if (username.length < 3) {
+                      return 'اسم المستخدم غير صحيح';
+                    }
+                    return null;
+                  },
+                ),
+              ),
+              actionsAlignment: MainAxisAlignment.spaceBetween,
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('إلغاء'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    if (dialogFormKey.currentState!.validate()) {
+                      Navigator.pop(context, usernameController.text.trim());
+                    }
+                  },
+                  child: const Text('متابعة'),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+
+      if (enteredUsername == null || enteredUsername.isEmpty) return;
+
+      final userQuery = await FirebaseFirestore.instance
+          .collection('users')
+          .where('username', isEqualTo: enteredUsername)
+          .limit(1)
+          .get();
+
+      if (userQuery.docs.isEmpty) {
+        _showSnack('اسم المستخدم غير موجود');
+        return;
+      }
+
+      final userData = userQuery.docs.first.data();
+      final email = (userData['email'] ?? '').toString().trim();
+
+      if (email.isEmpty) {
+        _showSnack('لا يوجد بريد إلكتروني مرتبط بهذا الحساب');
+        return;
+      }
+
+      final maskedEmail = _maskEmail(email);
+
+      final confirmed = await showDialog<bool>(
+        context: context,
+        barrierDismissible: true,
+        builder: (context) {
+          return Directionality(
+            textDirection: TextDirection.rtl,
+            child: AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(22),
+              ),
+              title: const Text(
+                'تأكيد الهوية',
+                textAlign: TextAlign.center,
+              ),
+              content: Text(
+                'سيتم إرسال رابط إعادة تعيين كلمة المرور إلى البريد التالي:\n$maskedEmail\n\nهل تريد المتابعة؟',
+                textAlign: TextAlign.center,
+                style: const TextStyle(height: 1.6),
+              ),
+              actionsAlignment: MainAxisAlignment.spaceBetween,
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('إلغاء'),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('إرسال الرابط'),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+
+      if (confirmed != true) return;
+
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+
+      _showSnack('تم إرسال رابط إعادة تعيين كلمة المرور إلى بريدك الإلكتروني');
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'invalid-email') {
+        _showSnack('البريد الإلكتروني المرتبط بالحساب غير صالح');
+      } else {
+        _showSnack('تعذر إرسال رابط إعادة التعيين');
+      }
+    } catch (e) {
+      _showSnack('حدث خطأ أثناء استعادة كلمة المرور');
+    } finally {
+      usernameController.dispose();
+    }
   }
 
   Future<void> onGoogleLogin() async {
@@ -150,48 +285,125 @@ class _WelcomePageState extends State<WelcomePage> {
       isGoogleLoading = true;
     });
 
+    GoogleSignIn? googleSignIn;
+
     try {
-      final GoogleSignIn googleSignIn = GoogleSignIn();
-      final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
+      UserCredential userCredential;
 
-      if (googleUser == null) return;
+      if (kIsWeb) {
+        final googleProvider = GoogleAuthProvider();
+        userCredential =
+            await FirebaseAuth.instance.signInWithPopup(googleProvider);
+      } else {
+        googleSignIn = GoogleSignIn();
+        await googleSignIn.signOut();
 
-      final GoogleSignInAuthentication googleAuth =
-          await googleUser.authentication;
+        final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
 
-      final credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
-      );
+        if (googleUser == null) {
+          return;
+        }
 
-      final userCredential =
-          await FirebaseAuth.instance.signInWithCredential(credential);
+        final GoogleSignInAuthentication googleAuth =
+            await googleUser.authentication;
+
+        final credential = GoogleAuthProvider.credential(
+          accessToken: googleAuth.accessToken,
+          idToken: googleAuth.idToken,
+        );
+
+        userCredential =
+            await FirebaseAuth.instance.signInWithCredential(credential);
+      }
 
       final user = userCredential.user;
 
       if (user == null) {
-        _showSnack('فشل تسجيل الدخول عبر Google');
+        _showSnack('فشل تسجيل الدخول باستخدام Google');
         return;
       }
 
-      final doc = await FirebaseFirestore.instance
+      final currentUserDoc = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
           .get();
 
-      if (!doc.exists) {
-        await FirebaseAuth.instance.signOut();
-        await googleSignIn.signOut();
+      if (currentUserDoc.exists) {
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+          'email': user.email,
+          'lastLoginAt': FieldValue.serverTimestamp(),
+          'loginProvider': 'google',
+        }, SetOptions(merge: true));
 
-        _showSnack(
-          'تم تسجيل الدخول عبر Google لكن لا يوجد حساب مكتمل لهذا المستخدم داخل التطبيق. أنشئ حسابًا أولًا.',
-        );
+        await NotificationService.instance.saveCurrentUserToken();
+        await _goToUserHome(user);
         return;
       }
 
-      await NotificationService.instance.saveCurrentUserToken();
-      await _goToUserHome(user);
-    } catch (_) {
+      final userEmail = (user.email ?? '').trim();
+
+      if (userEmail.isNotEmpty) {
+        final existingByEmail = await FirebaseFirestore.instance
+            .collection('users')
+            .where('email', isEqualTo: userEmail)
+            .limit(1)
+            .get();
+
+        if (existingByEmail.docs.isNotEmpty) {
+          await FirebaseAuth.instance.signOut();
+          if (!kIsWeb && googleSignIn != null) {
+            await googleSignIn.signOut();
+          }
+
+          _showSnack(
+            'هذا البريد مرتبط بحساب موجود مسبقًا. سجّلي الدخول بالطريقة المعتادة أولًا، ثم اربطي Google لاحقًا.',
+          );
+          return;
+        }
+      }
+
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+        'uid': user.uid,
+        'email': user.email,
+        'name': user.displayName ?? '',
+        'photoUrl': user.photoURL ?? '',
+        'role': '',
+        'username': '',
+        'isProfileCompleted': false,
+        'loginProvider': 'google',
+        'createdAt': FieldValue.serverTimestamp(),
+        'lastLoginAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      if (!mounted) return;
+
+      _showSnack('تم تسجيل الدخول باستخدام Google، أكملي بيانات الحساب أولًا');
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const RegisterRolePage(),
+        ),
+      );
+    } on FirebaseAuthException catch (e) {
+      String message = 'تعذر تسجيل الدخول باستخدام Google';
+
+      if (e.code == 'account-exists-with-different-credential') {
+        message =
+            'هذا البريد مستخدم مسبقًا بطريقة تسجيل دخول مختلفة. استخدمي الطريقة الأصلية لهذا الحساب.';
+      } else if (e.code == 'invalid-credential') {
+        message = 'بيانات Google غير صالحة، حاولي مرة أخرى';
+      } else if (e.code == 'popup-closed-by-user') {
+        message = 'تم إغلاق نافذة تسجيل الدخول قبل إكمال العملية';
+      } else if (e.code == 'popup-blocked') {
+        message =
+            'المتصفح منع نافذة Google. اسمحي بالنوافذ المنبثقة ثم حاولي مرة أخرى';
+      } else if (e.code == 'user-disabled') {
+        message = 'تم تعطيل هذا الحساب';
+      }
+
+      _showSnack(message);
+    } catch (e) {
       _showSnack('تعذر تسجيل الدخول باستخدام Google');
     } finally {
       if (!mounted) return;
@@ -219,6 +431,23 @@ class _WelcomePageState extends State<WelcomePage> {
     final data = doc.data()!;
     final role = data['role'] ?? '';
     final username = data['username'] ?? '';
+    final isProfileCompleted = data['isProfileCompleted'] ?? true;
+
+    if (role.toString().trim().isEmpty || isProfileCompleted == false) {
+      if (!mounted) return;
+
+      setState(() {
+        isCheckingUser = false;
+      });
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const RegisterRolePage(),
+        ),
+      );
+      return;
+    }
 
     Widget nextPage;
 
@@ -238,6 +467,29 @@ class _WelcomePageState extends State<WelcomePage> {
       context,
       MaterialPageRoute(builder: (_) => nextPage),
     );
+  }
+
+  String _maskEmail(String email) {
+    final parts = email.split('@');
+    if (parts.length != 2) return email;
+
+    final name = parts[0];
+
+    if (name.isEmpty) return email;
+
+    final domain = parts[1];
+
+    String maskedName;
+    if (name.length == 1) {
+      maskedName = '*';
+    } else if (name.length == 2) {
+      maskedName = '${name[0]}*';
+    } else {
+      maskedName =
+          '${name[0]}${'*' * (name.length - 2)}${name[name.length - 1]}';
+    }
+
+    return '$maskedName@$domain';
   }
 
   void _showSnack(String message) {
@@ -849,7 +1101,7 @@ class _BottomGlowStar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Opacity(
       opacity: 0.22,
-      child: Icon(
+      child: const Icon(
         Icons.auto_awesome,
         size: 28,
         color: Colors.white,

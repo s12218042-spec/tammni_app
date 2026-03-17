@@ -7,7 +7,10 @@ import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 import 'add_update_page.dart';
 import 'camera_checkin_page.dart';
+import 'entry_exit_log_page.dart';
+import 'nursery_care_log_page.dart';
 import 'nursery_chats_page.dart';
+import 'quick_care_update_page.dart';
 
 class NurseryStaffHomePage extends StatefulWidget {
   const NurseryStaffHomePage({super.key});
@@ -63,6 +66,19 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
     }
   }
 
+  Future<void> openQuickCareUpdate(ChildModel child) async {
+    final res = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => QuickCareUpdatePage(child: child),
+      ),
+    );
+
+    if (res == true) {
+      setState(() {});
+    }
+  }
+
   Future<void> openCameraCheckin(ChildModel child) async {
     final res = await Navigator.push(
       context,
@@ -91,9 +107,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
           'section': child.section,
           'group': child.group,
           'type': 'كاميرا',
-          'note': type == 'image'
-              ? 'صورة للطفل'
-              : 'فيديو قصير للطفل',
+          'note': type == 'image' ? 'صورة للطفل' : 'فيديو قصير للطفل',
           'createdAt': Timestamp.now(),
           'time': FieldValue.serverTimestamp(),
           'byRole': 'nursery',
@@ -118,6 +132,32 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
           ),
         );
       }
+    }
+  }
+
+  Future<void> openEntryExitLog(ChildModel child) async {
+    final res = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => EntryExitLogPage(child: child),
+      ),
+    );
+
+    if (res == true) {
+      setState(() {});
+    }
+  }
+
+  Future<void> openCareLog(ChildModel child) async {
+    final res = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => NurseryCareLogPage(child: child),
+      ),
+    );
+
+    if (res == true) {
+      setState(() {});
     }
   }
 
@@ -191,7 +231,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'يمكنكِ متابعة أطفال الحضانة من خلال التحديثات اليومية والصور والملاحظات.',
+                    'يمكنكِ متابعة أطفال الحضانة من خلال التحديثات اليومية والصور والملاحظات وسجل الرعاية.',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: AppColors.textLight,
                         ),
@@ -213,7 +253,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
                           const SizedBox(width: 12),
                           const Expanded(
                             child: Text(
-                              'في قسم الحضانة لا يتم اعتماد حضور يومي ثابت، لأن حضور الطفل يكون مرنًا حسب الزيارة.\nلذلك تعتمد المتابعة هنا على التحديثات والملاحظات والصور.',
+                              'في قسم الحضانة لا يتم اعتماد حضور يومي ثابت، لأن حضور الطفل يكون مرنًا حسب الزيارة.\nلذلك تعتمد المتابعة هنا على التحديثات والملاحظات والصور وسجل الدخول والخروج.',
                               style: TextStyle(
                                 fontWeight: FontWeight.w600,
                                 height: 1.5,
@@ -245,7 +285,10 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
                         child: _ChildActionCard(
                           childModel: c,
                           onAddUpdate: () => openAddUpdate(c),
+                          onQuickCare: () => openQuickCareUpdate(c),
                           onCamera: () => openCameraCheckin(c),
+                          onEntryExit: () => openEntryExitLog(c),
+                          onCareLog: () => openCareLog(c),
                         ),
                       ),
                     ),
@@ -274,12 +317,18 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
 class _ChildActionCard extends StatelessWidget {
   final ChildModel childModel;
   final VoidCallback onAddUpdate;
+  final VoidCallback onQuickCare;
   final VoidCallback onCamera;
+  final VoidCallback onEntryExit;
+  final VoidCallback onCareLog;
 
   const _ChildActionCard({
     required this.childModel,
     required this.onAddUpdate,
+    required this.onQuickCare,
     required this.onCamera,
+    required this.onEntryExit,
+    required this.onCareLog,
   });
 
   @override
@@ -350,6 +399,53 @@ class _ChildActionCard extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onEntryExit,
+                    icon: const Icon(Icons.login_outlined),
+                    label: const Text('دخول / خروج'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(double.infinity, 46),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onCareLog,
+                    icon: const Icon(Icons.history_rounded),
+                    label: const Text('سجل الرعاية'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(double.infinity, 46),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: onQuickCare,
+                icon: const Icon(Icons.flash_on_outlined),
+                label: const Text('رعاية سريعة'),
+                style: ElevatedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 48),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+              ),
             ),
           ],
         ),
