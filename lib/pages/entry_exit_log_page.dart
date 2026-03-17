@@ -60,54 +60,109 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
     };
   }
 
-  Future<void> saveEntryExitEvent() async {
-    setState(() {
-      isSaving = true;
-    });
+   Future<void> saveEntryExitEvent() async {
+  if (isSaving) return;
 
-    try {
-      final userInfo = await fetchCurrentUserInfo();
+  setState(() {
+    isSaving = true;
+  });
 
-      await _firestore.collection('entry_exit_logs').add({
-        'childId': widget.child.id,
-        'childName': widget.child.name,
-        'parentUsername': widget.child.parentUsername,
-        'section': widget.child.section,
-        'group': widget.child.group,
-        'eventType': selectedEventType,
-        'note': _noteCtrl.text.trim(),
-        'createdAt': Timestamp.now(),
-        'time': FieldValue.serverTimestamp(),
-        'createdByUid': userInfo['uid'],
-        'createdByName': userInfo['name'],
-        'createdByRole': userInfo['role'],
-      });
+  try {
+    final latestSnapshot = await _firestore
+        .collection('entry_exit_logs')
+        .where('childId', isEqualTo: widget.child.id)
+        .get();
 
+    final latestDocs = latestSnapshot.docs;
+
+    String? lastEventType;
+    Timestamp? lastTime;
+
+    for (final doc in latestDocs) {
+      final data = doc.data();
+
+      final currentType = (data['eventType'] ?? '').toString();
+      final currentTime =
+          data['time'] is Timestamp ? data['time'] as Timestamp : null;
+      final currentCreatedAt =
+          data['createdAt'] is Timestamp ? data['createdAt'] as Timestamp : null;
+
+      final effectiveTime = currentTime ?? currentCreatedAt;
+
+      if (effectiveTime == null) continue;
+
+      if (lastTime == null || effectiveTime.compareTo(lastTime) > 0) {
+        lastTime = effectiveTime;
+        lastEventType = currentType;
+      }
+    }
+
+    if (lastEventType == selectedEventType) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             selectedEventType == 'entry'
-                ? 'تم تسجيل دخول الطفل بنجاح'
-                : 'تم تسجيل خروج الطفل بنجاح',
+                ? 'الطفل مسجل كـ دخول بالفعل، لا يمكن تكرار نفس الحدث'
+                : 'الطفل مسجل كـ خروج بالفعل، لا يمكن تكرار نفس الحدث',
           ),
         ),
       );
-      _noteCtrl.clear();
-      setState(() {});
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('حدث خطأ أثناء حفظ السجل: $e'),
-        ),
-      );
-    } finally {
-      if (!mounted) return;
-      setState(() {
-        isSaving = false;
-      });
+      return;
     }
+
+    final userInfo = await fetchCurrentUserInfo();
+
+    await _firestore.collection('entry_exit_logs').add({
+      'childId': widget.child.id,
+      'childName': widget.child.name,
+      'parentUsername': widget.child.parentUsername,
+      'section': widget.child.section,
+      'group': widget.child.group,
+      'eventType': selectedEventType,
+      'note': _noteCtrl.text.trim(),
+      'createdAt': Timestamp.now(),
+      'time': FieldValue.serverTimestamp(),
+      'createdByUid': userInfo['uid'],
+      'createdByName': userInfo['name'],
+      'createdByRole': userInfo['role'],
+    });
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          selectedEventType == 'entry'
+              ? 'تم تسجيل دخول الطفل بنجاح'
+              : 'تم تسجيل خروج الطفل بنجاح',
+        ),
+      ),
+    );
+
+    _noteCtrl.clear();
+  } catch (e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('حدث خطأ أثناء حفظ السجل: $e'),
+      ),
+    );
+  } finally {
+    if (!mounted) return;
+    setState(() {
+      isSaving = false;
+    });
+  }
+}
+
+  Timestamp? extractTimestamp(Map<String, dynamic> data) {
+    final dynamic primary = data['time'];
+    final dynamic fallback = data['createdAt'];
+
+    if (primary is Timestamp) return primary;
+    if (fallback is Timestamp) return fallback;
+    return null;
   }
 
   String formatDateTime(dynamic time) {
@@ -166,7 +221,6 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
               stream: _firestore
                   .collection('entry_exit_logs')
                   .where('childId', isEqualTo: widget.child.id)
-                  .orderBy('time', descending: true)
                   .snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
@@ -177,9 +231,13 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
 
                 if (snapshot.hasError) {
                   return Center(
-                    child: Text(
-                      'حدث خطأ أثناء تحميل السجل',
-                      style: Theme.of(context).textTheme.bodyMedium,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(
+                        'حدث خطأ أثناء تحميل السجل\n${snapshot.error}',
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
                     ),
                   );
                 }
@@ -196,17 +254,39 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
                   );
                 }
 
+                final items = docs.map((doc) {
+                  final data = doc.data() as Map<String, dynamic>;
+                  return {
+                    'doc': doc,
+                    'data': data,
+                    'sortTime': extractTimestamp(data),
+                  };
+                }).toList();
+
+                items.sort((a, b) {
+                  final aTime = a['sortTime'] as Timestamp?;
+                  final bTime = b['sortTime'] as Timestamp?;
+
+                  if (aTime == null && bTime == null) return 0;
+                  if (aTime == null) return 1;
+                  if (bTime == null) return -1;
+
+                  return bTime.compareTo(aTime);
+                });
+
                 return ListView.separated(
                   physics: const AlwaysScrollableScrollPhysics(),
-                  itemCount: docs.length,
+                  itemCount: items.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 12),
                   itemBuilder: (context, index) {
-                    final data = docs[index].data() as Map<String, dynamic>;
+                    final data =
+                        items[index]['data'] as Map<String, dynamic>;
 
-                    final eventType = data['eventType'] ?? '';
-                    final note = data['note'] ?? '';
-                    final createdByName = data['createdByName'] ?? '';
-                    final time = data['time'];
+                    final eventType = (data['eventType'] ?? '').toString();
+                    final note = (data['note'] ?? '').toString();
+                    final createdByName =
+                        (data['createdByName'] ?? '').toString();
+                    final time = extractTimestamp(data);
 
                     return _EntryExitLogCard(
                       eventText: eventLabel(eventType),
@@ -464,7 +544,7 @@ class _EntryExitLogCard extends StatelessWidget {
             title: 'الوقت',
             value: timeText,
           ),
-          if (createdByName.toString().trim().isNotEmpty) ...[
+          if (createdByName.trim().isNotEmpty) ...[
             const SizedBox(height: 10),
             _InfoTile(
               title: 'سُجّل بواسطة',
