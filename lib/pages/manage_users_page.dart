@@ -23,6 +23,9 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
   String role = 'parent';
   bool isAdding = false;
 
+  String selectedRoleFilter = 'all';
+  String searchText = '';
+
   @override
   void dispose() {
     displayNameCtrl.dispose();
@@ -37,11 +40,15 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
       case 'parent':
         return 'ولي أمر';
       case 'nursery':
+      case 'nursery staff':
+      case 'nursery_staff':
         return 'موظف/ة حضانة';
       case 'teacher':
         return 'معلمة روضة';
-      default:
+      case 'admin':
         return 'مدير النظام';
+      default:
+        return r;
     }
   }
 
@@ -50,11 +57,15 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
       case 'parent':
         return Colors.teal;
       case 'nursery':
+      case 'nursery staff':
+      case 'nursery_staff':
         return Colors.orange;
       case 'teacher':
         return Colors.indigo;
-      default:
+      case 'admin':
         return Colors.redAccent;
+      default:
+        return AppColors.primary;
     }
   }
 
@@ -63,11 +74,15 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
       case 'parent':
         return Icons.family_restroom;
       case 'nursery':
+      case 'nursery staff':
+      case 'nursery_staff':
         return Icons.child_friendly;
       case 'teacher':
         return Icons.school;
-      default:
+      case 'admin':
         return Icons.admin_panel_settings;
+      default:
+        return Icons.person_outline;
     }
   }
 
@@ -97,6 +112,30 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
         .collection('users')
         .orderBy('createdAt', descending: true)
         .snapshots();
+  }
+
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> applyFilters(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    return docs.where((doc) {
+      final data = doc.data();
+
+      final userRole = (data['role'] ?? '').toString().trim().toLowerCase();
+      final name = (data['displayName'] ?? '').toString().toLowerCase();
+      final username = (data['username'] ?? '').toString().toLowerCase();
+      final email = (data['email'] ?? '').toString().toLowerCase();
+
+      final matchesRole =
+          selectedRoleFilter == 'all' || userRole == selectedRoleFilter;
+
+      final query = searchText.trim().toLowerCase();
+      final matchesSearch = query.isEmpty ||
+          name.contains(query) ||
+          username.contains(query) ||
+          email.contains(query);
+
+      return matchesRole && matchesSearch;
+    }).toList();
   }
 
   void openAddDialog() {
@@ -337,8 +376,210 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
     );
   }
 
-  Future<void> deleteUser(String uid) async {
-    await _firestore.collection('users').doc(uid).delete();
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      _findChildrenLinkedToParent({
+    required String username,
+    required String uid,
+  }) async {
+    final byUsername = await _firestore
+        .collection('children')
+        .where('parentUsername', isEqualTo: username)
+        .get();
+
+    final byUid = await _firestore
+        .collection('children')
+        .where('parentUid', isEqualTo: uid)
+        .get();
+
+    final map = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+
+    for (final doc in byUsername.docs) {
+      map[doc.id] = doc;
+    }
+    for (final doc in byUid.docs) {
+      map[doc.id] = doc;
+    }
+
+    return map.values.toList();
+  }
+
+  Future<void> _unlinkChildrenFromParent(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> childDocs,
+  ) async {
+    final batch = _firestore.batch();
+
+    for (final doc in childDocs) {
+      batch.update(doc.reference, {
+        'parentUsername': FieldValue.delete(),
+        'parentUid': FieldValue.delete(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
+
+    await batch.commit();
+  }
+
+  Future<void> _archiveAndUnlinkChildren(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> childDocs,
+  ) async {
+    final batch = _firestore.batch();
+
+    for (final doc in childDocs) {
+      batch.update(doc.reference, {
+        'parentUsername': FieldValue.delete(),
+        'parentUid': FieldValue.delete(),
+        'isActive': false,
+        'status': 'archived',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
+
+    await batch.commit();
+  }
+
+  Future<String?> _showParentDeleteOptionsDialog({
+    required String parentName,
+    required int childrenCount,
+  }) async {
+    return showDialog<String>(
+      context: context,
+      builder: (_) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+          ),
+          title: const Text('حذف ولي الأمر'),
+          content: Text(
+            'الحساب "$parentName" مرتبط بـ $childrenCount طفل/أطفال.\n\n'
+            'ماذا تريدين أن تفعلي بالأطفال المرتبطين؟',
+            style: const TextStyle(height: 1.6),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, 'cancel'),
+              child: const Text('إلغاء'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, 'delete_only'),
+              child: const Text('حذف الحساب فقط'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, 'archive_children'),
+              child: const Text('حذف الحساب وأرشفة الأطفال'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<bool> _showNormalDeleteConfirmDialog(String name) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (_) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+          ),
+          title: const Text('تأكيد الحذف'),
+          content: Text('هل أنتِ متأكدة من حذف المستخدم "$name"؟'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('إلغاء'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('حذف'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    return result == true;
+  }
+
+  Future<void> handleDeleteUser({
+    required String uid,
+    required String roleValue,
+    required String name,
+    required String username,
+  }) async {
+    final normalizedRole = roleValue.trim().toLowerCase();
+
+    if (normalizedRole != 'parent') {
+      final confirmed = await _showNormalDeleteConfirmDialog(name);
+      if (!confirmed) return;
+
+      await _firestore.collection('users').doc(uid).delete();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('تم حذف المستخدم من النظام ✅'),
+        ),
+      );
+      return;
+    }
+
+    final linkedChildren = await _findChildrenLinkedToParent(
+      username: username,
+      uid: uid,
+    );
+
+    if (linkedChildren.isEmpty) {
+      final confirmed = await _showNormalDeleteConfirmDialog(name);
+      if (!confirmed) return;
+
+      await _firestore.collection('users').doc(uid).delete();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('تم حذف ولي الأمر من النظام ✅'),
+        ),
+      );
+      return;
+    }
+
+    final action = await _showParentDeleteOptionsDialog(
+      parentName: name,
+      childrenCount: linkedChildren.length,
+    );
+
+    if (action == null || action == 'cancel') return;
+
+    if (action == 'delete_only') {
+      await _unlinkChildrenFromParent(linkedChildren);
+      await _firestore.collection('users').doc(uid).delete();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'تم حذف ولي الأمر وفك ربط الأطفال المرتبطين به ✅',
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (action == 'archive_children') {
+      await _archiveAndUnlinkChildren(linkedChildren);
+      await _firestore.collection('users').doc(uid).delete();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'تم حذف ولي الأمر وأرشفة الأطفال المرتبطين به ✅',
+          ),
+        ),
+      );
+    }
   }
 
   @override
@@ -366,6 +607,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
           }
 
           final docs = snapshot.data?.docs ?? [];
+          final filteredDocs = applyFilters(docs);
 
           return ListView(
             children: [
@@ -382,13 +624,78 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                       color: AppColors.textLight,
                     ),
               ),
+              const SizedBox(height: 16),
+
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    children: [
+                      TextField(
+                        textAlign: TextAlign.right,
+                        decoration: InputDecoration(
+                          hintText: 'ابحثي بالاسم أو اسم المستخدم أو الإيميل',
+                          prefixIcon: const Icon(Icons.search_rounded),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                        onChanged: (value) {
+                          setState(() {
+                            searchText = value;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        value: selectedRoleFilter,
+                        decoration: InputDecoration(
+                          labelText: 'فلترة حسب الدور',
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'all',
+                            child: Text('كل المستخدمين'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'parent',
+                            child: Text('أولياء الأمور'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'teacher',
+                            child: Text('المعلمات'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'nursery',
+                            child: Text('موظفات الحضانة'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'admin',
+                            child: Text('الإدارة'),
+                          ),
+                        ],
+                        onChanged: (value) {
+                          setState(() {
+                            selectedRoleFilter = value ?? 'all';
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
               const SizedBox(height: 20),
-              if (docs.isEmpty)
+
+              if (filteredDocs.isEmpty)
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Text(
-                      'لا يوجد مستخدمون حاليًا.',
+                      'لا توجد نتائج مطابقة حاليًا.',
                       style: TextStyle(
                         color: AppColors.textLight,
                         fontSize: 15,
@@ -397,23 +704,25 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                   ),
                 )
               else
-                ...docs.map((doc) {
+                ...filteredDocs.map((doc) {
                   final u = doc.data();
-                  final role = u['role'] ?? '';
+                  final userRole = (u['role'] ?? '').toString();
+                  final name = (u['displayName'] ?? '').toString();
+                  final username = (u['username'] ?? '').toString();
+
                   return _UserCard(
-                    name: u['displayName'] ?? '',
+                    name: name,
                     email: u['email'] ?? '',
-                    roleText: roleLabel(role),
-                    roleColor: roleColor(role),
-                    icon: roleIcon(role),
-                    username: u['username'] ?? '',
+                    roleText: roleLabel(userRole),
+                    roleColor: roleColor(userRole),
+                    icon: roleIcon(userRole),
+                    username: username,
                     onDelete: () async {
-                      await deleteUser(doc.id);
-                      if (!mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('تم حذف المستخدم من النظام ✅'),
-                        ),
+                      await handleDeleteUser(
+                        uid: doc.id,
+                        roleValue: userRole,
+                        name: name,
+                        username: username,
                       );
                     },
                   );

@@ -413,61 +413,86 @@ class _WelcomePageState extends State<WelcomePage> {
     }
   }
 
-  Future<void> _goToUserHome(User user) async {
-    final doc = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid)
-        .get();
+   Future<void> _goToUserHome(User user) async {
+  final doc = await FirebaseFirestore.instance
+      .collection('users')
+      .doc(user.uid)
+      .get();
 
-    if (!doc.exists) {
-      if (!mounted) return;
-      setState(() {
-        isCheckingUser = false;
-      });
-      _showSnack('بيانات المستخدم غير موجودة في قاعدة البيانات');
-      return;
-    }
+  if (!doc.exists) {
+    if (!mounted) return;
+    setState(() {
+      isCheckingUser = false;
+    });
+    _showSnack('بيانات المستخدم غير موجودة في قاعدة البيانات');
+    return;
+  }
 
-    final data = doc.data()!;
-    final role = data['role'] ?? '';
-    final username = data['username'] ?? '';
-    final isProfileCompleted = data['isProfileCompleted'] ?? true;
+  final data = doc.data()!;
+  final role = (data['role'] ?? '').toString().trim().toLowerCase();
+  final username = (data['username'] ?? '').toString().trim();
+  final isProfileCompleted = data['isProfileCompleted'] ?? true;
+  final isActive = data['isActive'] ?? true;
 
-    if (role.toString().trim().isEmpty || isProfileCompleted == false) {
-      if (!mounted) return;
-
-      setState(() {
-        isCheckingUser = false;
-      });
-
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => const RegisterRolePage(),
-        ),
-      );
-      return;
-    }
-
-    Widget nextPage;
-
-    if (role == 'parent') {
-      nextPage = ParentHomePage(parentUsername: username);
-    } else if (role == 'nursery') {
-      nextPage = const NurseryStaffHomePage();
-    } else if (role == 'teacher') {
-      nextPage = const TeacherHomePage();
-    } else {
-      nextPage = const AdminHomePage();
-    }
+  if (isActive != true) {
+    await FirebaseAuth.instance.signOut();
 
     if (!mounted) return;
+    setState(() {
+      isCheckingUser = false;
+    });
+
+    _showSnack('هذا الحساب غير مفعل حاليًا');
+    return;
+  }
+
+  if (role.isEmpty || isProfileCompleted == false) {
+    if (!mounted) return;
+
+    setState(() {
+      isCheckingUser = false;
+    });
 
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(builder: (_) => nextPage),
+      MaterialPageRoute(
+        builder: (_) => const RegisterRolePage(),
+      ),
     );
+    return;
   }
+
+  Widget nextPage;
+
+  if (role == 'parent') {
+    nextPage = ParentHomePage(parentUsername: username);
+  } else if (role == 'nursery' ||
+      role == 'nursery staff' ||
+      role == 'nursery_staff') {
+    nextPage = const NurseryStaffHomePage();
+  } else if (role == 'teacher') {
+    nextPage = const TeacherHomePage();
+  } else if (role == 'admin') {
+    nextPage = const AdminHomePage();
+  } else {
+    await FirebaseAuth.instance.signOut();
+
+    if (!mounted) return;
+    setState(() {
+      isCheckingUser = false;
+    });
+
+    _showSnack('نوع الحساب غير معروف: $role');
+    return;
+  }
+
+  if (!mounted) return;
+
+  Navigator.pushReplacement(
+    context,
+    MaterialPageRoute(builder: (_) => nextPage),
+  );
+}
 
   String _maskEmail(String email) {
     final parts = email.split('@');
