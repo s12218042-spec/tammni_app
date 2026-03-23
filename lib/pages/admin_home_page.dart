@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
-import 'admin_registration_requests_page.dart';
+import 'admin_add_user_page.dart';
 import 'admin_teacher_assignments_page.dart';
 import 'admin_updates_feed_page.dart';
 import 'manage_children_page.dart';
@@ -377,42 +377,65 @@ class _AdminHomePageState extends State<AdminHomePage> {
                 const SizedBox(height: 12),
 
                 _AdminActionCard(
+                  icon: Icons.person_add_alt_1_rounded,
+                  title: 'إضافة مستخدم جديد',
+                  subtitle: 'إنشاء حسابات المستخدمين من خلال الإدارة فقط',
+                  onTap: () async {
+                    final result = await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const AdminAddUserPage(),
+                      ),
+                    );
+
+                    if (result == true) {
+                      setState(() {});
+                    }
+                  },
+                ),
+                _AdminActionCard(
                   icon: Icons.group,
                   title: 'إدارة المستخدمين',
                   subtitle: 'إضافة وتعديل وتنظيم حسابات المستخدمين',
-                  onTap: () {
-                    Navigator.push(
+                  onTap: () async {
+                    await Navigator.push(
                       context,
                       MaterialPageRoute(
                         builder: (_) => const ManageUsersPage(),
                       ),
                     );
+
+                    setState(() {});
                   },
                 ),
                 _AdminActionCard(
                   icon: Icons.child_care,
                   title: 'إدارة الأطفال',
                   subtitle: 'متابعة بيانات الأطفال، الأرشفة، والحالة الحالية',
-                  onTap: () {
-                    Navigator.push(
+                  onTap: () async {
+                    await Navigator.push(
                       context,
                       MaterialPageRoute(
                         builder: (_) => const ManageChildrenPage(),
                       ),
                     );
+
+                    setState(() {});
                   },
                 ),
                 _AdminActionCard(
                   icon: Icons.class_,
                   title: 'إدارة الصفوف والأقسام',
                   subtitle: 'تنظيم الصفوف والمجموعات وربط الأطفال بها',
-                  onTap: () {
-                    Navigator.push(
+                  onTap: () async {
+                    await Navigator.push(
                       context,
                       MaterialPageRoute(
                         builder: (_) => const ManageClassesPage(),
                       ),
                     );
+
+                    setState(() {});
                   },
                 ),
                 _AdminActionCard(
@@ -423,7 +446,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text(
-                          'الخطوة الجاية: نعمل صفحة تقارير عامة مستقلة ✅',
+                          'قيد العمل',
                         ),
                       ),
                     );
@@ -441,32 +464,18 @@ class _AdminHomePageState extends State<AdminHomePage> {
                 const SizedBox(height: 12),
 
                 _AdminActionCard(
-                  icon: Icons.how_to_reg_rounded,
-                  title: 'طلبات التسجيل',
-                  subtitle:
-                      'مراجعة طلبات الحسابات الجديدة والموافقة عليها لاحقاً',
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) =>
-                            const AdminRegistrationRequestsPage(),
-                      ),
-                    );
-                  },
-                ),
-                _AdminActionCard(
                   icon: Icons.assignment_ind_rounded,
                   title: 'تعيين المعلمات',
                   subtitle: 'ربط المعلمات بالمجموعات والصفوف والمواد',
-                  onTap: () {
-                    Navigator.push(
+                  onTap: () async {
+                    await Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) =>
-                            const AdminTeacherAssignmentsPage(),
+                        builder: (_) => const AdminTeacherAssignmentsPage(),
                       ),
                     );
+
+                    setState(() {});
                   },
                 ),
                 _AdminActionCard(
