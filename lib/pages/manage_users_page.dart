@@ -17,6 +17,9 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
   final emailCtrl = TextEditingController();
   final passwordCtrl = TextEditingController();
 
+  final editDisplayNameCtrl = TextEditingController();
+  final editUsernameCtrl = TextEditingController();
+
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final AuthService _authService = AuthService();
 
@@ -32,6 +35,8 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
     usernameCtrl.dispose();
     emailCtrl.dispose();
     passwordCtrl.dispose();
+    editDisplayNameCtrl.dispose();
+    editUsernameCtrl.dispose();
     super.dispose();
   }
 
@@ -107,6 +112,18 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
     return result.docs.isNotEmpty;
   }
 
+  Future<bool> usernameExistsForAnotherUser({
+    required String username,
+    required String currentDocId,
+  }) async {
+    final result = await _firestore
+        .collection('users')
+        .where('username', isEqualTo: username)
+        .get();
+
+    return result.docs.any((doc) => doc.id != currentDocId);
+  }
+
   Stream<QuerySnapshot<Map<String, dynamic>>> usersStream() {
     return _firestore
         .collection('users')
@@ -125,8 +142,12 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
       final username = (data['username'] ?? '').toString().toLowerCase();
       final email = (data['email'] ?? '').toString().toLowerCase();
 
-      final matchesRole =
-          selectedRoleFilter == 'all' || userRole == selectedRoleFilter;
+      final normalizedSelectedRole = selectedRoleFilter.trim().toLowerCase();
+
+      final matchesRole = normalizedSelectedRole == 'all' ||
+          userRole == normalizedSelectedRole ||
+          (normalizedSelectedRole == 'nursery' &&
+              (userRole == 'nursery staff' || userRole == 'nursery_staff'));
 
       final query = searchText.trim().toLowerCase();
       final matchesSearch = query.isEmpty ||
@@ -376,8 +397,190 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
     );
   }
 
-  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
-      _findChildrenLinkedToParent({
+  Future<void> openEditDialog({
+    required String docId,
+    required Map<String, dynamic> userData,
+  }) async {
+    editDisplayNameCtrl.text = (userData['displayName'] ?? '').toString();
+    editUsernameCtrl.text = (userData['username'] ?? '').toString();
+    String editRole = (userData['role'] ?? 'parent').toString();
+
+    bool isSaving = false;
+
+    await showDialog(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return Directionality(
+            textDirection: TextDirection.rtl,
+            child: AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              title: const Text('تعديل المستخدم'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: editDisplayNameCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'الاسم الكامل',
+                        prefixIcon: Icon(Icons.badge_outlined),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: editUsernameCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'اسم المستخدم',
+                        prefixIcon: Icon(Icons.person_outline),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      enabled: false,
+                      controller: TextEditingController(
+                        text: (userData['email'] ?? '').toString(),
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'الإيميل',
+                        prefixIcon: Icon(Icons.email_outlined),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: editRole,
+                      decoration: const InputDecoration(
+                        labelText: 'الدور',
+                        prefixIcon: Icon(Icons.assignment_ind_outlined),
+                      ),
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'parent',
+                          child: Text('ولي أمر'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'nursery',
+                          child: Text('موظف/ة حضانة'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'teacher',
+                          child: Text('معلمة روضة'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'admin',
+                          child: Text('مدير النظام'),
+                        ),
+                      ],
+                      onChanged: (v) {
+                        setDialogState(() {
+                          editRole = v ?? 'parent';
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    const Text(
+                      'ملاحظة: تعديل الإيميل معطّل حالياً لتفادي تعارضه مع Firebase Authentication.',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        color: Colors.black54,
+                        height: 1.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSaving ? null : () => Navigator.pop(context),
+                  child: const Text('إلغاء'),
+                ),
+                ElevatedButton(
+                  onPressed: isSaving
+                      ? null
+                      : () async {
+                          final newDisplayName =
+                              editDisplayNameCtrl.text.trim();
+                          final newUsername = editUsernameCtrl.text.trim();
+
+                          if (newDisplayName.isEmpty || newUsername.isEmpty) {
+                            ScaffoldMessenger.of(this.context).showSnackBar(
+                              const SnackBar(
+                                content: Text('الاسم واسم المستخدم مطلوبان'),
+                              ),
+                            );
+                            return;
+                          }
+
+                          setDialogState(() {
+                            isSaving = true;
+                          });
+
+                          try {
+                            final exists =
+                                await usernameExistsForAnotherUser(
+                              username: newUsername,
+                              currentDocId: docId,
+                            );
+
+                            if (exists) {
+                              ScaffoldMessenger.of(this.context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('اسم المستخدم مستخدم مسبقًا'),
+                                ),
+                              );
+                              setDialogState(() {
+                                isSaving = false;
+                              });
+                              return;
+                            }
+
+                            await _firestore.collection('users').doc(docId).update({
+                              'displayName': newDisplayName,
+                              'username': newUsername,
+                              'role': editRole,
+                              'updatedAt': FieldValue.serverTimestamp(),
+                            });
+
+                            if (!mounted) return;
+
+                            Navigator.pop(context);
+
+                            ScaffoldMessenger.of(this.context).showSnackBar(
+                              const SnackBar(
+                                content: Text('تم تعديل المستخدم بنجاح ✅'),
+                              ),
+                            );
+                          } catch (e) {
+                            ScaffoldMessenger.of(this.context).showSnackBar(
+                              SnackBar(content: Text('حدث خطأ: $e')),
+                            );
+                            setDialogState(() {
+                              isSaving = false;
+                            });
+                          }
+                        },
+                  child: isSaving
+                      ? const SizedBox(
+                          height: 18,
+                          width: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text('حفظ التعديلات'),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _findChildrenLinkedToParent({
     required String username,
     required String uid,
   }) async {
@@ -619,13 +822,12 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
               ),
               const SizedBox(height: 6),
               Text(
-                'إضافة وحذف ومراجعة حسابات المستخدمين داخل النظام',
+                'إضافة وحذف وتعديل ومراجعة حسابات المستخدمين داخل النظام',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: AppColors.textLight,
                     ),
               ),
               const SizedBox(height: 16),
-
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(14),
@@ -687,9 +889,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                   ),
                 ),
               ),
-
               const SizedBox(height: 20),
-
               if (filteredDocs.isEmpty)
                 Card(
                   child: Padding(
@@ -725,6 +925,12 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                         username: username,
                       );
                     },
+                    onEdit: () async {
+                      await openEditDialog(
+                        docId: doc.id,
+                        userData: u,
+                      );
+                    },
                   );
                 }),
             ],
@@ -743,6 +949,7 @@ class _UserCard extends StatelessWidget {
   final Color roleColor;
   final IconData icon;
   final VoidCallback onDelete;
+  final VoidCallback onEdit;
 
   const _UserCard({
     required this.name,
@@ -752,6 +959,7 @@ class _UserCard extends StatelessWidget {
     required this.roleColor,
     required this.icon,
     required this.onDelete,
+    required this.onEdit,
   });
 
   @override
@@ -796,6 +1004,12 @@ class _UserCard extends StatelessWidget {
                   ),
                 ],
               ),
+            ),
+            IconButton(
+              tooltip: 'تعديل المستخدم',
+              onPressed: onEdit,
+              icon: const Icon(Icons.edit_outlined),
+              color: AppColors.primary,
             ),
             IconButton(
               tooltip: 'حذف المستخدم',
