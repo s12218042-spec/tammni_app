@@ -5,10 +5,10 @@ import '../models/child_model.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 
-class ParentHandoffLogPage extends StatelessWidget {
+class ParentNotificationsPage extends StatelessWidget {
   final ChildModel child;
 
-  const ParentHandoffLogPage({
+  const ParentNotificationsPage({
     super.key,
     required this.child,
   });
@@ -19,51 +19,92 @@ class ParentHandoffLogPage extends StatelessWidget {
     return '${d.year}/${d.month}/${d.day} - ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
   }
 
-  Color _handoffColor(String type) {
-    if (type == 'pickup') return Colors.orange;
-    return Colors.green;
+  Color _typeColor(String type) {
+    switch (type) {
+      case 'entry':
+        return Colors.green;
+      case 'exit':
+        return Colors.orange;
+      case 'health':
+        return Colors.redAccent;
+      case 'supplies':
+        return Colors.deepPurple;
+      case 'media':
+        return Colors.blue;
+      default:
+        return AppColors.primary;
+    }
   }
 
-  IconData _handoffIcon(String type) {
-    if (type == 'pickup') return Icons.logout_outlined;
-    return Icons.login_outlined;
+  IconData _typeIcon(String type) {
+    switch (type) {
+      case 'entry':
+        return Icons.login_outlined;
+      case 'exit':
+        return Icons.logout_outlined;
+      case 'health':
+        return Icons.health_and_safety_outlined;
+      case 'supplies':
+        return Icons.inventory_2_outlined;
+      case 'media':
+        return Icons.photo_camera_back_outlined;
+      default:
+        return Icons.notifications_active_outlined;
+    }
   }
 
-  String _handoffLabel(String type) {
-    if (type == 'pickup') return 'استلام';
-    if (type == 'dropoff') return 'تسليم';
-    return type;
+  String _typeLabel(String type) {
+    switch (type) {
+      case 'entry':
+        return 'دخول';
+      case 'exit':
+        return 'خروج';
+      case 'health':
+        return 'صحة';
+      case 'supplies':
+        return 'مستلزمات';
+      case 'media':
+        return 'وسائط';
+      case 'custom':
+        return 'إشعار خاص';
+      default:
+        return type.isEmpty ? 'إشعار' : type;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return AppPageScaffold(
-      title: 'سجل الاستلام والتسليم',
+      title: 'الإشعارات',
       child: Column(
         children: [
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: AppColors.primary.withOpacity(0.10),
-              borderRadius: BorderRadius.circular(18),
+              gradient: const LinearGradient(
+                colors: [AppColors.primary, AppColors.secondary],
+              ),
+              borderRadius: BorderRadius.circular(20),
             ),
             child: Row(
               children: [
                 CircleAvatar(
-                  backgroundColor: AppColors.primary.withOpacity(0.15),
+                  radius: 24,
+                  backgroundColor: Colors.white.withOpacity(0.18),
                   child: const Icon(
-                    Icons.how_to_reg_outlined,
-                    color: AppColors.primary,
+                    Icons.notifications_active_outlined,
+                    color: Colors.white,
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    'سجل استلام وتسليم الطفل ${child.name}',
+                    'إشعارات الحضانة الخاصة بالطفل ${child.name}',
                     style: const TextStyle(
+                      color: Colors.white,
                       fontWeight: FontWeight.bold,
-                      fontSize: 15.5,
+                      fontSize: 16,
                     ),
                   ),
                 ),
@@ -74,7 +115,7 @@ class ParentHandoffLogPage extends StatelessWidget {
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance
-                  .collection('child_handoffs')
+                  .collection('notifications')
                   .where('childId', isEqualTo: child.id)
                   .orderBy('createdAt', descending: true)
                   .snapshots(),
@@ -84,7 +125,7 @@ class ParentHandoffLogPage extends StatelessWidget {
                     child: Padding(
                       padding: const EdgeInsets.all(18),
                       child: Text(
-                        'حدث خطأ أثناء تحميل السجل\n${snapshot.error}',
+                        'حدث خطأ أثناء تحميل الإشعارات\n${snapshot.error}',
                         style: const TextStyle(color: Colors.red),
                       ),
                     ),
@@ -105,13 +146,13 @@ class ParentHandoffLogPage extends StatelessWidget {
                         mainAxisSize: MainAxisSize.min,
                         children: const [
                           Icon(
-                            Icons.inventory_2_outlined,
+                            Icons.notifications_none_outlined,
                             size: 44,
                             color: AppColors.textLight,
                           ),
                           SizedBox(height: 10),
                           Text(
-                            'لا توجد سجلات استلام/تسليم لعرضها حالياً',
+                            'لا توجد إشعارات لعرضها حالياً',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               color: AppColors.textLight,
@@ -129,15 +170,13 @@ class ParentHandoffLogPage extends StatelessWidget {
                   separatorBuilder: (_, __) => const SizedBox(height: 10),
                   itemBuilder: (context, index) {
                     final data = docs[index].data() as Map<String, dynamic>;
-                    final handoffType =
-                        (data['handoffType'] ?? '').toString();
-                    final personName = (data['personName'] ?? '').toString();
-                    final relation = (data['relation'] ?? '').toString();
-                    final note = (data['note'] ?? '').toString();
+                    final type = (data['type'] ?? '').toString();
+                    final title = (data['title'] ?? '').toString();
+                    final message = (data['message'] ?? '').toString();
+                    final createdAt = data['createdAt'] as Timestamp?;
                     final createdByName =
                         (data['createdByName'] ?? '').toString();
-                    final createdAt = data['createdAt'] as Timestamp?;
-                    final color = _handoffColor(handoffType);
+                    final color = _typeColor(type);
 
                     return Card(
                       child: Padding(
@@ -150,18 +189,34 @@ class ParentHandoffLogPage extends StatelessWidget {
                                 CircleAvatar(
                                   backgroundColor: color.withOpacity(0.12),
                                   child: Icon(
-                                    _handoffIcon(handoffType),
+                                    _typeIcon(type),
                                     color: color,
                                   ),
                                 ),
                                 const SizedBox(width: 10),
                                 Expanded(
-                                  child: Text(
-                                    _handoffLabel(handoffType),
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 15.5,
-                                    ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        title.isEmpty
+                                            ? _typeLabel(type)
+                                            : title,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 15,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        _formatDate(createdAt),
+                                        style: const TextStyle(
+                                          color: AppColors.textLight,
+                                          fontSize: 12.5,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                                 Container(
@@ -174,7 +229,7 @@ class ParentHandoffLogPage extends StatelessWidget {
                                     borderRadius: BorderRadius.circular(12),
                                   ),
                                   child: Text(
-                                    _formatDate(createdAt),
+                                    _typeLabel(type),
                                     style: TextStyle(
                                       color: color,
                                       fontWeight: FontWeight.bold,
@@ -184,32 +239,25 @@ class ParentHandoffLogPage extends StatelessWidget {
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 12),
-                            _InfoRow(
-                              icon: Icons.person_outline,
-                              label: 'الشخص',
-                              value: personName.isEmpty ? '-' : personName,
-                            ),
-                            const SizedBox(height: 8),
-                            _InfoRow(
-                              icon: Icons.people_outline,
-                              label: 'صلة القرابة',
-                              value: relation.isEmpty ? '-' : relation,
-                            ),
-                            if (note.isNotEmpty) ...[
-                              const SizedBox(height: 8),
-                              _InfoRow(
-                                icon: Icons.notes_outlined,
-                                label: 'ملاحظة',
-                                value: note,
+                            if (message.isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              Text(
+                                message,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  height: 1.45,
+                                ),
                               ),
                             ],
                             if (createdByName.isNotEmpty) ...[
-                              const SizedBox(height: 8),
-                              _InfoRow(
-                                icon: Icons.badge_outlined,
-                                label: 'تم بواسطة',
-                                value: createdByName,
+                              const SizedBox(height: 10),
+                              Text(
+                                'من: $createdByName',
+                                style: const TextStyle(
+                                  color: AppColors.textLight,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 12.5,
+                                ),
                               ),
                             ],
                           ],
@@ -223,45 +271,6 @@ class ParentHandoffLogPage extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _InfoRow extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-
-  const _InfoRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, size: 18, color: AppColors.textLight),
-        const SizedBox(width: 8),
-        Text(
-          '$label: ',
-          style: const TextStyle(
-            fontWeight: FontWeight.bold,
-            color: AppColors.textDark,
-          ),
-        ),
-        Expanded(
-          child: Text(
-            value,
-            style: const TextStyle(
-              color: AppColors.textLight,
-              height: 1.4,
-            ),
-          ),
-        ),
-      ],
     );
   }
 }
