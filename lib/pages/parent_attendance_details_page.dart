@@ -81,7 +81,7 @@ class ParentAttendanceDetailsPage extends StatelessWidget {
               stream: firestore
                   .collection('attendance')
                   .where('childId', isEqualTo: child.id)
-                  .orderBy('updatedAt', descending: true)
+                  .orderBy('time', descending: true)
                   .snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
@@ -118,12 +118,10 @@ class ParentAttendanceDetailsPage extends StatelessWidget {
                   itemBuilder: (context, index) {
                     final data = docs[index].data() as Map<String, dynamic>;
 
-                    final present = data['present'];
-                    final status = present == true ? 'present' : 'absent';
-                    final time = data['updatedAt'];
+                    final status = data['status'] ?? '';
                     final note = data['note'] ?? '';
                     final recordedByName = data['recordedByName'] ?? '';
-                    
+                    final time = data['time'];
 
                     return _AttendanceCard(
                       statusText: statusLabel(status),

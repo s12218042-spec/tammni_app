@@ -4,13 +4,13 @@ import 'package:flutter/material.dart';
 import '../models/child_model.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
-import 'gallery_page.dart';
 import 'parent_updates_page.dart';
 import 'weekly_report_page.dart';
+import 'parent_grades_page.dart';
+import 'parent_assignments_page.dart';
+import 'parent_rewards_page.dart';
+import 'parent_attendance_details_page.dart';
 import 'parent_nursery_log_page.dart';
-import 'parent_handoff_log_page.dart';
-import 'parent_incident_reports_page.dart';
-import 'parent_notifications_page.dart';
 
 class ChildProfilePage extends StatefulWidget {
   final ChildModel child;
@@ -27,31 +27,19 @@ class ChildProfilePage extends StatefulWidget {
 class _ChildProfilePageState extends State<ChildProfilePage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
+  Future<void> _refreshPage() async {
+    if (!mounted) return;
+    setState(() {});
+  }
+
   String sectionLabel(String section) {
-    if (section == 'Nursery') return 'حضانة';
-    if (section == 'Kindergarten') return 'روضة';
-    return section;
+    return section == 'Nursery' ? 'حضانة' : 'روضة';
   }
 
   Color sectionColor(String section) {
-    if (section == 'Nursery') return const Color(0xFFEFA7C8);
-    if (section == 'Kindergarten') return const Color(0xFF7BB6FF);
-    return AppColors.primary;
-  }
-
-  String statusLabel(String status, bool isActive) {
-    if (!isActive) return 'مؤرشف';
-    if (status == 'active') return 'نشط';
-    if (status == 'transferred') return 'منقول';
-    if (status == 'graduated') return 'متخرج';
-    return 'نشط';
-  }
-
-  Color statusColor(String status, bool isActive) {
-    if (!isActive) return Colors.orange;
-    if (status == 'graduated') return Colors.blueGrey;
-    if (status == 'transferred') return Colors.deepPurple;
-    return Colors.green;
+    return section == 'Nursery'
+        ? const Color(0xFFEFA7C8)
+        : const Color(0xFF7BB6FF);
   }
 
   String childAgeText(DateTime birthDate) {
@@ -71,9 +59,11 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
     if (years <= 0) {
       return '$months شهر';
     }
+
     if (months == 0) {
       return '$years سنة';
     }
+
     return '$years سنة و $months شهر';
   }
 
@@ -82,39 +72,10 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
     return name.trim().substring(0, 1);
   }
 
-  String formatDate(dynamic raw) {
-    if (raw is Timestamp) {
-      final date = raw.toDate();
-      return '${date.year}/${date.month}/${date.day}';
-    }
-    return '-';
-  }
-
-  Future<Map<String, dynamic>?> fetchChildDetails() async {
-    final doc = await _firestore.collection('children').doc(widget.child.id).get();
-
-    if (!doc.exists) return null;
-
-    final data = doc.data()!;
-    return {
-      'id': doc.id,
-      'name': data['name'] ?? widget.child.name,
-      'section': data['section'] ?? widget.child.section,
-      'group': data['group'] ?? widget.child.group,
-      'parentName': data['parentName'] ?? widget.child.parentName,
-      'parentUsername': data['parentUsername'] ?? widget.child.parentUsername,
-      'birthDate': data['birthDate'] ?? Timestamp.fromDate(widget.child.birthDate),
-      'isActive': data['isActive'] ?? true,
-      'status': data['status'] ?? 'active',
-      'createdAt': data['createdAt'],
-      'updatedAt': data['updatedAt'],
-      'history': (data['history'] as List?) ?? [],
-    };
-  }
-
   Future<bool> isPresentToday() async {
     final now = DateTime.now();
-    final dateKey = '${now.year}-${now.month}-${now.day}';
+    final dateKey =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
 
     final snapshot = await _firestore
         .collection('attendance')
@@ -140,16 +101,19 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
         'note': data['note'] ?? '',
         'time': data['time'] as Timestamp?,
         'createdAt': data['createdAt'] as Timestamp?,
+        'hasMedia': data['hasMedia'] ?? false,
+        'mediaType': data['mediaType'] ?? '',
       };
     }).toList();
 
     items.sort((a, b) {
-      final aTime = (a['createdAt'] as Timestamp?) ?? (a['time'] as Timestamp?);
-      final bTime = (b['createdAt'] as Timestamp?) ?? (b['time'] as Timestamp?);
+      final aTime = (a['time'] as Timestamp?) ?? (a['createdAt'] as Timestamp?);
+      final bTime = (b['time'] as Timestamp?) ?? (b['createdAt'] as Timestamp?);
 
       if (aTime == null && bTime == null) return 0;
       if (aTime == null) return 1;
       if (bTime == null) return -1;
+
       return bTime.compareTo(aTime);
     });
 
@@ -166,467 +130,206 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
     return '--:--';
   }
 
-  Widget buildHistorySection(List history) {
-    if (history.isEmpty) {
-      return Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Text(
-            'لا يوجد سجل انتقالات بعد',
-            style: TextStyle(
-              color: AppColors.textLight,
-              fontSize: 14,
-            ),
-          ),
-        ),
-      );
-    }
-
-    final items = history.map((e) => Map<String, dynamic>.from(e)).toList();
-
-    return Column(
-      children: items.reversed.map((item) {
-        final section = (item['section'] ?? '').toString();
-        final group = (item['group'] ?? '').toString();
-
-        return Card(
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '${sectionLabel(section)} • $group',
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.textDark,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'من: ${formatDate(item['from'])}',
-                  style: const TextStyle(
-                    color: AppColors.textLight,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  item['to'] == null ? 'حتى الآن' : 'إلى: ${formatDate(item['to'])}',
-                  style: const TextStyle(
-                    color: AppColors.textLight,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      }).toList(),
-    );
+  String childStatusText(ChildModel child) {
+    if (child.status.trim().isEmpty) return 'نشط';
+    return child.status;
   }
 
-  Widget buildActionButton({
-    required BuildContext context,
-    required String label,
-    required IconData icon,
-    required VoidCallback onTap,
-    bool outlined = false,
-  }) {
-    if (outlined) {
-      return SizedBox(
-        width: double.infinity,
-        child: OutlinedButton.icon(
-          onPressed: onTap,
-          icon: Icon(icon),
-          label: Text(label),
-          style: OutlinedButton.styleFrom(
-            minimumSize: const Size(double.infinity, 52),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-            ),
-          ),
-        ),
-      );
-    }
-
-    return SizedBox(
-      width: double.infinity,
-      child: ElevatedButton.icon(
-        onPressed: onTap,
-        icon: Icon(icon),
-        label: Text(label),
-      ),
-    );
-  }
-
-  Widget buildNurseryActions(BuildContext context, ChildModel child) {
-    return Column(
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: buildActionButton(
-                context: context,
-                label: 'كل التحديثات',
-                icon: Icons.notifications_none_outlined,
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => ParentUpdatesPage(child: child),
-                    ),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: buildActionButton(
-                context: context,
-                label: 'التقرير الأسبوعي',
-                icon: Icons.description_outlined,
-                outlined: true,
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => WeeklyReportPage(child: child),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            Expanded(
-              child: buildActionButton(
-                context: context,
-                label: 'سجل الدخول والخروج',
-                icon: Icons.login_outlined,
-                outlined: true,
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => ParentNurseryLogPage(child: child),
-                    ),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: buildActionButton(
-                context: context,
-                label: 'سجل الاستلام والتسليم',
-                icon: Icons.how_to_reg_outlined,
-                outlined: true,
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => ParentHandoffLogPage(child: child),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            Expanded(
-              child: buildActionButton(
-                context: context,
-                label: 'بلاغات الحوادث',
-                icon: Icons.report_problem_outlined,
-                outlined: true,
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => ParentIncidentReportsPage(child: child),
-                    ),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: buildActionButton(
-                context: context,
-                label: 'الإشعارات',
-                icon: Icons.notifications_active_outlined,
-                outlined: true,
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => ParentNotificationsPage(child: child),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        buildActionButton(
-          context: context,
-          label: 'معرض الصور',
-          icon: Icons.photo_library_outlined,
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => GalleryPage(child: child),
-              ),
-            );
-          },
-        ),
-      ],
-    );
-  }
-
-  Widget buildKindergartenActions(BuildContext context, ChildModel child) {
-    return Column(
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: buildActionButton(
-                context: context,
-                label: 'كل التحديثات',
-                icon: Icons.notifications_none_outlined,
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => ParentUpdatesPage(child: child),
-                    ),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: buildActionButton(
-                context: context,
-                label: 'التقرير الأسبوعي',
-                icon: Icons.description_outlined,
-                outlined: true,
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => WeeklyReportPage(child: child),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        buildActionButton(
-          context: context,
-          label: 'معرض الصور',
-          icon: Icons.photo_library_outlined,
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => GalleryPage(child: child),
-              ),
-            );
-          },
-        ),
-      ],
-    );
+  Color childStatusColor(String status) {
+    final s = status.toLowerCase();
+    if (s == 'active' || s == 'نشط') return Colors.green;
+    if (s == 'archived' || s == 'مؤرشف') return Colors.orange;
+    return AppColors.primary;
   }
 
   @override
   Widget build(BuildContext context) {
     final child = widget.child;
+    final badgeColor = sectionColor(child.section);
+    final statusColor = childStatusColor(child.status);
 
     return AppPageScaffold(
       title: 'ملف الطفل',
-      child: FutureBuilder<Map<String, dynamic>?>(
-        future: fetchChildDetails(),
-        builder: (context, childSnapshot) {
-          final currentData = childSnapshot.data;
-          final currentName = (currentData?['name'] ?? child.name).toString();
-          final currentSection = (currentData?['section'] ?? child.section).toString();
-          final currentGroup = (currentData?['group'] ?? child.group).toString();
-          final currentParentName =
-              (currentData?['parentName'] ?? child.parentName).toString();
-          final isActive = currentData?['isActive'] ?? true;
-          final status = (currentData?['status'] ?? 'active').toString();
-          final history = (currentData?['history'] as List?) ?? [];
-          final birthDateRaw = currentData?['birthDate'];
-          final currentBirthDate =
-              birthDateRaw is Timestamp ? birthDateRaw.toDate() : child.birthDate;
-
-          final badgeColor = sectionColor(currentSection);
-          final currentStatusColor = statusColor(status, isActive);
-
-          return ListView(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [
-                      AppColors.primary,
-                      AppColors.secondary,
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(22),
-                ),
-                child: Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 30,
-                      backgroundColor: Colors.white.withOpacity(0.18),
-                      child: Text(
-                        firstLetter(currentName),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            currentName,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 20,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'متابعة مخصصة لكل ما يتعلق بالطفل',
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.95),
-                              fontSize: 13.5,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 7,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.18),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Text(
-                        statusLabel(status, isActive),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
+      child: RefreshIndicator(
+        onRefresh: _refreshPage,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [
+                    AppColors.primary,
+                    AppColors.secondary,
                   ],
                 ),
+                borderRadius: BorderRadius.circular(22),
               ),
-              const SizedBox(height: 16),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 30,
+                    backgroundColor: Colors.white.withOpacity(0.18),
+                    child: Text(
+                      firstLetter(child.name),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          child.name,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 20,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'متابعة مخصصة لكل ما يتعلق بالطفل',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.95),
+                            fontSize: 13.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
 
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _ProfileInfoBox(
-                              icon: Icons.cake_outlined,
-                              title: 'العمر',
-                              value: childAgeText(currentBirthDate),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _ProfileInfoBox(
+                            icon: Icons.cake_outlined,
+                            title: 'العمر',
+                            value: childAgeText(child.birthDate),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _ProfileInfoBox(
+                            icon: Icons.groups_outlined,
+                            title: 'المجموعة',
+                            value:
+                                child.group.isEmpty ? 'غير محدد' : child.group,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: badgeColor.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.apartment_outlined,
+                                  color: badgeColor,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'القسم: ${sectionLabel(child.section)}',
+                                    style: TextStyle(
+                                      color: badgeColor,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 15,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          const SizedBox(width: 10),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: statusColor.withOpacity(0.10),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: statusColor.withOpacity(0.18),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.verified_user_outlined,
+                                  color: statusColor,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'الحالة الحالية: ${childStatusText(child)}',
+                                    style: TextStyle(
+                                      color: statusColor,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14.5,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: AppColors.background,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.person_outline,
+                            color: AppColors.primary,
+                          ),
+                          const SizedBox(width: 8),
                           Expanded(
-                            child: _ProfileInfoBox(
-                              icon: Icons.groups_outlined,
-                              title: 'المجموعة الحالية',
-                              value: currentGroup.isEmpty ? 'غير محدد' : currentGroup,
+                            child: Text(
+                              'ولي الأمر: ${child.parentName.isEmpty ? "غير محدد" : child.parentName}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 10),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: badgeColor.withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.apartment_outlined,
-                              color: badgeColor,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              'القسم الحالي: ${sectionLabel(currentSection)}',
-                              style: TextStyle(
-                                color: badgeColor,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 15,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: currentStatusColor.withOpacity(0.10),
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              isActive
-                                  ? Icons.check_circle_outline
-                                  : Icons.archive_outlined,
-                              color: currentStatusColor,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              'الحالة الحالية: ${statusLabel(status, isActive)}',
-                              style: TextStyle(
-                                color: currentStatusColor,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 15,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                    ),
+                    if (child.parentUsername.trim().isNotEmpty) ...[
                       const SizedBox(height: 10),
                       Container(
                         width: double.infinity,
@@ -638,13 +341,13 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
                         child: Row(
                           children: [
                             const Icon(
-                              Icons.person_outline,
+                              Icons.alternate_email,
                               color: AppColors.primary,
                             ),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                'ولي الأمر: ${currentParentName.isEmpty ? "غير محدد" : currentParentName}',
+                                'اسم مستخدم ولي الأمر: ${child.parentUsername}',
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w600,
                                 ),
@@ -654,129 +357,286 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
                         ),
                       ),
                     ],
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 14),
+
+            if (child.section == 'Kindergarten')
+              FutureBuilder<bool>(
+                future: isPresentToday(),
+                builder: (context, snapshot) {
+                  final present = snapshot.data ?? false;
+                  return _StatusCard(
+                    icon: present ? Icons.check_circle : Icons.cancel_outlined,
+                    color: present ? Colors.green : Colors.redAccent,
+                    title: 'الحضور اليوم',
+                    value: present ? 'حاضر' : 'غائب',
+                  );
+                },
+              )
+            else
+              const _StatusCard(
+                icon: Icons.info_outline,
+                color: AppColors.primary,
+                title: 'نظام المتابعة',
+                value: 'مرن حسب الزيارة والتحديثات',
+              ),
+
+            const SizedBox(height: 18),
+
+            Text(
+              'آخر التحديثات',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(height: 10),
+
+            FutureBuilder<List<Map<String, dynamic>>>(
+              future: fetchLastUpdates(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Card(
+                    child: Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Center(
+                        child: CircularProgressIndicator(),
+                      ),
+                    ),
+                  );
+                }
+
+                if (snapshot.hasError) {
+                  return Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(
+                        'حدث خطأ أثناء تحميل التحديثات: ${snapshot.error}',
+                      ),
+                    ),
+                  );
+                }
+
+                final updates = snapshot.data ?? [];
+
+                if (updates.isEmpty) {
+                  return const Card(
+                    child: Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Text(
+                        'لا توجد تحديثات مسجلة لهذا الطفل بعد',
+                        style: TextStyle(
+                          color: AppColors.textLight,
+                          fontSize: 15,
+                        ),
+                      ),
+                    ),
+                  );
+                }
+
+                return Column(
+                  children: updates
+                      .map(
+                        (u) => _RecentUpdateTile(
+                          time: timeText(u['time'] ?? u['createdAt']),
+                          type: u['type'] ?? '',
+                          note: u['note'] ?? '',
+                          hasMedia: u['hasMedia'] == true,
+                          mediaType: u['mediaType'] ?? '',
+                        ),
+                      )
+                      .toList(),
+                );
+              },
+            ),
+
+            const SizedBox(height: 18),
+
+            Text(
+              child.section == 'Kindergarten'
+                  ? 'المتابعة التعليمية'
+                  : 'متابعة الحضانة',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(height: 10),
+
+            if (child.section == 'Kindergarten') ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => ParentGradesPage(child: child),
+                          ),
+                        );
+                        if (!mounted) return;
+                        setState(() {});
+                      },
+                      icon: const Icon(Icons.grade_outlined),
+                      label: const Text('الدرجات'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(double.infinity, 50),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                ParentAssignmentsPage(child: child),
+                          ),
+                        );
+                        if (!mounted) return;
+                        setState(() {});
+                      },
+                      icon: const Icon(Icons.assignment_outlined),
+                      label: const Text('الواجبات'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(double.infinity, 50),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => ParentRewardsPage(child: child),
+                          ),
+                        );
+                        if (!mounted) return;
+                        setState(() {});
+                      },
+                      icon: const Icon(Icons.emoji_events_outlined),
+                      label: const Text('التعزيز'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(double.infinity, 50),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                ParentAttendanceDetailsPage(child: child),
+                          ),
+                        );
+                        if (!mounted) return;
+                        setState(() {});
+                      },
+                      icon: const Icon(Icons.fact_check_outlined),
+                      label: const Text('الحضور'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(double.infinity, 50),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ] else ...[
+              OutlinedButton.icon(
+                onPressed: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ParentNurseryLogPage(child: child),
+                    ),
+                  );
+                  if (!mounted) return;
+                  setState(() {});
+                },
+                icon: const Icon(Icons.history_toggle_off_rounded),
+                label: const Text('سجل الدخول والخروج'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 50),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
                   ),
                 ),
               ),
-
-              const SizedBox(height: 14),
-
-              if (currentSection == 'Kindergarten')
-                FutureBuilder<bool>(
-                  future: isPresentToday(),
-                  builder: (context, snapshot) {
-                    final present = snapshot.data ?? false;
-                    return _StatusCard(
-                      icon: present
-                          ? Icons.check_circle
-                          : Icons.cancel_outlined,
-                      color: present ? Colors.green : Colors.redAccent,
-                      title: 'الحضور اليوم',
-                      value: present ? 'حاضر' : 'غائب',
-                    );
-                  },
-                )
-              else
-                const _StatusCard(
-                  icon: Icons.info_outline,
-                  color: AppColors.primary,
-                  title: 'نظام المتابعة',
-                  value: 'مرن حسب الزيارة والتحديثات والرعاية اليومية',
-                ),
-
-              const SizedBox(height: 18),
-
-              Text(
-                'آخر التحديثات',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-              const SizedBox(height: 10),
-
-              FutureBuilder<List<Map<String, dynamic>>>(
-                future: fetchLastUpdates(),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Card(
-                      child: Padding(
-                        padding: EdgeInsets.all(24),
-                        child: Center(
-                          child: CircularProgressIndicator(),
-                        ),
-                      ),
-                    );
-                  }
-
-                  if (snapshot.hasError) {
-                    return const Card(
-                      child: Padding(
-                        padding: EdgeInsets.all(16),
-                        child: Text('حدث خطأ أثناء تحميل التحديثات'),
-                      ),
-                    );
-                  }
-
-                  final updates = snapshot.data ?? [];
-
-                  if (updates.isEmpty) {
-                    return const Card(
-                      child: Padding(
-                        padding: EdgeInsets.all(16),
-                        child: Text(
-                          'لا توجد تحديثات مسجلة لهذا الطفل بعد',
-                          style: TextStyle(
-                            color: AppColors.textLight,
-                            fontSize: 15,
-                          ),
-                        ),
-                      ),
-                    );
-                  }
-
-                  return Column(
-                    children: updates
-                        .map(
-                          (u) => _RecentUpdateTile(
-                            time: timeText(u['time'] ?? u['createdAt']),
-                            type: (u['type'] ?? '').toString(),
-                            note: (u['note'] ?? '').toString(),
-                          ),
-                        )
-                        .toList(),
-                  );
-                },
-              ),
-
-              const SizedBox(height: 18),
-
-              Text(
-                'سجل القسم والمجموعة',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-              const SizedBox(height: 10),
-              buildHistorySection(history),
-
-              const SizedBox(height: 18),
-
-              Text(
-                currentSection == 'Nursery'
-                    ? 'متابعة الحضانة'
-                    : 'إجراءات ومتابعة',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-              const SizedBox(height: 10),
-
-              if (currentSection == 'Nursery')
-                buildNurseryActions(context, child)
-              else
-                buildKindergartenActions(context, child),
             ],
-          );
-        },
+
+            const SizedBox(height: 18),
+
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () async {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ParentUpdatesPage(child: child),
+                        ),
+                      );
+                      if (!mounted) return;
+                      setState(() {});
+                    },
+                    icon: const Icon(Icons.chat_bubble_outline),
+                    label: const Text('كل التحديثات'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => WeeklyReportPage(child: child),
+                        ),
+                      );
+                      if (!mounted) return;
+                      setState(() {});
+                    },
+                    icon: const Icon(Icons.description_outlined),
+                    label: const Text('التقرير الأسبوعي'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(double.infinity, 50),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -855,7 +715,10 @@ class _StatusCard extends StatelessWidget {
           children: [
             CircleAvatar(
               backgroundColor: color.withOpacity(0.14),
-              child: Icon(icon, color: color),
+              child: Icon(
+                icon,
+                color: color,
+              ),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -879,12 +742,22 @@ class _RecentUpdateTile extends StatelessWidget {
   final String time;
   final String type;
   final String note;
+  final bool hasMedia;
+  final String mediaType;
 
   const _RecentUpdateTile({
     required this.time,
     required this.type,
     required this.note,
+    required this.hasMedia,
+    required this.mediaType,
   });
+
+  String mediaLabel() {
+    if (!hasMedia) return '';
+    if (mediaType == 'video') return ' • مرفق فيديو';
+    return ' • مرفق صورة';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -914,7 +787,7 @@ class _RecentUpdateTile extends StatelessWidget {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                '$type: $note',
+                '$type: $note${mediaLabel()}',
                 style: const TextStyle(fontSize: 14),
               ),
             ),

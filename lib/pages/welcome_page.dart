@@ -12,6 +12,7 @@ import '../theme/app_theme.dart';
 import 'admin_home_page.dart';
 import 'nursery_staff_home_page.dart';
 import 'parent_home_page.dart';
+import 'register_role_page.dart';
 import 'teacher_home_page.dart';
 
 class WelcomePage extends StatefulWidget {
@@ -361,13 +362,28 @@ class _WelcomePageState extends State<WelcomePage> {
         }
       }
 
-      await FirebaseAuth.instance.signOut();
-      if (!kIsWeb && googleSignIn != null) {
-        await googleSignIn.signOut();
-      }
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+        'uid': user.uid,
+        'email': user.email,
+        'name': user.displayName ?? '',
+        'photoUrl': user.photoURL ?? '',
+        'role': '',
+        'username': '',
+        'isProfileCompleted': false,
+        'loginProvider': 'google',
+        'createdAt': FieldValue.serverTimestamp(),
+        'lastLoginAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
 
-      _showSnack(
-        'لا يمكن إنشاء حساب جديد من داخل التطبيق. للحصول على حساب، يرجى مراجعة الإدارة.',
+      if (!mounted) return;
+
+      _showSnack('تم تسجيل الدخول باستخدام Google، أكملي بيانات الحساب أولًا');
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const RegisterRolePage(),
+        ),
       );
     } on FirebaseAuthException catch (e) {
       String message = 'تعذر تسجيل الدخول باستخدام Google';
@@ -404,44 +420,32 @@ class _WelcomePageState extends State<WelcomePage> {
         .get();
 
     if (!doc.exists) {
-      await FirebaseAuth.instance.signOut();
-
       if (!mounted) return;
       setState(() {
         isCheckingUser = false;
       });
-      _showSnack('لا يوجد حساب مفعّل لهذا المستخدم. يرجى مراجعة الإدارة.');
+      _showSnack('بيانات المستخدم غير موجودة في قاعدة البيانات');
       return;
     }
 
     final data = doc.data()!;
-    final role = (data['role'] ?? '').toString().trim().toLowerCase();
-    final username = (data['username'] ?? '').toString().trim();
+    final role = data['role'] ?? '';
+    final username = data['username'] ?? '';
     final isProfileCompleted = data['isProfileCompleted'] ?? true;
-    final isActive = data['isActive'] ?? true;
 
-    if (isActive != true) {
-      await FirebaseAuth.instance.signOut();
-
-      if (!mounted) return;
-      setState(() {
-        isCheckingUser = false;
-      });
-
-      _showSnack('هذا الحساب غير مفعل حاليًا');
-      return;
-    }
-
-    if (role.isEmpty || isProfileCompleted == false) {
-      await FirebaseAuth.instance.signOut();
-
+    if (role.toString().trim().isEmpty || isProfileCompleted == false) {
       if (!mounted) return;
 
       setState(() {
         isCheckingUser = false;
       });
 
-      _showSnack('الحساب غير مكتمل أو غير مفعّل. يرجى مراجعة الإدارة.');
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const RegisterRolePage(),
+        ),
+      );
       return;
     }
 
@@ -449,24 +453,12 @@ class _WelcomePageState extends State<WelcomePage> {
 
     if (role == 'parent') {
       nextPage = ParentHomePage(parentUsername: username);
-    } else if (role == 'nursery' ||
-        role == 'nursery staff' ||
-        role == 'nursery_staff') {
+    } else if (role == 'nursery') {
       nextPage = const NurseryStaffHomePage();
     } else if (role == 'teacher') {
       nextPage = const TeacherHomePage();
-    } else if (role == 'admin') {
-      nextPage = const AdminHomePage();
     } else {
-      await FirebaseAuth.instance.signOut();
-
-      if (!mounted) return;
-      setState(() {
-        isCheckingUser = false;
-      });
-
-      _showSnack('نوع الحساب غير معروف: $role');
-      return;
+      nextPage = const AdminHomePage();
     }
 
     if (!mounted) return;
@@ -733,6 +725,18 @@ class _WelcomePageState extends State<WelcomePage> {
                                       ),
                                     ),
                             ),
+                          ),
+                          const SizedBox(height: 14),
+                          GlassOutlineButton(
+                            text: 'إنشاء حساب جديد',
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const RegisterRolePage(),
+                                ),
+                              );
+                            },
                           ),
                           const SizedBox(height: 16),
                           GlassContainer(

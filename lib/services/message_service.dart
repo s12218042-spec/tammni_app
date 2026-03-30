@@ -18,21 +18,24 @@ class MessageService {
         .where('participants', arrayContains: currentUserId)
         .snapshots()
         .map((snapshot) {
-      final messages = snapshot.docs
-          .map((doc) => MessageModel.fromMap(doc.id, doc.data()))
-          .where((message) {
-        final hasCurrentUser =
-            message.senderId == currentUserId || message.receiverId == currentUserId;
+          final messages = snapshot.docs
+              .map((doc) => MessageModel.fromMap(doc.id, doc.data()))
+              .where((message) {
+                final hasCurrentUser =
+                    message.senderId == currentUserId ||
+                    message.receiverId == currentUserId;
 
-        final hasTargetUser =
-            message.senderId == targetUserId || message.receiverId == targetUserId;
+                final hasTargetUser =
+                    message.senderId == targetUserId ||
+                    message.receiverId == targetUserId;
 
-        return hasCurrentUser && hasTargetUser;
-      }).toList();
+                return hasCurrentUser && hasTargetUser;
+              })
+              .toList();
 
-      messages.sort((a, b) => a.sentAt.compareTo(b.sentAt));
-      return messages;
-    });
+          messages.sort((a, b) => a.sentAt.compareTo(b.sentAt));
+          return messages;
+        });
   }
 
   Stream<List<MessageModel>> getLatestChatsForUser({
@@ -42,31 +45,30 @@ class MessageService {
         .where('participants', arrayContains: currentUserId)
         .snapshots()
         .map((snapshot) {
-      final allMessages = snapshot.docs
-          .map((doc) => MessageModel.fromMap(doc.id, doc.data()))
-          .toList();
+          final allMessages = snapshot.docs
+              .map((doc) => MessageModel.fromMap(doc.id, doc.data()))
+              .toList();
 
-      allMessages.sort((a, b) => b.sentAt.compareTo(a.sentAt));
+          allMessages.sort((a, b) => b.sentAt.compareTo(a.sentAt));
 
-      final Map<String, MessageModel> latestByChat = {};
+          final Map<String, MessageModel> latestByChat = {};
 
-      for (final message in allMessages) {
-        final otherUserId =
-            message.senderId == currentUserId ? message.receiverId : message.senderId;
+          for (final message in allMessages) {
+            final otherUserId = message.senderId == currentUserId
+                ? message.receiverId
+                : message.senderId;
 
-        final key = '${message.childId}_$otherUserId';
+            final key = '${message.childId}_$otherUserId';
 
-        latestByChat.putIfAbsent(key, () => message);
-      }
+            latestByChat.putIfAbsent(key, () => message);
+          }
 
-      return latestByChat.values.toList()
-        ..sort((a, b) => b.sentAt.compareTo(a.sentAt));
-    });
+          return latestByChat.values.toList()
+            ..sort((a, b) => b.sentAt.compareTo(a.sentAt));
+        });
   }
 
-  Stream<int> getUnreadMessagesCountForUser({
-    required String currentUserId,
-  }) {
+  Stream<int> getUnreadMessagesCountForUser({required String currentUserId}) {
     return _messagesRef
         .where('participants', arrayContains: currentUserId)
         .where('receiverId', isEqualTo: currentUserId)
@@ -87,8 +89,7 @@ class MessageService {
     required String text,
   }) async {
     final cleanText = text.trim();
-    if (cleanText.isEmpty) return;
-
+    if (cleanText.length < 2) return;
     await _messagesRef.add({
       'childId': childId,
       'childName': childName,
@@ -101,12 +102,25 @@ class MessageService {
       'text': cleanText,
       'sentAt': Timestamp.now(),
       'isRead': false,
-      'participants': [
-        senderId,
-        receiverId,
-        childId,
-      ],
+      'participants': [senderId, receiverId, childId],
     });
+  }
+
+  Future<void> markMessagesAsRead({
+    required String childId,
+    required String currentUserId,
+    required String targetUserId,
+  }) async {
+    final snapshot = await _messagesRef
+        .where('childId', isEqualTo: childId)
+        .where('senderId', isEqualTo: targetUserId)
+        .where('receiverId', isEqualTo: currentUserId)
+        .where('isRead', isEqualTo: false)
+        .get();
+
+    for (final doc in snapshot.docs) {
+      await doc.reference.update({'isRead': true});
+    }
   }
 
   Future<void> markConversationAsRead({

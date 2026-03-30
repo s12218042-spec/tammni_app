@@ -21,23 +21,12 @@ class QuickCareUpdatePage extends StatefulWidget {
 class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
-
   final TextEditingController _noteCtrl = TextEditingController();
-  final TextEditingController _durationCtrl = TextEditingController();
-  final TextEditingController _quantityCtrl = TextEditingController();
-  final TextEditingController _tempCtrl = TextEditingController();
 
   bool isSaving = false;
   String selectedType = 'وجبة';
 
-  String mealStatus = 'أكمل الوجبة';
-  String sleepStatus = 'نام جيدًا';
-  String diaperStatus = 'تم التبديل';
-  String healthStatus = 'مستقر';
-  String activityStatus = 'شارك بالنشاط';
-  String noteMood = 'هادئ';
-
-  final List<String> careTypes = const [
+  final List<String> careTypes = [
     'وجبة',
     'نوم',
     'حفاض',
@@ -49,9 +38,6 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
   @override
   void dispose() {
     _noteCtrl.dispose();
-    _durationCtrl.dispose();
-    _quantityCtrl.dispose();
-    _tempCtrl.dispose();
     super.dispose();
   }
 
@@ -66,7 +52,9 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
       };
     }
 
-    final userDoc = await _firestore.collection('users').doc(currentUser.uid).get();
+    final userDoc =
+        await _firestore.collection('users').doc(currentUser.uid).get();
+
     final data = userDoc.data() ?? {};
 
     return {
@@ -110,58 +98,11 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
     }
   }
 
-  void applyQuickTemplate(String text) {
-    setState(() {
-      _noteCtrl.text = text;
-    });
-  }
-
-  String buildSuggestedNote() {
-    final extra = _noteCtrl.text.trim();
-
-    switch (selectedType) {
-      case 'وجبة':
-        final quantity = _quantityCtrl.text.trim();
-        final base = quantity.isNotEmpty
-            ? 'الطفل $mealStatus، والكمية: $quantity.'
-            : 'الطفل $mealStatus.';
-        return extra.isEmpty ? base : '$base $extra';
-
-      case 'نوم':
-        final duration = _durationCtrl.text.trim();
-        final base = duration.isNotEmpty
-            ? 'الطفل $sleepStatus لمدة $duration.'
-            : 'الطفل $sleepStatus.';
-        return extra.isEmpty ? base : '$base $extra';
-
-      case 'حفاض':
-        final base = 'الحالة: $diaperStatus.';
-        return extra.isEmpty ? base : '$base $extra';
-
-      case 'صحة':
-        final temp = _tempCtrl.text.trim();
-        final base = temp.isNotEmpty
-            ? 'الحالة الصحية: $healthStatus، والحرارة: $temp.'
-            : 'الحالة الصحية: $healthStatus.';
-        return extra.isEmpty ? base : '$base $extra';
-
-      case 'نشاط':
-        final base = 'الطفل $activityStatus.';
-        return extra.isEmpty ? base : '$base $extra';
-
-      default:
-        final moodText = 'حالة الطفل العامة: $noteMood.';
-        return extra.isEmpty ? moodText : '$moodText $extra';
-    }
-  }
-
   Future<void> saveQuickUpdate() async {
-    final finalNote = buildSuggestedNote().trim();
-
-    if (finalNote.isEmpty) {
+    if (_noteCtrl.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('أدخلي تفاصيل التحديث أولاً'),
+          content: Text('اكتبي ملاحظة مختصرة للتحديث'),
         ),
       );
       return;
@@ -181,7 +122,7 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
         'section': widget.child.section,
         'group': widget.child.group,
         'type': selectedType,
-        'note': finalNote,
+        'note': _noteCtrl.text.trim(),
         'createdAt': Timestamp.now(),
         'time': FieldValue.serverTimestamp(),
         'byRole': userInfo['role'],
@@ -195,17 +136,14 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
       });
 
       if (!mounted) return;
-
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('تم حفظ تحديث الرعاية بنجاح'),
         ),
       );
-
       Navigator.pop(context, true);
     } catch (e) {
       if (!mounted) return;
-
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('حدث خطأ أثناء حفظ التحديث: $e'),
@@ -219,347 +157,9 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
     }
   }
 
-  Widget buildTypeSelector() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(
-          color: AppColors.border.withOpacity(0.8),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 14,
-            offset: const Offset(0, 7),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'نوع التحديث',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-              color: AppColors.textDark,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: careTypes.map((type) {
-              final selected = selectedType == type;
-              final color = typeColor(type);
-
-              return InkWell(
-                borderRadius: BorderRadius.circular(16),
-                onTap: () {
-                  setState(() {
-                    selectedType = type;
-                  });
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 12,
-                  ),
-                  decoration: BoxDecoration(
-                    color: selected ? color.withOpacity(0.14) : Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: selected ? color : AppColors.border.withOpacity(0.9),
-                      width: selected ? 1.5 : 1.0,
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        typeIcon(type),
-                        size: 18,
-                        color: selected ? color : AppColors.textLight,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        type,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          color: selected ? color : AppColors.textDark,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget buildSmartFields() {
-    switch (selectedType) {
-      case 'وجبة':
-        return _buildMealFields();
-      case 'نوم':
-        return _buildSleepFields();
-      case 'حفاض':
-        return _buildDiaperFields();
-      case 'صحة':
-        return _buildHealthFields();
-      case 'نشاط':
-        return _buildActivityFields();
-      default:
-        return _buildGeneralNoteFields();
-    }
-  }
-
-  Widget _buildMealFields() {
-    return _SmartSectionCard(
-      title: 'تفاصيل الوجبة',
-      child: Column(
-        children: [
-          _ChoiceWrap(
-            values: const ['أكمل الوجبة', 'أكل نصف الوجبة', 'رفض الوجبة', 'شرب الحليب'],
-            selectedValue: mealStatus,
-            onSelected: (value) {
-              setState(() {
-                mealStatus = value;
-              });
-            },
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _quantityCtrl,
-            decoration: const InputDecoration(
-              labelText: 'الكمية أو الملاحظة السريعة',
-              hintText: 'مثال: كاملة / نصف كوب / قليل',
-            ),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _QuickTextChip(
-                label: 'أكل جيدًا',
-                onTap: () => applyQuickTemplate('أكل جيدًا وكان مرتاحًا.'),
-              ),
-              _QuickTextChip(
-                label: 'احتاج مساعدة',
-                onTap: () => applyQuickTemplate('احتاج مساعدة أثناء تناول الوجبة.'),
-              ),
-              _QuickTextChip(
-                label: 'شهية منخفضة',
-                onTap: () => applyQuickTemplate('شهيته كانت منخفضة اليوم.'),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSleepFields() {
-    return _SmartSectionCard(
-      title: 'تفاصيل النوم',
-      child: Column(
-        children: [
-          _ChoiceWrap(
-            values: const ['نام جيدًا', 'نام بصعوبة', 'استيقظ أكثر من مرة', 'لم ينم'],
-            selectedValue: sleepStatus,
-            onSelected: (value) {
-              setState(() {
-                sleepStatus = value;
-              });
-            },
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _durationCtrl,
-            decoration: const InputDecoration(
-              labelText: 'مدة النوم',
-              hintText: 'مثال: ساعة / ساعة ونصف / 30 دقيقة',
-            ),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _QuickTextChip(
-                label: 'نوم هادئ',
-                onTap: () => applyQuickTemplate('نام بهدوء واستيقظ بحالة جيدة.'),
-              ),
-              _QuickTextChip(
-                label: 'قلق أثناء النوم',
-                onTap: () => applyQuickTemplate('كان قلقًا أثناء النوم واستيقظ أكثر من مرة.'),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDiaperFields() {
-    return _SmartSectionCard(
-      title: 'تفاصيل الحفاض',
-      child: Column(
-        children: [
-          _ChoiceWrap(
-            values: const ['تم التبديل', 'يحتاج متابعة', 'تم التنظيف', 'تم التبديل مع ملاحظة'],
-            selectedValue: diaperStatus,
-            onSelected: (value) {
-              setState(() {
-                diaperStatus = value;
-              });
-            },
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _QuickTextChip(
-                label: 'كل شيء طبيعي',
-                onTap: () => applyQuickTemplate('تم التبديل وكل شيء طبيعي.'),
-              ),
-              _QuickTextChip(
-                label: 'احمرار بسيط',
-                onTap: () => applyQuickTemplate('تمت ملاحظة احمرار بسيط ويحتاج متابعة.'),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHealthFields() {
-    return _SmartSectionCard(
-      title: 'تفاصيل الحالة الصحية',
-      child: Column(
-        children: [
-          _ChoiceWrap(
-            values: const ['مستقر', 'حرارة خفيفة', 'كحة خفيفة', 'يحتاج متابعة'],
-            selectedValue: healthStatus,
-            onSelected: (value) {
-              setState(() {
-                healthStatus = value;
-              });
-            },
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _tempCtrl,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(
-              labelText: 'درجة الحرارة إن وجدت',
-              hintText: 'مثال: 37.5',
-            ),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _QuickTextChip(
-                label: 'بحالة جيدة',
-                onTap: () => applyQuickTemplate('الطفل بحالة جيدة وتمت متابعته.'),
-              ),
-              _QuickTextChip(
-                label: 'إبلاغ ولي الأمر',
-                onTap: () => applyQuickTemplate('تمت ملاحظة الحالة وإبلاغ ولي الأمر للمتابعة.'),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildActivityFields() {
-    return _SmartSectionCard(
-      title: 'تفاصيل النشاط',
-      child: Column(
-        children: [
-          _ChoiceWrap(
-            values: const ['شارك بالنشاط', 'استمتع بالنشاط', 'احتاج تشجيع', 'لم يرغب بالمشاركة'],
-            selectedValue: activityStatus,
-            onSelected: (value) {
-              setState(() {
-                activityStatus = value;
-              });
-            },
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _QuickTextChip(
-                label: 'رسم وتلوين',
-                onTap: () => applyQuickTemplate('شارك في نشاط الرسم والتلوين بشكل جيد.'),
-              ),
-              _QuickTextChip(
-                label: 'لعب جماعي',
-                onTap: () => applyQuickTemplate('شارك في اللعب الجماعي مع الأطفال.'),
-              ),
-              _QuickTextChip(
-                label: 'احتاج تشجيع',
-                onTap: () => applyQuickTemplate('احتاج تشجيعًا بسيطًا للمشاركة في النشاط.'),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildGeneralNoteFields() {
-    return _SmartSectionCard(
-      title: 'ملاحظة عامة',
-      child: Column(
-        children: [
-          _ChoiceWrap(
-            values: const ['هادئ', 'مرتاح', 'منزعج', 'يحتاج متابعة'],
-            selectedValue: noteMood,
-            onSelected: (value) {
-              setState(() {
-                noteMood = value;
-              });
-            },
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _QuickTextChip(
-                label: 'يوم جيد',
-                onTap: () => applyQuickTemplate('قضى يومًا جيدًا وكان متفاعلًا.'),
-              ),
-              _QuickTextChip(
-                label: 'يحتاج مراقبة',
-                onTap: () => applyQuickTemplate('يحتاج مراقبة بسيطة خلال اليوم.'),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final currentColor = typeColor(selectedType);
-    final finalPreview = buildSuggestedNote();
 
     return AppPageScaffold(
       title: 'تحديث رعاية سريع',
@@ -611,7 +211,7 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
                       ),
                       const SizedBox(height: 6),
                       const Text(
-                        'أضيفي تحديثًا سريعًا مع خيارات جاهزة لتسريع العمل اليومي.',
+                        'أضيفي تحديثًا سريعًا عن وجبة الطفل أو نومه أو صحته أو أي ملاحظة مهمة.',
                         style: TextStyle(
                           fontSize: 14,
                           color: AppColors.textLight,
@@ -625,44 +225,122 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
             ),
           ),
           const SizedBox(height: 18),
-          buildTypeSelector(),
+
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(
+                color: AppColors.border.withOpacity(0.8),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.03),
+                  blurRadius: 14,
+                  offset: const Offset(0, 7),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'نوع التحديث',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.textDark,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: careTypes.map((type) {
+                    final selected = selectedType == type;
+                    final color = typeColor(type);
+
+                    return InkWell(
+                      borderRadius: BorderRadius.circular(16),
+                      onTap: () {
+                        setState(() {
+                          selectedType = type;
+                        });
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          color: selected ? color.withOpacity(0.14) : Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: selected
+                                ? color
+                                : AppColors.border.withOpacity(0.9),
+                            width: selected ? 1.5 : 1.0,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              typeIcon(type),
+                              size: 18,
+                              color: selected ? color : AppColors.textLight,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              type,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                color: selected ? color : AppColors.textDark,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ],
+            ),
+          ),
+
           const SizedBox(height: 18),
-          buildSmartFields(),
-          const SizedBox(height: 18),
-          _SmartSectionCard(
-            title: 'تفاصيل إضافية',
+
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(
+                color: AppColors.border.withOpacity(0.8),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.03),
+                  blurRadius: 14,
+                  offset: const Offset(0, 7),
+                ),
+              ],
+            ),
             child: TextField(
               controller: _noteCtrl,
-              maxLines: 4,
+              maxLines: 5,
               decoration: const InputDecoration(
-                labelText: 'أضيفي وصفًا إضافيًا عند الحاجة',
-                hintText: 'مثال: كان سعيدًا، احتاج وقتًا إضافيًا، تم التواصل مع الأهل...',
+                labelText: 'تفاصيل التحديث',
+                hintText: 'مثال: تناول الطفل وجبته كاملة، أو نام لمدة ساعة، أو يعاني من حرارة خفيفة...',
+                border: InputBorder.none,
                 alignLabelWithHint: true,
               ),
             ),
           ),
-          const SizedBox(height: 18),
-          _SmartSectionCard(
-            title: 'معاينة النص النهائي',
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: AppColors.background,
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Text(
-                finalPreview.isEmpty ? 'سيظهر النص النهائي هنا' : finalPreview,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textDark,
-                  height: 1.5,
-                ),
-              ),
-            ),
-          ),
+
           const SizedBox(height: 22),
+
           ElevatedButton.icon(
             onPressed: isSaving ? null : saveQuickUpdate,
             icon: isSaving
@@ -686,99 +364,6 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
           const SizedBox(height: 8),
         ],
       ),
-    );
-  }
-}
-
-class _SmartSectionCard extends StatelessWidget {
-  final String title;
-  final Widget child;
-
-  const _SmartSectionCard({
-    required this.title,
-    required this.child,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(
-          color: AppColors.border.withOpacity(0.8),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 14,
-            offset: const Offset(0, 7),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-              color: AppColors.textDark,
-            ),
-          ),
-          const SizedBox(height: 12),
-          child,
-        ],
-      ),
-    );
-  }
-}
-
-class _ChoiceWrap extends StatelessWidget {
-  final List<String> values;
-  final String selectedValue;
-  final ValueChanged<String> onSelected;
-
-  const _ChoiceWrap({
-    required this.values,
-    required this.selectedValue,
-    required this.onSelected,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: values.map((value) {
-        final isSelected = value == selectedValue;
-
-        return ChoiceChip(
-          label: Text(value),
-          selected: isSelected,
-          onSelected: (_) => onSelected(value),
-        );
-      }).toList(),
-    );
-  }
-}
-
-class _QuickTextChip extends StatelessWidget {
-  final String label;
-  final VoidCallback onTap;
-
-  const _QuickTextChip({
-    required this.label,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ActionChip(
-      label: Text(label),
-      onPressed: onTap,
     );
   }
 }
