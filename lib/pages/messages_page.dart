@@ -91,35 +91,44 @@ class _MessagesPageState extends State<MessagesPage> {
   Future<void> loadCurrentUserIdentity() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        currentUserId = user.uid;
+
+      if (user == null) {
         if (!mounted) return;
         setState(() {
           loadingIdentity = false;
         });
-        await markMessagesRead();
+        return;
       }
+
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+
+      final data = doc.data() ?? {};
+
+      currentUserId = user.uid;
+      currentUserName =
+          (data['displayName'] ?? data['name'] ?? data['username'] ?? '')
+              .toString();
+      currentUserRole = (data['role'] ?? '').toString();
+
+      await _messageService.markConversationAsRead(
+        childId: widget.child.id,
+        currentUserId: user.uid,
+        targetUserId: widget.targetUserId,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        loadingIdentity = false;
+      });
     } catch (_) {
       if (!mounted) return;
       setState(() {
         loadingIdentity = false;
       });
     }
-  }
-
-  Future<void> markMessagesRead() async {
-    if (currentUserId == null) {
-      print('READ PAGE => currentUserId is null');
-      return;
-    }
-    print('READ PAGE => childId: ${widget.child.id}');
-    print('READ PAGE => currentUserId: $currentUserId');
-    print('READ PAGE => targetUserId: ${widget.targetUserId}');
-    await _messageService.markMessagesAsRead(
-      childId: widget.child.id,
-      currentUserId: currentUserId!,
-      targetUserId: widget.targetUserId,
-    );
   }
 
   @override
@@ -131,9 +140,8 @@ class _MessagesPageState extends State<MessagesPage> {
 
   String formatTime(Timestamp timestamp) {
     final date = timestamp.toDate();
-    final hour = date.hour > 12
-        ? date.hour - 12
-        : (date.hour == 0 ? 12 : date.hour);
+    final hour =
+        date.hour > 12 ? date.hour - 12 : (date.hour == 0 ? 12 : date.hour);
     final minute = date.minute.toString().padLeft(2, '0');
     final period = date.hour >= 12 ? 'م' : 'ص';
     return '$hour:$minute $period';
@@ -160,8 +168,7 @@ class _MessagesPageState extends State<MessagesPage> {
   Future<void> sendCurrentMessage() async {
     final text = messageCtrl.text.trim();
 
-    if (text.isEmpty || currentUserId == null || currentUserRole.isEmpty)
-      return;
+    if (text.isEmpty || currentUserId == null || currentUserRole.isEmpty) return;
     if (isSending) return;
 
     setState(() {
@@ -181,7 +188,7 @@ class _MessagesPageState extends State<MessagesPage> {
         text: text,
       );
 
-      messageCtrl.clear(); // السطر الجديد
+      messageCtrl.clear();
 
       if (!mounted) return;
       await scrollToBottom();
@@ -198,90 +205,61 @@ class _MessagesPageState extends State<MessagesPage> {
 
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-      child: Column(
-        crossAxisAlignment: isMe
-            ? CrossAxisAlignment.end
-            : CrossAxisAlignment.start,
-        children: [
-          Container(
-            margin: const EdgeInsets.only(bottom: 10),
-            constraints: const BoxConstraints(maxWidth: 290),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: BoxDecoration(
-              color: isMe ? AppColors.secondary : Colors.grey.shade200,
-              borderRadius: BorderRadius.circular(18),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.04),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        constraints: const BoxConstraints(maxWidth: 290),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: isMe ? AppColors.secondary : Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
             ),
-
-            child: Column(
-              crossAxisAlignment: isMe
-                  ? CrossAxisAlignment.end
-                  : CrossAxisAlignment.start,
-              children: [
-                if (!isMe)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: Text(
-                      message.senderName.isNotEmpty
-                          ? message.senderName
-                          : targetDisplayName,
-                      style: TextStyle(
-                        color: targetColor,
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                Text(
-                  message.text,
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment:
+              isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          children: [
+            if (!isMe)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  message.senderName.isNotEmpty
+                      ? message.senderName
+                      : targetDisplayName,
                   style: TextStyle(
-                    color: isMe ? Colors.white : AppColors.textDark,
-                    fontSize: 14.5,
-                    fontWeight: FontWeight.w600,
-                    height: 1.45,
+                    color: targetColor,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  formatTime(message.sentAt),
-                  style: TextStyle(
-                    color: isMe ? Colors.white70 : AppColors.textLight,
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          SizedBox(height: 4),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                formatTime(message.sentAt),
-                style: TextStyle(fontSize: 11, color: Colors.grey),
               ),
-              if (isMe) ...[
-                SizedBox(width: 4),
-                Text(
-                  message.isRead ? '✔✔' : '✔',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: message.isRead ? Colors.blue : Colors.grey,
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ], // children
-      ), // Column
-    ); // Align
+            Text(
+              message.text,
+              style: TextStyle(
+                color: isMe ? Colors.white : AppColors.textDark,
+                fontSize: 14.5,
+                fontWeight: FontWeight.w600,
+                height: 1.45,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              formatTime(message.sentAt),
+              style: TextStyle(
+                color: isMe ? Colors.white70 : AppColors.textLight,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget buildHeaderCard() {
@@ -303,7 +281,10 @@ class _MessagesPageState extends State<MessagesPage> {
           CircleAvatar(
             radius: 26,
             backgroundColor: targetColor.withOpacity(0.14),
-            child: Icon(targetIcon, color: targetColor),
+            child: Icon(
+              targetIcon,
+              color: targetColor,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -366,9 +347,6 @@ class _MessagesPageState extends State<MessagesPage> {
               minLines: 1,
               maxLines: 4,
               textInputAction: TextInputAction.newline,
-              onChanged: (_) {
-                setState(() {});
-              },
               decoration: InputDecoration(
                 hintText: 'اكتب رسالتك إلى $targetDisplayName...',
                 border: InputBorder.none,
@@ -378,14 +356,12 @@ class _MessagesPageState extends State<MessagesPage> {
           ),
           const SizedBox(width: 8),
           GestureDetector(
-            onTap: isSending || messageCtrl.text.trim().isEmpty
-                ? null
-                : sendCurrentMessage,
+            onTap: isSending ? null : sendCurrentMessage,
             child: Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: (isSending || messageCtrl.text.trim().isEmpty)
-                    ? AppColors.secondary.withOpacity(0.4)
+                color: isSending
+                    ? AppColors.secondary.withOpacity(0.6)
                     : AppColors.secondary,
                 borderRadius: BorderRadius.circular(18),
               ),
@@ -395,10 +371,14 @@ class _MessagesPageState extends State<MessagesPage> {
                       width: 22,
                       child: CircularProgressIndicator(
                         strokeWidth: 2.2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        valueColor:
+                            AlwaysStoppedAnimation<Color>(Colors.white),
                       ),
                     )
-                  : const Icon(Icons.send_rounded, color: Colors.white),
+                  : const Icon(
+                      Icons.send_rounded,
+                      color: Colors.white,
+                    ),
             ),
           ),
         ],
@@ -411,14 +391,22 @@ class _MessagesPageState extends State<MessagesPage> {
     if (loadingIdentity) {
       return const Directionality(
         textDirection: TextDirection.rtl,
-        child: Scaffold(body: Center(child: CircularProgressIndicator())),
+        child: Scaffold(
+          body: Center(
+            child: CircularProgressIndicator(),
+          ),
+        ),
       );
     }
 
     if (currentUserId == null) {
       return const Directionality(
         textDirection: TextDirection.rtl,
-        child: Scaffold(body: Center(child: Text('تعذر تحميل هوية المستخدم'))),
+        child: Scaffold(
+          body: Center(
+            child: Text('تعذر تحميل هوية المستخدم'),
+          ),
+        ),
       );
     }
 
@@ -438,7 +426,9 @@ class _MessagesPageState extends State<MessagesPage> {
               ),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
+                  return const Center(
+                    child: CircularProgressIndicator(),
+                  );
                 }
 
                 if (snapshot.hasError) {

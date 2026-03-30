@@ -10,7 +10,6 @@ import 'child_profile_page.dart';
 import 'parent_chats_page.dart';
 import 'parent_updates_page.dart';
 import 'weekly_report_page.dart';
-import 'parent_notification_page.dart';
 
 class ParentHomePage extends StatefulWidget {
   final String parentUsername;
@@ -267,20 +266,6 @@ class _ParentHomePageState extends State<ParentHomePage> {
         return AppPageScaffold(
           title: 'الرئيسية - ولي الأمر',
           actions: [
-            IconButton(
-              icon: const Icon(Icons.notifications),
-              tooltip: 'الإشعارات',
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => ParentNotificationsPage(
-                      parentUsername: widget.parentUsername,
-                    ),
-                  ),
-                );
-              },
-            ),
             if (currentUserId != null)
               StreamBuilder<int>(
                 stream: _messageService.getUnreadMessagesCountForUser(

@@ -7,9 +7,12 @@ import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 import 'add_update_page.dart';
 import 'camera_checkin_page.dart';
+import 'child_handoff_log_page.dart';
 import 'entry_exit_log_page.dart';
+import 'incident_report_page.dart';
 import 'nursery_care_log_page.dart';
 import 'quick_care_update_page.dart';
+import 'send_parent_notification_page.dart';
 
 class NurseryStaffHomePage extends StatefulWidget {
   const NurseryStaffHomePage({super.key});
@@ -21,6 +24,9 @@ class NurseryStaffHomePage extends StatefulWidget {
 class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final GalleryService _galleryService = GalleryService();
+
+  String searchQuery = '';
+  String selectedStatusFilter = 'all'; // all / inside / outside / needUpdate
 
   Future<List<ChildModel>> fetchNurseryChildren() async {
     final snapshot = await _firestore
@@ -50,176 +56,195 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
   }
 
   Future<ChildModel?> pickChild(List<ChildModel> children) async {
-  return showModalBottomSheet<ChildModel>(
-    context: context,
-    isScrollControlled: true,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-    ),
-    builder: (context) {
-      String search = '';
-      String selectedGroup = 'all';
+    return showModalBottomSheet<ChildModel>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        String localSearch = '';
+        String selectedGroup = 'all';
 
-      final groups = {
-        'all',
-        ...children.map((c) => c.group.isEmpty ? 'بدون مجموعة' : c.group),
-      };
+        final groups = {
+          'all',
+          ...children.map((c) => c.group.isEmpty ? 'بدون مجموعة' : c.group),
+        };
 
-      return StatefulBuilder(
-        builder: (context, setState) {
-          List<ChildModel> filtered = children.where((child) {
-            final matchesSearch =
-                child.name.toLowerCase().contains(search.toLowerCase());
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final filtered = children.where((child) {
+              final matchesSearch = child.name
+                  .toLowerCase()
+                  .contains(localSearch.toLowerCase());
 
-            final groupName =
-                child.group.isEmpty ? 'بدون مجموعة' : child.group;
+              final groupName =
+                  child.group.isEmpty ? 'بدون مجموعة' : child.group;
 
-            final matchesGroup =
-                selectedGroup == 'all' || groupName == selectedGroup;
+              final matchesGroup =
+                  selectedGroup == 'all' || groupName == selectedGroup;
 
-            return matchesSearch && matchesGroup;
-          }).toList();
+              return matchesSearch && matchesGroup;
+            }).toList();
 
-          return SafeArea(
-            child: Padding(
-              padding: EdgeInsets.only(
-                left: 16,
-                right: 16,
-                top: 16,
-                bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    'اختاري الطفل',
-                    style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-
-                  const SizedBox(height: 12),
-
-                  // 🔍 البحث
-                  TextField(
-                    decoration: InputDecoration(
-                      hintText: 'بحث باسم الطفل...',
-                      prefixIcon: const Icon(Icons.search),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 16,
+                  bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'اختاري الطفل',
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
-                    onChanged: (val) {
-                      setState(() {
-                        search = val;
-                      });
-                    },
-                  ),
-
-                  const SizedBox(height: 10),
-
-                  // 📊 الفلترة حسب المجموعة
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: groups.map((group) {
-                        final isSelected = group == selectedGroup;
-
-                        return Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: ChoiceChip(
-                            label: Text(group),
-                            selected: isSelected,
-                            onSelected: (_) {
-                              setState(() {
-                                selectedGroup = group;
-                              });
-                            },
-                          ),
-                        );
-                      }).toList(),
+                    const SizedBox(height: 12),
+                    TextField(
+                      decoration: InputDecoration(
+                        hintText: 'بحث باسم الطفل...',
+                        prefixIcon: const Icon(Icons.search),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      onChanged: (val) {
+                        setModalState(() {
+                          localSearch = val;
+                        });
+                      },
                     ),
-                  ),
+                    const SizedBox(height: 10),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: groups.map((group) {
+                          final isSelected = group == selectedGroup;
 
-                  const SizedBox(height: 10),
-
-                  if (filtered.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.all(20),
-                      child: Text('لا يوجد نتائج'),
-                    )
-                  else
-                    Flexible(
-                      child: ListView.builder(
-                        shrinkWrap: true,
-                        itemCount: filtered.length,
-                        itemBuilder: (context, index) {
-                          final child = filtered[index];
-
-                          final groupName = child.group.isEmpty
-                              ? 'بدون مجموعة'
-                              : child.group;
-
-                          return ListTile(
-                            leading: CircleAvatar(
-                              backgroundColor:
-                                  AppColors.primary.withOpacity(0.15),
-                              child: const Icon(Icons.child_care),
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: ChoiceChip(
+                              label: Text(group),
+                              selected: isSelected,
+                              onSelected: (_) {
+                                setModalState(() {
+                                  selectedGroup = group;
+                                });
+                              },
                             ),
-                            title: Text(child.name),
-                            subtitle: Text(groupName),
-                            trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                            onTap: () {
-                              Navigator.pop(context, child);
-                            },
                           );
-                        },
+                        }).toList(),
                       ),
                     ),
-                ],
+                    const SizedBox(height: 10),
+                    if (filtered.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.all(20),
+                        child: Text('لا يوجد نتائج'),
+                      )
+                    else
+                      Flexible(
+                        child: ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: filtered.length,
+                          itemBuilder: (context, index) {
+                            final child = filtered[index];
+                            final groupName = child.group.isEmpty
+                                ? 'بدون مجموعة'
+                                : child.group;
+
+                            return ListTile(
+                              leading: CircleAvatar(
+                                backgroundColor:
+                                    AppColors.primary.withOpacity(0.15),
+                                child: const Icon(Icons.child_care),
+                              ),
+                              title: Text(child.name),
+                              subtitle: Text(groupName),
+                              trailing: const Icon(
+                                Icons.arrow_forward_ios,
+                                size: 16,
+                              ),
+                              onTap: () {
+                                Navigator.pop(context, child);
+                              },
+                            );
+                          },
+                        ),
+                      ),
+                  ],
+                ),
               ),
-            ),
-          );
-        },
-      );
-    },
-  );
-}
-
-Future<List<ChildModel>> getChildrenWithoutEntryToday(List<ChildModel> children) async {
-  final now = DateTime.now();
-  final startOfDay = DateTime(now.year, now.month, now.day);
-
-  final snapshot = await _firestore.collection('entry_exit_logs').get();
-
-  final Set<String> enteredToday = {};
-
-  for (final doc in snapshot.docs) {
-    final data = doc.data();
-
-    final Timestamp? ts = data['time'] is Timestamp
-        ? data['time']
-        : data['createdAt'];
-
-    if (ts == null) continue;
-
-    final date = ts.toDate();
-    if (date.isBefore(startOfDay)) continue;
-
-    if ((data['eventType'] ?? '') == 'entry') {
-      enteredToday.add((data['childId'] ?? '').toString());
-    }
+            );
+          },
+        );
+      },
+    );
   }
 
-  return children.where((child) => !enteredToday.contains(child.id)).toList();
-}
+  Future<List<ChildModel>> getChildrenWithoutEntryToday(
+    List<ChildModel> children,
+  ) async {
+    final now = DateTime.now();
+    final startOfDay = DateTime(now.year, now.month, now.day);
+
+    final snapshot = await _firestore.collection('entry_exit_logs').get();
+    final enteredToday = <String>{};
+
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+
+      final Timestamp? ts = data['time'] is Timestamp
+          ? data['time'] as Timestamp
+          : data['createdAt'] is Timestamp
+              ? data['createdAt'] as Timestamp
+              : null;
+
+      if (ts == null) continue;
+
+      final date = ts.toDate();
+      if (date.isBefore(startOfDay)) continue;
+
+      if ((data['eventType'] ?? '') == 'entry') {
+        enteredToday.add((data['childId'] ?? '').toString());
+      }
+    }
+
+    return children.where((child) => !enteredToday.contains(child.id)).toList();
+  }
+
+  Future<void> openChildHandoffLog(ChildModel child) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChildHandoffLogPage(child: child),
+      ),
+    );
+    setState(() {});
+  }
+
+  Future<void> openIncidentReport(ChildModel child) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => IncidentReportPage(child: child),
+      ),
+    );
+    setState(() {});
+  }
 
   Future<Map<String, dynamic>> fetchTodayStats(List<ChildModel> children) async {
     final now = DateTime.now();
     final startOfDay = DateTime(now.year, now.month, now.day);
 
-    final entryExitSnapshot = await _firestore.collection('entry_exit_logs').get();
+    final entryExitSnapshot =
+        await _firestore.collection('entry_exit_logs').get();
     final updatesSnapshot = await _firestore
         .collection('updates')
         .where('section', isEqualTo: 'Nursery')
@@ -231,7 +256,6 @@ Future<List<ChildModel>> getChildrenWithoutEntryToday(List<ChildModel> children)
     int insideNowCount = 0;
 
     final childIds = children.map((e) => e.id).toSet();
-
     final Map<String, Map<String, dynamic>> latestLogByChild = {};
 
     for (final doc in entryExitSnapshot.docs) {
@@ -306,11 +330,64 @@ Future<List<ChildModel>> getChildrenWithoutEntryToday(List<ChildModel> children)
     };
   }
 
+  Future<Map<String, Map<String, dynamic>>> fetchTodayUpdatesSummary(
+    List<ChildModel> children,
+  ) async {
+    final now = DateTime.now();
+    final startOfDay = DateTime(now.year, now.month, now.day);
+
+    final childIds = children.map((e) => e.id).toSet();
+
+    final updatesSnapshot = await _firestore
+        .collection('updates')
+        .where('section', isEqualTo: 'Nursery')
+        .get();
+
+    final Map<String, Map<String, dynamic>> latestUpdateByChild = {};
+
+    for (final doc in updatesSnapshot.docs) {
+      final data = doc.data();
+      final childId = (data['childId'] ?? '').toString();
+
+      if (!childIds.contains(childId)) continue;
+
+      final Timestamp? ts = data['time'] is Timestamp
+          ? data['time'] as Timestamp
+          : data['createdAt'] is Timestamp
+              ? data['createdAt'] as Timestamp
+              : null;
+
+      if (ts == null) continue;
+      if (ts.toDate().isBefore(startOfDay)) continue;
+
+      final old = latestUpdateByChild[childId];
+      if (old == null) {
+        latestUpdateByChild[childId] = {
+          'type': (data['type'] ?? 'تحديث').toString(),
+          'note': (data['note'] ?? '').toString(),
+          'time': ts,
+        };
+      } else {
+        final oldTs = old['time'] as Timestamp?;
+        if (oldTs == null || ts.compareTo(oldTs) > 0) {
+          latestUpdateByChild[childId] = {
+            'type': (data['type'] ?? 'تحديث').toString(),
+            'note': (data['note'] ?? '').toString(),
+            'time': ts,
+          };
+        }
+      }
+    }
+
+    return latestUpdateByChild;
+  }
+
   Future<List<Map<String, dynamic>>> fetchRecentNurseryActivities() async {
     final now = DateTime.now();
     final startOfDay = DateTime(now.year, now.month, now.day);
 
-    final entryExitSnapshot = await _firestore.collection('entry_exit_logs').get();
+    final entryExitSnapshot =
+        await _firestore.collection('entry_exit_logs').get();
     final updatesSnapshot = await _firestore
         .collection('updates')
         .where('section', isEqualTo: 'Nursery')
@@ -330,9 +407,7 @@ Future<List<ChildModel>> getChildrenWithoutEntryToday(List<ChildModel> children)
               : null;
 
       if (ts == null) continue;
-
-      final date = ts.toDate();
-      if (date.isBefore(startOfDay)) continue;
+      if (ts.toDate().isBefore(startOfDay)) continue;
 
       final eventType = (data['eventType'] ?? '').toString();
       final childName = (data['childName'] ?? 'طفل').toString();
@@ -349,9 +424,8 @@ Future<List<ChildModel>> getChildrenWithoutEntryToday(List<ChildModel> children)
                 ? 'بواسطة $createdByName'
                 : '',
         'color': eventType == 'entry' ? Colors.green : Colors.red,
-        'icon': eventType == 'entry'
-            ? Icons.login_rounded
-            : Icons.logout_rounded,
+        'icon':
+            eventType == 'entry' ? Icons.login_rounded : Icons.logout_rounded,
       });
     }
 
@@ -365,9 +439,7 @@ Future<List<ChildModel>> getChildrenWithoutEntryToday(List<ChildModel> children)
               : null;
 
       if (ts == null) continue;
-
-      final date = ts.toDate();
-      if (date.isBefore(startOfDay)) continue;
+      if (ts.toDate().isBefore(startOfDay)) continue;
 
       final childName = (data['childName'] ?? 'طفل').toString();
       final type = (data['type'] ?? 'تحديث').toString();
@@ -406,7 +478,7 @@ Future<List<ChildModel>> getChildrenWithoutEntryToday(List<ChildModel> children)
     final res = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => AddUpdatePage(
+        builder: (_) => AddUpdatePage(
           child: child,
           byRole: 'nursery',
         ),
@@ -458,9 +530,7 @@ Future<List<ChildModel>> getChildrenWithoutEntryToday(List<ChildModel> children)
 
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('تم إرسال التحديث بالكاميرا'),
-          ),
+          const SnackBar(content: Text('تم إرسال التحديث بالكاميرا')),
         );
         setState(() {});
       } catch (e) {
@@ -504,23 +574,31 @@ Future<List<ChildModel>> getChildrenWithoutEntryToday(List<ChildModel> children)
     setState(() {});
   }
 
-  void sendNotificationPlaceholder() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('ميزة إرسال الإشعار للأهل سنطوّرها لاحقًا'),
+  Future<void> openSendNotification(List<ChildModel> children) async {
+    final child = await pickChild(children);
+    if (child == null) return;
+
+    final res = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SendParentNotificationPage(child: child),
       ),
     );
+
+    if (res == true) {
+      setState(() {});
+    }
   }
 
   String statusLabel(String? eventType) {
     if (eventType == 'entry') return 'داخل الآن';
-    if (eventType == 'exit') return 'خرج';
+    if (eventType == 'exit') return 'خارج الآن';
     return 'لا يوجد سجل بعد';
   }
 
   Color statusColor(String? eventType) {
     if (eventType == 'entry') return Colors.green;
-    if (eventType == 'exit') return Colors.red;
+    if (eventType == 'exit') return Colors.redAccent;
     return AppColors.textLight;
   }
 
@@ -536,133 +614,136 @@ Future<List<ChildModel>> getChildrenWithoutEntryToday(List<ChildModel> children)
     return '${d.year}/${d.month}/${d.day} - ${d.hour}:${d.minute.toString().padLeft(2, '0')}';
   }
 
-  // 🔴 فقط الجزء المعدل داخل build (الباقي خليه زي ما هو)
+  List<ChildModel> applyChildrenFilters(
+    List<ChildModel> children,
+    Map<String, Map<String, dynamic>> latestLogByChild,
+    Map<String, Map<String, dynamic>> latestUpdateByChild,
+  ) {
+    return children.where((child) {
+      final matchesSearch =
+          child.name.toLowerCase().contains(searchQuery.toLowerCase());
 
-@override
-Widget build(BuildContext context) {
-  return AppPageScaffold(
-    title: 'الرئيسية - موظفة الحضانة',
-    child: FutureBuilder<List<ChildModel>>(
-      future: fetchNurseryChildren(),
-      builder: (context, childrenSnapshot) {
-        if (childrenSnapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
+      final currentEventType =
+          (latestLogByChild[child.id]?['eventType'] ?? '').toString();
+      final hasUpdateToday = latestUpdateByChild.containsKey(child.id);
 
-        if (childrenSnapshot.hasError) {
-          return Center(
-            child: Text('حدث خطأ: ${childrenSnapshot.error}'),
-          );
-        }
+      bool matchesStatus = true;
+      if (selectedStatusFilter == 'inside') {
+        matchesStatus = currentEventType == 'entry';
+      } else if (selectedStatusFilter == 'outside') {
+        matchesStatus = currentEventType == 'exit' || currentEventType.isEmpty;
+      } else if (selectedStatusFilter == 'needUpdate') {
+        matchesStatus = !hasUpdateToday;
+      }
 
-        final nurseryChildren = childrenSnapshot.data ?? [];
+      return matchesSearch && matchesStatus;
+    }).toList();
+  }
 
-        return FutureBuilder<Map<String, dynamic>>(
-          future: fetchTodayStats(nurseryChildren),
-          builder: (context, statsSnapshot) {
-            if (statsSnapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
+  @override
+  Widget build(BuildContext context) {
+    return AppPageScaffold(
+      title: 'الرئيسية - موظفة الحضانة',
+      child: FutureBuilder<List<ChildModel>>(
+        future: fetchNurseryChildren(),
+        builder: (context, childrenSnapshot) {
+          if (childrenSnapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
 
-            if (statsSnapshot.hasError) {
-              return Center(
-                child: Text('حدث خطأ أثناء تحميل الإحصائيات'),
+          if (childrenSnapshot.hasError) {
+            return Center(
+              child: Text('حدث خطأ: ${childrenSnapshot.error}'),
+            );
+          }
+
+          final nurseryChildren = childrenSnapshot.data ?? [];
+
+          return FutureBuilder<Map<String, dynamic>>(
+            future: fetchTodayStats(nurseryChildren),
+            builder: (context, statsSnapshot) {
+              if (statsSnapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              if (statsSnapshot.hasError) {
+                return const Center(
+                  child: Text('حدث خطأ أثناء تحميل الإحصائيات'),
+                );
+              }
+
+              final stats = statsSnapshot.data ?? {};
+              final latestLogByChild =
+                  (stats['latestLogByChild'] as Map<String, dynamic>? ?? {})
+                      .map(
+                (key, value) => MapEntry(
+                  key,
+                  Map<String, dynamic>.from(value as Map),
+                ),
               );
-            }
 
-            final stats = statsSnapshot.data ?? {};
-            final latestLogByChild =
-                (stats['latestLogByChild'] as Map<String, dynamic>? ?? {});
+              return FutureBuilder<List<dynamic>>(
+                future: Future.wait([
+                  getChildrenWithoutEntryToday(nurseryChildren),
+                  fetchRecentNurseryActivities(),
+                  fetchTodayUpdatesSummary(nurseryChildren),
+                ]),
+                builder: (context, extraSnapshot) {
+                  if (extraSnapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
 
-            return FutureBuilder<List<Map<String, dynamic>>>(
-              future: fetchRecentNurseryActivities(),
-              builder: (context, activitySnapshot) {
-                if (activitySnapshot.connectionState ==
-                    ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
+                  if (extraSnapshot.hasError) {
+                    return const Center(
+                      child: Text('حدث خطأ أثناء تحميل بيانات الصفحة'),
+                    );
+                  }
 
-                final activities = activitySnapshot.data ?? [];
+                  final missingChildren =
+                      (extraSnapshot.data?[0] as List<ChildModel>? ?? []);
+                  final activities =
+                      (extraSnapshot.data?[1] as List<Map<String, dynamic>>? ??
+                          []);
+                  final latestUpdateByChild =
+                      (extraSnapshot.data?[2]
+                              as Map<String, Map<String, dynamic>>? ??
+                          {});
 
-                return FutureBuilder<List<ChildModel>>(
-                  future: getChildrenWithoutEntryToday(nurseryChildren),
-                  builder: (context, alertSnapshot) {
-                    final missingChildren = alertSnapshot.data ?? [];
+                  final filteredChildren = applyChildrenFilters(
+                    nurseryChildren,
+                    latestLogByChild,
+                    latestUpdateByChild,
+                  );
 
-                    return ListView(
+                  return RefreshIndicator(
+                    onRefresh: () async => setState(() {}),
+                    child: ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
                       children: [
                         _buildWelcomeHeader(),
-
                         const SizedBox(height: 16),
-
-                        // ⭐ تنبيهات
-                        _buildAlertsSection(missingChildren),
-
-                        const SizedBox(height: 16),
-
                         _buildStatsSection(stats),
-
                         const SizedBox(height: 16),
-
+                        _buildAlertsSection(missingChildren),
+                        if (missingChildren.isNotEmpty)
+                          const SizedBox(height: 16),
                         _buildQuickActions(nurseryChildren),
-
                         const SizedBox(height: 16),
-
+                        _buildSearchAndFilterBar(),
+                        const SizedBox(height: 16),
                         _buildRecentActivitiesSection(activities),
-
                         const SizedBox(height: 16),
-
-                        Card(
-                          child: Padding(
-                            padding: const EdgeInsets.all(14),
-                            child: Row(
-                              children: [
-                                CircleAvatar(
-                                  backgroundColor:
-                                      AppColors.primary.withOpacity(0.12),
-                                  child: const Icon(
-                                    Icons.info_outline,
-                                    color: AppColors.primary,
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                const Expanded(
-                                  child: Text(
-                                    'في قسم الحضانة لا يتم اعتماد حضور يومي ثابت مثل الروضة، بل متابعة مرنة تعتمد على الدخول والخروج، التحديثات، الصور، وسجل الرعاية.',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      height: 1.5,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-
-                        const SizedBox(height: 16),
-
-                        if (nurseryChildren.isEmpty)
-                          Card(
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Text(
-                                'لا يوجد أطفال نشطون في قسم الحضانة حاليًا.',
-                                style: TextStyle(
-                                  color: AppColors.textLight,
-                                  fontSize: 15,
-                                ),
-                              ),
-                            ),
-                          )
+                        if (filteredChildren.isEmpty)
+                          _buildEmptyChildrenState()
                         else
-                          ...nurseryChildren.map((child) {
-                            final latest =
-                                latestLogByChild[child.id] as Map<String, dynamic>?;
+                          ...filteredChildren.map((child) {
+                            final current =
+                                latestLogByChild[child.id] ?? <String, dynamic>{};
                             final currentEventType =
-                                latest?['eventType']?.toString();
-                            final currentTs =
-                                latest?['time'] as Timestamp?;
+                                (current['eventType'] ?? '').toString();
+                            final currentTs = current['time'] as Timestamp?;
+                            final latestUpdate = latestUpdateByChild[child.id];
+                            final hasUpdateToday = latestUpdate != null;
 
                             return Padding(
                               padding: const EdgeInsets.only(bottom: 12),
@@ -672,35 +753,47 @@ Widget build(BuildContext context) {
                                 statusColor: statusColor(currentEventType),
                                 statusIcon: statusIcon(currentEventType),
                                 lastEventTime: formatTime(currentTs),
+                                hasUpdateToday: hasUpdateToday,
+                                latestUpdateType:
+                                    (latestUpdate?['type'] ?? '').toString(),
+                                latestUpdateTime:
+                                    latestUpdate?['time'] as Timestamp?,
+                                latestUpdateNote:
+                                    (latestUpdate?['note'] ?? '').toString(),
+                                primaryActionLabel: currentEventType == 'entry'
+                                    ? 'تسجيل خروج'
+                                    : 'تسجيل دخول',
+                                primaryActionIcon: currentEventType == 'entry'
+                                    ? Icons.logout_rounded
+                                    : Icons.login_rounded,
+                                onPrimaryAction: () => openEntryExitLog(child),
                                 onCamera: () => openCameraCheckin(child),
                                 onAddUpdate: () => openAddUpdate(child),
                                 onEntryExitLog: () => openEntryExitLog(child),
-                                onQuickCare: () =>
-                                    openQuickCareUpdate(child),
+                                onQuickCare: () => openQuickCareUpdate(child),
                                 onCareLog: () => openCareLog(child),
+                                onHandoffLog: () => openChildHandoffLog(child),
+                                onIncidentReport: () => openIncidentReport(child),
                               ),
                             );
                           }),
-
                         const SizedBox(height: 10),
-
                         OutlinedButton.icon(
-                          onPressed: sendNotificationPlaceholder,
+                          onPressed: () => openSendNotification(nurseryChildren),
                           icon: const Icon(Icons.notifications_outlined),
                           label: const Text('إرسال إشعار للأهل'),
                         ),
                       ],
-                    );
-                  },
-                );
-              },
-            );
-          },
-        );
-      },
-    ),
-  );
-}
+                    ),
+                  );
+                },
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
 
   Widget _buildWelcomeHeader() {
     return Container(
@@ -795,114 +888,207 @@ Widget build(BuildContext context) {
     );
   }
 
-Widget _buildAlertsSection(List<ChildModel> missingChildren) {
-  if (missingChildren.isEmpty) return const SizedBox();
+  Widget _buildAlertsSection(List<ChildModel> missingChildren) {
+    if (missingChildren.isEmpty) return const SizedBox();
 
-  return Container(
-    padding: const EdgeInsets.all(16),
-    decoration: BoxDecoration(
-      color: Colors.orange.withOpacity(0.08),
-      borderRadius: BorderRadius.circular(18),
-      border: Border.all(color: Colors.orange.withOpacity(0.3)),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Row(
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.orange.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.orange.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.orange),
+              SizedBox(width: 8),
+              Text(
+                'تنبيهات اليوم',
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 15,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ...missingChildren.map((child) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Text(
+                '• ${child.name} لم يسجل دخول اليوم',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuickActions(List<ChildModel> children) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(Icons.warning_amber_rounded, color: Colors.orange),
-            SizedBox(width: 8),
-            Text(
-              'تنبيهات اليوم',
+            const Text(
+              'إجراءات سريعة',
               style: TextStyle(
                 fontWeight: FontWeight.w800,
-                fontSize: 15,
+                fontSize: 16,
+                color: AppColors.textDark,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                _QuickActionChip(
+                  icon: Icons.login_rounded,
+                  label: 'دخول وخروج',
+                  onTap: () async {
+                    final child = await pickChild(children);
+                    if (child != null) {
+                      openEntryExitLog(child);
+                    }
+                  },
+                ),
+                _QuickActionChip(
+                  icon: Icons.flash_on_rounded,
+                  label: 'رعاية سريعة',
+                  onTap: () async {
+                    final child = await pickChild(children);
+                    if (child != null) {
+                      openQuickCareUpdate(child);
+                    }
+                  },
+                ),
+                _QuickActionChip(
+                  icon: Icons.camera_alt_outlined,
+                  label: 'كاميرا',
+                  onTap: () async {
+                    final child = await pickChild(children);
+                    if (child != null) {
+                      openCameraCheckin(child);
+                    }
+                  },
+                ),
+                _QuickActionChip(
+                  icon: Icons.menu_book_outlined,
+                  label: 'سجل الرعاية',
+                  onTap: () async {
+                    final child = await pickChild(children);
+                    if (child != null) {
+                      openCareLog(child);
+                    }
+                  },
+                ),
+                _QuickActionChip(
+                  icon: Icons.how_to_reg_outlined,
+                  label: 'تسليم/استلام',
+                  onTap: () async {
+                    final child = await pickChild(children);
+                    if (child != null) {
+                      openChildHandoffLog(child);
+                    }
+                  },
+                ),
+                _QuickActionChip(
+                  icon: Icons.report_problem_outlined,
+                  label: 'حادث/ملاحظة',
+                  onTap: () async {
+                    final child = await pickChild(children);
+                    if (child != null) {
+                      openIncidentReport(child);
+                    }
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSearchAndFilterBar() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          children: [
+            TextField(
+              decoration: InputDecoration(
+                hintText: 'ابحثي باسم الطفل...',
+                prefixIcon: const Icon(Icons.search),
+                filled: true,
+                fillColor: AppColors.background,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+              onChanged: (val) {
+                setState(() {
+                  searchQuery = val;
+                });
+              },
+            ),
+            const SizedBox(height: 12),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _FilterChipItem(
+                    label: 'الكل',
+                    isSelected: selectedStatusFilter == 'all',
+                    onTap: () {
+                      setState(() {
+                        selectedStatusFilter = 'all';
+                      });
+                    },
+                  ),
+                  _FilterChipItem(
+                    label: 'داخل الآن',
+                    isSelected: selectedStatusFilter == 'inside',
+                    onTap: () {
+                      setState(() {
+                        selectedStatusFilter = 'inside';
+                      });
+                    },
+                  ),
+                  _FilterChipItem(
+                    label: 'خارج الآن',
+                    isSelected: selectedStatusFilter == 'outside',
+                    onTap: () {
+                      setState(() {
+                        selectedStatusFilter = 'outside';
+                      });
+                    },
+                  ),
+                  _FilterChipItem(
+                    label: 'يحتاج تحديث',
+                    isSelected: selectedStatusFilter == 'needUpdate',
+                    onTap: () {
+                      setState(() {
+                        selectedStatusFilter = 'needUpdate';
+                      });
+                    },
+                  ),
+                ],
               ),
             ),
           ],
         ),
-        const SizedBox(height: 10),
-        ...missingChildren.map((child) {
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 6),
-            child: Text(
-              '• ${child.name} لم يسجل دخول اليوم',
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-          );
-        }),
-      ],
-    ),
-  );
-}
-
- Widget _buildQuickActions(List<ChildModel> children) {
-  return Card(
-    child: Padding(
-      padding: const EdgeInsets.all(14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'إجراءات سريعة',
-            style: TextStyle(
-              fontWeight: FontWeight.w800,
-              fontSize: 16,
-              color: AppColors.textDark,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              _QuickActionChip(
-                icon: Icons.login_rounded,
-                label: 'دخول وخروج',
-                onTap: () async {
-                  final child = await pickChild(children);
-                  if (child != null) {
-                    openEntryExitLog(child);
-                  }
-                },
-              ),
-              _QuickActionChip(
-                icon: Icons.flash_on_rounded,
-                label: 'رعاية سريعة',
-                onTap: () async {
-                  final child = await pickChild(children);
-                  if (child != null) {
-                    openQuickCareUpdate(child);
-                  }
-                },
-              ),
-              _QuickActionChip(
-                icon: Icons.camera_alt_outlined,
-                label: 'كاميرا',
-                onTap: () async {
-                  final child = await pickChild(children);
-                  if (child != null) {
-                    openCameraCheckin(child);
-                  }
-                },
-              ),
-              _QuickActionChip(
-                icon: Icons.menu_book_outlined,
-                label: 'سجل الرعاية',
-                onTap: () async {
-                  final child = await pickChild(children);
-                  if (child != null) {
-                    openCareLog(child);
-                  }
-                },
-              ),
-            ],
-          ),
-        ],
       ),
-    ),
-  );
-}
+    );
+  }
 
   Widget _buildRecentActivitiesSection(List<Map<String, dynamic>> activities) {
     return Container(
@@ -985,6 +1171,37 @@ Widget _buildAlertsSection(List<ChildModel> missingChildren) {
       ),
     );
   }
+
+  Widget _buildEmptyChildrenState() {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: AppColors.border.withOpacity(0.8),
+        ),
+      ),
+      child: const Column(
+        children: [
+          Icon(
+            Icons.search_off_rounded,
+            size: 34,
+            color: AppColors.textLight,
+          ),
+          SizedBox(height: 10),
+          Text(
+            'لا يوجد أطفال مطابقون للبحث أو الفلترة الحالية.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              color: AppColors.textDark,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _NurseryChildDashboardCard extends StatelessWidget {
@@ -993,11 +1210,20 @@ class _NurseryChildDashboardCard extends StatelessWidget {
   final Color statusColor;
   final IconData statusIcon;
   final String lastEventTime;
+  final bool hasUpdateToday;
+  final String latestUpdateType;
+  final Timestamp? latestUpdateTime;
+  final String latestUpdateNote;
+  final String primaryActionLabel;
+  final IconData primaryActionIcon;
+  final VoidCallback onPrimaryAction;
   final VoidCallback onCamera;
   final VoidCallback onAddUpdate;
   final VoidCallback onEntryExitLog;
   final VoidCallback onQuickCare;
   final VoidCallback onCareLog;
+  final VoidCallback onHandoffLog;
+  final VoidCallback onIncidentReport;
 
   const _NurseryChildDashboardCard({
     required this.childModel,
@@ -1005,12 +1231,27 @@ class _NurseryChildDashboardCard extends StatelessWidget {
     required this.statusColor,
     required this.statusIcon,
     required this.lastEventTime,
+    required this.hasUpdateToday,
+    required this.latestUpdateType,
+    required this.latestUpdateTime,
+    required this.latestUpdateNote,
+    required this.primaryActionLabel,
+    required this.primaryActionIcon,
+    required this.onPrimaryAction,
     required this.onCamera,
     required this.onAddUpdate,
     required this.onEntryExitLog,
     required this.onQuickCare,
     required this.onCareLog,
+    required this.onHandoffLog,
+    required this.onIncidentReport,
   });
+
+  String _formatUpdateTime(Timestamp? ts) {
+    if (ts == null) return 'غير محدد';
+    final d = ts.toDate();
+    return '${d.hour}:${d.minute.toString().padLeft(2, '0')}';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1077,7 +1318,7 @@ class _NurseryChildDashboardCard extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 12),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(12),
@@ -1085,15 +1326,59 @@ class _NurseryChildDashboardCard extends StatelessWidget {
                 color: AppColors.background,
                 borderRadius: BorderRadius.circular(14),
               ),
-              child: Text(
-                'آخر حدث: $lastEventTime',
-                style: const TextStyle(
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textDark,
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'آخر حركة دخول/خروج: $lastEventTime',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textDark,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  if (hasUpdateToday)
+                    Text(
+                      latestUpdateNote.trim().isNotEmpty
+                          ? 'آخر تحديث اليوم: $latestUpdateType - ${_formatUpdateTime(latestUpdateTime)}\n$latestUpdateNote'
+                          : 'آخر تحديث اليوم: $latestUpdateType - ${_formatUpdateTime(latestUpdateTime)}',
+                      style: const TextStyle(
+                        color: AppColors.textLight,
+                        height: 1.4,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    )
+                  else
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withOpacity(0.10),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Text(
+                        'يحتاج تحديث اليوم',
+                        style: TextStyle(
+                          color: Colors.orange,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
             const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: onPrimaryAction,
+                icon: Icon(primaryActionIcon),
+                label: Text(primaryActionLabel),
+              ),
+            ),
+            const SizedBox(height: 10),
             Row(
               children: [
                 Expanded(
@@ -1118,17 +1403,37 @@ class _NurseryChildDashboardCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: onEntryExitLog,
-                    icon: const Icon(Icons.login_rounded),
-                    label: const Text('الدخول/الخروج'),
+                    onPressed: onQuickCare,
+                    icon: const Icon(Icons.flash_on_rounded),
+                    label: const Text('رعاية سريعة'),
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: onQuickCare,
-                    icon: const Icon(Icons.flash_on_rounded),
-                    label: const Text('رعاية سريعة'),
+                    onPressed: onCareLog,
+                    icon: const Icon(Icons.menu_book_outlined),
+                    label: const Text('سجل الرعاية'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onHandoffLog,
+                    icon: const Icon(Icons.how_to_reg_outlined),
+                    label: const Text('تسليم/استلام'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onIncidentReport,
+                    icon: const Icon(Icons.report_problem_outlined),
+                    label: const Text('حادث/ملاحظة'),
                   ),
                 ),
               ],
@@ -1137,9 +1442,9 @@ class _NurseryChildDashboardCard extends StatelessWidget {
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
-                onPressed: onCareLog,
-                icon: const Icon(Icons.menu_book_outlined),
-                label: const Text('سجل الرعاية'),
+                onPressed: onEntryExitLog,
+                icon: const Icon(Icons.history_rounded),
+                label: const Text('فتح سجل الدخول/الخروج'),
               ),
             ),
           ],
@@ -1352,6 +1657,30 @@ class _QuickActionChip extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _FilterChipItem extends StatelessWidget {
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _FilterChipItem({
+    required this.label,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsetsDirectional.only(end: 8),
+      child: ChoiceChip(
+        label: Text(label),
+        selected: isSelected,
+        onSelected: (_) => onTap(),
       ),
     );
   }

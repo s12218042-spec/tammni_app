@@ -103,7 +103,7 @@ class _DetailedAttendancePageState extends State<DetailedAttendancePage> {
               stream: _firestore
                   .collection('attendance')
                   .where('section', isEqualTo: 'Kindergarten')
-                  .orderBy('time', descending: true)
+                  .orderBy('updatedAt', descending: true)
                   .snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
@@ -147,10 +147,12 @@ class _DetailedAttendancePageState extends State<DetailedAttendancePage> {
 
                       final childName = data['childName'] ?? 'طفل غير محدد';
                       final group = data['group'] ?? '';
-                      final status = data['status'] ?? '';
+                      final present = data['present'];
+                      final status = present == true ? 'present' : 'absent';
+                      final time = data['updatedAt'];
                       final note = data['note'] ?? '';
                       final recordedBy = data['recordedByName'] ?? '';
-                      final time = data['time'];
+                      
 
                       return _AttendanceCard(
                         childName: childName,

@@ -24,7 +24,13 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
   final TextEditingController _noteCtrl = TextEditingController();
 
   bool isSaving = false;
+  bool isLoadingCurrentState = true;
+
   String selectedEventType = 'entry';
+  String? currentStatus; // inside / outside / unknown
+  String? lastEventType;
+  Timestamp? lastEventTime;
+  String? lastCreatedByName;
 
   final List<Map<String, String>> eventTypes = const [
     {'value': 'entry', 'label': 'دخول'},
@@ -32,9 +38,82 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    loadCurrentState();
+  }
+
+  @override
   void dispose() {
     _noteCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> loadCurrentState() async {
+    setState(() {
+      isLoadingCurrentState = true;
+    });
+
+    try {
+      final latestSnapshot = await _firestore
+          .collection('entry_exit_logs')
+          .where('childId', isEqualTo: widget.child.id)
+          .get();
+
+      String? tempLastEventType;
+      Timestamp? tempLastTime;
+      String? tempLastCreatedByName;
+
+      for (final doc in latestSnapshot.docs) {
+        final data = doc.data();
+        final currentType = (data['eventType'] ?? '').toString();
+        final currentTime = extractTimestamp(data);
+        final createdByName = (data['createdByName'] ?? '').toString();
+
+        if (currentTime == null) continue;
+
+        if (tempLastTime == null || currentTime.compareTo(tempLastTime) > 0) {
+          tempLastTime = currentTime;
+          tempLastEventType = currentType;
+          tempLastCreatedByName = createdByName;
+        }
+      }
+
+      String nextEventType = 'entry';
+      String status = 'unknown';
+
+      if (tempLastEventType == 'entry') {
+        status = 'inside';
+        nextEventType = 'exit';
+      } else if (tempLastEventType == 'exit') {
+        status = 'outside';
+        nextEventType = 'entry';
+      } else {
+        status = 'unknown';
+        nextEventType = 'entry';
+      }
+
+      if (!mounted) return;
+      setState(() {
+        lastEventType = tempLastEventType;
+        lastEventTime = tempLastTime;
+        lastCreatedByName = tempLastCreatedByName;
+        currentStatus = status;
+        selectedEventType = nextEventType;
+        isLoadingCurrentState = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        isLoadingCurrentState = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('حدث خطأ أثناء تحميل الحالة الحالية: $e'),
+        ),
+      );
+    }
   }
 
   Future<Map<String, String>> fetchCurrentUserInfo() async {
@@ -48,9 +127,7 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
       };
     }
 
-    final userDoc =
-        await _firestore.collection('users').doc(currentUser.uid).get();
-
+    final userDoc = await _firestore.collection('users').doc(currentUser.uid).get();
     final data = userDoc.data() ?? {};
 
     return {
@@ -60,103 +137,101 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
     };
   }
 
-   Future<void> saveEntryExitEvent() async {
-  if (isSaving) return;
+  Future<void> saveEntryExitEvent() async {
+    if (isSaving) return;
 
-  setState(() {
-    isSaving = true;
-  });
+    setState(() {
+      isSaving = true;
+    });
 
-  try {
-    final latestSnapshot = await _firestore
-        .collection('entry_exit_logs')
-        .where('childId', isEqualTo: widget.child.id)
-        .get();
+    try {
+      final latestSnapshot = await _firestore
+          .collection('entry_exit_logs')
+          .where('childId', isEqualTo: widget.child.id)
+          .get();
 
-    final latestDocs = latestSnapshot.docs;
+      String? latestType;
+      Timestamp? latestTime;
 
-    String? lastEventType;
-    Timestamp? lastTime;
+      for (final doc in latestSnapshot.docs) {
+        final data = doc.data();
+        final currentType = (data['eventType'] ?? '').toString();
+        final effectiveTime = extractTimestamp(data);
 
-    for (final doc in latestDocs) {
-      final data = doc.data();
+        if (effectiveTime == null) continue;
 
-      final currentType = (data['eventType'] ?? '').toString();
-      final currentTime =
-          data['time'] is Timestamp ? data['time'] as Timestamp : null;
-      final currentCreatedAt =
-          data['createdAt'] is Timestamp ? data['createdAt'] as Timestamp : null;
-
-      final effectiveTime = currentTime ?? currentCreatedAt;
-
-      if (effectiveTime == null) continue;
-
-      if (lastTime == null || effectiveTime.compareTo(lastTime) > 0) {
-        lastTime = effectiveTime;
-        lastEventType = currentType;
+        if (latestTime == null || effectiveTime.compareTo(latestTime) > 0) {
+          latestTime = effectiveTime;
+          latestType = currentType;
+        }
       }
-    }
 
-    if (lastEventType == selectedEventType) {
+      if (latestType == selectedEventType) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              selectedEventType == 'entry'
+                  ? 'الطفل مسجل كـ دخول بالفعل، لا يمكن تكرار نفس الحدث'
+                  : 'الطفل مسجل كـ خروج بالفعل، لا يمكن تكرار نفس الحدث',
+            ),
+          ),
+        );
+
+        setState(() {
+          isSaving = false;
+        });
+        return;
+      }
+
+      final userInfo = await fetchCurrentUserInfo();
+
+      await _firestore.collection('entry_exit_logs').add({
+        'childId': widget.child.id,
+        'childName': widget.child.name,
+        'parentUsername': widget.child.parentUsername,
+        'section': widget.child.section,
+        'group': widget.child.group,
+        'eventType': selectedEventType,
+        'note': _noteCtrl.text.trim(),
+        'createdAt': Timestamp.now(),
+        'time': FieldValue.serverTimestamp(),
+        'createdByUid': userInfo['uid'],
+        'createdByName': userInfo['name'],
+        'createdByRole': userInfo['role'],
+      });
+
       if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             selectedEventType == 'entry'
-                ? 'الطفل مسجل كـ دخول بالفعل، لا يمكن تكرار نفس الحدث'
-                : 'الطفل مسجل كـ خروج بالفعل، لا يمكن تكرار نفس الحدث',
+                ? 'تم تسجيل دخول الطفل بنجاح'
+                : 'تم تسجيل خروج الطفل بنجاح',
           ),
         ),
       );
-      return;
-    }
 
-    final userInfo = await fetchCurrentUserInfo();
+      _noteCtrl.clear();
+      await loadCurrentState();
+    } catch (e) {
+      if (!mounted) return;
 
-    await _firestore.collection('entry_exit_logs').add({
-      'childId': widget.child.id,
-      'childName': widget.child.name,
-      'parentUsername': widget.child.parentUsername,
-      'section': widget.child.section,
-      'group': widget.child.group,
-      'eventType': selectedEventType,
-      'note': _noteCtrl.text.trim(),
-      'createdAt': Timestamp.now(),
-      'time': FieldValue.serverTimestamp(),
-      'createdByUid': userInfo['uid'],
-      'createdByName': userInfo['name'],
-      'createdByRole': userInfo['role'],
-    });
-
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          selectedEventType == 'entry'
-              ? 'تم تسجيل دخول الطفل بنجاح'
-              : 'تم تسجيل خروج الطفل بنجاح',
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('حدث خطأ أثناء حفظ السجل: $e'),
         ),
-      ),
-    );
-
-    _noteCtrl.clear();
-  } catch (e) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('حدث خطأ أثناء حفظ السجل: $e'),
-      ),
-    );
-  } finally {
-    if (!mounted) return;
-    setState(() {
-      isSaving = false;
-    });
+      );
+    } finally {
+      if (!mounted) return;
+      setState(() {
+        isSaving = false;
+      });
+    }
   }
-}
 
-  Timestamp? extractTimestamp(Map<String, dynamic> data) {
+  Timestamp? extractTimestamp(Map data) {
     final dynamic primary = data['time'];
     final dynamic fallback = data['createdAt'];
 
@@ -206,6 +281,49 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
     }
   }
 
+  String currentStatusText() {
+    switch (currentStatus) {
+      case 'inside':
+        return 'داخل الآن';
+      case 'outside':
+        return 'خارج الآن';
+      default:
+        return 'لا يوجد سجل بعد';
+    }
+  }
+
+  Color currentStatusColor() {
+    switch (currentStatus) {
+      case 'inside':
+        return Colors.green;
+      case 'outside':
+        return Colors.red;
+      default:
+        return AppColors.textLight;
+    }
+  }
+
+  IconData currentStatusIcon() {
+    switch (currentStatus) {
+      case 'inside':
+        return Icons.how_to_reg_rounded;
+      case 'outside':
+        return Icons.logout_rounded;
+      default:
+        return Icons.help_outline_rounded;
+    }
+  }
+
+  String suggestedNextActionText() {
+    return selectedEventType == 'entry' ? 'تسجيل دخول' : 'تسجيل خروج';
+  }
+
+  IconData suggestedNextActionIcon() {
+    return selectedEventType == 'entry'
+        ? Icons.login_rounded
+        : Icons.logout_rounded;
+  }
+
   @override
   Widget build(BuildContext context) {
     return AppPageScaffold(
@@ -214,7 +332,16 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
         children: [
           _buildHeader(),
           const SizedBox(height: 16),
-          _buildFormCard(),
+          if (isLoadingCurrentState)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 20),
+              child: CircularProgressIndicator(),
+            )
+          else ...[
+            _buildCurrentStatusCard(),
+            const SizedBox(height: 16),
+            _buildFormCard(),
+          ],
           const SizedBox(height: 16),
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
@@ -257,7 +384,6 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
                 final items = docs.map((doc) {
                   final data = doc.data() as Map<String, dynamic>;
                   return {
-                    'doc': doc,
                     'data': data,
                     'sortTime': extractTimestamp(data),
                   };
@@ -274,29 +400,29 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
                   return bTime.compareTo(aTime);
                 });
 
-                return ListView.separated(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  itemCount: items.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 12),
-                  itemBuilder: (context, index) {
-                    final data =
-                        items[index]['data'] as Map<String, dynamic>;
+                return RefreshIndicator(
+                  onRefresh: loadCurrentState,
+                  child: ListView.separated(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    itemCount: items.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 12),
+                    itemBuilder: (context, index) {
+                      final data = items[index]['data'] as Map<String, dynamic>;
+                      final eventType = (data['eventType'] ?? '').toString();
+                      final note = (data['note'] ?? '').toString();
+                      final createdByName = (data['createdByName'] ?? '').toString();
+                      final time = extractTimestamp(data);
 
-                    final eventType = (data['eventType'] ?? '').toString();
-                    final note = (data['note'] ?? '').toString();
-                    final createdByName =
-                        (data['createdByName'] ?? '').toString();
-                    final time = extractTimestamp(data);
-
-                    return _EntryExitLogCard(
-                      eventText: eventLabel(eventType),
-                      timeText: formatDateTime(time),
-                      note: note,
-                      createdByName: createdByName,
-                      color: eventColor(eventType),
-                      icon: eventIcon(eventType),
-                    );
-                  },
+                      return _EntryExitLogCard(
+                        eventText: eventLabel(eventType),
+                        timeText: formatDateTime(time),
+                        note: note,
+                        createdByName: createdByName,
+                        color: eventColor(eventType),
+                        icon: eventIcon(eventType),
+                      );
+                    },
+                  ),
                 );
               },
             ),
@@ -349,6 +475,92 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
     );
   }
 
+  Widget _buildCurrentStatusCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(
+          color: AppColors.border.withOpacity(0.8),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 14,
+            offset: const Offset(0, 7),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: currentStatusColor().withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(
+                  currentStatusIcon(),
+                  color: currentStatusColor(),
+                  size: 26,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'الحالة الحالية',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: AppColors.textLight,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      currentStatusText(),
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                        color: currentStatusColor(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _InfoTile(
+            title: 'آخر حركة',
+            value: lastEventType == null
+                ? 'لا يوجد سجل سابق'
+                : '${eventLabel(lastEventType!)} - ${formatDateTime(lastEventTime)}',
+          ),
+          if ((lastCreatedByName ?? '').trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _InfoTile(
+              title: 'آخر تسجيل بواسطة',
+              value: lastCreatedByName!,
+            ),
+          ],
+          const SizedBox(height: 10),
+          _InfoTile(
+            title: 'الحدث المقترح التالي',
+            value: suggestedNextActionText(),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildFormCard() {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -385,6 +597,18 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
               });
             },
           ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerRight,
+            child: Text(
+              'معبأ تلقائيًا حسب آخر حالة، ويمكنك تغييره عند الحاجة.',
+              style: TextStyle(
+                fontSize: 12.5,
+                color: AppColors.textLight.withOpacity(0.9),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
           const SizedBox(height: 14),
           TextField(
             controller: _noteCtrl,
@@ -406,17 +630,9 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
                       height: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : Icon(
-                      selectedEventType == 'entry'
-                          ? Icons.login_rounded
-                          : Icons.logout_rounded,
-                    ),
+                  : Icon(suggestedNextActionIcon()),
               label: Text(
-                isSaving
-                    ? 'جاري الحفظ...'
-                    : selectedEventType == 'entry'
-                        ? 'تسجيل دخول'
-                        : 'تسجيل خروج',
+                isSaving ? 'جاري الحفظ...' : suggestedNextActionText(),
               ),
               style: ElevatedButton.styleFrom(
                 minimumSize: const Size(double.infinity, 52),
