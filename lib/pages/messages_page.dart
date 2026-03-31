@@ -109,7 +109,7 @@ class _MessagesPageState extends State<MessagesPage> {
 
       currentUserId = user.uid;
       currentUserName =
-          (data['displayName'] ?? data['name'] ?? data['username'] ?? '')
+          (data['displayName'] ?? data['name'] ?? data['username'] ?? 'مستخدم')
               .toString();
       currentUserRole = (data['role'] ?? '').toString();
 
@@ -191,6 +191,7 @@ class _MessagesPageState extends State<MessagesPage> {
       messageCtrl.clear();
 
       if (!mounted) return;
+      setState(() {});
       await scrollToBottom();
     } finally {
       if (!mounted) return;
@@ -205,59 +206,81 @@ class _MessagesPageState extends State<MessagesPage> {
 
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        constraints: const BoxConstraints(maxWidth: 290),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          color: isMe ? AppColors.secondary : Colors.white,
-          borderRadius: BorderRadius.circular(18),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.04),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
+      child: Column(
+        crossAxisAlignment:
+            isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        children: [
+          Container(
+            margin: const EdgeInsets.only(bottom: 6),
+            constraints: const BoxConstraints(maxWidth: 290),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: isMe ? AppColors.secondary : Colors.white,
+              borderRadius: BorderRadius.circular(18),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.04),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
             ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment:
-              isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-          children: [
-            if (!isMe)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Text(
-                  message.senderName.isNotEmpty
-                      ? message.senderName
-                      : targetDisplayName,
+            child: Column(
+              crossAxisAlignment:
+                  isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+              children: [
+                if (!isMe)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text(
+                      message.senderName.isNotEmpty
+                          ? message.senderName
+                          : targetDisplayName,
+                      style: TextStyle(
+                        color: targetColor,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                Text(
+                  message.text,
                   style: TextStyle(
-                    color: targetColor,
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w800,
+                    color: isMe ? Colors.white : AppColors.textDark,
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w600,
+                    height: 1.45,
                   ),
                 ),
-              ),
-            Text(
-              message.text,
-              style: TextStyle(
-                color: isMe ? Colors.white : AppColors.textDark,
-                fontSize: 14.5,
-                fontWeight: FontWeight.w600,
-                height: 1.45,
-              ),
+                const SizedBox(height: 6),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      formatTime(message.sentAt),
+                      style: TextStyle(
+                        color: isMe ? Colors.white70 : AppColors.textLight,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (isMe) ...[
+                      const SizedBox(width: 6),
+                      Text(
+                        message.isRead ? '✔✔' : '✔',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: message.isRead ? Colors.lightBlueAccent : Colors.white70,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
             ),
-            const SizedBox(height: 6),
-            Text(
-              formatTime(message.sentAt),
-              style: TextStyle(
-                color: isMe ? Colors.white70 : AppColors.textLight,
-                fontSize: 11.5,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -326,6 +349,8 @@ class _MessagesPageState extends State<MessagesPage> {
   }
 
   Widget buildInputArea() {
+    final isEmpty = messageCtrl.text.trim().isEmpty;
+
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
       decoration: BoxDecoration(
@@ -351,17 +376,20 @@ class _MessagesPageState extends State<MessagesPage> {
                 hintText: 'اكتب رسالتك إلى $targetDisplayName...',
                 border: InputBorder.none,
               ),
+              onChanged: (_) {
+                setState(() {});
+              },
               onSubmitted: (_) {},
             ),
           ),
           const SizedBox(width: 8),
           GestureDetector(
-            onTap: isSending ? null : sendCurrentMessage,
+            onTap: isSending || isEmpty ? null : sendCurrentMessage,
             child: Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: isSending
-                    ? AppColors.secondary.withOpacity(0.6)
+                color: (isSending || isEmpty)
+                    ? AppColors.secondary.withOpacity(0.4)
                     : AppColors.secondary,
                 borderRadius: BorderRadius.circular(18),
               ),

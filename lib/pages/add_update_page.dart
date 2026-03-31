@@ -56,7 +56,8 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
     'ملاحظة',
   ];
 
-  List<String> get types => widget.byRole == 'nursery' ? nurseryTypes : teacherTypes;
+  List<String> get types =>
+      widget.byRole == 'nursery' ? nurseryTypes : teacherTypes;
 
   String mealStatus = 'تناول الوجبة جيدًا';
   String sleepStatus = 'نام جيدًا';
@@ -158,7 +159,8 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
       };
     }
 
-    final userDoc = await _firestore.collection('users').doc(currentUser.uid).get();
+    final userDoc =
+        await _firestore.collection('users').doc(currentUser.uid).get();
     final data = userDoc.data() ?? {};
 
     return {
@@ -337,7 +339,25 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
         'mediaType': selectedMediaType,
         'mediaPath': selectedMediaPath,
         'mediaUrl': uploadedMediaUrl,
-        'hasMedia': selectedMediaPath != null,
+        'hasMedia': uploadedMediaUrl != null,
+      });
+
+      await _firestore.collection('notifications').add({
+        'childId': widget.child.id,
+        'childName': widget.child.name,
+        'parentUsername': widget.child.parentUsername.trim().toLowerCase(),
+        'section': widget.child.section,
+        'group': widget.child.group,
+        'title': 'تحديث جديد',
+        'body': finalNote,
+        'message': finalNote,
+        'type': 'update_notification',
+        'isRead': false,
+        'createdAt': now,
+        'time': FieldValue.serverTimestamp(),
+        'createdByUid': userInfo['uid'],
+        'createdByName': userInfo['name'],
+        'createdByRole': userInfo['role'],
       });
 
       if (!mounted) return;
@@ -428,7 +448,9 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
               ),
               _QuickTextChip(
                 label: 'أكل ببطء',
-                onTap: () => applyQuickTemplate('تناول الطعام ببطء لكنه أكمل معظم الوجبة.'),
+                onTap: () => applyQuickTemplate(
+                  'تناول الطعام ببطء لكنه أكمل معظم الوجبة.',
+                ),
               ),
             ],
           ),
@@ -506,7 +528,8 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
               ),
               _QuickTextChip(
                 label: 'احمرار بسيط',
-                onTap: () => applyQuickTemplate('لوحظ احمرار بسيط ويحتاج متابعة.'),
+                onTap: () =>
+                    applyQuickTemplate('لوحظ احمرار بسيط ويحتاج متابعة.'),
               ),
             ],
           ),
@@ -545,7 +568,9 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
               ),
               _QuickTextChip(
                 label: 'تم إبلاغ الأهل',
-                onTap: () => applyQuickTemplate('تمت ملاحظة الحالة وإبلاغ ولي الأمر للمتابعة.'),
+                onTap: () => applyQuickTemplate(
+                  'تمت ملاحظة الحالة وإبلاغ ولي الأمر للمتابعة.',
+                ),
               ),
             ],
           ),
@@ -580,11 +605,14 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
             children: [
               _QuickTextChip(
                 label: 'رسم وتلوين',
-                onTap: () => applyQuickTemplate('شارك في نشاط الرسم والتلوين وكان سعيدًا.'),
+                onTap: () => applyQuickTemplate(
+                  'شارك في نشاط الرسم والتلوين وكان سعيدًا.',
+                ),
               ),
               _QuickTextChip(
                 label: 'لعب جماعي',
-                onTap: () => applyQuickTemplate('شارك في اللعب الجماعي مع الأطفال.'),
+                onTap: () =>
+                    applyQuickTemplate('شارك في اللعب الجماعي مع الأطفال.'),
               ),
             ],
           ),
@@ -619,11 +647,14 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
             children: [
               _QuickTextChip(
                 label: 'كان هادئًا',
-                onTap: () => applyQuickTemplate('كان هادئًا ومتعاونًا خلال اليوم.'),
+                onTap: () => applyQuickTemplate(
+                  'كان هادئًا ومتعاونًا خلال اليوم.',
+                ),
               ),
               _QuickTextChip(
                 label: 'متفاعل',
-                onTap: () => applyQuickTemplate('كان متفاعلًا بشكل جميل مع المحيط.'),
+                onTap: () =>
+                    applyQuickTemplate('كان متفاعلًا بشكل جميل مع المحيط.'),
               ),
             ],
           ),
@@ -658,11 +689,13 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
             children: [
               _QuickTextChip(
                 label: 'مشاركة ممتازة',
-                onTap: () => applyQuickTemplate('أظهر مشاركة ممتازة وتفاعلًا واضحًا.'),
+                onTap: () =>
+                    applyQuickTemplate('أظهر مشاركة ممتازة وتفاعلًا واضحًا.'),
               ),
               _QuickTextChip(
                 label: 'احتاج دعم',
-                onTap: () => applyQuickTemplate('احتاج دعمًا بسيطًا لإتمام النشاط.'),
+                onTap: () =>
+                    applyQuickTemplate('احتاج دعمًا بسيطًا لإتمام النشاط.'),
               ),
             ],
           ),
@@ -697,11 +730,15 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
             children: [
               _QuickTextChip(
                 label: 'نشاطات اليوم',
-                onTap: () => applyQuickTemplate('تم تنفيذ أنشطة اليوم بشكل منظم وواضح.'),
+                onTap: () => applyQuickTemplate(
+                  'تم تنفيذ أنشطة اليوم بشكل منظم وواضح.',
+                ),
               ),
               _QuickTextChip(
                 label: 'مشاركة جيدة',
-                onTap: () => applyQuickTemplate('أظهر الطفل تفاعلًا جيدًا مع خطة اليوم.'),
+                onTap: () => applyQuickTemplate(
+                  'أظهر الطفل تفاعلًا جيدًا مع خطة اليوم.',
+                ),
               ),
             ],
           ),
@@ -740,7 +777,9 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
               ),
               _QuickTextChip(
                 label: 'بحاجة دعم',
-                onTap: () => applyQuickTemplate('يحتاج بعض الدعم الإضافي لتحسين أدائه.'),
+                onTap: () => applyQuickTemplate(
+                  'يحتاج بعض الدعم الإضافي لتحسين أدائه.',
+                ),
               ),
             ],
           ),
@@ -775,11 +814,15 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
             children: [
               _QuickTextChip(
                 label: 'تسليم ممتاز',
-                onTap: () => applyQuickTemplate('تم تسليم الواجب بشكل ممتاز ومنظم.'),
+                onTap: () => applyQuickTemplate(
+                  'تم تسليم الواجب بشكل ممتاز ومنظم.',
+                ),
               ),
               _QuickTextChip(
                 label: 'بحاجة إكمال',
-                onTap: () => applyQuickTemplate('الواجب يحتاج بعض الإكمال أو التصحيح.'),
+                onTap: () => applyQuickTemplate(
+                  'الواجب يحتاج بعض الإكمال أو التصحيح.',
+                ),
               ),
             ],
           ),
@@ -814,11 +857,14 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
             children: [
               _QuickTextChip(
                 label: 'متفاعل',
-                onTap: () => applyQuickTemplate('كان متفاعلًا ومشاركًا داخل الصف.'),
+                onTap: () =>
+                    applyQuickTemplate('كان متفاعلًا ومشاركًا داخل الصف.'),
               ),
               _QuickTextChip(
                 label: 'يحتاج متابعة',
-                onTap: () => applyQuickTemplate('يحتاج متابعة إضافية في الفترة القادمة.'),
+                onTap: () => applyQuickTemplate(
+                  'يحتاج متابعة إضافية في الفترة القادمة.',
+                ),
               ),
             ],
           ),
@@ -1287,13 +1333,13 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(22),
         border: Border.all(
-          color: AppColors.border.withOpacity(0.8),
+          color: AppColors.border.withOpacity(0.75),
         ),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.03),
             blurRadius: 14,
-            offset: const Offset(0, 7),
+            offset: const Offset(0, 8),
           ),
         ],
       ),
@@ -1303,7 +1349,7 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
           Text(
             title,
             style: const TextStyle(
-              fontSize: 16,
+              fontSize: 15,
               fontWeight: FontWeight.w800,
               color: AppColors.textDark,
             ),
@@ -1322,11 +1368,7 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
   }) {
     return Row(
       children: [
-        Icon(
-          icon,
-          size: 18,
-          color: AppColors.textLight,
-        ),
+        Icon(icon, size: 18, color: AppColors.textLight),
         const SizedBox(width: 8),
         Text(
           '$label: ',
@@ -1367,12 +1409,23 @@ class _ChoiceWrap extends StatelessWidget {
       spacing: 8,
       runSpacing: 8,
       children: values.map((value) {
-        final isSelected = value == selectedValue;
+        final selected = value == selectedValue;
 
         return ChoiceChip(
           label: Text(value),
-          selected: isSelected,
+          selected: selected,
           onSelected: (_) => onSelected(value),
+          selectedColor: AppColors.primary.withOpacity(0.14),
+          backgroundColor: AppColors.background,
+          labelStyle: TextStyle(
+            color: selected ? AppColors.primary : AppColors.textDark,
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+          ),
+          side: BorderSide(
+            color: selected
+                ? AppColors.primary
+                : AppColors.border.withOpacity(0.8),
+          ),
         );
       }).toList(),
     );
@@ -1393,6 +1446,14 @@ class _QuickTextChip extends StatelessWidget {
     return ActionChip(
       label: Text(label),
       onPressed: onTap,
+      backgroundColor: AppColors.secondary.withOpacity(0.10),
+      labelStyle: const TextStyle(
+        color: AppColors.textDark,
+        fontWeight: FontWeight.w600,
+      ),
+      side: BorderSide(
+        color: AppColors.secondary.withOpacity(0.25),
+      ),
     );
   }
 }
