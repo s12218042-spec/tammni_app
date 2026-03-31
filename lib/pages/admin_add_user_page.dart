@@ -21,11 +21,13 @@ class _AdminAddUserPageState extends State<AdminAddUserPage> {
   final passwordCtrl = TextEditingController();
   final sectionCtrl = TextEditingController();
   final groupCtrl = TextEditingController();
+  final phoneCtrl = TextEditingController();
+  final notesCtrl = TextEditingController();
 
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  String selectedRole = 'parent';
+  String selectedRole = 'teacher';
   bool isLoading = false;
   bool obscurePassword = true;
 
@@ -37,6 +39,8 @@ class _AdminAddUserPageState extends State<AdminAddUserPage> {
     passwordCtrl.dispose();
     sectionCtrl.dispose();
     groupCtrl.dispose();
+    phoneCtrl.dispose();
+    notesCtrl.dispose();
     super.dispose();
   }
 
@@ -47,8 +51,6 @@ class _AdminAddUserPageState extends State<AdminAddUserPage> {
 
   String get roleLabel {
     switch (selectedRole) {
-      case 'parent':
-        return 'ولي أمر';
       case 'teacher':
         return 'معلمة';
       case 'nursery_staff':
@@ -62,8 +64,6 @@ class _AdminAddUserPageState extends State<AdminAddUserPage> {
 
   IconData get roleIcon {
     switch (selectedRole) {
-      case 'parent':
-        return Icons.family_restroom_rounded;
       case 'teacher':
         return Icons.menu_book_rounded;
       case 'nursery_staff':
@@ -83,10 +83,27 @@ class _AdminAddUserPageState extends State<AdminAddUserPage> {
         return AppColors.nursery;
       case 'admin':
         return AppColors.secondary;
-      case 'parent':
       default:
         return AppColors.primary;
     }
+  }
+
+  String normalizeRole(String role) {
+    if (role == 'nursery_staff') return 'nursery_staff';
+    if (role == 'teacher') return 'teacher';
+    if (role == 'admin') return 'admin';
+    return role;
+  }
+
+  bool isValidEmail(String value) {
+    return value.contains('@') && value.contains('.');
+  }
+
+  bool isValidPassword(String value) {
+    final hasUpper = value.contains(RegExp(r'[A-Z]'));
+    final hasLower = value.contains(RegExp(r'[a-z]'));
+    final hasNumber = value.contains(RegExp(r'[0-9]'));
+    return value.length >= 8 && hasUpper && hasLower && hasNumber;
   }
 
   Future<void> createUser() async {
@@ -102,6 +119,8 @@ class _AdminAddUserPageState extends State<AdminAddUserPage> {
       final cleanPassword = passwordCtrl.text.trim();
       final cleanSection = sectionCtrl.text.trim();
       final cleanGroup = groupCtrl.text.trim();
+      final cleanPhone = phoneCtrl.text.trim();
+      final cleanNotes = notesCtrl.text.trim();
 
       final existingUsername = await _firestore
           .collection('users')
@@ -111,6 +130,16 @@ class _AdminAddUserPageState extends State<AdminAddUserPage> {
 
       if (existingUsername.docs.isNotEmpty) {
         throw Exception('اسم المستخدم مستخدم مسبقًا');
+      }
+
+      final existingEmail = await _firestore
+          .collection('users')
+          .where('email', isEqualTo: cleanEmail)
+          .limit(1)
+          .get();
+
+      if (existingEmail.docs.isNotEmpty) {
+        throw Exception('البريد الإلكتروني مستخدم مسبقًا');
       }
 
       final userCredential = await _auth.createUserWithEmailAndPassword(
@@ -123,12 +152,22 @@ class _AdminAddUserPageState extends State<AdminAddUserPage> {
       final userData = <String, dynamic>{
         'uid': uid,
         'name': cleanName,
+        'displayName': cleanName,
         'username': cleanUsername,
         'email': cleanEmail,
-        'role': selectedRole,
+        'role': normalizeRole(selectedRole),
         'isActive': true,
+        'invitationVerified': true,
         'createdAt': FieldValue.serverTimestamp(),
       };
+
+      if (cleanPhone.isNotEmpty) {
+        userData['phone'] = cleanPhone;
+      }
+
+      if (cleanNotes.isNotEmpty) {
+        userData['notes'] = cleanNotes;
+      }
 
       if (showSectionField && cleanSection.isNotEmpty) {
         userData['section'] = cleanSection;
@@ -239,7 +278,7 @@ class _AdminAddUserPageState extends State<AdminAddUserPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'إنشاء مستخدم جديد',
+                  'إنشاء حساب موظف جديد',
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w800,
                         color: AppColors.textDark,
@@ -247,7 +286,7 @@ class _AdminAddUserPageState extends State<AdminAddUserPage> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'إضافة حساب $roleLabel من داخل لوحة الإدارة بما يتوافق مع سياسة التطبيق الجديدة.',
+                  'هذه الصفحة مخصصة للإدارة لإنشاء حسابات الموظفين فقط. أما أولياء الأمور فسيتم تسجيلهم لاحقًا عبر طلب تسجيل منفصل وموافقة من الإدارة.',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: AppColors.textLight,
                         height: 1.45,
@@ -279,7 +318,7 @@ class _AdminAddUserPageState extends State<AdminAddUserPage> {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              'إنشاء الحسابات يتم من الإدارة فقط. أضيفي البيانات الأساسية أولًا، ثم بيانات القسم أو المجموعة حسب نوع المستخدم.',
+              'إنشاء الحسابات هنا متاح فقط للمعلمات وموظفات الحضانة والأدمن. احرصي على إدخال البيانات الأساسية بدقة، مع القسم والمجموعة عند الحاجة.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: AppColors.textDark,
                     height: 1.5,
@@ -327,6 +366,13 @@ class _AdminAddUserPageState extends State<AdminAddUserPage> {
         onTap: () {
           setState(() {
             selectedRole = value;
+
+            if (selectedRole == 'admin') {
+              sectionCtrl.clear();
+              groupCtrl.clear();
+            } else if (selectedRole == 'nursery_staff') {
+              groupCtrl.clear();
+            }
           });
         },
         child: AnimatedContainer(
@@ -379,7 +425,7 @@ class _AdminAddUserPageState extends State<AdminAddUserPage> {
   @override
   Widget build(BuildContext context) {
     return AppPageScaffold(
-      title: 'إضافة مستخدم',
+      title: 'إضافة موظف',
       child: Form(
         key: _formKey,
         child: ListView(
@@ -395,23 +441,23 @@ class _AdminAddUserPageState extends State<AdminAddUserPage> {
                 children: [
                   buildSectionTitle(
                     'نوع الحساب',
-                    'اختاري الفئة التي سيتم إنشاء الحساب لها.',
+                    'اختاري نوع الموظف الذي سيتم إنشاء الحساب له.',
                   ),
                   const SizedBox(height: 14),
                   Row(
                     children: [
                       buildRoleOption(
-                        value: 'parent',
-                        label: 'ولي أمر',
-                        icon: Icons.family_restroom_rounded,
-                        color: AppColors.primary,
-                      ),
-                      const SizedBox(width: 10),
-                      buildRoleOption(
                         value: 'teacher',
                         label: 'معلمة',
                         icon: Icons.menu_book_rounded,
                         color: AppColors.kindergarten,
+                      ),
+                      const SizedBox(width: 10),
+                      buildRoleOption(
+                        value: 'nursery_staff',
+                        label: 'موظفة حضانة',
+                        icon: Icons.child_friendly_rounded,
+                        color: AppColors.nursery,
                       ),
                     ],
                   ),
@@ -419,18 +465,12 @@ class _AdminAddUserPageState extends State<AdminAddUserPage> {
                   Row(
                     children: [
                       buildRoleOption(
-                        value: 'nursery_staff',
-                        label: 'موظفة حضانة',
-                        icon: Icons.child_friendly_rounded,
-                        color: AppColors.nursery,
-                      ),
-                      const SizedBox(width: 10),
-                      buildRoleOption(
                         value: 'admin',
                         label: 'أدمن',
                         icon: Icons.admin_panel_settings_rounded,
                         color: AppColors.secondary,
                       ),
+                      const Expanded(child: SizedBox()),
                     ],
                   ),
                 ],
@@ -445,7 +485,7 @@ class _AdminAddUserPageState extends State<AdminAddUserPage> {
                 children: [
                   buildSectionTitle(
                     'البيانات الأساسية',
-                    'هذه البيانات مطلوبة لكل أنواع الحسابات.',
+                    'هذه البيانات مطلوبة لكل أنواع الموظفين.',
                   ),
                   const SizedBox(height: 14),
                   TextFormField(
@@ -459,6 +499,9 @@ class _AdminAddUserPageState extends State<AdminAddUserPage> {
                       if (value == null || value.trim().isEmpty) {
                         return 'أدخلي الاسم الكامل';
                       }
+                      if (value.trim().length < 3) {
+                        return 'الاسم قصير جدًا';
+                      }
                       return null;
                     },
                   ),
@@ -468,11 +511,18 @@ class _AdminAddUserPageState extends State<AdminAddUserPage> {
                     decoration: customDecoration(
                       label: 'اسم المستخدم',
                       icon: Icons.alternate_email_rounded,
-                      hint: 'مثال: aya_admin',
+                      hint: 'مثال: aya_teacher',
                     ),
                     validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
+                      final text = value?.trim() ?? '';
+                      if (text.isEmpty) {
                         return 'أدخلي اسم المستخدم';
+                      }
+                      if (text.length < 3) {
+                        return 'اسم المستخدم قصير جدًا';
+                      }
+                      if (text.contains(' ')) {
+                        return 'اسم المستخدم يجب أن يكون بدون مسافات';
                       }
                       return null;
                     },
@@ -487,14 +537,25 @@ class _AdminAddUserPageState extends State<AdminAddUserPage> {
                       hint: 'example@email.com',
                     ),
                     validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
+                      final text = value?.trim() ?? '';
+                      if (text.isEmpty) {
                         return 'أدخلي البريد الإلكتروني';
                       }
-                      if (!value.contains('@')) {
+                      if (!isValidEmail(text)) {
                         return 'أدخلي بريدًا إلكترونيًا صالحًا';
                       }
                       return null;
                     },
+                  ),
+                  const SizedBox(height: 14),
+                  TextFormField(
+                    controller: phoneCtrl,
+                    keyboardType: TextInputType.phone,
+                    decoration: customDecoration(
+                      label: 'رقم الجوال',
+                      icon: Icons.phone_rounded,
+                      hint: 'اختياري',
+                    ),
                   ),
                   const SizedBox(height: 14),
                   TextFormField(
@@ -503,7 +564,7 @@ class _AdminAddUserPageState extends State<AdminAddUserPage> {
                     decoration: customDecoration(
                       label: 'كلمة المرور',
                       icon: Icons.lock_outline_rounded,
-                      hint: '6 أحرف أو أكثر',
+                      hint: '8 أحرف أو أكثر',
                       suffixIcon: IconButton(
                         onPressed: () {
                           setState(() {
@@ -518,11 +579,12 @@ class _AdminAddUserPageState extends State<AdminAddUserPage> {
                       ),
                     ),
                     validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
+                      final text = value?.trim() ?? '';
+                      if (text.isEmpty) {
                         return 'أدخلي كلمة المرور';
                       }
-                      if (value.trim().length < 6) {
-                        return 'يجب أن تكون 6 أحرف على الأقل';
+                      if (!isValidPassword(text)) {
+                        return 'يجب أن تكون 8 أحرف على الأقل وتحتوي حرف كبير وحرف صغير ورقم';
                       }
                       return null;
                     },
@@ -538,8 +600,8 @@ class _AdminAddUserPageState extends State<AdminAddUserPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     buildSectionTitle(
-                      'بيانات إضافية',
-                      'تظهر هذه الحقول حسب نوع الحساب المختار.',
+                      'بيانات العمل',
+                      'تظهر هذه الحقول حسب نوع الموظف المختار.',
                     ),
                     const SizedBox(height: 14),
                     if (showSectionField)
@@ -548,11 +610,15 @@ class _AdminAddUserPageState extends State<AdminAddUserPage> {
                         decoration: customDecoration(
                           label: 'القسم',
                           icon: Icons.apartment_rounded,
-                          hint: 'Nursery أو Kindergarten',
+                          hint: selectedRole == 'teacher'
+                              ? 'Kindergarten'
+                              : 'Nursery',
                         ),
                         validator: (value) {
-                          if (showSectionField &&
-                              (value == null || value.trim().isEmpty)) {
+                          if (!showSectionField) return null;
+
+                          final text = value?.trim() ?? '';
+                          if (text.isEmpty) {
                             return 'أدخلي القسم';
                           }
                           return null;
@@ -573,6 +639,30 @@ class _AdminAddUserPageState extends State<AdminAddUserPage> {
                 ),
               ),
             ],
+
+            const SizedBox(height: 14),
+
+            buildMainCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  buildSectionTitle(
+                    'ملاحظات إدارية',
+                    'اختياري: ملاحظات داخلية حول هذا الموظف.',
+                  ),
+                  const SizedBox(height: 14),
+                  TextFormField(
+                    controller: notesCtrl,
+                    maxLines: 4,
+                    decoration: customDecoration(
+                      label: 'ملاحظات',
+                      icon: Icons.notes_rounded,
+                      hint: 'أي ملاحظات إضافية...',
+                    ),
+                  ),
+                ],
+              ),
+            ),
 
             const SizedBox(height: 20),
 
@@ -616,8 +706,7 @@ class _AdminAddUserPageState extends State<AdminAddUserPage> {
                           ? const SizedBox(
                               width: 18,
                               height: 18,
-                              child:
-                                  CircularProgressIndicator(strokeWidth: 2.3),
+                              child: CircularProgressIndicator(strokeWidth: 2.3),
                             )
                           : const Icon(Icons.person_add_alt_1_rounded),
                       label: Text(
@@ -632,7 +721,7 @@ class _AdminAddUserPageState extends State<AdminAddUserPage> {
             const SizedBox(height: 12),
 
             Text(
-              'بعد الإنشاء يمكنك الرجوع إلى صفحة إدارة المستخدمين لمراجعة الحسابات وتعديلها.',
+              'هذه الصفحة مخصصة للموظفين فقط. سيتم لاحقًا إضافة طلبات تسجيل أولياء الأمور في مسار منفصل مع موافقة الإدارة.',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: AppColors.textLight,

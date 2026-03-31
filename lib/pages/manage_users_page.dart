@@ -176,7 +176,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(20),
               ),
-              title: const Text('إضافة مستخدم'),
+              title: const Text('إضافة موظف'),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
