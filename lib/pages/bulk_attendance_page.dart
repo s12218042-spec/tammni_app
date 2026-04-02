@@ -107,23 +107,12 @@ class _BulkAttendancePageState extends State<BulkAttendancePage> {
           .where('isActive', isEqualTo: true)
           .get();
 
-      final loadedChildren = snapshot.docs.map((doc) {
-        final data = doc.data();
-
-        return ChildModel(
-          id: doc.id,
-          name: data['name'] ?? '',
-          section: data['section'] ?? 'Kindergarten',
-          group: data['group'] ?? '',
-          parentName: data['parentName'] ?? '',
-          parentUsername: data['parentUsername'] ?? '',
-          birthDate: data['birthDate'] is Timestamp
-              ? (data['birthDate'] as Timestamp).toDate()
-              : DateTime.now(),
-        );
-      }).where((child) {
-        return assignedGroups.contains(child.group.trim());
-      }).toList();
+       final loadedChildren = snapshot.docs.map((doc) {
+  final data = doc.data();
+  return ChildModel.fromMap(data, docId: doc.id);
+}).where((child) {
+  return assignedGroups.contains(child.group.trim());
+}).toList();
 
       loadedChildren.sort((a, b) => a.name.compareTo(b.name));
 

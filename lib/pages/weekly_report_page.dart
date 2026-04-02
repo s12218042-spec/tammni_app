@@ -42,30 +42,32 @@ class _WeeklyReportPageState extends State<WeeklyReportPage> {
     return name.trim().substring(0, 1);
   }
 
-  String childAgeText(DateTime birthDate) {
-    final now = DateTime.now();
-    int years = now.year - birthDate.year;
-    int months = now.month - birthDate.month;
+   String childAgeText(DateTime? birthDate) {
+  if (birthDate == null) return 'غير محدد';
 
-    if (now.day < birthDate.day) {
-      months--;
-    }
+  final now = DateTime.now();
+  int years = now.year - birthDate.year;
+  int months = now.month - birthDate.month;
 
-    if (months < 0) {
-      years--;
-      months += 12;
-    }
-
-    if (years <= 0) {
-      return '$months شهر';
-    }
-
-    if (months == 0) {
-      return '$years سنة';
-    }
-
-    return '$years سنة و $months شهر';
+  if (now.day < birthDate.day) {
+    months--;
   }
+
+  if (months < 0) {
+    years--;
+    months += 12;
+  }
+
+  if (years <= 0) {
+    return '$months شهر';
+  }
+
+  if (months == 0) {
+    return '$years سنة';
+  }
+
+  return '$years سنة و $months شهر';
+}
 
   String formatDate(Timestamp? timestamp) {
     if (timestamp == null) return '--/--/----';
@@ -86,7 +88,10 @@ class _WeeklyReportPageState extends State<WeeklyReportPage> {
       'name': data['name'] ?? widget.child.name,
       'section': data['section'] ?? widget.child.section,
       'group': data['group'] ?? widget.child.group,
-      'birthDate': data['birthDate'] ?? Timestamp.fromDate(widget.child.birthDate),
+      'birthDate': data['birthDate'] ??
+    (widget.child.birthDate != null
+        ? Timestamp.fromDate(widget.child.birthDate!)
+        : null),
       'isActive': data['isActive'] ?? true,
       'status': data['status'] ?? 'active',
     };

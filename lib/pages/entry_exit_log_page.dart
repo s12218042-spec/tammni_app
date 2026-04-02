@@ -25,6 +25,9 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
 
   bool isSaving = false;
   bool isLoadingCurrentState = true;
+  bool isLoadingRole = true;
+  bool isAdminUser = false;
+  String currentUserRole = '';
 
   String selectedEventType = 'entry';
   String? currentStatus; // inside / outside / unknown
@@ -40,13 +43,62 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
   @override
   void initState() {
     super.initState();
-    loadCurrentState();
+    initPage();
   }
 
   @override
   void dispose() {
     _noteCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> initPage() async {
+    await loadCurrentUserRole();
+    await loadCurrentState();
+  }
+
+  Future<void> loadCurrentUserRole() async {
+    setState(() {
+      isLoadingRole = true;
+    });
+
+    try {
+      final currentUser = _auth.currentUser;
+      if (currentUser == null) {
+        if (!mounted) return;
+        setState(() {
+          currentUserRole = '';
+          isAdminUser = false;
+          isLoadingRole = false;
+        });
+        return;
+      }
+
+      final userDoc =
+          await _firestore.collection('users').doc(currentUser.uid).get();
+      final data = userDoc.data() ?? {};
+      final role = (data['role'] ?? '').toString().trim().toLowerCase();
+
+      if (!mounted) return;
+      setState(() {
+        currentUserRole = role;
+        isAdminUser = role == 'admin';
+        isLoadingRole = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        currentUserRole = '';
+        isAdminUser = false;
+        isLoadingRole = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('حدث خطأ أثناء التحقق من الصلاحية: $e'),
+        ),
+      );
+    }
   }
 
   Future<void> loadCurrentState() async {
@@ -127,7 +179,8 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
       };
     }
 
-    final userDoc = await _firestore.collection('users').doc(currentUser.uid).get();
+    final userDoc =
+        await _firestore.collection('users').doc(currentUser.uid).get();
     final data = userDoc.data() ?? {};
 
     return {
@@ -138,6 +191,15 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
   }
 
   Future<void> saveEntryExitEvent() async {
+    if (!isAdminUser) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('هذه الصفحة مخصصة للإدارة فقط'),
+        ),
+      );
+      return;
+    }
+
     if (isSaving) return;
 
     setState(() {
@@ -332,15 +394,16 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
         children: [
           _buildHeader(),
           const SizedBox(height: 16),
-          if (isLoadingCurrentState)
+          if (isLoadingRole || isLoadingCurrentState)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 20),
               child: CircularProgressIndicator(),
             )
           else ...[
+            if (!isAdminUser) _buildAccessDeniedCard(),
             _buildCurrentStatusCard(),
             const SizedBox(height: 16),
-            _buildFormCard(),
+            if (isAdminUser) _buildFormCard(),
           ],
           const SizedBox(height: 16),
           Expanded(
@@ -410,7 +473,10 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
                       final data = items[index]['data'] as Map<String, dynamic>;
                       final eventType = (data['eventType'] ?? '').toString();
                       final note = (data['note'] ?? '').toString();
-                      final createdByName = (data['createdByName'] ?? '').toString();
+                      final createdByName =
+                          (data['createdByName'] ?? '').toString();
+                      final createdByRole =
+                          (data['createdByRole'] ?? '').toString();
                       final time = extractTimestamp(data);
 
                       return _EntryExitLogCard(
@@ -418,6 +484,7 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
                         timeText: formatDateTime(time),
                         note: note,
                         createdByName: createdByName,
+                        createdByRole: createdByRole,
                         color: eventColor(eventType),
                         icon: eventIcon(eventType),
                       );
@@ -454,7 +521,7 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'سجل ${widget.child.name}',
+            'السجل الإداري لـ ${widget.child.name}',
             style: const TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.w800,
@@ -462,12 +529,42 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
             ),
           ),
           const SizedBox(height: 8),
-          Text(
-            'تسجيل دخول وخروج الطفل كأحداث مرنة مع حفظ وقت الحدث والملاحظة.',
-            style: const TextStyle(
+          const Text(
+            'هذه الصفحة مخصصة للإدارة فقط لتوثيق دخول وخروج طفل الحضانة كأحداث رسمية داخل النظام.',
+            style: TextStyle(
               fontSize: 14,
               color: AppColors.textLight,
               height: 1.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAccessDeniedCard() {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.red.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.red.withOpacity(0.22)),
+      ),
+      child: const Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.lock_outline_rounded, color: Colors.redAccent),
+          SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'هذه الصفحة مخصصة للإدارة فقط. يمكن لموظفة الحضانة الاطلاع على السجل، لكن لا يمكنها تسجيل دخول أو خروج من هنا.',
+              style: TextStyle(
+                color: AppColors.textDark,
+                height: 1.5,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ],
@@ -551,11 +648,13 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
               value: lastCreatedByName!,
             ),
           ],
-          const SizedBox(height: 10),
-          _InfoTile(
-            title: 'الحدث المقترح التالي',
-            value: suggestedNextActionText(),
-          ),
+          if (isAdminUser) ...[
+            const SizedBox(height: 10),
+            _InfoTile(
+              title: 'الحدث المقترح التالي',
+              value: suggestedNextActionText(),
+            ),
+          ],
         ],
       ),
     );
@@ -601,7 +700,7 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
           Align(
             alignment: Alignment.centerRight,
             child: Text(
-              'معبأ تلقائيًا حسب آخر حالة، ويمكنك تغييره عند الحاجة.',
+              'معبأ تلقائيًا حسب آخر حالة، ويمكن للإدارة تغييره عند الحاجة.',
               style: TextStyle(
                 fontSize: 12.5,
                 color: AppColors.textLight.withOpacity(0.9),
@@ -614,7 +713,7 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
             controller: _noteCtrl,
             maxLines: 3,
             decoration: const InputDecoration(
-              labelText: 'ملاحظة',
+              labelText: 'ملاحظة إدارية',
               hintText: 'أدخلي ملاحظة إضافية إن وجدت',
               alignLabelWithHint: true,
             ),
@@ -676,7 +775,7 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
           ),
           SizedBox(height: 6),
           Text(
-            'عند تسجيل أول حدث سيظهر هنا مباشرة.',
+            'عند تسجيل أول حدث إداري سيظهر هنا مباشرة.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 13.5,
@@ -695,6 +794,7 @@ class _EntryExitLogCard extends StatelessWidget {
   final String timeText;
   final String note;
   final String createdByName;
+  final String createdByRole;
   final Color color;
   final IconData icon;
 
@@ -703,9 +803,21 @@ class _EntryExitLogCard extends StatelessWidget {
     required this.timeText,
     required this.note,
     required this.createdByName,
+    required this.createdByRole,
     required this.color,
     required this.icon,
   });
+
+  String roleLabel(String value) {
+    final role = value.trim().toLowerCase();
+    if (role == 'admin') return 'الإدارة';
+    if (role == 'teacher') return 'معلمة';
+    if (role == 'nursery_staff' || role == 'nursery staff' || role == 'nursery') {
+      return 'موظفة حضانة';
+    }
+    if (role == 'parent') return 'ولي أمر';
+    return value;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -764,7 +876,9 @@ class _EntryExitLogCard extends StatelessWidget {
             const SizedBox(height: 10),
             _InfoTile(
               title: 'سُجّل بواسطة',
-              value: createdByName,
+              value: createdByRole.trim().isNotEmpty
+                  ? '$createdByName - ${roleLabel(createdByRole)}'
+                  : createdByName,
             ),
           ],
           if (note.trim().isNotEmpty) ...[

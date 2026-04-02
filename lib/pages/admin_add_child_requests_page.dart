@@ -6,16 +6,15 @@ import '../theme/app_theme.dart';
 import '../utils/child_section_utils.dart';
 import '../widgets/app_page_scaffold.dart';
 
-class AdminRegistrationRequestsPage extends StatefulWidget {
-  const AdminRegistrationRequestsPage({super.key});
+class AdminAddChildRequestsPage extends StatefulWidget {
+  const AdminAddChildRequestsPage({super.key});
 
   @override
-  State<AdminRegistrationRequestsPage> createState() =>
-      _AdminRegistrationRequestsPageState();
+  State<AdminAddChildRequestsPage> createState() =>
+      _AdminAddChildRequestsPageState();
 }
 
-class _AdminRegistrationRequestsPageState
-    extends State<AdminRegistrationRequestsPage> {
+class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
@@ -47,16 +46,13 @@ class _AdminRegistrationRequestsPageState
     }
   }
 
-  DateTime? _parseRequestBirthDate(dynamic value) {
+  DateTime? _parseBirthDate(dynamic value) {
     if (value == null) return null;
-
     if (value is Timestamp) return value.toDate();
     if (value is DateTime) return value;
-
     if (value is String && value.trim().isNotEmpty) {
       return DateTime.tryParse(value.trim());
     }
-
     return null;
   }
 
@@ -71,10 +67,9 @@ class _AdminRegistrationRequestsPageState
     }
 
     try {
-      final doc =
-          await _firestore.collection('users').doc(currentUser.uid).get();
-
+      final doc = await _firestore.collection('users').doc(currentUser.uid).get();
       final data = doc.data() ?? {};
+
       final displayName = (data['name'] ??
               data['displayName'] ??
               data['fullName'] ??
@@ -96,23 +91,15 @@ class _AdminRegistrationRequestsPageState
 
   Future<List<Map<String, dynamic>>> _loadRequests() async {
     final snapshot = await _firestore
-        .collection('registration_requests')
+        .collection('add_child_requests')
         .orderBy('createdAt', descending: true)
         .get();
 
-    final docs = snapshot.docs.map((doc) {
-      final data = doc.data();
+    List<Map<String, dynamic>> items = snapshot.docs.map((doc) {
       return {
         'id': doc.id,
-        ...data,
+        ...doc.data(),
       };
-    }).toList();
-
-    List<Map<String, dynamic>> items = docs.where((item) {
-      final requestType = (item['requestType'] ?? '').toString().trim();
-      return requestType == 'parent_registration' ||
-          requestType == 'parent' ||
-          requestType.isEmpty;
     }).toList();
 
     if (selectedStatus != 'all') {
@@ -126,25 +113,20 @@ class _AdminRegistrationRequestsPageState
       final q = searchText.trim().toLowerCase();
 
       items = items.where((item) {
-        final parentInfo =
-            (item['parentInfo'] as Map<String, dynamic>?) ?? <String, dynamic>{};
-        final childrenInfo =
-            (item['childrenInfo'] as List<dynamic>?) ?? <dynamic>[];
+        final parentName = (item['parentName'] ?? '').toString();
+        final parentUsername = (item['parentUsername'] ?? '').toString();
+        final parentEmail = (item['parentEmail'] ?? '').toString();
 
-        final fullName =
-            (parentInfo['fullName'] ?? parentInfo['name'] ?? '').toString();
-        final username = (parentInfo['username'] ?? '').toString();
-        final email = (parentInfo['email'] ?? '').toString();
+        final childInfo =
+            (item['childInfo'] as Map<String, dynamic>?) ?? <String, dynamic>{};
 
-        final childNames = childrenInfo
-            .map(
-              (e) => (e is Map ? (e['fullName'] ?? e['name'] ?? '') : '')
-                  .toString(),
-            )
-            .join(' ');
+        final childName =
+            (childInfo['fullName'] ?? childInfo['name'] ?? '').toString();
+        final childIdentity = (childInfo['identityNumber'] ?? '').toString();
 
         final combined =
-            '$fullName $username $email $childNames'.toLowerCase();
+            '$parentName $parentUsername $parentEmail $childName $childIdentity'
+                .toLowerCase();
 
         return combined.contains(q);
       }).toList();
@@ -153,24 +135,28 @@ class _AdminRegistrationRequestsPageState
     return items;
   }
 
-  Future<bool> _usernameExists(String username) async {
-    final snapshot = await _firestore
-        .collection('users')
-        .where('username', isEqualTo: username)
-        .limit(1)
-        .get();
-
-    return snapshot.docs.isNotEmpty;
-  }
-
-  Future<bool> _emailExists(String email) async {
-    final snapshot = await _firestore
-        .collection('users')
-        .where('email', isEqualTo: email)
-        .limit(1)
-        .get();
-
-    return snapshot.docs.isNotEmpty;
+  Future<void> _createParentNotification({
+    required String parentUsername,
+    required String title,
+    required String body,
+    required String requestId,
+    required String childName,
+    required String status,
+    String reviewNote = '',
+  }) async {
+    await _firestore.collection('notifications').add({
+      'parentUsername': parentUsername.trim().toLowerCase(),
+      'title': title.trim(),
+      'body': body.trim(),
+      'message': body.trim(),
+      'type': 'add_child_request',
+      'requestId': requestId,
+      'childName': childName.trim(),
+      'status': status,
+      'reviewNote': reviewNote.trim(),
+      'isRead': false,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
   }
 
   Future<void> _updateRequestStatus({
@@ -181,7 +167,7 @@ class _AdminRegistrationRequestsPageState
   }) async {
     final adminInfo = await _getCurrentAdminInfo();
 
-    await _firestore.collection('registration_requests').doc(requestId).update({
+    await _firestore.collection('add_child_requests').doc(requestId).update({
       'status': newStatus,
       'reviewNote': reviewNote.trim(),
       'reviewedByUid': adminInfo['uid'],
@@ -192,14 +178,44 @@ class _AdminRegistrationRequestsPageState
     });
   }
 
+  Future<bool> _childAlreadyExistsForParent({
+    required String parentUid,
+    required String childName,
+    required DateTime birthDate,
+  }) async {
+    final snapshot = await _firestore
+        .collection('children')
+        .where('parentUid', isEqualTo: parentUid)
+        .where('isActive', isEqualTo: true)
+        .get();
+
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      final existingName =
+          (data['fullName'] ?? data['name'] ?? '').toString().trim();
+      final existingBirthDate = data['birthDate'];
+
+      DateTime? existingDate;
+      if (existingBirthDate is Timestamp) {
+        existingDate = existingBirthDate.toDate();
+      }
+
+      if (existingName == childName.trim() &&
+          existingDate != null &&
+          existingDate.year == birthDate.year &&
+          existingDate.month == birthDate.month &&
+          existingDate.day == birthDate.day) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   Future<void> _approveRequest(Map<String, dynamic> item) async {
     if (isProcessing) return;
 
     final requestId = item['id'].toString();
-    final parentInfo =
-        (item['parentInfo'] as Map<String, dynamic>?) ?? <String, dynamic>{};
-    final childrenInfo =
-        (item['childrenInfo'] as List<dynamic>?) ?? <dynamic>[];
     final currentStatus = (item['status'] ?? 'pending').toString();
 
     if (currentStatus == 'approved') {
@@ -207,14 +223,23 @@ class _AdminRegistrationRequestsPageState
       return;
     }
 
-    final parentName =
-        (parentInfo['fullName'] ?? parentInfo['name'] ?? '').toString().trim();
-    final rawUsername =
-        (parentInfo['username'] ?? '').toString().trim().toLowerCase();
-    final email = (parentInfo['email'] ?? '').toString().trim();
+    final parentUid = (item['parentUid'] ?? '').toString().trim();
+    final parentName = (item['parentName'] ?? '').toString().trim();
+    final parentUsername = (item['parentUsername'] ?? '').toString().trim();
+    final childInfo =
+        (item['childInfo'] as Map<String, dynamic>?) ?? <String, dynamic>{};
 
-    if (parentName.isEmpty || rawUsername.isEmpty || email.isEmpty) {
-      _showSnack('الطلب ناقص: الاسم أو اسم المستخدم أو البريد الإلكتروني');
+    final childName =
+        (childInfo['fullName'] ?? childInfo['name'] ?? '').toString().trim();
+    final childBirthDate = _parseBirthDate(childInfo['birthDate']);
+
+    if (parentUid.isEmpty || parentUsername.isEmpty || childName.isEmpty) {
+      _showSnack('الطلب ناقص: بيانات ولي الأمر أو الطفل غير مكتملة');
+      return;
+    }
+
+    if (childBirthDate == null) {
+      _showSnack('تاريخ ميلاد الطفل غير موجود أو غير صالح');
       return;
     }
 
@@ -228,13 +253,12 @@ class _AdminRegistrationRequestsPageState
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(22),
           ),
-          title: const Text('الموافقة على الطلب'),
+          title: const Text('الموافقة على طلب إضافة الطفل'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               const Text(
-                'سيتم اعتماد الطلب وإنشاء بيانات ولي الأمر والأطفال داخل Firestore فقط.\n\n'
-                'لن يتم إنشاء حساب تسجيل دخول فعلي في Firebase Auth في هذه المرحلة، لأن كلمة المرور لا يتم تخزينها داخل طلب التسجيل.',
+                'سيتم إنشاء سجل طفل جديد وربطه مباشرة بحساب ولي الأمر داخل Firestore.',
                 textAlign: TextAlign.center,
                 style: TextStyle(height: 1.6),
               ),
@@ -273,150 +297,106 @@ class _AdminRegistrationRequestsPageState
     });
 
     try {
-      final usernameExists = await _usernameExists(rawUsername);
-      if (usernameExists) {
-        _showSnack('اسم المستخدم موجود مسبقًا داخل users');
+      final sectionResult =
+          ChildSectionUtils.resolveSectionAndGroup(childBirthDate);
+      final resolvedSection = sectionResult.section;
+
+      if (resolvedSection == 'OutOfRange') {
+        _showSnack('عمر الطفل أكبر من نطاق الحضانة/الروضة في النظام الحالي');
         return;
       }
 
-      final emailExists = await _emailExists(email);
-      if (emailExists) {
-        _showSnack('البريد الإلكتروني موجود مسبقًا داخل users');
+      final alreadyExists = await _childAlreadyExistsForParent(
+        parentUid: parentUid,
+        childName: childName,
+        birthDate: childBirthDate,
+      );
+
+      if (alreadyExists) {
+        _showSnack('هذا الطفل مرتبط بالفعل بحساب ولي الأمر');
         return;
-      }
-
-      for (final rawChild in childrenInfo) {
-        final child = Map<String, dynamic>.from(rawChild as Map);
-        final childBirthDate = _parseRequestBirthDate(child['birthDate']);
-        final sectionResult =
-            ChildSectionUtils.resolveSectionAndGroup(childBirthDate);
-        final resolvedSection = sectionResult.section;
-
-        if (resolvedSection == 'OutOfRange') {
-          _showSnack('يوجد طفل عمره أكبر من نطاق الحضانة/الروضة في النظام الحالي');
-          return;
-        }
       }
 
       final adminInfo = await _getCurrentAdminInfo();
-      final parentDocRef = _firestore.collection('users').doc();
+      final childDocRef = _firestore.collection('children').doc();
+
+      final resolvedGroup =
+          ChildSectionUtils.shouldShowGroupField(resolvedSection)
+              ? (childInfo['group'] ?? '').toString().trim()
+              : '';
 
       await _firestore.runTransaction((transaction) async {
-        transaction.set(parentDocRef, {
-          'uid': parentDocRef.id,
-          'name': parentName,
-          'displayName': parentName,
-          'fullName': parentName,
-          'username': rawUsername,
-          'email': email,
-          'role': 'parent',
+        transaction.set(childDocRef, {
+          'name': childName,
+          'fullName': childName,
+          'identityNumber': (childInfo['identityNumber'] ?? '').toString().trim(),
+          'gender': (childInfo['gender'] ?? '').toString().trim(),
+          'birthDate': Timestamp.fromDate(childBirthDate),
+          'section': resolvedSection,
+          'group': resolvedGroup,
+          'status': 'active',
           'isActive': true,
-          'isProfileCompleted': true,
+          'hasChronicDiseases':
+              (childInfo['hasChronicDiseases'] ?? false) == true,
+          'chronicDiseases': (childInfo['chronicDiseases'] ?? '').toString(),
+          'hasAllergies': (childInfo['hasAllergies'] ?? false) == true,
+          'allergies': (childInfo['allergies'] ?? '').toString(),
+          'takesMedications': (childInfo['takesMedications'] ?? false) == true,
+          'medications': (childInfo['medications'] ?? '').toString(),
+          'hasDietaryRestrictions':
+              (childInfo['hasDietaryRestrictions'] ?? false) == true,
+          'dietaryRestrictions':
+              (childInfo['dietaryRestrictions'] ?? '').toString(),
+          'hasSpecialNeeds': (childInfo['hasSpecialNeeds'] ?? false) == true,
+          'specialNeeds': (childInfo['specialNeeds'] ?? '').toString(),
+          'healthNotes': (childInfo['healthNotes'] ?? '').toString(),
+          'bloodType': (childInfo['bloodType'] ?? '').toString(),
+          'dietInstructions': (childInfo['dietInstructions'] ?? '').toString(),
+          'specialInstructions':
+              (childInfo['specialInstructions'] ?? '').toString(),
+          'authorizedPickupContacts':
+              childInfo['authorizedPickupContacts'] ?? [],
+          'parentUid': parentUid,
+          'parentUsername': parentUsername,
+          'parentName': parentName,
           'createdAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
           'createdByUid': adminInfo['uid'],
           'createdByName': adminInfo['name'],
+          'createdByRole': 'admin',
           'createdFromRequestId': requestId,
-          'phone': parentInfo['phone'] ?? parentInfo['mobile'] ?? '',
-          'alternatePhone': parentInfo['alternatePhone'] ?? '',
-          'city': parentInfo['city'] ?? '',
-          'address': parentInfo['address'] ?? '',
-          'gender': parentInfo['gender'] ?? '',
-          'birthDate': parentInfo['birthDate'],
-          'identityNumber': parentInfo['identityNumber'] ?? '',
-          'relationship': parentInfo['relationship'] ?? '',
-          'maritalStatus': parentInfo['maritalStatus'] ?? '',
-          'jobTitle': parentInfo['jobTitle'] ?? parentInfo['profession'] ?? '',
-          'workplace': parentInfo['workplace'] ?? '',
-          'workPhone': parentInfo['workPhone'] ?? '',
-          'bestContactTime': parentInfo['bestContactTime'] ?? '',
-          'emergencyContactName': parentInfo['emergencyContactName'] ?? '',
-          'emergencyContactRelation':
-              parentInfo['emergencyContactRelation'] ?? '',
-          'emergencyContactPhone': parentInfo['emergencyContactPhone'] ?? '',
-          'notes': parentInfo['notes'] ?? '',
-          'accountSource': 'registration_request',
-          'authAccountCreated': false,
-          'accountStatus': 'pending_auth_setup',
-          'passwordStored': false,
+          'history': [],
         });
 
-        for (final rawChild in childrenInfo) {
-          final child = Map<String, dynamic>.from(rawChild as Map);
-
-          final childBirthDate = _parseRequestBirthDate(child['birthDate']);
-          final sectionResult =
-              ChildSectionUtils.resolveSectionAndGroup(childBirthDate);
-          final resolvedSection = sectionResult.section;
-          final resolvedGroup =
-              ChildSectionUtils.shouldShowGroupField(resolvedSection)
-                  ? (child['group'] ?? '').toString().trim()
-                  : '';
-
-          final childDocRef = _firestore.collection('children').doc();
-
-          transaction.set(childDocRef, {
-            'name': (child['fullName'] ?? child['name'] ?? '').toString().trim(),
-            'fullName':
-                (child['fullName'] ?? child['name'] ?? '').toString().trim(),
-            'identityNumber': (child['identityNumber'] ?? '').toString().trim(),
-            'gender': (child['gender'] ?? '').toString().trim(),
-            'birthDate': childBirthDate == null
-                ? null
-                : Timestamp.fromDate(childBirthDate),
-            'section': resolvedSection,
-            'group': resolvedGroup,
-            'status': 'active',
-            'isActive': true,
-            'hasChronicDiseases': (child['hasChronicDiseases'] ?? false) == true,
-            'chronicDiseases': (child['chronicDiseases'] ?? '').toString(),
-            'hasAllergies': (child['hasAllergies'] ?? false) == true,
-            'allergies': (child['allergies'] ?? '').toString(),
-            'takesMedications': (child['takesMedications'] ?? false) == true,
-            'medications': (child['medications'] ?? '').toString(),
-            'hasDietaryRestrictions':
-                (child['hasDietaryRestrictions'] ?? false) == true,
-            'dietaryRestrictions':
-                (child['dietaryRestrictions'] ?? '').toString(),
-            'hasSpecialNeeds': (child['hasSpecialNeeds'] ?? false) == true,
-            'specialNeeds': (child['specialNeeds'] ?? '').toString(),
-            'healthNotes': (child['healthNotes'] ?? '').toString(),
-            'bloodType': (child['bloodType'] ?? '').toString(),
-            'dietInstructions': (child['dietInstructions'] ?? '').toString(),
-            'specialInstructions':
-                (child['specialInstructions'] ?? '').toString(),
-            'authorizedPickupContacts': child['authorizedPickupContacts'] ?? [],
-            'parentUid': parentDocRef.id,
-            'parentUsername': rawUsername,
-            'parentName': parentName,
-            'createdAt': FieldValue.serverTimestamp(),
+        transaction.update(
+          _firestore.collection('add_child_requests').doc(requestId),
+          {
+            'status': 'approved',
+            'reviewNote': noteController.text.trim(),
+            'reviewedByUid': adminInfo['uid'],
+            'reviewedByName': adminInfo['name'],
+            'reviewedAt': FieldValue.serverTimestamp(),
             'updatedAt': FieldValue.serverTimestamp(),
-            'createdByUid': adminInfo['uid'],
-            'createdByName': adminInfo['name'],
-            'createdFromRequestId': requestId,
-            'history': [],
-          });
-        }
+            'createdChildId': childDocRef.id,
+            'approvalSection': resolvedSection,
+            'approvalGroup': resolvedGroup,
+          },
+        );
       });
 
-      await _updateRequestStatus(
+      await _createParentNotification(
+        parentUsername: parentUsername,
+        title: 'تمت الموافقة على طلب إضافة الطفل',
+        body: 'تمت إضافة الطفل $childName إلى حسابك بنجاح.',
         requestId: requestId,
-        newStatus: 'approved',
-        reviewNote: noteController.text,
-        extraData: {
-          'processedToUserDoc': true,
-          'processedChildrenCount': childrenInfo.length,
-          'linkedParentUsername': rawUsername,
-          'linkedParentName': parentName,
-          'authAccountCreated': false,
-          'passwordStored': false,
-          'approvalMode': 'firestore_only',
-        },
+        childName: childName,
+        status: 'approved',
+        reviewNote: noteController.text.trim(),
       );
 
       if (!mounted) return;
 
-      _showSnack('تمت الموافقة وإنشاء بيانات ولي الأمر والأطفال داخل Firestore');
+      _showSnack('تمت الموافقة على الطلب وإضافة الطفل بنجاح');
       setState(() {});
     } catch (e) {
       _showSnack('حدث خطأ أثناء تنفيذ الموافقة: $e');
@@ -434,6 +414,11 @@ class _AdminRegistrationRequestsPageState
 
     final requestId = item['id'].toString();
     final noteController = TextEditingController();
+    final childInfo =
+        (item['childInfo'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+    final parentUsername = (item['parentUsername'] ?? '').toString().trim();
+    final childName =
+        (childInfo['fullName'] ?? childInfo['name'] ?? '').toString().trim();
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -443,7 +428,7 @@ class _AdminRegistrationRequestsPageState
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(22),
           ),
-          title: const Text('رفض الطلب'),
+          title: const Text('رفض طلب إضافة الطفل'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -496,6 +481,16 @@ class _AdminRegistrationRequestsPageState
         reviewNote: noteController.text,
       );
 
+      await _createParentNotification(
+        parentUsername: parentUsername,
+        title: 'تم رفض طلب إضافة الطفل',
+        body: 'تم رفض طلب إضافة الطفل $childName.',
+        requestId: requestId,
+        childName: childName,
+        status: 'rejected',
+        reviewNote: noteController.text.trim(),
+      );
+
       if (!mounted) return;
       _showSnack('تم رفض الطلب وتحديث حالته');
       setState(() {});
@@ -511,15 +506,34 @@ class _AdminRegistrationRequestsPageState
   }
 
   void _showRequestDetails(Map<String, dynamic> item) {
-    final parentInfo =
-        (item['parentInfo'] as Map<String, dynamic>?) ?? <String, dynamic>{};
-    final childrenInfo =
-        (item['childrenInfo'] as List<dynamic>?) ?? <dynamic>[];
     final status = (item['status'] ?? 'pending').toString();
     final reviewNote = (item['reviewNote'] ?? '').toString();
     final reviewedByName = (item['reviewedByName'] ?? '').toString();
-    final linkedParentUsername =
-        (item['linkedParentUsername'] ?? '').toString().trim();
+
+    final childInfo =
+        (item['childInfo'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+
+    final birthDate = _parseBirthDate(childInfo['birthDate']);
+    final sectionResult = ChildSectionUtils.resolveSectionAndGroup(birthDate);
+    final resolvedSection = sectionResult.section;
+    final resolvedGroup = ChildSectionUtils.shouldShowGroupField(resolvedSection)
+        ? (childInfo['group'] ?? '').toString().trim()
+        : '';
+
+    final sectionText = ChildSectionUtils.sectionArabicLabel(resolvedSection);
+    final groupText = resolvedGroup.isEmpty ? '-' : resolvedGroup;
+
+    final hasChronicDiseases =
+        (childInfo['hasChronicDiseases'] ?? false) == true;
+    final hasAllergies = (childInfo['hasAllergies'] ?? false) == true;
+    final takesMedications = (childInfo['takesMedications'] ?? false) == true;
+    final hasDietaryRestrictions =
+        (childInfo['hasDietaryRestrictions'] ?? false) == true;
+    final hasSpecialNeeds = (childInfo['hasSpecialNeeds'] ?? false) == true;
+
+    final pickupContacts =
+        (childInfo['authorizedPickupContacts'] as List<dynamic>?) ??
+            <dynamic>[];
 
     showModalBottomSheet(
       context: context,
@@ -563,134 +577,88 @@ class _AdminRegistrationRequestsPageState
                   _InfoBox(
                     title: 'بيانات ولي الأمر',
                     children: [
-                      _InfoRow(
-                        'الاسم',
-                        '${parentInfo['fullName'] ?? parentInfo['name'] ?? '-'}',
-                      ),
+                      _InfoRow('الاسم', '${item['parentName'] ?? '-'}'),
                       _InfoRow(
                         'اسم المستخدم',
-                        '${parentInfo['username'] ?? '-'}',
+                        '${item['parentUsername'] ?? '-'}',
                       ),
                       _InfoRow(
                         'البريد الإلكتروني',
-                        '${parentInfo['email'] ?? '-'}',
-                      ),
-                      _InfoRow(
-                        'رقم الجوال',
-                        '${parentInfo['phone'] ?? parentInfo['mobile'] ?? '-'}',
-                      ),
-                      _InfoRow(
-                        'الجوال البديل',
-                        '${parentInfo['alternatePhone'] ?? '-'}',
-                      ),
-                      _InfoRow(
-                        'رقم الهوية',
-                        '${parentInfo['identityNumber'] ?? '-'}',
-                      ),
-                      _InfoRow('المدينة', '${parentInfo['city'] ?? '-'}'),
-                      _InfoRow('العنوان', '${parentInfo['address'] ?? '-'}'),
-                      _InfoRow(
-                        'صلة القرابة',
-                        '${parentInfo['relationship'] ?? '-'}',
-                      ),
-                      _InfoRow(
-                        'الحالة الاجتماعية',
-                        '${parentInfo['maritalStatus'] ?? '-'}',
+                        '${item['parentEmail'] ?? '-'}',
                       ),
                     ],
                   ),
                   const SizedBox(height: 14),
                   _InfoBox(
-                    title: 'الأطفال',
-                    children: childrenInfo.isEmpty
-                        ? [const _InfoRow('لا يوجد أطفال', '-')]
-                        : childrenInfo.asMap().entries.expand((entry) {
-                            final rawChild = entry.value;
-                            final child = rawChild is Map<String, dynamic>
-                                ? rawChild
-                                : Map<String, dynamic>.from(rawChild as Map);
-
-                            final birthDate =
-                                _parseRequestBirthDate(child['birthDate']);
-                            final sectionResult =
-                                ChildSectionUtils.resolveSectionAndGroup(
-                              birthDate,
-                            );
-                            final resolvedSection = sectionResult.section;
-                            final resolvedGroup =
-                                ChildSectionUtils.shouldShowGroupField(
-                              resolvedSection,
-                            )
-                                    ? (child['group'] ?? '').toString().trim()
-                                    : '';
-
-                            final sectionText =
-                                ChildSectionUtils.sectionArabicLabel(
-                              resolvedSection,
-                            );
-                            final groupText = resolvedGroup.isEmpty
-                                ? ''
-                                : ' • $resolvedGroup';
-
-                            final ageWarning = resolvedSection == 'OutOfRange'
-                                ? ' • العمر أكبر من نطاق النظام'
-                                : '';
-
-                            final hasChronicDiseases =
-                                (child['hasChronicDiseases'] ?? false) == true;
-                            final hasAllergies =
-                                (child['hasAllergies'] ?? false) == true;
-                            final takesMedications =
-                                (child['takesMedications'] ?? false) == true;
-                            final hasDietaryRestrictions =
-                                (child['hasDietaryRestrictions'] ?? false) ==
-                                    true;
-                            final hasSpecialNeeds =
-                                (child['hasSpecialNeeds'] ?? false) == true;
+                    title: 'بيانات الطفل',
+                    children: [
+                      _InfoRow(
+                        'الاسم',
+                        '${childInfo['fullName'] ?? childInfo['name'] ?? '-'}',
+                      ),
+                      _InfoRow(
+                        'رقم الهوية',
+                        '${childInfo['identityNumber'] ?? '-'}',
+                      ),
+                      _InfoRow('القسم', sectionText),
+                      _InfoRow('المجموعة / الصف', groupText),
+                      _InfoRow(
+                        'الأمراض المزمنة',
+                        hasChronicDiseases
+                            ? '${childInfo['chronicDiseases'] ?? '-'}'
+                            : 'لا',
+                      ),
+                      _InfoRow(
+                        'الحساسية',
+                        hasAllergies ? '${childInfo['allergies'] ?? '-'}' : 'لا',
+                      ),
+                      _InfoRow(
+                        'الأدوية',
+                        takesMedications
+                            ? '${childInfo['medications'] ?? '-'}'
+                            : 'لا',
+                      ),
+                      _InfoRow(
+                        'القيود الغذائية',
+                        hasDietaryRestrictions
+                            ? '${childInfo['dietaryRestrictions'] ?? '-'}'
+                            : 'لا',
+                      ),
+                      _InfoRow(
+                        'الاحتياجات الخاصة',
+                        hasSpecialNeeds
+                            ? '${childInfo['specialNeeds'] ?? '-'}'
+                            : 'لا',
+                      ),
+                      _InfoRow(
+                        'ملاحظات صحية',
+                        '${childInfo['healthNotes'] ?? '-'}',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  _InfoBox(
+                    title: 'المخولون بالاستلام',
+                    children: pickupContacts.isEmpty
+                        ? [const _InfoRow('لا يوجد', '-')]
+                        : pickupContacts.asMap().entries.expand((entry) {
+                            final rawPickup = entry.value;
+                            final pickup = rawPickup is Map<String, dynamic>
+                                ? rawPickup
+                                : Map<String, dynamic>.from(rawPickup as Map);
 
                             return [
                               _InfoRow(
-                                'الطفل ${entry.key + 1}',
-                                '${child['fullName'] ?? child['name'] ?? '-'}'
-                                ' • $sectionText$groupText$ageWarning',
+                                'الشخص ${entry.key + 1}',
+                                '${pickup['name'] ?? '-'}',
                               ),
                               _InfoRow(
-                                'هوية الطفل',
-                                '${child['identityNumber'] ?? '-'}',
+                                'صلة القرابة',
+                                '${pickup['relation'] ?? '-'}',
                               ),
                               _InfoRow(
-                                'الأمراض المزمنة',
-                                hasChronicDiseases
-                                    ? '${child['chronicDiseases'] ?? '-'}'
-                                    : 'لا',
-                              ),
-                              _InfoRow(
-                                'الحساسية',
-                                hasAllergies
-                                    ? '${child['allergies'] ?? '-'}'
-                                    : 'لا',
-                              ),
-                              _InfoRow(
-                                'الأدوية',
-                                takesMedications
-                                    ? '${child['medications'] ?? '-'}'
-                                    : 'لا',
-                              ),
-                              _InfoRow(
-                                'القيود الغذائية',
-                                hasDietaryRestrictions
-                                    ? '${child['dietaryRestrictions'] ?? '-'}'
-                                    : 'لا',
-                              ),
-                              _InfoRow(
-                                'الاحتياجات الخاصة',
-                                hasSpecialNeeds
-                                    ? '${child['specialNeeds'] ?? '-'}'
-                                    : 'لا',
-                              ),
-                              _InfoRow(
-                                'ملاحظات صحية',
-                                '${child['healthNotes'] ?? '-'}',
+                                'رقم الجوال',
+                                '${pickup['phone'] ?? '-'}',
                               ),
                               const _InfoRow('—', '—'),
                             ];
@@ -701,25 +669,20 @@ class _AdminRegistrationRequestsPageState
                     title: 'الحالة الحالية',
                     children: [
                       _InfoRow('الحالة', _statusLabel(status)),
-                      if (status == 'pending') ...[
+                      if (status == 'pending')
                         const _InfoRow(
                           'متابعة الطلب',
                           'الطلب بانتظار مراجعة الإدارة',
                         ),
-                      ],
                       if (status == 'approved') ...[
                         _InfoRow(
                           'تمت المراجعة بواسطة',
                           reviewedByName.isEmpty ? '-' : reviewedByName,
                         ),
                         _InfoRow(
-                          'اسم المستخدم المرتبط',
-                          linkedParentUsername.isEmpty
-                              ? '-'
-                              : linkedParentUsername,
+                          'ملاحظة المراجعة',
+                          reviewNote.trim().isEmpty ? '-' : reviewNote,
                         ),
-                        if (reviewNote.trim().isNotEmpty)
-                          _InfoRow('ملاحظة المراجعة', reviewNote),
                       ],
                       if (status == 'rejected') ...[
                         _InfoRow(
@@ -813,19 +776,52 @@ class _AdminRegistrationRequestsPageState
     );
   }
 
+  Widget _buildSectionBadge(String section) {
+    Color color;
+    String text = ChildSectionUtils.sectionArabicLabel(section);
+
+    switch (section) {
+      case 'Nursery':
+        color = const Color(0xFFEFA7C8);
+        break;
+      case 'Kindergarten':
+        color = const Color(0xFF7BB6FF);
+        break;
+      default:
+        color = Colors.redAccent;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.14),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.w700,
+          fontSize: 12.5,
+        ),
+      ),
+    );
+  }
+
   Widget _buildRequestCard(Map<String, dynamic> item) {
-    final parentInfo =
-        (item['parentInfo'] as Map<String, dynamic>?) ?? <String, dynamic>{};
-    final childrenInfo =
-        (item['childrenInfo'] as List<dynamic>?) ?? <dynamic>[];
     final status = (item['status'] ?? 'pending').toString();
     final createdAt = item['createdAt'] as Timestamp?;
+    final childInfo =
+        (item['childInfo'] as Map<String, dynamic>?) ?? <String, dynamic>{};
 
-    final parentName =
-        (parentInfo['fullName'] ?? parentInfo['name'] ?? '-').toString();
-    final username = (parentInfo['username'] ?? '-').toString();
-    final phone =
-        (parentInfo['phone'] ?? parentInfo['mobile'] ?? '-').toString();
+    final childName =
+        (childInfo['fullName'] ?? childInfo['name'] ?? '-').toString();
+    final parentName = (item['parentName'] ?? '-').toString();
+    final parentUsername = (item['parentUsername'] ?? '-').toString();
+
+    final birthDate = _parseBirthDate(childInfo['birthDate']);
+    final sectionResult = ChildSectionUtils.resolveSectionAndGroup(birthDate);
+    final resolvedSection = sectionResult.section;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -841,7 +837,7 @@ class _AdminRegistrationRequestsPageState
                   CircleAvatar(
                     backgroundColor: _statusColor(status).withOpacity(0.12),
                     child: Icon(
-                      Icons.assignment_ind_outlined,
+                      Icons.person_add_alt_1_outlined,
                       color: _statusColor(status),
                     ),
                   ),
@@ -851,7 +847,7 @@ class _AdminRegistrationRequestsPageState
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          parentName,
+                          childName,
                           style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w800,
@@ -860,42 +856,60 @@ class _AdminRegistrationRequestsPageState
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          '@$username',
+                          'ولي الأمر: $parentName',
                           style: const TextStyle(
                             color: AppColors.textLight,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '@$parentUsername',
+                          style: const TextStyle(
+                            color: AppColors.textLight,
+                            fontSize: 12,
                           ),
                         ),
                       ],
                     ),
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: _statusColor(status).withOpacity(0.10),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      _statusLabel(status),
-                      style: TextStyle(
-                        color: _statusColor(status),
-                        fontWeight: FontWeight.w700,
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _statusColor(status).withOpacity(0.10),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          _statusLabel(status),
+                          style: TextStyle(
+                            color: _statusColor(status),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                       ),
-                    ),
+                      const SizedBox(height: 8),
+                      _buildSectionBadge(resolvedSection),
+                    ],
                   ),
                 ],
               ),
               const SizedBox(height: 14),
               Row(
                 children: [
-                  const Icon(Icons.phone_outlined,
-                      size: 18, color: AppColors.textLight),
+                  const Icon(
+                    Icons.badge_outlined,
+                    size: 18,
+                    color: AppColors.textLight,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      phone,
+                      'هوية الطفل: ${childInfo['identityNumber'] ?? '-'}',
                       style: const TextStyle(color: AppColors.textDark),
                     ),
                   ),
@@ -904,22 +918,11 @@ class _AdminRegistrationRequestsPageState
               const SizedBox(height: 8),
               Row(
                 children: [
-                  const Icon(Icons.child_care_outlined,
-                      size: 18, color: AppColors.textLight),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'عدد الأطفال: ${childrenInfo.length}',
-                      style: const TextStyle(color: AppColors.textDark),
-                    ),
+                  const Icon(
+                    Icons.calendar_today_outlined,
+                    size: 18,
+                    color: AppColors.textLight,
                   ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  const Icon(Icons.calendar_today_outlined,
-                      size: 18, color: AppColors.textLight),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -930,14 +933,47 @@ class _AdminRegistrationRequestsPageState
                 ],
               ),
               const SizedBox(height: 14),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () => _showRequestDetails(item),
-                  icon: const Icon(Icons.visibility_outlined),
-                  label: const Text('عرض التفاصيل'),
-                ),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _showRequestDetails(item),
+                      icon: const Icon(Icons.visibility_outlined),
+                      label: const Text('عرض التفاصيل'),
+                    ),
+                  ),
+                ],
               ),
+              if (status == 'pending') ...[
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: isProcessing ? null : () => _approveRequest(item),
+                        icon: const Icon(Icons.check_circle_outline),
+                        label: const Text('موافقة'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          minimumSize: const Size.fromHeight(48),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: isProcessing ? null : () => _rejectRequest(item),
+                        icon: const Icon(Icons.cancel_outlined),
+                        label: const Text('رفض'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.redAccent,
+                          minimumSize: const Size.fromHeight(48),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
@@ -948,7 +984,7 @@ class _AdminRegistrationRequestsPageState
   @override
   Widget build(BuildContext context) {
     return AppPageScaffold(
-      title: 'طلبات تسجيل أولياء الأمور',
+      title: 'طلبات إضافة الأطفال',
       child: Column(
         children: [
           Card(
@@ -960,7 +996,7 @@ class _AdminRegistrationRequestsPageState
                     textAlign: TextAlign.right,
                     decoration: InputDecoration(
                       hintText:
-                          'ابحثي بالاسم أو اسم المستخدم أو البريد أو اسم الطفل',
+                          'ابحثي باسم الطفل أو ولي الأمر أو اسم المستخدم أو البريد',
                       prefixIcon: const Icon(Icons.search),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(16),

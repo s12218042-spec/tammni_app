@@ -24,9 +24,9 @@ class ParentNurseryLogPage extends StatelessWidget {
   String eventLabel(String value) {
     switch (value) {
       case 'entry':
-        return 'دخول';
+        return 'دخول موثّق';
       case 'exit':
-        return 'خروج';
+        return 'خروج موثّق';
       default:
         return 'حدث';
     }
@@ -59,7 +59,7 @@ class ParentNurseryLogPage extends StatelessWidget {
     final firestore = FirebaseFirestore.instance;
 
     return AppPageScaffold(
-      title: 'سجل الدخول والخروج',
+      title: 'السجل الإداري للدخول والخروج',
       child: Column(
         children: [
           _buildHeader(),
@@ -159,9 +159,9 @@ class ParentNurseryLogPage extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          Text(
-            'يمكنك متابعة أوقات دخول وخروج الطفل من الحضانة.',
-            style: const TextStyle(
+          const Text(
+            'يمكنك متابعة السجل الإداري الموثّق لدخول وخروج الطفل من الحضانة.',
+            style: TextStyle(
               fontSize: 14,
               color: AppColors.textLight,
               height: 1.5,
@@ -201,7 +201,7 @@ class ParentNurseryLogPage extends StatelessWidget {
           ),
           SizedBox(height: 6),
           Text(
-            'عند تسجيل أول حدث سيظهر هنا مباشرة.',
+            'عند تسجيل أول حدث إداري سيظهر هنا مباشرة.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 13.5,

@@ -10,7 +10,7 @@ import 'weekly_report_page.dart';
 import 'parent_nursery_log_page.dart';
 import 'parent_handoff_log_page.dart';
 import 'parent_incident_reports_page.dart';
-import 'parent_notifications_page.dart';
+
 
 class ChildProfilePage extends StatefulWidget {
   final ChildModel child;
@@ -54,28 +54,30 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
     return Colors.green;
   }
 
-  String childAgeText(DateTime birthDate) {
-    final now = DateTime.now();
-    int years = now.year - birthDate.year;
-    int months = now.month - birthDate.month;
+   String childAgeText(DateTime? birthDate) {
+  if (birthDate == null) return 'غير محدد';
 
-    if (now.day < birthDate.day) {
-      months--;
-    }
+  final now = DateTime.now();
+  int years = now.year - birthDate.year;
+  int months = now.month - birthDate.month;
 
-    if (months < 0) {
-      years--;
-      months += 12;
-    }
-
-    if (years <= 0) {
-      return '$months شهر';
-    }
-    if (months == 0) {
-      return '$years سنة';
-    }
-    return '$years سنة و $months شهر';
+  if (now.day < birthDate.day) {
+    months--;
   }
+
+  if (months < 0) {
+    years--;
+    months += 12;
+  }
+
+  if (years <= 0) {
+    return '$months شهر';
+  }
+  if (months == 0) {
+    return '$years سنة';
+  }
+  return '$years سنة و $months شهر';
+}
 
   String firstLetter(String name) {
     if (name.trim().isEmpty) return 'ط';
@@ -103,7 +105,10 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
       'group': data['group'] ?? widget.child.group,
       'parentName': data['parentName'] ?? widget.child.parentName,
       'parentUsername': data['parentUsername'] ?? widget.child.parentUsername,
-      'birthDate': data['birthDate'] ?? Timestamp.fromDate(widget.child.birthDate),
+      'birthDate': data['birthDate'] ??
+    (widget.child.birthDate != null
+        ? Timestamp.fromDate(widget.child.birthDate!)
+        : null),
       'isActive': data['isActive'] ?? true,
       'status': data['status'] ?? 'active',
       'createdAt': data['createdAt'],
@@ -306,7 +311,7 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
             Expanded(
               child: buildActionButton(
                 context: context,
-                label: 'سجل الدخول والخروج',
+                label: 'السجل الإداري للدخول والخروج',
                 icon: Icons.login_outlined,
                 outlined: true,
                 onTap: () {
@@ -340,42 +345,26 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
         ),
         const SizedBox(height: 10),
         Row(
-          children: [
-            Expanded(
-              child: buildActionButton(
-                context: context,
-                label: 'بلاغات الحوادث',
-                icon: Icons.report_problem_outlined,
-                outlined: true,
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => ParentIncidentReportsPage(child: child),
-                    ),
-                  );
-                },
-              ),
+  children: [
+    Expanded(
+      child: buildActionButton(
+        context: context,
+        label: 'بلاغات الحوادث',
+        icon: Icons.report_problem_outlined,
+        outlined: true,
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ParentIncidentReportsPage(child: child),
             ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: buildActionButton(
-                context: context,
-                label: 'الإشعارات',
-                icon: Icons.notifications_active_outlined,
-                outlined: true,
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => ParentNotificationsPage(child: child),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
+          );
+        },
+      ),
+    ),
+  ],
+),
+const SizedBox(height: 10),
         const SizedBox(height: 10),
         buildActionButton(
           context: context,
@@ -677,11 +666,11 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
                 )
               else
                 const _StatusCard(
-                  icon: Icons.info_outline,
-                  color: AppColors.primary,
-                  title: 'نظام المتابعة',
-                  value: 'مرن حسب الزيارة والتحديثات والرعاية اليومية',
-                ),
+  icon: Icons.info_outline,
+  color: AppColors.primary,
+  title: 'نظام المتابعة',
+  value: 'مرن حسب الزيارة والتحديثات، مع توثيق الدخول والخروج من الإدارة',
+),
 
               const SizedBox(height: 18),
 
@@ -762,8 +751,8 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
 
               Text(
                 currentSection == 'Nursery'
-                    ? 'متابعة الحضانة'
-                    : 'إجراءات ومتابعة',
+    ? 'متابعة الحضانة والرعاية'
+    : 'إجراءات ومتابعة',
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),

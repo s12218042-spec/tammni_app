@@ -31,11 +31,11 @@ class _SendParentNotificationPageState
 
   final List<Map<String, String>> templates = const [
     {'value': 'custom', 'label': 'رسالة مخصصة'},
-    {'value': 'entry', 'label': 'تم تسجيل دخول الطفل'},
-    {'value': 'exit', 'label': 'تم تسجيل خروج الطفل'},
     {'value': 'media', 'label': 'تمت إضافة صورة/فيديو'},
     {'value': 'health', 'label': 'ملاحظة صحية'},
     {'value': 'supplies', 'label': 'يرجى إحضار مستلزمات'},
+    {'value': 'care', 'label': 'متابعة يومية'},
+    {'value': 'note', 'label': 'ملاحظة رعاية'},
   ];
 
   @override
@@ -55,7 +55,8 @@ class _SendParentNotificationPageState
       };
     }
 
-    final userDoc = await _firestore.collection('users').doc(currentUser.uid).get();
+    final userDoc =
+        await _firestore.collection('users').doc(currentUser.uid).get();
     final data = userDoc.data() ?? {};
 
     return {
@@ -69,10 +70,6 @@ class _SendParentNotificationPageState
     final custom = messageCtrl.text.trim();
 
     switch (selectedTemplate) {
-      case 'entry':
-        return 'تم تسجيل دخول ${widget.child.name} إلى الحضانة.';
-      case 'exit':
-        return 'تم تسجيل خروج ${widget.child.name} من الحضانة.';
       case 'media':
         return 'تمت إضافة صورة أو فيديو جديد لـ ${widget.child.name}.';
       case 'health':
@@ -83,8 +80,33 @@ class _SendParentNotificationPageState
         return custom.isEmpty
             ? 'يرجى تزويد ${widget.child.name} بالمستلزمات المطلوبة.'
             : 'يرجى تزويد ${widget.child.name} بـ: $custom';
+      case 'care':
+        return custom.isEmpty
+            ? 'تمت متابعة ${widget.child.name} اليوم داخل الحضانة.'
+            : 'متابعة اليوم لـ ${widget.child.name}: $custom';
+      case 'note':
+        return custom.isEmpty
+            ? 'هناك ملاحظة جديدة تخص ${widget.child.name}.'
+            : 'ملاحظة تخص ${widget.child.name}: $custom';
       default:
         return custom;
+    }
+  }
+
+  String buildTitle() {
+    switch (selectedTemplate) {
+      case 'health':
+        return 'ملاحظة صحية من الحضانة';
+      case 'media':
+        return 'وسائط جديدة من الحضانة';
+      case 'supplies':
+        return 'مستلزمات مطلوبة';
+      case 'care':
+        return 'متابعة يومية من الحضانة';
+      case 'note':
+        return 'ملاحظة من الحضانة';
+      default:
+        return 'إشعار من الحضانة';
     }
   }
 
@@ -111,9 +133,11 @@ class _SendParentNotificationPageState
         'parentUsername': widget.child.parentUsername,
         'section': widget.child.section,
         'group': widget.child.group,
-        'title': 'إشعار من الحضانة',
+        'title': buildTitle(),
+        'body': finalMessage,
         'message': finalMessage,
         'type': 'nursery_notification',
+        'templateType': selectedTemplate,
         'isRead': false,
         'createdAt': Timestamp.now(),
         'time': FieldValue.serverTimestamp(),
@@ -162,7 +186,7 @@ class _SendParentNotificationPageState
               borderRadius: BorderRadius.circular(24),
             ),
             child: Text(
-              'إشعار سريع بخصوص ${widget.child.name}',
+              'إشعار أو متابعة سريعة بخصوص ${widget.child.name}',
               style: const TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w800,

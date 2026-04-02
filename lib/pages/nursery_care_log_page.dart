@@ -20,16 +20,11 @@ class NurseryCareLogPage extends StatefulWidget {
 class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  String selectedFilter = 'all'; // all / care / entryExit / media
+  String selectedFilter = 'all'; // all / care / media
 
   Future<List<Map<String, dynamic>>> fetchCareLog() async {
     final updatesSnapshot = await _firestore
         .collection('updates')
-        .where('childId', isEqualTo: widget.child.id)
-        .get();
-
-    final entryExitSnapshot = await _firestore
-        .collection('entry_exit_logs')
         .where('childId', isEqualTo: widget.child.id)
         .get();
 
@@ -48,24 +43,7 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
       };
     }).toList();
 
-    final entryExit = entryExitSnapshot.docs.map((doc) {
-      final data = doc.data();
-
-      return {
-        'source': 'entry_exit',
-        'type': data['eventType'] == 'entry' ? 'دخول' : 'خروج',
-        'note': data['note'] ?? '',
-        'time': data['time'] as Timestamp?,
-        'createdAt': data['createdAt'] as Timestamp?,
-        'hasMedia': false,
-        'mediaType': '',
-        'createdByName': data['createdByName'] ?? '',
-      };
-    }).toList();
-
-    final allItems = [...updates, ...entryExit];
-
-    allItems.sort((a, b) {
+    updates.sort((a, b) {
       final aTime = (a['time'] as Timestamp?) ?? (a['createdAt'] as Timestamp?);
       final bTime = (b['time'] as Timestamp?) ?? (b['createdAt'] as Timestamp?);
 
@@ -76,7 +54,7 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
       return bTime.compareTo(aTime);
     });
 
-    return allItems;
+    return updates;
   }
 
   Future<void> refreshPage() async {
@@ -113,10 +91,6 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
         return Icons.edit_note_outlined;
       case 'كاميرا':
         return Icons.photo_camera_outlined;
-      case 'دخول':
-        return Icons.login_rounded;
-      case 'خروج':
-        return Icons.logout_rounded;
       default:
         return Icons.article_outlined;
     }
@@ -138,10 +112,6 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
         return AppColors.textLight;
       case 'كاميرا':
         return AppColors.secondary;
-      case 'دخول':
-        return Colors.green;
-      case 'خروج':
-        return Colors.redAccent;
       default:
         return AppColors.primary;
     }
@@ -155,11 +125,7 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
 
   List<Map<String, dynamic>> applyFilter(List<Map<String, dynamic>> items) {
     if (selectedFilter == 'care') {
-      return items.where((item) => item['source'] == 'update').toList();
-    }
-
-    if (selectedFilter == 'entryExit') {
-      return items.where((item) => item['source'] == 'entry_exit').toList();
+      return items.where((item) => item['hasMedia'] != true).toList();
     }
 
     if (selectedFilter == 'media') {
@@ -172,19 +138,19 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
   Map<String, int> buildStats(List<Map<String, dynamic>> items) {
     int total = items.length;
     int careCount = 0;
-    int entryExitCount = 0;
     int mediaCount = 0;
 
     for (final item in items) {
-      if (item['source'] == 'update') careCount++;
-      if (item['source'] == 'entry_exit') entryExitCount++;
-      if (item['hasMedia'] == true) mediaCount++;
+      if (item['hasMedia'] == true) {
+        mediaCount++;
+      } else {
+        careCount++;
+      }
     }
 
     return {
       'total': total,
       'careCount': careCount,
-      'entryExitCount': entryExitCount,
       'mediaCount': mediaCount,
     };
   }
@@ -228,6 +194,8 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
               children: [
                 _buildHeader(),
                 const SizedBox(height: 18),
+                _buildInfoNotice(),
+                const SizedBox(height: 18),
                 _buildStatsSection(stats),
                 const SizedBox(height: 16),
                 _buildFilterSection(),
@@ -240,7 +208,6 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
                       padding: const EdgeInsets.only(bottom: 12),
                       child: _CareLogCard(
                         type: item['type'] ?? '',
-                        source: item['source'] ?? '',
                         note: item['note'] ?? '',
                         createdByName: item['createdByName'] ?? '',
                         timeText: formatDateTime(
@@ -294,11 +261,41 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
           ),
           const SizedBox(height: 8),
           const Text(
-            'يعرض آخر ما يتعلق بالطفل من وجبات ونوم وصحة وملاحظات وصور ودخول وخروج.',
+            'يعرض آخر ما يتعلق بالطفل من وجبات ونوم وصحة وملاحظات وصور ووسائط.',
             style: TextStyle(
               fontSize: 14,
               color: AppColors.textLight,
               height: 1.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoNotice() {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: const Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.info_outline_rounded,
+            color: AppColors.secondary,
+          ),
+          SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'هذا السجل خاص بالرعاية والتحديثات اليومية فقط. أما تسجيل الدخول والخروج لأطفال الحضانة فأصبح من مسؤولية الإدارة فقط.',
+              style: TextStyle(
+                color: AppColors.textDark,
+                height: 1.5,
+              ),
             ),
           ),
         ],
@@ -329,24 +326,10 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
           ],
         ),
         const SizedBox(height: 10),
-        Row(
-          children: [
-            Expanded(
-              child: _StatCard(
-                title: 'دخول/خروج',
-                value: '${stats['entryExitCount'] ?? 0}',
-                icon: Icons.swap_horiz_rounded,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _StatCard(
-                title: 'وسائط',
-                value: '${stats['mediaCount'] ?? 0}',
-                icon: Icons.perm_media_outlined,
-              ),
-            ),
-          ],
+        _StatCard(
+          title: 'وسائط',
+          value: '${stats['mediaCount'] ?? 0}',
+          icon: Icons.perm_media_outlined,
         ),
       ],
     );
@@ -388,15 +371,6 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
               onTap: () {
                 setState(() {
                   selectedFilter = 'care';
-                });
-              },
-            ),
-            _FilterChipItem(
-              label: 'دخول/خروج',
-              isSelected: selectedFilter == 'entryExit',
-              onTap: () {
-                setState(() {
-                  selectedFilter = 'entryExit';
                 });
               },
             ),
@@ -444,7 +418,7 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
           ),
           SizedBox(height: 6),
           Text(
-            'جرّبي تغيير الفلتر أو أضيفي أول حدث للطفل.',
+            'جرّبي تغيير الفلتر أو أضيفي أول تحديث للطفل.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 13.5,
@@ -460,7 +434,6 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
 
 class _CareLogCard extends StatelessWidget {
   final String type;
-  final String source;
   final String note;
   final String createdByName;
   final String timeText;
@@ -470,7 +443,6 @@ class _CareLogCard extends StatelessWidget {
 
   const _CareLogCard({
     required this.type,
-    required this.source,
     required this.note,
     required this.createdByName,
     required this.timeText,
@@ -478,16 +450,6 @@ class _CareLogCard extends StatelessWidget {
     required this.icon,
     required this.color,
   });
-
-  String sourceLabel() {
-    if (source == 'entry_exit') return 'سجل حركة';
-    return 'رعاية';
-  }
-
-  Color sourceColor() {
-    if (source == 'entry_exit') return Colors.blueGrey;
-    return AppColors.primary;
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -543,13 +505,13 @@ class _CareLogCard extends StatelessWidget {
                   vertical: 7,
                 ),
                 decoration: BoxDecoration(
-                  color: sourceColor().withOpacity(0.10),
+                  color: AppColors.primary.withOpacity(0.10),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Text(
-                  sourceLabel(),
+                child: const Text(
+                  'رعاية',
                   style: TextStyle(
-                    color: sourceColor(),
+                    color: AppColors.primary,
                     fontSize: 12.5,
                     fontWeight: FontWeight.w800,
                   ),
@@ -639,6 +601,7 @@ class _StatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,

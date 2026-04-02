@@ -120,7 +120,9 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
     return name.trim().substring(0, 1);
   }
 
-  String childAgeText(DateTime birthDate) {
+  String childAgeText(DateTime? birthDate) {
+    if (birthDate == null) return 'غير محدد';
+
     final now = DateTime.now();
     int years = now.year - birthDate.year;
     int months = now.month - birthDate.month;
@@ -364,7 +366,7 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
                     icon: Icons.info_outline,
                     color: AppColors.primary,
                     title: 'نظام المتابعة',
-                    value: 'مرن حسب الزيارة والتحديثات',
+                    value: 'مرن حسب الزيارة والتحديثات، والدخول والخروج يوثّق من الإدارة',
                   ),
 
                 const SizedBox(height: 18),
@@ -404,7 +406,7 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
                           const SizedBox(height: 6),
                           Text(
                             child.section == 'Nursery'
-                                ? 'ستظهر هنا تحديثات الزيارة، الأنشطة، الصور والملاحظات الخاصة بالحضانة.'
+                                ? 'ستظهر هنا تحديثات الزيارة، الأنشطة، الصور، الملاحظات، ومتابعة الرعاية الخاصة بالحضانة.'
                                 : 'ستظهر هنا تحديثات الحضور، الأنشطة، الواجبات والملاحظات الخاصة بالروضة.',
                             style: const TextStyle(
                               color: AppColors.textLight,

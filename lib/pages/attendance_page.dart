@@ -52,21 +52,10 @@ class _AttendancePageState extends State<AttendancePage> {
     .get();
 
 
-    return snapshot.docs.map((doc) {
-      final data = doc.data();
-
-      return ChildModel(
-        id: doc.id,
-        name: data['name'] ?? '',
-        section: data['section'] ?? 'Kindergarten',
-        group: data['group'] ?? '',
-        parentName: data['parentName'] ?? '',
-        parentUsername: data['parentUsername'] ?? '',
-        birthDate: data['birthDate'] is Timestamp
-            ? (data['birthDate'] as Timestamp).toDate()
-            : DateTime.now(),
-      );
-    }).toList();
+     return snapshot.docs.map((doc) {
+  final data = doc.data();
+  return ChildModel.fromMap(data, docId: doc.id);
+}).toList();
   }
 
   Future<void> loadAttendanceForChildren(List<ChildModel> children) async {

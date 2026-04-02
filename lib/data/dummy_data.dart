@@ -81,34 +81,49 @@ class DummyData {
   
   // ================= الأطفال =================
   static final List<ChildModel> children = [
-    ChildModel(
-      id: 'c1',
-      name: 'محمد أحمد',
-      section: 'Nursery',
-      group: 'حضانة كبار',
-      parentName: 'مجد',
-      birthDate: DateTime(2023, 5, 12),
-      parentUsername: 'parent1',
-    ),
-    ChildModel(
-      id: 'c2',
-      name: 'ليان خالد',
-      section: 'Nursery',
-      group: 'حضانة صغار',
-      parentName: 'مجد',
-      birthDate: DateTime(2024, 1, 7),
-      parentUsername: 'parent1',
-    ),
-    ChildModel(
-      id: 'c3',
-      name: 'يوسف علي',
-      section: 'Kindergarten',
-      group: 'KG1',
-      parentName: 'مجد',
-      birthDate: DateTime(2021, 3, 10),
-      parentUsername: 'parent1',
-    ),
-  ];
+  ChildModel(
+    id: 'c1',
+    name: 'محمد أحمد',
+    fullName: 'محمد أحمد',
+    gender: 'ذكر',
+    section: 'Nursery',
+    group: 'حضانة كبار',
+    parentUid: '',
+    parentName: 'مجد',
+    parentUsername: 'parent1',
+    birthDate: DateTime(2023, 5, 12),
+    isActive: true,
+    status: 'active',
+  ),
+  ChildModel(
+    id: 'c2',
+    name: 'ليان خالد',
+    fullName: 'ليان خالد',
+    gender: 'أنثى',
+    section: 'Nursery',
+    group: 'حضانة صغار',
+    parentUid: '',
+    parentName: 'مجد',
+    parentUsername: 'parent1',
+    birthDate: DateTime(2024, 1, 7),
+    isActive: true,
+    status: 'active',
+  ),
+  ChildModel(
+    id: 'c3',
+    name: 'يوسف علي',
+    fullName: 'يوسف علي',
+    gender: 'ذكر',
+    section: 'Kindergarten',
+    group: 'KG1',
+    parentUid: '',
+    parentName: 'مجد',
+    parentUsername: 'parent1',
+    birthDate: DateTime(2021, 3, 10),
+    isActive: true,
+    status: 'active',
+  ),
+];
 
   // ================= التحديثات =================
   static final List<UpdateModel> updates = [

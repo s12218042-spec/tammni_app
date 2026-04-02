@@ -12,6 +12,7 @@ import '../theme/app_theme.dart';
 import 'admin_home_page.dart';
 import 'nursery_staff_home_page.dart';
 import 'parent_home_page.dart';
+import 'parent_registration_request_page.dart';
 import 'teacher_home_page.dart';
 
 class WelcomePage extends StatefulWidget {
@@ -97,6 +98,8 @@ class _WelcomePageState extends State<WelcomePage> {
 
   Future<void> onLogin() async {
     if (!_formKey.currentState!.validate()) return;
+
+    FocusScope.of(context).unfocus();
 
     setState(() {
       isLoading = true;
@@ -272,7 +275,7 @@ class _WelcomePageState extends State<WelcomePage> {
       } else {
         _showSnack('تعذر إرسال رابط إعادة التعيين');
       }
-    } catch (e) {
+    } catch (_) {
       _showSnack('حدث خطأ أثناء استعادة كلمة المرور');
     } finally {
       usernameController.dispose();
@@ -297,14 +300,13 @@ class _WelcomePageState extends State<WelcomePage> {
         googleSignIn = GoogleSignIn();
         await googleSignIn.signOut();
 
-        final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
+        final googleUser = await googleSignIn.signIn();
 
         if (googleUser == null) {
           return;
         }
 
-        final GoogleSignInAuthentication googleAuth =
-            await googleUser.authentication;
+        final googleAuth = await googleUser.authentication;
 
         final credential = GoogleAuthProvider.credential(
           accessToken: googleAuth.accessToken,
@@ -367,7 +369,7 @@ class _WelcomePageState extends State<WelcomePage> {
       }
 
       _showSnack(
-        'لا يمكن إنشاء حساب جديد من داخل التطبيق. للحصول على حساب، يرجى مراجعة الإدارة.',
+        'لا يمكن إنشاء حساب جديد مباشرة من داخل التطبيق. يمكنك تقديم طلب إنشاء حساب ولي أمر من هذه الشاشة.',
       );
     } on FirebaseAuthException catch (e) {
       String message = 'تعذر تسجيل الدخول باستخدام Google';
@@ -387,7 +389,7 @@ class _WelcomePageState extends State<WelcomePage> {
       }
 
       _showSnack(message);
-    } catch (e) {
+    } catch (_) {
       _showSnack('تعذر تسجيل الدخول باستخدام Google');
     } finally {
       if (!mounted) return;
@@ -410,6 +412,7 @@ class _WelcomePageState extends State<WelcomePage> {
       setState(() {
         isCheckingUser = false;
       });
+
       _showSnack('لا يوجد حساب مفعّل لهذا المستخدم. يرجى مراجعة الإدارة.');
       return;
     }
@@ -436,7 +439,6 @@ class _WelcomePageState extends State<WelcomePage> {
       await FirebaseAuth.instance.signOut();
 
       if (!mounted) return;
-
       setState(() {
         isCheckingUser = false;
       });
@@ -447,27 +449,29 @@ class _WelcomePageState extends State<WelcomePage> {
 
     Widget nextPage;
 
-    if (role == 'parent') {
-      nextPage = ParentHomePage(parentUsername: username);
-    } else if (role == 'nursery' ||
-        role == 'nursery staff' ||
-        role == 'nursery_staff') {
-      nextPage = const NurseryStaffHomePage();
-    } else if (role == 'teacher') {
-      nextPage = const TeacherHomePage();
-    } else if (role == 'admin') {
-      nextPage = const AdminHomePage();
-    } else {
-      await FirebaseAuth.instance.signOut();
+     final normalizedRole = role == 'nursery' || role == 'nursery staff'
+    ? 'nursery_staff'
+    : role;
 
-      if (!mounted) return;
-      setState(() {
-        isCheckingUser = false;
-      });
+if (normalizedRole == 'parent') {
+  nextPage = ParentHomePage(parentUsername: username);
+} else if (normalizedRole == 'nursery_staff') {
+  nextPage = const NurseryStaffHomePage();
+} else if (normalizedRole == 'teacher') {
+  nextPage = const TeacherHomePage();
+} else if (normalizedRole == 'admin') {
+  nextPage = const AdminHomePage();
+} else {
+  await FirebaseAuth.instance.signOut();
 
-      _showSnack('نوع الحساب غير معروف: $role');
-      return;
-    }
+  if (!mounted) return;
+  setState(() {
+    isCheckingUser = false;
+  });
+
+  _showSnack('نوع الحساب غير معروف: $role');
+  return;
+}
 
     if (!mounted) return;
 
@@ -482,10 +486,9 @@ class _WelcomePageState extends State<WelcomePage> {
     if (parts.length != 2) return email;
 
     final name = parts[0];
+    final domain = parts[1];
 
     if (name.isEmpty) return email;
-
-    final domain = parts[1];
 
     String maskedName;
     if (name.length == 1) {
@@ -500,10 +503,24 @@ class _WelcomePageState extends State<WelcomePage> {
     return '$maskedName@$domain';
   }
 
+  void _openParentRegistrationRequest() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const ParentRegistrationRequestPage(),
+      ),
+    );
+  }
+
   void _showSnack(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message, textAlign: TextAlign.center)),
+      SnackBar(
+        content: Text(
+          message,
+          textAlign: TextAlign.center,
+        ),
+      ),
     );
   }
 
@@ -633,6 +650,7 @@ class _WelcomePageState extends State<WelcomePage> {
                             ),
                           ),
                           const SizedBox(height: 34),
+
                           GlassContainer(
                             padding: const EdgeInsets.all(18),
                             borderRadius: BorderRadius.circular(28),
@@ -692,7 +710,9 @@ class _WelcomePageState extends State<WelcomePage> {
                               ),
                             ),
                           ),
+
                           const SizedBox(height: 28),
+
                           Container(
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(24),
@@ -734,7 +754,9 @@ class _WelcomePageState extends State<WelcomePage> {
                                     ),
                             ),
                           ),
+
                           const SizedBox(height: 16),
+
                           GlassContainer(
                             padding: EdgeInsets.zero,
                             borderRadius: BorderRadius.circular(20),
@@ -745,85 +767,94 @@ class _WelcomePageState extends State<WelcomePage> {
                               child: InkWell(
                                 borderRadius: BorderRadius.circular(20),
                                 onTap: isGoogleLoading ? null : onGoogleLogin,
-                                child: SizedBox(
+                                child: Container(
                                   height: 58,
-                                  child: Center(
-                                    child: isGoogleLoading
-                                        ? const SizedBox(
-                                            width: 22,
-                                            height: 22,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2.4,
-                                              color: AppColors.primary,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      const Icon(
+                                        Icons.login_rounded,
+                                        color: AppColors.primary,
+                                      ),
+                                      const SizedBox(width: 10),
+                                      isGoogleLoading
+                                          ? const SizedBox(
+                                              width: 20,
+                                              height: 20,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2.4,
+                                              ),
+                                            )
+                                          : const Text(
+                                              'المتابعة باستخدام Google',
+                                              style: TextStyle(
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.w700,
+                                                color: AppColors.textDark,
+                                              ),
                                             ),
-                                          )
-                                        : Row(
-                                            mainAxisAlignment:
-                                                MainAxisAlignment.center,
-                                            children: [
-                                              const Text(
-                                                'المتابعة باستخدام Google',
-                                                style: TextStyle(
-                                                  fontSize: 15.5,
-                                                  fontWeight: FontWeight.w700,
-                                                  color: AppColors.textDark,
-                                                ),
-                                              ),
-                                              const SizedBox(width: 10),
-                                              Container(
-                                                width: 32,
-                                                height: 32,
-                                                decoration: BoxDecoration(
-                                                  color: Colors.white
-                                                      .withOpacity(0.45),
-                                                  borderRadius:
-                                                      BorderRadius.circular(11),
-                                                  border: Border.all(
-                                                    color: Colors.white
-                                                        .withOpacity(0.65),
-                                                  ),
-                                                ),
-                                                alignment: Alignment.center,
-                                                child: const Text(
-                                                  'G',
-                                                  style: TextStyle(
-                                                    fontSize: 17,
-                                                    fontWeight: FontWeight.w800,
-                                                    color: Colors.red,
-                                                  ),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
+                                    ],
                                   ),
                                 ),
                               ),
                             ),
                           ),
-                          const SizedBox(height: 24),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              _miniChip('ثقة', Icons.favorite_border_rounded),
-                              const SizedBox(width: 10),
-                              _miniChip('أمان', Icons.shield_outlined),
-                              const SizedBox(width: 10),
-                              _miniChip(
-                                'متابعة',
-                                Icons.remove_red_eye_outlined,
+
+                          const SizedBox(height: 18),
+
+                          Center(
+                            child: TextButton.icon(
+                              onPressed: _openParentRegistrationRequest,
+                              icon: const Icon(Icons.how_to_reg_rounded),
+                              label: const Text(
+                                'طلب إنشاء حساب ولي أمر',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                ),
                               ),
-                            ],
+                              style: TextButton.styleFrom(
+                                foregroundColor: AppColors.primary,
+                              ),
+                            ),
                           ),
+
+                          const SizedBox(height: 10),
+
+                          GlassContainer(
+                            padding: const EdgeInsets.all(14),
+                            borderRadius: BorderRadius.circular(20),
+                            opacity: 0.18,
+                            blur: 12,
+                            child: const Column(
+                              children: [
+                                _MiniInfoChip(
+                                  icon: Icons.admin_panel_settings_outlined,
+                                  text: 'حسابات المعلمات والموظفات والأدمن تنشئها الإدارة فقط',
+                                ),
+                                SizedBox(height: 10),
+                                _MiniInfoChip(
+                                  icon: Icons.family_restroom_outlined,
+                                  text: 'أولياء الأمور يقدّمون طلب تسجيل ثم تتم المراجعة والموافقة',
+                                ),
+                              ],
+                            ),
+                          ),
+
                           const SizedBox(height: 22),
+
                           const Text(
                             'طمّني • Nursery & Kindergarten Management',
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              fontSize: 12.5,
+                              fontSize: 13,
                               color: AppColors.textLight,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
-                          const SizedBox(height: 10),
+                          const SizedBox(height: 24),
                         ],
                       ),
                     ),
@@ -841,70 +872,62 @@ class _WelcomePageState extends State<WelcomePage> {
     required TextEditingController controller,
     required String hint,
     required IconData icon,
-    required String? Function(String?) validator,
-    TextInputType keyboardType = TextInputType.text,
+    String? Function(String?)? validator,
     bool obscure = false,
     Widget? prefix,
+    TextInputType keyboardType = TextInputType.text,
   }) {
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.025),
-            blurRadius: 12,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
+    return Directionality(
+      textDirection: TextDirection.rtl,
       child: TextFormField(
         controller: controller,
         validator: validator,
-        keyboardType: keyboardType,
         obscureText: obscure,
+        keyboardType: keyboardType,
         textAlign: TextAlign.right,
         decoration: InputDecoration(
           hintText: hint,
           prefixIcon: prefix,
-          suffixIcon: Padding(
-            padding: const EdgeInsetsDirectional.only(end: 10, start: 6),
-            child: Icon(icon, color: AppColors.textLight),
-          ),
-          suffixIconConstraints: const BoxConstraints(
-            minWidth: 46,
-            minHeight: 46,
+          suffixIcon: Icon(
+            icon,
+            color: AppColors.primary.withOpacity(0.90),
           ),
           filled: true,
-          fillColor: Colors.white.withOpacity(0.72),
+          fillColor: Colors.white.withOpacity(0.58),
           contentPadding: const EdgeInsets.symmetric(
             horizontal: 18,
-            vertical: 16,
+            vertical: 18,
+          ),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(20),
+            borderSide: BorderSide(
+              color: Colors.white.withOpacity(0.45),
+            ),
           ),
           enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(20),
             borderSide: BorderSide(
-              color: Colors.white.withOpacity(0.90),
-              width: 1.25,
+              color: Colors.white.withOpacity(0.45),
             ),
           ),
           focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(20),
             borderSide: const BorderSide(
               color: AppColors.primary,
-              width: 1.45,
+              width: 1.4,
             ),
           ),
           errorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(20),
             borderSide: const BorderSide(
-              color: AppColors.danger,
+              color: Colors.redAccent,
               width: 1.2,
             ),
           ),
           focusedErrorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(20),
             borderSide: const BorderSide(
-              color: AppColors.danger,
+              color: Colors.redAccent,
               width: 1.4,
             ),
           ),
@@ -912,47 +935,56 @@ class _WelcomePageState extends State<WelcomePage> {
       ),
     );
   }
+}
 
-  Widget _miniChip(String text, IconData icon) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(18),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.24),
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color: Colors.white.withOpacity(0.52),
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.primary.withOpacity(0.04),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              Text(
-                text,
-                style: const TextStyle(
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textDark,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Icon(
-                icon,
-                size: 16,
-                color: AppColors.primary,
-              ),
-            ],
-          ),
+class _MiniInfoChip extends StatelessWidget {
+  final String text;
+  final IconData icon;
+
+  const _MiniInfoChip({
+    required this.text,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.72),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: Colors.white.withOpacity(0.55),
         ),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withOpacity(0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            size: 18,
+            color: AppColors.primary,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textDark,
+                height: 1.45,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1004,60 +1036,6 @@ class GlassContainer extends StatelessWidget {
   }
 }
 
-class GlassOutlineButton extends StatelessWidget {
-  final String text;
-  final VoidCallback onTap;
-
-  const GlassOutlineButton({
-    super.key,
-    required this.text,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(24),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-        child: Material(
-          color: Colors.white.withOpacity(0.14),
-          child: InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(24),
-            child: Container(
-              height: 60,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(
-                  color: AppColors.primary.withOpacity(0.58),
-                  width: 1.45,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.primary.withOpacity(0.06),
-                    blurRadius: 18,
-                    offset: const Offset(0, 6),
-                  ),
-                ],
-              ),
-              child: Text(
-                text,
-                style: const TextStyle(
-                  fontSize: 17.2,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.primary,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _SoftBackgroundPattern extends StatelessWidget {
   const _SoftBackgroundPattern();
 
@@ -1080,7 +1058,7 @@ class _SoftBackgroundPattern extends StatelessWidget {
             10,
             (index) => Icon(
               icons[index % icons.length],
-              size: index % 2 == 0 ? 18 : 15,
+              size: index.isEven ? 18 : 15,
               color: AppColors.textDark,
             ),
           ),

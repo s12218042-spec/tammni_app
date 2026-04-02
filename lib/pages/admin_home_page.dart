@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
+import 'admin_add_child_requests_page.dart';
 import 'admin_add_user_page.dart';
+import 'admin_registration_requests_page.dart';
 import 'admin_teacher_assignments_page.dart';
 import 'admin_updates_feed_page.dart';
 import 'manage_children_page.dart';
@@ -23,7 +25,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   Future<void> logout(BuildContext context) async {
-    final shouldLogout = await showDialog(
+    final shouldLogout = await showDialog<bool>(
       context: context,
       builder: (_) => Directionality(
         textDirection: TextDirection.rtl,
@@ -63,11 +65,22 @@ class _AdminHomePageState extends State<AdminHomePage> {
     final classesSnapshot = await _firestore.collection('classes').get();
     final updatesSnapshot =
         await _firestore.collection('updates').limit(50).get();
+    final requestsSnapshot = await _firestore
+        .collection('registration_requests')
+        .limit(100)
+        .get();
+    final addChildRequestsSnapshot = await _firestore
+        .collection('add_child_requests')
+        .limit(100)
+        .get();
 
     final users = usersSnapshot.docs.map((e) => e.data()).toList();
     final children = childrenSnapshot.docs.map((e) => e.data()).toList();
     final classes = classesSnapshot.docs.map((e) => e.data()).toList();
     final updates = updatesSnapshot.docs.map((e) => e.data()).toList();
+    final requests = requestsSnapshot.docs.map((e) => e.data()).toList();
+    final addChildRequests =
+        addChildRequestsSnapshot.docs.map((e) => e.data()).toList();
 
     int activeChildren = 0;
     int archivedChildren = 0;
@@ -108,6 +121,28 @@ class _AdminHomePageState extends State<AdminHomePage> {
       if (role == 'admin') adminsCount++;
     }
 
+    int pendingRequests = 0;
+    int approvedRequests = 0;
+    int rejectedRequests = 0;
+
+    for (final request in requests) {
+      final status = (request['status'] ?? 'pending').toString().trim();
+      if (status == 'pending') pendingRequests++;
+      if (status == 'approved') approvedRequests++;
+      if (status == 'rejected') rejectedRequests++;
+    }
+
+    int pendingAddChildRequests = 0;
+    int approvedAddChildRequests = 0;
+    int rejectedAddChildRequests = 0;
+
+    for (final request in addChildRequests) {
+      final status = (request['status'] ?? 'pending').toString().trim();
+      if (status == 'pending') pendingAddChildRequests++;
+      if (status == 'approved') approvedAddChildRequests++;
+      if (status == 'rejected') rejectedAddChildRequests++;
+    }
+
     final alerts = <_AdminAlertItem>[];
 
     if (classes.isEmpty) {
@@ -136,10 +171,31 @@ class _AdminHomePageState extends State<AdminHomePage> {
       alerts.add(
         _AdminAlertItem(
           title: 'يوجد $kindergartenWithoutGroup طفل/أطفال روضة بدون مجموعة',
-          subtitle:
-              'يفضّل تعيين مجموعة لكل طفل في الروضة لتسهيل المتابعة والتقارير.',
+          subtitle: 'يفضّل تعيين مجموعة لكل طفل في الروضة لتسهيل المتابعة والتقارير.',
           icon: Icons.warning_amber_rounded,
           color: Colors.deepOrange,
+        ),
+      );
+    }
+
+    if (pendingRequests > 0) {
+      alerts.add(
+        _AdminAlertItem(
+          title: 'يوجد $pendingRequests طلب/طلبات تسجيل بانتظار المراجعة',
+          subtitle: 'راجعي طلبات أولياء الأمور الجديدة وحددي الموافقة أو الرفض.',
+          icon: Icons.how_to_reg_rounded,
+          color: Colors.teal,
+        ),
+      );
+    }
+
+    if (pendingAddChildRequests > 0) {
+      alerts.add(
+        _AdminAlertItem(
+          title: 'يوجد $pendingAddChildRequests طلب/طلبات إضافة طفل بانتظار المراجعة',
+          subtitle: 'راجعي طلبات إضافة الأطفال الجديدة وحددي الموافقة أو الرفض.',
+          icon: Icons.person_add_alt_1_rounded,
+          color: Colors.indigo,
         ),
       );
     }
@@ -149,7 +205,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
         const _AdminAlertItem(
           title: 'لا يوجد مستخدمون في النظام',
           subtitle:
-              'ابدئي بإضافة حسابات الأدمن، المعلمات، الموظفات، وأولياء الأمور.',
+              'ابدئي بإضافة حسابات الأدمن والمعلمات والموظفات، ومراجعة طلبات أولياء الأمور.',
           icon: Icons.person_add_alt_1_rounded,
           color: Colors.redAccent,
         ),
@@ -181,6 +237,12 @@ class _AdminHomePageState extends State<AdminHomePage> {
       staffCount: staffCount,
       teachersCount: teachersCount,
       adminsCount: adminsCount,
+      pendingRequests: pendingRequests,
+      approvedRequests: approvedRequests,
+      rejectedRequests: rejectedRequests,
+      pendingAddChildRequests: pendingAddChildRequests,
+      approvedAddChildRequests: approvedAddChildRequests,
+      rejectedAddChildRequests: rejectedAddChildRequests,
       alerts: alerts,
       recentActivities: recentActivities.take(6).toList(),
     );
@@ -325,7 +387,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'من هنا يمكنك متابعة حالة النظام بسرعة، وإدارة المستخدمين والأطفال والصفوف، ومراجعة التنبيهات والأنشطة الحديثة.',
+                  'من هنا يمكنك متابعة حالة النظام بسرعة، وإدارة المستخدمين والأطفال والصفوف، ومراجعة التنبيهات والأنشطة الحديثة وطلبات التسجيل.',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: AppColors.textLight,
                       ),
@@ -357,6 +419,20 @@ class _AdminHomePageState extends State<AdminHomePage> {
                       icon: Icons.archive_rounded,
                     ),
                     _DashboardStatCard(
+                      title: 'طلبات التسجيل',
+                      value: '${data.pendingRequests}',
+                      subtitle:
+                          'معلقة ${data.pendingRequests} • مقبولة ${data.approvedRequests}',
+                      icon: Icons.how_to_reg_rounded,
+                    ),
+                    _DashboardStatCard(
+                      title: 'طلبات إضافة الأطفال',
+                      value: '${data.pendingAddChildRequests}',
+                      subtitle:
+                          'معلقة ${data.pendingAddChildRequests} • مقبولة ${data.approvedAddChildRequests}',
+                      icon: Icons.person_add_alt_1_rounded,
+                    ),
+                    _DashboardStatCard(
                       title: 'الصفوف / المجموعات',
                       value: '${data.totalClasses}',
                       subtitle:
@@ -368,6 +444,100 @@ class _AdminHomePageState extends State<AdminHomePage> {
 
                 const SizedBox(height: 24),
 
+                if (data.pendingRequests > 0)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 18),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.teal.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: Colors.teal.withOpacity(0.20),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        const CircleAvatar(
+                          backgroundColor: Colors.white,
+                          child: Icon(
+                            Icons.mark_email_unread_outlined,
+                            color: Colors.teal,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'يوجد ${data.pendingRequests} طلب/طلبات تسجيل جديدة بانتظار المراجعة.',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.textDark,
+                            ),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () async {
+                            await Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    const AdminRegistrationRequestsPage(),
+                              ),
+                            );
+                            setState(() {});
+                          },
+                          child: const Text('عرض'),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                if (data.pendingAddChildRequests > 0)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 18),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.indigo.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: Colors.indigo.withOpacity(0.20),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        const CircleAvatar(
+                          backgroundColor: Colors.white,
+                          child: Icon(
+                            Icons.person_add_alt_1_rounded,
+                            color: Colors.indigo,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'يوجد ${data.pendingAddChildRequests} طلب/طلبات إضافة طفل جديدة بانتظار المراجعة.',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.textDark,
+                            ),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () async {
+                            await Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    const AdminAddChildRequestsPage(),
+                              ),
+                            );
+                            setState(() {});
+                          },
+                          child: const Text('عرض'),
+                        ),
+                      ],
+                    ),
+                  ),
+
                 Text(
                   'الإجراءات الأساسية',
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
@@ -377,37 +547,69 @@ class _AdminHomePageState extends State<AdminHomePage> {
                 const SizedBox(height: 12),
 
                 _AdminActionCard(
-                  icon: Icons.person_add_alt_1_rounded,
-                  title: 'إضافة مستخدم جديد',
-                  subtitle: 'إنشاء حسابات المستخدمين من خلال الإدارة فقط',
-                  onTap: () async {
-                    final result = await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const AdminAddUserPage(),
-                      ),
-                    );
+  icon: Icons.person_add_alt_1_rounded,
+  title: 'إنشاء حسابات الموظفين',
+  subtitle:
+      'إنشاء حسابات المعلمات وموظفات الحضانة والأدمن من قسم مستقل حسب نوع الموظف',
+  onTap: () async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const AdminAddUserPage(),
+      ),
+    );
 
-                    if (result == true) {
-                      setState(() {});
-                    }
-                  },
-                ),
+    if (result == true) {
+      setState(() {});
+    }
+  },
+),
                 _AdminActionCard(
-                  icon: Icons.group,
-                  title: 'إدارة المستخدمين',
-                  subtitle: 'إضافة وتعديل وتنظيم حسابات المستخدمين',
+                  icon: Icons.how_to_reg_rounded,
+                  title: 'طلبات تسجيل أولياء الأمور',
+                  subtitle: 'مراجعة طلبات التسجيل الجديدة والموافقة أو الرفض',
                   onTap: () async {
                     await Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => const ManageUsersPage(),
+                        builder: (_) => const AdminRegistrationRequestsPage(),
                       ),
                     );
 
                     setState(() {});
                   },
                 ),
+                _AdminActionCard(
+                  icon: Icons.person_add_alt_1_outlined,
+                  title: 'طلبات إضافة الأطفال',
+                  subtitle:
+                      'مراجعة طلبات إضافة طفل جديد إلى حسابات أولياء الأمور',
+                  onTap: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const AdminAddChildRequestsPage(),
+                      ),
+                    );
+
+                    setState(() {});
+                  },
+                ),
+                _AdminActionCard(
+  icon: Icons.group,
+  title: 'إدارة المستخدمين',
+  subtitle: 'مراجعة الحسابات الحالية، تعديلها، تفعيلها أو تعطيلها دون إنشاء حسابات جديدة',
+  onTap: () async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const ManageUsersPage(),
+      ),
+    );
+
+    setState(() {});
+  },
+),
                 _AdminActionCard(
                   icon: Icons.child_care,
                   title: 'إدارة الأطفال',
@@ -445,9 +647,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
                   onTap: () {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                        content: Text(
-                          'قيد العمل',
-                        ),
+                        content: Text('قيد العمل'),
                       ),
                     );
                   },
@@ -503,15 +703,13 @@ class _AdminHomePageState extends State<AdminHomePage> {
                 const SizedBox(height: 12),
 
                 if (data.alerts.isEmpty)
-                  _EmptyDashboardBox(
+                  const _EmptyDashboardBox(
                     icon: Icons.verified_rounded,
                     title: 'لا توجد تنبيهات حالياً',
                     subtitle: 'الوضع يبدو جيداً داخل النظام.',
                   )
                 else
-                  ...data.alerts.map(
-                    (alert) => _AlertCard(item: alert),
-                  ),
+                  ...data.alerts.map((alert) => _AlertCard(item: alert)),
 
                 const SizedBox(height: 24),
 
@@ -603,6 +801,7 @@ class _DashboardStatCard extends StatelessWidget {
                       style: const TextStyle(
                         fontSize: 12,
                         color: Colors.black45,
+                        height: 1.35,
                       ),
                     ),
                   ],
@@ -634,16 +833,16 @@ class _AdminActionCard extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: InkWell(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(18),
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Row(
             children: [
               CircleAvatar(
-                radius: 26,
-                backgroundColor: AppColors.primary.withOpacity(0.12),
-                child: Icon(icon, color: AppColors.primary, size: 26),
+                radius: 24,
+                backgroundColor: AppColors.primary.withOpacity(0.10),
+                child: Icon(icon, color: AppColors.primary),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -653,7 +852,7 @@ class _AdminActionCard extends StatelessWidget {
                     Text(
                       title,
                       style: const TextStyle(
-                        fontSize: 16,
+                        fontSize: 15.5,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -661,8 +860,9 @@ class _AdminActionCard extends StatelessWidget {
                     Text(
                       subtitle,
                       style: const TextStyle(
+                        fontSize: 12.8,
                         color: Colors.black54,
-                        fontSize: 13,
+                        height: 1.35,
                       ),
                     ),
                   ],
@@ -676,65 +876,6 @@ class _AdminActionCard extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _AlertCard extends StatelessWidget {
-  final _AdminAlertItem item;
-
-  const _AlertCard({required this.item});
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: item.color.withOpacity(0.12),
-          child: Icon(item.icon, color: item.color),
-        ),
-        title: Text(
-          item.title,
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 4),
-          child: Text(item.subtitle),
-        ),
-      ),
-    );
-  }
-}
-
-class _ActivityCard extends StatelessWidget {
-  final _AdminActivityItem item;
-  final String formattedTime;
-
-  const _ActivityCard({
-    required this.item,
-    required this.formattedTime,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: AppColors.primary.withOpacity(0.12),
-          child: Icon(item.icon, color: AppColors.primary),
-        ),
-        title: Text(
-          item.title,
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 4),
-          child: Text('${item.subtitle}\n$formattedTime'),
-        ),
-        isThreeLine: true,
       ),
     );
   }
@@ -755,27 +896,150 @@ class _EmptyDashboardBox extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(20),
         child: Column(
           children: [
             CircleAvatar(
-              radius: 24,
-              backgroundColor: AppColors.primary.withOpacity(0.12),
-              child: Icon(icon, color: AppColors.primary),
+              radius: 26,
+              backgroundColor: AppColors.primary.withOpacity(0.10),
+              child: Icon(icon, color: AppColors.primary, size: 28),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             Text(
               title,
+              textAlign: TextAlign.center,
               style: const TextStyle(
                 fontWeight: FontWeight.bold,
-                fontSize: 15,
+                fontSize: 15.5,
               ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 6),
             Text(
               subtitle,
               textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.black54),
+              style: const TextStyle(
+                color: Colors.black54,
+                height: 1.45,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AlertCard extends StatelessWidget {
+  final _AdminAlertItem item;
+
+  const _AlertCard({
+    required this.item,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: item.color.withOpacity(0.18),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              CircleAvatar(
+                backgroundColor: item.color.withOpacity(0.12),
+                child: Icon(item.icon, color: item.color),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.title,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14.5,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      item.subtitle,
+                      style: const TextStyle(
+                        color: Colors.black54,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ActivityCard extends StatelessWidget {
+  final _AdminActivityItem item;
+  final String formattedTime;
+
+  const _ActivityCard({
+    required this.item,
+    required this.formattedTime,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            CircleAvatar(
+              backgroundColor: AppColors.primary.withOpacity(0.10),
+              child: Icon(
+                item.icon,
+                color: AppColors.primary,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14.5,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    item.subtitle,
+                    style: const TextStyle(
+                      color: Colors.black54,
+                      height: 1.35,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    formattedTime,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Colors.black45,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -796,6 +1060,12 @@ class _AdminDashboardData {
   final int staffCount;
   final int teachersCount;
   final int adminsCount;
+  final int pendingRequests;
+  final int approvedRequests;
+  final int rejectedRequests;
+  final int pendingAddChildRequests;
+  final int approvedAddChildRequests;
+  final int rejectedAddChildRequests;
   final List<_AdminAlertItem> alerts;
   final List<_AdminActivityItem> recentActivities;
 
@@ -811,6 +1081,12 @@ class _AdminDashboardData {
     required this.staffCount,
     required this.teachersCount,
     required this.adminsCount,
+    required this.pendingRequests,
+    required this.approvedRequests,
+    required this.rejectedRequests,
+    required this.pendingAddChildRequests,
+    required this.approvedAddChildRequests,
+    required this.rejectedAddChildRequests,
     required this.alerts,
     required this.recentActivities,
   });

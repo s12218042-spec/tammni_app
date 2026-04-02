@@ -8,7 +8,6 @@ import '../widgets/app_page_scaffold.dart';
 import 'add_update_page.dart';
 import 'camera_checkin_page.dart';
 import 'child_handoff_log_page.dart';
-import 'entry_exit_log_page.dart';
 import 'incident_report_page.dart';
 import 'nursery_care_log_page.dart';
 import 'quick_care_update_page.dart';
@@ -26,7 +25,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
   final GalleryService _galleryService = GalleryService();
 
   String searchQuery = '';
-  String selectedStatusFilter = 'all'; // all / inside / outside / needUpdate
+  String selectedStatusFilter = 'all'; // all / needUpdate / updatedToday
 
   Future<List<ChildModel>> fetchNurseryChildren() async {
     final snapshot = await _firestore
@@ -37,18 +36,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
 
     final children = snapshot.docs.map((doc) {
       final data = doc.data();
-
-      return ChildModel(
-        id: doc.id,
-        name: data['name'] ?? '',
-        section: data['section'] ?? 'Nursery',
-        group: data['group'] ?? '',
-        parentName: data['parentName'] ?? '',
-        parentUsername: data['parentUsername'] ?? '',
-        birthDate: data['birthDate'] is Timestamp
-            ? (data['birthDate'] as Timestamp).toDate()
-            : DateTime.now(),
-      );
+      return ChildModel.fromMap(data, docId: doc.id);
     }).toList();
 
     children.sort((a, b) => a.name.compareTo(b.name));
@@ -188,37 +176,6 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
     );
   }
 
-  Future<List<ChildModel>> getChildrenWithoutEntryToday(
-    List<ChildModel> children,
-  ) async {
-    final now = DateTime.now();
-    final startOfDay = DateTime(now.year, now.month, now.day);
-
-    final snapshot = await _firestore.collection('entry_exit_logs').get();
-    final enteredToday = <String>{};
-
-    for (final doc in snapshot.docs) {
-      final data = doc.data();
-
-      final Timestamp? ts = data['time'] is Timestamp
-          ? data['time'] as Timestamp
-          : data['createdAt'] is Timestamp
-              ? data['createdAt'] as Timestamp
-              : null;
-
-      if (ts == null) continue;
-
-      final date = ts.toDate();
-      if (date.isBefore(startOfDay)) continue;
-
-      if ((data['eventType'] ?? '') == 'entry') {
-        enteredToday.add((data['childId'] ?? '').toString());
-      }
-    }
-
-    return children.where((child) => !enteredToday.contains(child.id)).toList();
-  }
-
   Future<void> openChildHandoffLog(ChildModel child) async {
     await Navigator.push(
       context,
@@ -243,65 +200,18 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
     final now = DateTime.now();
     final startOfDay = DateTime(now.year, now.month, now.day);
 
-    final entryExitSnapshot =
-        await _firestore.collection('entry_exit_logs').get();
     final updatesSnapshot = await _firestore
         .collection('updates')
         .where('section', isEqualTo: 'Nursery')
         .get();
 
-    int entryCount = 0;
-    int exitCount = 0;
-    int careUpdatesCount = 0;
-    int insideNowCount = 0;
-
     final childIds = children.map((e) => e.id).toSet();
-    final Map<String, Map<String, dynamic>> latestLogByChild = {};
 
-    for (final doc in entryExitSnapshot.docs) {
-      final data = doc.data();
-      final childId = (data['childId'] ?? '').toString();
-      if (!childIds.contains(childId)) continue;
+    int careUpdatesCount = 0;
+    int mediaUpdatesCount = 0;
+    int childrenUpdatedTodayCount = 0;
 
-      final Timestamp? ts = data['time'] is Timestamp
-          ? data['time'] as Timestamp
-          : data['createdAt'] is Timestamp
-              ? data['createdAt'] as Timestamp
-              : null;
-
-      if (ts == null) continue;
-
-      final date = ts.toDate();
-      final eventType = (data['eventType'] ?? '').toString();
-
-      if (!date.isBefore(startOfDay)) {
-        if (eventType == 'entry') entryCount++;
-        if (eventType == 'exit') exitCount++;
-      }
-
-      final old = latestLogByChild[childId];
-      if (old == null) {
-        latestLogByChild[childId] = {
-          'eventType': eventType,
-          'time': ts,
-        };
-      } else {
-        final oldTs = old['time'] as Timestamp?;
-        if (oldTs == null || ts.compareTo(oldTs) > 0) {
-          latestLogByChild[childId] = {
-            'eventType': eventType,
-            'time': ts,
-          };
-        }
-      }
-    }
-
-    for (final child in children) {
-      final latest = latestLogByChild[child.id];
-      if (latest != null && latest['eventType'] == 'entry') {
-        insideNowCount++;
-      }
-    }
+    final Set<String> updatedChildrenIds = {};
 
     for (final doc in updatesSnapshot.docs) {
       final data = doc.data();
@@ -318,15 +228,20 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
       if (ts.toDate().isBefore(startOfDay)) continue;
 
       careUpdatesCount++;
+      updatedChildrenIds.add(childId);
+
+      if (data['hasMedia'] == true) {
+        mediaUpdatesCount++;
+      }
     }
+
+    childrenUpdatedTodayCount = updatedChildrenIds.length;
 
     return {
       'childrenCount': children.length,
-      'insideNowCount': insideNowCount,
-      'entryCount': entryCount,
-      'exitCount': exitCount,
       'careUpdatesCount': careUpdatesCount,
-      'latestLogByChild': latestLogByChild,
+      'mediaUpdatesCount': mediaUpdatesCount,
+      'childrenUpdatedTodayCount': childrenUpdatedTodayCount,
     };
   }
 
@@ -382,52 +297,25 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
     return latestUpdateByChild;
   }
 
+  Future<List<ChildModel>> getChildrenNeedingUpdate(
+    List<ChildModel> children,
+  ) async {
+    final latestUpdateByChild = await fetchTodayUpdatesSummary(children);
+    return children
+        .where((child) => !latestUpdateByChild.containsKey(child.id))
+        .toList();
+  }
+
   Future<List<Map<String, dynamic>>> fetchRecentNurseryActivities() async {
     final now = DateTime.now();
     final startOfDay = DateTime(now.year, now.month, now.day);
 
-    final entryExitSnapshot =
-        await _firestore.collection('entry_exit_logs').get();
     final updatesSnapshot = await _firestore
         .collection('updates')
         .where('section', isEqualTo: 'Nursery')
         .get();
 
     final List<Map<String, dynamic>> activities = [];
-
-    for (final doc in entryExitSnapshot.docs) {
-      final data = doc.data();
-
-      if ((data['section'] ?? '').toString() != 'Nursery') continue;
-
-      final Timestamp? ts = data['time'] is Timestamp
-          ? data['time'] as Timestamp
-          : data['createdAt'] is Timestamp
-              ? data['createdAt'] as Timestamp
-              : null;
-
-      if (ts == null) continue;
-      if (ts.toDate().isBefore(startOfDay)) continue;
-
-      final eventType = (data['eventType'] ?? '').toString();
-      final childName = (data['childName'] ?? 'طفل').toString();
-      final createdByName = (data['createdByName'] ?? '').toString();
-      final note = (data['note'] ?? '').toString();
-
-      activities.add({
-        'time': ts,
-        'title': eventType == 'entry' ? 'تم تسجيل دخول' : 'تم تسجيل خروج',
-        'childName': childName,
-        'subtitle': note.trim().isNotEmpty
-            ? note
-            : createdByName.trim().isNotEmpty
-                ? 'بواسطة $createdByName'
-                : '',
-        'color': eventType == 'entry' ? Colors.green : Colors.red,
-        'icon':
-            eventType == 'entry' ? Icons.login_rounded : Icons.logout_rounded,
-      });
-    }
 
     for (final doc in updatesSnapshot.docs) {
       final data = doc.data();
@@ -456,7 +344,9 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
                 ? 'بواسطة $createdByName'
                 : 'تمت إضافة تحديث جديد',
         'color': AppColors.primary,
-        'icon': Icons.favorite_border_rounded,
+        'icon': data['hasMedia'] == true
+            ? Icons.photo_camera_outlined
+            : Icons.favorite_border_rounded,
       });
     }
 
@@ -544,16 +434,6 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
     }
   }
 
-  Future<void> openEntryExitLog(ChildModel child) async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => EntryExitLogPage(child: child),
-      ),
-    );
-    setState(() {});
-  }
-
   Future<void> openQuickCareUpdate(ChildModel child) async {
     await Navigator.push(
       context,
@@ -590,24 +470,6 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
     }
   }
 
-  String statusLabel(String? eventType) {
-    if (eventType == 'entry') return 'داخل الآن';
-    if (eventType == 'exit') return 'خارج الآن';
-    return 'لا يوجد سجل بعد';
-  }
-
-  Color statusColor(String? eventType) {
-    if (eventType == 'entry') return Colors.green;
-    if (eventType == 'exit') return Colors.redAccent;
-    return AppColors.textLight;
-  }
-
-  IconData statusIcon(String? eventType) {
-    if (eventType == 'entry') return Icons.login_rounded;
-    if (eventType == 'exit') return Icons.logout_rounded;
-    return Icons.help_outline_rounded;
-  }
-
   String formatTime(Timestamp? ts) {
     if (ts == null) return 'غير محدد';
     final d = ts.toDate();
@@ -616,24 +478,19 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
 
   List<ChildModel> applyChildrenFilters(
     List<ChildModel> children,
-    Map<String, Map<String, dynamic>> latestLogByChild,
     Map<String, Map<String, dynamic>> latestUpdateByChild,
   ) {
     return children.where((child) {
       final matchesSearch =
           child.name.toLowerCase().contains(searchQuery.toLowerCase());
 
-      final currentEventType =
-          (latestLogByChild[child.id]?['eventType'] ?? '').toString();
       final hasUpdateToday = latestUpdateByChild.containsKey(child.id);
 
       bool matchesStatus = true;
-      if (selectedStatusFilter == 'inside') {
-        matchesStatus = currentEventType == 'entry';
-      } else if (selectedStatusFilter == 'outside') {
-        matchesStatus = currentEventType == 'exit' || currentEventType.isEmpty;
-      } else if (selectedStatusFilter == 'needUpdate') {
+      if (selectedStatusFilter == 'needUpdate') {
         matchesStatus = !hasUpdateToday;
+      } else if (selectedStatusFilter == 'updatedToday') {
+        matchesStatus = hasUpdateToday;
       }
 
       return matchesSearch && matchesStatus;
@@ -673,18 +530,10 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
               }
 
               final stats = statsSnapshot.data ?? {};
-              final latestLogByChild =
-                  (stats['latestLogByChild'] as Map<String, dynamic>? ?? {})
-                      .map(
-                (key, value) => MapEntry(
-                  key,
-                  Map<String, dynamic>.from(value as Map),
-                ),
-              );
 
               return FutureBuilder<List<dynamic>>(
                 future: Future.wait([
-                  getChildrenWithoutEntryToday(nurseryChildren),
+                  getChildrenNeedingUpdate(nurseryChildren),
                   fetchRecentNurseryActivities(),
                   fetchTodayUpdatesSummary(nurseryChildren),
                 ]),
@@ -699,7 +548,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
                     );
                   }
 
-                  final missingChildren =
+                  final childrenNeedingUpdate =
                       (extraSnapshot.data?[0] as List<ChildModel>? ?? []);
                   final activities =
                       (extraSnapshot.data?[1] as List<Map<String, dynamic>>? ??
@@ -711,7 +560,6 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
 
                   final filteredChildren = applyChildrenFilters(
                     nurseryChildren,
-                    latestLogByChild,
                     latestUpdateByChild,
                   );
 
@@ -722,10 +570,12 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
                       children: [
                         _buildWelcomeHeader(),
                         const SizedBox(height: 16),
+                        _buildInfoNotice(),
+                        const SizedBox(height: 16),
                         _buildStatsSection(stats),
                         const SizedBox(height: 16),
-                        _buildAlertsSection(missingChildren),
-                        if (missingChildren.isNotEmpty)
+                        _buildAlertsSection(childrenNeedingUpdate),
+                        if (childrenNeedingUpdate.isNotEmpty)
                           const SizedBox(height: 16),
                         _buildQuickActions(nurseryChildren),
                         const SizedBox(height: 16),
@@ -737,11 +587,6 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
                           _buildEmptyChildrenState()
                         else
                           ...filteredChildren.map((child) {
-                            final current =
-                                latestLogByChild[child.id] ?? <String, dynamic>{};
-                            final currentEventType =
-                                (current['eventType'] ?? '').toString();
-                            final currentTs = current['time'] as Timestamp?;
                             final latestUpdate = latestUpdateByChild[child.id];
                             final hasUpdateToday = latestUpdate != null;
 
@@ -749,10 +594,15 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
                               padding: const EdgeInsets.only(bottom: 12),
                               child: _NurseryChildDashboardCard(
                                 childModel: child,
-                                statusText: statusLabel(currentEventType),
-                                statusColor: statusColor(currentEventType),
-                                statusIcon: statusIcon(currentEventType),
-                                lastEventTime: formatTime(currentTs),
+                                careStatusText: hasUpdateToday
+                                    ? 'تمت متابعته اليوم'
+                                    : 'يحتاج تحديث اليوم',
+                                careStatusColor: hasUpdateToday
+                                    ? Colors.green
+                                    : Colors.orange,
+                                careStatusIcon: hasUpdateToday
+                                    ? Icons.check_circle_outline_rounded
+                                    : Icons.warning_amber_rounded,
                                 hasUpdateToday: hasUpdateToday,
                                 latestUpdateType:
                                     (latestUpdate?['type'] ?? '').toString(),
@@ -760,16 +610,8 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
                                     latestUpdate?['time'] as Timestamp?,
                                 latestUpdateNote:
                                     (latestUpdate?['note'] ?? '').toString(),
-                                primaryActionLabel: currentEventType == 'entry'
-                                    ? 'تسجيل خروج'
-                                    : 'تسجيل دخول',
-                                primaryActionIcon: currentEventType == 'entry'
-                                    ? Icons.logout_rounded
-                                    : Icons.login_rounded,
-                                onPrimaryAction: () => openEntryExitLog(child),
                                 onCamera: () => openCameraCheckin(child),
                                 onAddUpdate: () => openAddUpdate(child),
-                                onEntryExitLog: () => openEntryExitLog(child),
                                 onQuickCare: () => openQuickCareUpdate(child),
                                 onCareLog: () => openCareLog(child),
                                 onHandoffLog: () => openChildHandoffLog(child),
@@ -824,11 +666,41 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
           ),
           const SizedBox(height: 8),
           Text(
-            'تابعي أطفال الحضانة من خلال الرعاية اليومية، سجل الدخول والخروج، الصور، والملاحظات السريعة.',
+            'تابعي أطفال الحضانة من خلال الرعاية اليومية، الصور، الملاحظات السريعة، الحوادث، والتواصل مع الأهل.',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: AppColors.textLight,
                   height: 1.5,
                 ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoNotice() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: const Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.info_outline_rounded,
+            color: AppColors.secondary,
+          ),
+          SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'ملاحظة: تسجيل دخول وخروج أطفال الحضانة لم يعد من صلاحيات موظفات الحضانة، وأصبح من مسؤولية الإدارة فقط. دور موظفة الحضانة هنا يركز على الرعاية والتحديثات والمتابعة اليومية.',
+              style: TextStyle(
+                color: AppColors.textDark,
+                height: 1.5,
+              ),
+            ),
           ),
         ],
       ),
@@ -850,9 +722,9 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
             const SizedBox(width: 10),
             Expanded(
               child: _StatCard(
-                title: 'داخل الآن',
-                value: '${stats['insideNowCount'] ?? 0}',
-                icon: Icons.how_to_reg_rounded,
+                title: 'تمت متابعتهم اليوم',
+                value: '${stats['childrenUpdatedTodayCount'] ?? 0}',
+                icon: Icons.check_circle_outline_rounded,
               ),
             ),
           ],
@@ -862,34 +734,27 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
           children: [
             Expanded(
               child: _StatCard(
-                title: 'دخول اليوم',
-                value: '${stats['entryCount'] ?? 0}',
-                icon: Icons.login_rounded,
+                title: 'تحديثات اليوم',
+                value: '${stats['careUpdatesCount'] ?? 0}',
+                icon: Icons.favorite_border_rounded,
               ),
             ),
             const SizedBox(width: 10),
             Expanded(
               child: _StatCard(
-                title: 'خروج اليوم',
-                value: '${stats['exitCount'] ?? 0}',
-                icon: Icons.logout_rounded,
+                title: 'وسائط اليوم',
+                value: '${stats['mediaUpdatesCount'] ?? 0}',
+                icon: Icons.photo_camera_outlined,
               ),
             ),
           ],
-        ),
-        const SizedBox(height: 10),
-        _StatCard(
-          title: 'تحديثات اليوم',
-          value: '${stats['careUpdatesCount'] ?? 0}',
-          icon: Icons.favorite_border_rounded,
-          fullWidth: true,
         ),
       ],
     );
   }
 
-  Widget _buildAlertsSection(List<ChildModel> missingChildren) {
-    if (missingChildren.isEmpty) return const SizedBox();
+  Widget _buildAlertsSection(List<ChildModel> childrenNeedingUpdate) {
+    if (childrenNeedingUpdate.isEmpty) return const SizedBox();
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -915,11 +780,11 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
             ],
           ),
           const SizedBox(height: 10),
-          ...missingChildren.map((child) {
+          ...childrenNeedingUpdate.map((child) {
             return Padding(
               padding: const EdgeInsets.only(bottom: 6),
               child: Text(
-                '• ${child.name} لم يسجل دخول اليوم',
+                '• ${child.name} يحتاج متابعة أو تحديث اليوم',
                 style: const TextStyle(fontWeight: FontWeight.w600),
               ),
             );
@@ -949,16 +814,6 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
               spacing: 10,
               runSpacing: 10,
               children: [
-                _QuickActionChip(
-                  icon: Icons.login_rounded,
-                  label: 'دخول وخروج',
-                  onTap: () async {
-                    final child = await pickChild(children);
-                    if (child != null) {
-                      openEntryExitLog(child);
-                    }
-                  },
-                ),
                 _QuickActionChip(
                   icon: Icons.flash_on_rounded,
                   label: 'رعاية سريعة',
@@ -1055,20 +910,11 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
                     },
                   ),
                   _FilterChipItem(
-                    label: 'داخل الآن',
-                    isSelected: selectedStatusFilter == 'inside',
+                    label: 'تم تحديثهم اليوم',
+                    isSelected: selectedStatusFilter == 'updatedToday',
                     onTap: () {
                       setState(() {
-                        selectedStatusFilter = 'inside';
-                      });
-                    },
-                  ),
-                  _FilterChipItem(
-                    label: 'خارج الآن',
-                    isSelected: selectedStatusFilter == 'outside',
-                    onTap: () {
-                      setState(() {
-                        selectedStatusFilter = 'outside';
+                        selectedStatusFilter = 'updatedToday';
                       });
                     },
                   ),
@@ -1120,7 +966,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
           ),
           const SizedBox(height: 6),
           const Text(
-            'أحدث الحركات والتحديثات الخاصة بأطفال الحضانة.',
+            'أحدث التحديثات والرعاية والوسائط الخاصة بأطفال الحضانة.',
             style: TextStyle(
               fontSize: 13.5,
               color: AppColors.textLight,
@@ -1206,20 +1052,15 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
 
 class _NurseryChildDashboardCard extends StatelessWidget {
   final ChildModel childModel;
-  final String statusText;
-  final Color statusColor;
-  final IconData statusIcon;
-  final String lastEventTime;
+  final String careStatusText;
+  final Color careStatusColor;
+  final IconData careStatusIcon;
   final bool hasUpdateToday;
   final String latestUpdateType;
   final Timestamp? latestUpdateTime;
   final String latestUpdateNote;
-  final String primaryActionLabel;
-  final IconData primaryActionIcon;
-  final VoidCallback onPrimaryAction;
   final VoidCallback onCamera;
   final VoidCallback onAddUpdate;
-  final VoidCallback onEntryExitLog;
   final VoidCallback onQuickCare;
   final VoidCallback onCareLog;
   final VoidCallback onHandoffLog;
@@ -1227,20 +1068,15 @@ class _NurseryChildDashboardCard extends StatelessWidget {
 
   const _NurseryChildDashboardCard({
     required this.childModel,
-    required this.statusText,
-    required this.statusColor,
-    required this.statusIcon,
-    required this.lastEventTime,
+    required this.careStatusText,
+    required this.careStatusColor,
+    required this.careStatusIcon,
     required this.hasUpdateToday,
     required this.latestUpdateType,
     required this.latestUpdateTime,
     required this.latestUpdateNote,
-    required this.primaryActionLabel,
-    required this.primaryActionIcon,
-    required this.onPrimaryAction,
     required this.onCamera,
     required this.onAddUpdate,
-    required this.onEntryExitLog,
     required this.onQuickCare,
     required this.onCareLog,
     required this.onHandoffLog,
@@ -1298,18 +1134,18 @@ class _NurseryChildDashboardCard extends StatelessWidget {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                   decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.10),
+                    color: careStatusColor.withOpacity(0.10),
                     borderRadius: BorderRadius.circular(14),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(statusIcon, color: statusColor, size: 18),
+                      Icon(careStatusIcon, color: careStatusColor, size: 18),
                       const SizedBox(width: 6),
                       Text(
-                        statusText,
+                        careStatusText,
                         style: TextStyle(
-                          color: statusColor,
+                          color: careStatusColor,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
@@ -1329,14 +1165,6 @@ class _NurseryChildDashboardCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'آخر حركة دخول/خروج: $lastEventTime',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textDark,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
                   if (hasUpdateToday)
                     Text(
                       latestUpdateNote.trim().isNotEmpty
@@ -1370,15 +1198,6 @@ class _NurseryChildDashboardCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 14),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: onPrimaryAction,
-                icon: Icon(primaryActionIcon),
-                label: Text(primaryActionLabel),
-              ),
-            ),
-            const SizedBox(height: 10),
             Row(
               children: [
                 Expanded(
@@ -1437,15 +1256,6 @@ class _NurseryChildDashboardCard extends StatelessWidget {
                   ),
                 ),
               ],
-            ),
-            const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: onEntryExitLog,
-                icon: const Icon(Icons.history_rounded),
-                label: const Text('فتح سجل الدخول/الخروج'),
-              ),
             ),
           ],
         ),
@@ -1541,19 +1351,16 @@ class _StatCard extends StatelessWidget {
   final String title;
   final String value;
   final IconData icon;
-  final bool fullWidth;
 
   const _StatCard({
     required this.title,
     required this.value,
     required this.icon,
-    this.fullWidth = false,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: fullWidth ? double.infinity : null,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,

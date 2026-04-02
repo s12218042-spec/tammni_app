@@ -6,11 +6,12 @@ import '../models/child_model.dart';
 import '../services/message_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
+import 'add_child_request_page.dart';
 import 'child_profile_page.dart';
 import 'parent_chats_page.dart';
+import 'parent_notifications_page.dart';
 import 'parent_updates_page.dart';
 import 'weekly_report_page.dart';
-import 'parent_notification_page.dart';
 
 class ParentHomePage extends StatefulWidget {
   final String parentUsername;
@@ -45,7 +46,9 @@ class _ParentHomePageState extends State<ParentHomePage> {
         : const Color(0xFF7BB6FF);
   }
 
-  String childAgeText(DateTime birthDate) {
+  String childAgeText(DateTime? birthDate) {
+    if (birthDate == null) return 'غير محدد';
+
     final now = DateTime.now();
     int years = now.year - birthDate.year;
     int months = now.month - birthDate.month;
@@ -86,27 +89,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
       if (snapshot.docs.isNotEmpty) {
         final children = snapshot.docs.map((doc) {
           final data = doc.data();
-
-          return ChildModel(
-            id: doc.id,
-            name: data['name'] ?? '',
-            section: data['section'] ?? 'Nursery',
-            group: data['group'] ?? '',
-            parentName: data['parentName'] ?? '',
-            parentUsername: data['parentUsername'] ?? '',
-            birthDate: data['birthDate'] is Timestamp
-                ? (data['birthDate'] as Timestamp).toDate()
-                : DateTime.now(),
-            isActive: data['isActive'] ?? true,
-            status: data['status'] ?? 'active',
-            createdAt: data['createdAt'] is Timestamp
-                ? (data['createdAt'] as Timestamp).toDate()
-                : null,
-            updatedAt: data['updatedAt'] is Timestamp
-                ? (data['updatedAt'] as Timestamp).toDate()
-                : null,
-            history: const [],
-          );
+          return ChildModel.fromMap(data, docId: doc.id);
         }).toList();
 
         children.sort((a, b) => a.name.compareTo(b.name));
@@ -122,27 +105,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
 
     final children = snapshot.docs.map((doc) {
       final data = doc.data();
-
-      return ChildModel(
-        id: doc.id,
-        name: data['name'] ?? '',
-        section: data['section'] ?? 'Nursery',
-        group: data['group'] ?? '',
-        parentName: data['parentName'] ?? '',
-        parentUsername: data['parentUsername'] ?? '',
-        birthDate: data['birthDate'] is Timestamp
-            ? (data['birthDate'] as Timestamp).toDate()
-            : DateTime.now(),
-        isActive: data['isActive'] ?? true,
-        status: data['status'] ?? 'active',
-        createdAt: data['createdAt'] is Timestamp
-            ? (data['createdAt'] as Timestamp).toDate()
-            : null,
-        updatedAt: data['updatedAt'] is Timestamp
-            ? (data['updatedAt'] as Timestamp).toDate()
-            : null,
-        history: const [],
-      );
+      return ChildModel.fromMap(data, docId: doc.id);
     }).toList();
 
     children.sort((a, b) => a.name.compareTo(b.name));
@@ -259,6 +222,84 @@ class _ParentHomePageState extends State<ParentHomePage> {
     setState(() {});
   }
 
+  Future<void> _openAddChildRequest() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const AddChildRequestPage(),
+      ),
+    );
+
+    if (result == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('تم إرسال طلب إضافة الطفل بنجاح'),
+        ),
+      );
+    }
+
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  Widget _buildAddChildCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 24,
+                  backgroundColor: AppColors.primary.withOpacity(0.12),
+                  child: const Icon(
+                    Icons.person_add_alt_1_rounded,
+                    color: AppColors.primary,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: const [
+                      Text(
+                        'إضافة طفل جديد',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                          color: AppColors.textDark,
+                        ),
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        'إذا أردتِ إضافة طفل جديد إلى الحساب، أرسلي طلبًا ليتم مراجعته من الإدارة.',
+                        style: TextStyle(
+                          color: AppColors.textLight,
+                          fontSize: 13,
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _openAddChildRequest,
+                icon: const Icon(Icons.add_circle_outline_rounded),
+                label: const Text('طلب إضافة طفل'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<ChildModel>>(
@@ -267,21 +308,25 @@ class _ParentHomePageState extends State<ParentHomePage> {
         return AppPageScaffold(
           title: 'الرئيسية - ولي الأمر',
           actions: [
-             IconButton(
-             icon: const Icon(Icons.notifications_outlined),
-             tooltip: 'الإشعارات',
-             onPressed: () {
-             Navigator.push(
-             context,
-             MaterialPageRoute(
-             builder: (_) => ParentNotificationsPage(
-             parentUsername: widget.parentUsername,
+            IconButton(
+              icon: const Icon(Icons.person_add_alt_1_outlined),
+              tooltip: 'طلب إضافة طفل',
+              onPressed: _openAddChildRequest,
+            ),
+            IconButton(
+              icon: const Icon(Icons.notifications_outlined),
+              tooltip: 'الإشعارات',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ParentNotificationsPage(
+                      parentUsername: widget.parentUsername,
+                    ),
                   ),
-                ),
-               );
-             },
-              ),
-
+                );
+              },
+            ),
             if (currentUserId != null)
               StreamBuilder<int>(
                 stream: _messageService.getUnreadMessagesCountForUser(
@@ -371,6 +416,8 @@ class _ParentHomePageState extends State<ParentHomePage> {
                                 widget.parentUsername.trim().toLowerCase(),
                           ),
                           const SizedBox(height: 16),
+                          _buildAddChildCard(),
+                          const SizedBox(height: 12),
                           Card(
                             child: Padding(
                               padding: const EdgeInsets.all(18),
@@ -397,7 +444,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
                                   ),
                                   const SizedBox(height: 8),
                                   const Text(
-                                    'يمكنك مراجعة الإدارة لإضافة الأطفال وربطهم بحساب ولي الأمر.',
+                                    'يمكنك مراجعة الإدارة أو إرسال طلب إضافة طفل جديد لربطه بحساب ولي الأمر.',
                                     style: TextStyle(
                                       color: AppColors.textLight,
                                       fontSize: 14,
@@ -427,6 +474,8 @@ class _ParentHomePageState extends State<ParentHomePage> {
                                 .where((c) => c.section == 'Kindergarten')
                                 .length,
                           ),
+                          const SizedBox(height: 16),
+                          _buildAddChildCard(),
                           const SizedBox(height: 20),
                           Text(
                             'أطفالي',
@@ -736,11 +785,11 @@ class _ChildDashboardCard extends StatelessWidget {
               )
             else
               const _StatusBox(
-                icon: Icons.info_outline,
-                color: AppColors.primary,
-                title: 'نظام المتابعة',
-                value: 'مرن حسب الزيارة والتحديثات',
-              ),
+  icon: Icons.info_outline,
+  color: AppColors.primary,
+  title: 'نظام المتابعة',
+  value: 'مرن حسب الزيارة والتحديثات، والدخول والخروج يوثّق من الإدارة',
+),
             const SizedBox(height: 14),
             Align(
               alignment: Alignment.centerRight,
