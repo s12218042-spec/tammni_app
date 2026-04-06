@@ -9,7 +9,7 @@ import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 
 class MessagesPage extends StatefulWidget {
-  final ChildModel child;
+  final ChildModel? child;
   final String targetRole;
   final String targetUserId;
   final String targetUserName;
@@ -17,7 +17,7 @@ class MessagesPage extends StatefulWidget {
 
   const MessagesPage({
     super.key,
-    required this.child,
+    this.child,
     required this.targetRole,
     required this.targetUserId,
     required this.targetUserName,
@@ -42,9 +42,14 @@ class _MessagesPageState extends State<MessagesPage> {
   String get targetDisplayName =>
       widget.targetUserName.trim().isEmpty ? 'بدون اسم' : widget.targetUserName;
 
+  bool get hasChildContext => widget.child != null;
+
   IconData get targetIcon {
     if (widget.targetRole == 'teacher') return Icons.school_outlined;
-    if (widget.targetRole == 'nursery') return Icons.child_care_outlined;
+    if (widget.targetRole == 'nursery' ||
+        widget.targetRole == 'nursery_staff') {
+      return Icons.child_care_outlined;
+    }
     if (widget.targetRole == 'parent') return Icons.person_outline;
     if (widget.targetRole == 'admin') return Icons.business_outlined;
     return Icons.send_outlined;
@@ -52,7 +57,10 @@ class _MessagesPageState extends State<MessagesPage> {
 
   Color get targetColor {
     if (widget.targetRole == 'teacher') return const Color(0xFF7BB6FF);
-    if (widget.targetRole == 'nursery') return const Color(0xFFEFA7C8);
+    if (widget.targetRole == 'nursery' ||
+        widget.targetRole == 'nursery_staff') {
+      return const Color(0xFFEFA7C8);
+    }
     if (widget.targetRole == 'parent') return AppColors.secondary;
     if (widget.targetRole == 'admin') return AppColors.secondary;
     return AppColors.primary;
@@ -66,7 +74,7 @@ class _MessagesPageState extends State<MessagesPage> {
 
   String roleLabel(String role) {
     if (role == 'teacher') return 'معلمة';
-    if (role == 'nursery') return 'موظف حضانة';
+    if (role == 'nursery' || role == 'nursery_staff') return 'موظفة حضانة';
     if (role == 'parent') return 'ولي أمر';
     if (role == 'admin') return 'الإدارة';
     return role;
@@ -76,7 +84,9 @@ class _MessagesPageState extends State<MessagesPage> {
     final roleText = roleLabel(widget.targetRole);
 
     if (widget.targetRole == 'admin' || widget.targetSection.trim().isEmpty) {
-      return '$roleText • متابعة بخصوص الطفل';
+      return hasChildContext
+          ? '$roleText • متابعة بخصوص الطفل'
+          : '$roleText • محادثة مباشرة';
     }
 
     return '$roleText • ${sectionLabel(widget.targetSection)}';
@@ -113,11 +123,13 @@ class _MessagesPageState extends State<MessagesPage> {
               .toString();
       currentUserRole = (data['role'] ?? '').toString();
 
-      await _messageService.markConversationAsRead(
-        childId: widget.child.id,
-        currentUserId: user.uid,
-        targetUserId: widget.targetUserId,
-      );
+      if (hasChildContext) {
+        await _messageService.markConversationAsRead(
+          childId: widget.child!.id,
+          currentUserId: user.uid,
+          targetUserId: widget.targetUserId,
+        );
+      }
 
       if (!mounted) return;
       setState(() {
@@ -140,8 +152,9 @@ class _MessagesPageState extends State<MessagesPage> {
 
   String formatTime(Timestamp timestamp) {
     final date = timestamp.toDate();
-    final hour =
-        date.hour > 12 ? date.hour - 12 : (date.hour == 0 ? 12 : date.hour);
+    final hour = date.hour > 12
+        ? date.hour - 12
+        : (date.hour == 0 ? 12 : date.hour);
     final minute = date.minute.toString().padLeft(2, '0');
     final period = date.hour >= 12 ? 'م' : 'ص';
     return '$hour:$minute $period';
@@ -168,7 +181,9 @@ class _MessagesPageState extends State<MessagesPage> {
   Future<void> sendCurrentMessage() async {
     final text = messageCtrl.text.trim();
 
-    if (text.isEmpty || currentUserId == null || currentUserRole.isEmpty) return;
+    if (text.isEmpty || currentUserId == null || currentUserRole.isEmpty) {
+      return;
+    }
     if (isSending) return;
 
     setState(() {
@@ -177,8 +192,8 @@ class _MessagesPageState extends State<MessagesPage> {
 
     try {
       await _messageService.sendMessage(
-        childId: widget.child.id,
-        childName: widget.child.name,
+        childId: hasChildContext ? widget.child!.id : '',
+        childName: hasChildContext ? widget.child!.name : '',
         senderId: currentUserId!,
         senderName: currentUserName,
         senderRole: currentUserRole,
@@ -270,7 +285,9 @@ class _MessagesPageState extends State<MessagesPage> {
                         message.isRead ? '✔✔' : '✔',
                         style: TextStyle(
                           fontSize: 11.5,
-                          color: message.isRead ? Colors.lightBlueAccent : Colors.white70,
+                          color: message.isRead
+                              ? Colors.lightBlueAccent
+                              : Colors.white70,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
@@ -304,10 +321,7 @@ class _MessagesPageState extends State<MessagesPage> {
           CircleAvatar(
             radius: 26,
             backgroundColor: targetColor.withOpacity(0.14),
-            child: Icon(
-              targetIcon,
-              color: targetColor,
-            ),
+            child: Icon(targetIcon, color: targetColor),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -331,15 +345,17 @@ class _MessagesPageState extends State<MessagesPage> {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  'بخصوص الطفل: ${widget.child.name}',
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    color: targetColor,
-                    fontWeight: FontWeight.w700,
+                if (hasChildContext) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    'بخصوص الطفل: ${widget.child!.name}',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      color: targetColor,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
@@ -399,14 +415,10 @@ class _MessagesPageState extends State<MessagesPage> {
                       width: 22,
                       child: CircularProgressIndicator(
                         strokeWidth: 2.2,
-                        valueColor:
-                            AlwaysStoppedAnimation<Color>(Colors.white),
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                       ),
                     )
-                  : const Icon(
-                      Icons.send_rounded,
-                      color: Colors.white,
-                    ),
+                  : const Icon(Icons.send_rounded, color: Colors.white),
             ),
           ),
         ],
@@ -419,21 +431,47 @@ class _MessagesPageState extends State<MessagesPage> {
     if (loadingIdentity) {
       return const Directionality(
         textDirection: TextDirection.rtl,
-        child: Scaffold(
-          body: Center(
-            child: CircularProgressIndicator(),
-          ),
-        ),
+        child: Scaffold(body: Center(child: CircularProgressIndicator())),
       );
     }
 
     if (currentUserId == null) {
       return const Directionality(
         textDirection: TextDirection.rtl,
-        child: Scaffold(
-          body: Center(
-            child: Text('تعذر تحميل هوية المستخدم'),
-          ),
+        child: Scaffold(body: Center(child: Text('تعذر تحميل هوية المستخدم'))),
+      );
+    }
+
+    if (!hasChildContext) {
+      return AppPageScaffold(
+        title: 'المحادثة',
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        child: Column(
+          children: [
+            buildHeaderCard(),
+            const SizedBox(height: 14),
+            Expanded(
+              child: Center(
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  child: const Text(
+                    'هذه المحادثة لا تحتوي على سياق طفل في هذه النسخة بعد.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textDark,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       );
     }
@@ -448,15 +486,13 @@ class _MessagesPageState extends State<MessagesPage> {
           Expanded(
             child: StreamBuilder<List<MessageModel>>(
               stream: _messageService.getConversationMessages(
-                childId: widget.child.id,
+                childId: widget.child!.id,
                 currentUserId: currentUserId!,
                 targetUserId: widget.targetUserId,
               ),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(
-                    child: CircularProgressIndicator(),
-                  );
+                  return const Center(child: CircularProgressIndicator());
                 }
 
                 if (snapshot.hasError) {

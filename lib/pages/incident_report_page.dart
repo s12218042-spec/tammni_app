@@ -1,6 +1,8 @@
+import 'dart:io';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../models/child_model.dart';
 import '../theme/app_theme.dart';
@@ -20,410 +22,296 @@ class IncidentReportPage extends StatefulWidget {
 
 class _IncidentReportPageState extends State<IncidentReportPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final FirebaseAuth _auth = FirebaseAuth.instance;
+  
+  final ImagePicker _picker = ImagePicker();
 
   final TextEditingController detailsCtrl = TextEditingController();
   final TextEditingController actionCtrl = TextEditingController();
+  final TextEditingController witnessCtrl = TextEditingController();
+  final TextEditingController otherLocationCtrl = TextEditingController();
 
-  String incidentType = 'حادث بسيط';
-  String priority = 'important'; // normal / important / urgent
+  String incidentType = 'سقوط بسيط';
+  String priority = 'important';
+  String status = 'new';
+  String incidentPlace = 'الصف';
+
   bool parentNotified = false;
   bool isSaving = false;
+
+  List<String> witnesses = [];
+  File? selectedImage;
+
+  final List<String> placeOptions = [
+    'الصف',
+    'ساحة اللعب',
+    'غرفة النوم',
+    'الحمام',
+    'غرفة الطعام',
+    'الممر',
+    'المدخل',
+    'الباص',
+    'مكان آخر',
+  ];
 
   @override
   void dispose() {
     detailsCtrl.dispose();
     actionCtrl.dispose();
+    witnessCtrl.dispose();
+    otherLocationCtrl.dispose();
     super.dispose();
   }
 
-  Future<Map<String, String>> fetchCurrentUserInfo() async {
-    final currentUser = _auth.currentUser;
+  String autoAnalyzeRisk() {
+    final text = detailsCtrl.text.trim();
 
-    if (currentUser == null) {
-      return {'uid': '', 'name': 'مستخدم', 'role': ''};
+    if (text.contains('دم') || text.contains('كسر')) {
+      return 'urgent';
     }
-
-    final userDoc =
-        await _firestore.collection('users').doc(currentUser.uid).get();
-    final data = userDoc.data() ?? {};
-
-    return {
-      'uid': currentUser.uid,
-      'name': (data['displayName'] ?? data['username'] ?? 'مستخدم').toString(),
-      'role': (data['role'] ?? '').toString(),
-    };
+    if (text.contains('بكاء') || text.contains('سقوط')) {
+      return 'important';
+    }
+    return 'normal';
   }
 
-  Future<void> saveIncident() async {
-    if (detailsCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('اكتبي تفاصيل الحادث أو الملاحظة')),
-      );
-      return;
-    }
-
-    setState(() {
-      isSaving = true;
-    });
-
-    try {
-      final userInfo = await fetchCurrentUserInfo();
-
-      await _firestore.collection('incident_reports').add({
-        'childId': widget.child.id,
-        'childName': widget.child.name,
-        'parentUsername': widget.child.parentUsername,
-        'section': widget.child.section,
-        'group': widget.child.group,
-        'incidentType': incidentType,
-        'priority': priority,
-        'details': detailsCtrl.text.trim(),
-        'actionTaken': actionCtrl.text.trim(),
-        'parentNotified': parentNotified,
-        'createdAt': Timestamp.now(),
-        'time': FieldValue.serverTimestamp(),
-        'createdByUid': userInfo['uid'],
-        'createdByName': userInfo['name'],
-        'createdByRole': userInfo['role'],
-      });
-
-      if (parentNotified) {
-        await _firestore.collection('notifications').add({
-          'childId': widget.child.id,
-          'childName': widget.child.name,
-          'parentUsername': widget.child.parentUsername,
-          'section': widget.child.section,
-          'group': widget.child.group,
-          'title': 'ملاحظة مهمة من الحضانة',
-          'message':
-              'تم تسجيل ملاحظة مهمة تخص ${widget.child.name}، يرجى المتابعة.',
-          'type': 'incident_notification',
-          'isRead': false,
-          'createdAt': Timestamp.now(),
-          'time': FieldValue.serverTimestamp(),
-          'createdByUid': userInfo['uid'],
-          'createdByName': userInfo['name'],
-          'createdByRole': userInfo['role'],
-        });
-      }
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم حفظ التقرير بنجاح')),
-      );
-      Navigator.pop(context, true);
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('حدث خطأ أثناء الحفظ: $e')),
-      );
-    } finally {
-      if (!mounted) return;
-      setState(() {
-        isSaving = false;
-      });
-    }
-  }
-
-  String formatDateTime(dynamic rawTime) {
-    if (rawTime is Timestamp) {
-      final d = rawTime.toDate();
-      return '${d.year}/${d.month}/${d.day} - ${d.hour}:${d.minute.toString().padLeft(2, '0')}';
-    }
-    return 'غير محدد';
-  }
-
-  Color priorityColor(String p) {
-    if (p == 'urgent') return Colors.red;
-    if (p == 'important') return Colors.orange;
-    return AppColors.success;
-  }
-
-  String priorityLabel(String p) {
+  String riskLabel(String p) {
     if (p == 'urgent') return 'عاجل';
     if (p == 'important') return 'مهم';
     return 'عادي';
   }
 
+  Color riskColor(String p) {
+    if (p == 'urgent') return Colors.red;
+    if (p == 'important') return Colors.orange;
+    return Colors.green;
+  }
+
+  String get finalIncidentPlace {
+    if (incidentPlace == 'مكان آخر') {
+      final text = otherLocationCtrl.text.trim();
+      return text.isEmpty ? 'مكان آخر' : text;
+    }
+    return incidentPlace;
+  }
+
+  Future<void> pickImage() async {
+    final XFile? picked =
+        await _picker.pickImage(source: ImageSource.camera);
+
+    if (picked != null) {
+      setState(() {
+        selectedImage = File(picked.path);
+      });
+    }
+  }
+
+  void addWitness() {
+    if (witnessCtrl.text.isEmpty) return;
+
+    setState(() {
+      witnesses.add(witnessCtrl.text);
+      witnessCtrl.clear();
+    });
+  }
+
+  Future<void> saveIncident() async {
+    if (detailsCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('اكتبي التفاصيل أولاً')),
+      );
+      return;
+    }
+
+    setState(() => isSaving = true);
+
+    final autoRisk = autoAnalyzeRisk();
+
+    try {
+      await _firestore.collection('incident_reports').add({
+        'childId': widget.child.id,
+        'incidentType': incidentType,
+        'priority': priority,
+        'autoRisk': autoRisk,
+        'incidentPlace': finalIncidentPlace,
+        'details': detailsCtrl.text,
+        'actionTaken': actionCtrl.text,
+        'parentNotified': parentNotified,
+        'status': status,
+        'witnesses': witnesses,
+        'imagePath': selectedImage?.path,
+        'createdAt': Timestamp.now(),
+      });
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم الحفظ بنجاح')),
+      );
+
+      Navigator.pop(context);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('خطأ: $e')),
+      );
+    } finally {
+      setState(() => isSaving = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final autoRisk = autoAnalyzeRisk();
+
     return AppPageScaffold(
-      title: 'حادث / ملاحظة مهمة',
-      child: Column(
+      title: 'تقرير حادث',
+      child: ListView(
         children: [
+          /// 🔥 تحليل
           Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(18),
+            padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  AppColors.primary.withOpacity(0.14),
-                  AppColors.secondary.withOpacity(0.10),
-                ],
-                begin: Alignment.topRight,
-                end: Alignment.bottomLeft,
-              ),
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(
-                color: AppColors.primary.withOpacity(0.08),
-              ),
+              color: riskColor(autoRisk).withOpacity(0.1),
+              borderRadius: BorderRadius.circular(16),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Row(
               children: [
-                const Text(
-                  'تقرير حادث أو ملاحظة مهمة',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.textDark,
-                  ),
-                ),
-                const SizedBox(height: 8),
+                Icon(Icons.auto_awesome, color: riskColor(autoRisk)),
+                const SizedBox(width: 8),
                 Text(
-                  'توثيق سريع لحالة تخص ${widget.child.name} مع إمكانية إشعار ولي الأمر.',
-                  style: const TextStyle(
-                    color: AppColors.textLight,
-                    height: 1.5,
+                  'تحليل: ${riskLabel(autoRisk)}',
+                  style: TextStyle(
+                    color: riskColor(autoRisk),
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
               ],
             ),
           ),
+
           const SizedBox(height: 16),
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(22),
-              border: Border.all(
-                color: AppColors.border.withOpacity(0.8),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.03),
-                  blurRadius: 14,
-                  offset: const Offset(0, 7),
+
+          /// 📍 المكان
+          _card(
+            'مكان الحادث',
+            Icons.location_on,
+            child: DropdownButtonFormField(
+              value: incidentPlace,
+              items: placeOptions
+                  .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+                  .toList(),
+              onChanged: (v) =>
+                  setState(() => incidentPlace = v.toString()),
+            ),
+          ),
+
+          /// 📸 الصورة
+          _card(
+            'صورة الحادث',
+            Icons.camera_alt,
+            child: Column(
+              children: [
+                if (selectedImage != null)
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.file(
+                      selectedImage!,
+                      height: 150,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                const SizedBox(height: 10),
+                ElevatedButton.icon(
+                  onPressed: pickImage,
+                  icon: const Icon(Icons.camera),
+                  label: const Text('التقاط صورة'),
                 ),
               ],
             ),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: ListView(
-                shrinkWrap: true,
-                children: [
-                  DropdownButtonFormField<String>(
-                    value: incidentType,
-                    decoration: const InputDecoration(labelText: 'نوع الحالة'),
-                    items: const [
-                      DropdownMenuItem(
-                          value: 'حادث بسيط', child: Text('حادث بسيط')),
-                      DropdownMenuItem(
-                          value: 'ملاحظة صحية', child: Text('ملاحظة صحية')),
-                      DropdownMenuItem(
-                          value: 'سقوط بسيط', child: Text('سقوط بسيط')),
-                      DropdownMenuItem(value: 'خدش', child: Text('خدش')),
-                      DropdownMenuItem(
-                          value: 'بكاء شديد', child: Text('بكاء شديد')),
-                      DropdownMenuItem(value: 'أخرى', child: Text('أخرى')),
-                    ],
-                    onChanged: (value) {
-                      setState(() {
-                        incidentType = value ?? 'حادث بسيط';
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    value: priority,
-                    decoration: const InputDecoration(labelText: 'الأولوية'),
-                    items: const [
-                      DropdownMenuItem(value: 'normal', child: Text('عادي')),
-                      DropdownMenuItem(value: 'important', child: Text('مهم')),
-                      DropdownMenuItem(value: 'urgent', child: Text('عاجل')),
-                    ],
-                    onChanged: (value) {
-                      setState(() {
-                        priority = value ?? 'important';
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: detailsCtrl,
-                    maxLines: 4,
-                    decoration: const InputDecoration(
-                      labelText: 'التفاصيل',
-                      alignLabelWithHint: true,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: actionCtrl,
-                    maxLines: 3,
-                    decoration: const InputDecoration(
-                      labelText: 'الإجراء الذي تم اتخاذه',
-                      alignLabelWithHint: true,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  SwitchListTile(
-                    value: parentNotified,
-                    activeColor: AppColors.primary,
-                    onChanged: (value) {
-                      setState(() {
-                        parentNotified = value;
-                      });
-                    },
-                    title: const Text(
-                      'تم/سيتم إشعار ولي الأمر',
-                      style: TextStyle(
-                        color: AppColors.textDark,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  ElevatedButton.icon(
-                    onPressed: isSaving ? null : saveIncident,
-                    icon: isSaving
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.save_outlined),
-                    label: Text(isSaving ? 'جاري الحفظ...' : 'حفظ التقرير'),
-                  ),
-                ],
-              ),
+          ),
+
+         
+          /// 📝 التفاصيل
+          _card(
+            'ماذا حدث؟',
+            Icons.description,
+            child: TextField(
+              controller: detailsCtrl,
+              maxLines: 4,
             ),
           ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: _firestore
-                  .collection('incident_reports')
-                  .where('childId', isEqualTo: widget.child.id)
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
 
-                final docs = snapshot.data?.docs ?? [];
-                if (docs.isEmpty) {
-                  return const Center(child: Text('لا يوجد تقارير بعد'));
-                }
-
-                final items = docs
-                    .map((e) => e.data() as Map<String, dynamic>)
-                    .toList();
-                items.sort((a, b) {
-                  final aTime =
-                      (a['time'] as Timestamp?) ?? (a['createdAt'] as Timestamp?);
-                  final bTime =
-                      (b['time'] as Timestamp?) ?? (b['createdAt'] as Timestamp?);
-                  if (aTime == null && bTime == null) return 0;
-                  if (aTime == null) return 1;
-                  if (bTime == null) return -1;
-                  return bTime.compareTo(aTime);
-                });
-
-                return ListView.builder(
-                  itemCount: items.length,
-                  itemBuilder: (context, index) {
-                    final item = items[index];
-                    final p = (item['priority'] ?? 'important').toString();
-
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 12),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(22),
-                        border: Border.all(
-                          color: AppColors.border.withOpacity(0.8),
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.03),
-                            blurRadius: 14,
-                            offset: const Offset(0, 7),
-                          ),
-                        ],
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              item['incidentType'] ?? '',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w800,
-                                fontSize: 16,
-                                color: AppColors.textDark,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              priorityLabel(p),
-                              style: TextStyle(
-                                color: priorityColor(p),
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'الوقت: ${formatDateTime(item['time'] ?? item['createdAt'])}',
-                              style: const TextStyle(
-                                color: AppColors.textLight,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              'التفاصيل: ${item['details'] ?? ''}',
-                              style: const TextStyle(
-                                color: AppColors.textDark,
-                                height: 1.4,
-                              ),
-                            ),
-                            if ((item['actionTaken'] ?? '')
-                                .toString()
-                                .trim()
-                                .isNotEmpty)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 6),
-                                child: Text(
-                                  'الإجراء: ${item['actionTaken']}',
-                                  style: const TextStyle(
-                                    color: AppColors.textDark,
-                                  ),
-                                ),
-                              ),
-                            const SizedBox(height: 6),
-                            Text(
-                              (item['parentNotified'] == true)
-                                  ? 'تم إشعار ولي الأمر'
-                                  : 'لم يتم إشعار ولي الأمر',
-                              style: TextStyle(
-                                color: (item['parentNotified'] == true)
-                                    ? AppColors.success
-                                    : AppColors.textLight,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                );
-              },
+          /// ⚕️ الإجراء
+          _card(
+            'الإجراء',
+            Icons.medical_services,
+            child: TextField(
+              controller: actionCtrl,
+              maxLines: 3,
             ),
+          ),
+
+          /// 🔔 إشعار
+          SwitchListTile(
+            value: parentNotified,
+            onChanged: (v) =>
+                setState(() => parentNotified = v),
+            title: const Text('إشعار ولي الأمر'),
+          ),
+
+          /// 📊 الحالة
+          _card(
+            'حالة التقرير',
+            Icons.flag,
+            child: DropdownButtonFormField(
+              value: status,
+              items: const [
+                DropdownMenuItem(value: 'new', child: Text('جديد')),
+                DropdownMenuItem(
+                    value: 'review', child: Text('قيد المراجعة')),
+                DropdownMenuItem(value: 'done', child: Text('مكتمل')),
+              ],
+              onChanged: (v) =>
+                  setState(() => status = v.toString()),
+            ),
+          ),
+
+          const SizedBox(height: 20),
+
+          ElevatedButton(
+            onPressed: isSaving ? null : saveIncident,
+            child: Text(isSaving ? 'جاري الحفظ...' : 'حفظ التقرير'),
           ),
         ],
       ),
     );
   }
+
+  Widget _card(String title, IconData icon, {required Widget child}) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon),
+              const SizedBox(width: 8),
+              Text(title,
+                  style: const TextStyle(fontWeight: FontWeight.bold)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          child,
+        ],
+      ),
+    );
+  }
 }
+

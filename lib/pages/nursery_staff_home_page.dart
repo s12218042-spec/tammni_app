@@ -13,6 +13,7 @@ import 'nursery_care_log_page.dart';
 import 'quick_care_update_page.dart';
 import 'send_parent_notification_page.dart';
 
+
 class NurseryStaffHomePage extends StatefulWidget {
   const NurseryStaffHomePage({super.key});
 
@@ -62,12 +63,13 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
         return StatefulBuilder(
           builder: (context, setModalState) {
             final filtered = children.where((child) {
-              final matchesSearch = child.name
-                  .toLowerCase()
-                  .contains(localSearch.toLowerCase());
+              final matchesSearch = child.name.toLowerCase().contains(
+                localSearch.toLowerCase(),
+              );
 
-              final groupName =
-                  child.group.isEmpty ? 'بدون مجموعة' : child.group;
+              final groupName = child.group.isEmpty
+                  ? 'بدون مجموعة'
+                  : child.group;
 
               final matchesGroup =
                   selectedGroup == 'all' || groupName == selectedGroup;
@@ -149,8 +151,9 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
 
                             return ListTile(
                               leading: CircleAvatar(
-                                backgroundColor:
-                                    AppColors.primary.withOpacity(0.15),
+                                backgroundColor: AppColors.primary.withOpacity(
+                                  0.15,
+                                ),
                                 child: const Icon(Icons.child_care),
                               ),
                               title: Text(child.name),
@@ -179,9 +182,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
   Future<void> openChildHandoffLog(ChildModel child) async {
     await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => ChildHandoffLogPage(child: child),
-      ),
+      MaterialPageRoute(builder: (_) => ChildHandoffLogPage(child: child)),
     );
     setState(() {});
   }
@@ -189,14 +190,14 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
   Future<void> openIncidentReport(ChildModel child) async {
     await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => IncidentReportPage(child: child),
-      ),
+      MaterialPageRoute(builder: (_) => IncidentReportPage(child: child)),
     );
     setState(() {});
   }
 
-  Future<Map<String, dynamic>> fetchTodayStats(List<ChildModel> children) async {
+  Future<Map<String, dynamic>> fetchTodayStats(
+    List<ChildModel> children,
+  ) async {
     final now = DateTime.now();
     final startOfDay = DateTime(now.year, now.month, now.day);
 
@@ -221,8 +222,8 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
       final Timestamp? ts = data['time'] is Timestamp
           ? data['time'] as Timestamp
           : data['createdAt'] is Timestamp
-              ? data['createdAt'] as Timestamp
-              : null;
+          ? data['createdAt'] as Timestamp
+          : null;
 
       if (ts == null) continue;
       if (ts.toDate().isBefore(startOfDay)) continue;
@@ -269,8 +270,8 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
       final Timestamp? ts = data['time'] is Timestamp
           ? data['time'] as Timestamp
           : data['createdAt'] is Timestamp
-              ? data['createdAt'] as Timestamp
-              : null;
+          ? data['createdAt'] as Timestamp
+          : null;
 
       if (ts == null) continue;
       if (ts.toDate().isBefore(startOfDay)) continue;
@@ -323,8 +324,8 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
       final Timestamp? ts = data['time'] is Timestamp
           ? data['time'] as Timestamp
           : data['createdAt'] is Timestamp
-              ? data['createdAt'] as Timestamp
-              : null;
+          ? data['createdAt'] as Timestamp
+          : null;
 
       if (ts == null) continue;
       if (ts.toDate().isBefore(startOfDay)) continue;
@@ -341,8 +342,8 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
         'subtitle': note.trim().isNotEmpty
             ? note
             : createdByName.trim().isNotEmpty
-                ? 'بواسطة $createdByName'
-                : 'تمت إضافة تحديث جديد',
+            ? 'بواسطة $createdByName'
+            : 'تمت إضافة تحديث جديد',
         'color': AppColors.primary,
         'icon': data['hasMedia'] == true
             ? Icons.photo_camera_outlined
@@ -368,10 +369,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
     final res = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => AddUpdatePage(
-          child: child,
-          byRole: 'nursery',
-        ),
+        builder: (_) => AddUpdatePage(child: child, byRole: 'nursery'),
       ),
     );
 
@@ -383,9 +381,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
   Future<void> openCameraCheckin(ChildModel child) async {
     final res = await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => const CameraCheckinPage(),
-      ),
+      MaterialPageRoute(builder: (_) => const CameraCheckinPage()),
     );
 
     if (res is Map) {
@@ -426,9 +422,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
       } catch (e) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('حدث خطأ أثناء حفظ التحديث بالكاميرا: $e'),
-          ),
+          SnackBar(content: Text('حدث خطأ أثناء حفظ التحديث بالكاميرا: $e')),
         );
       }
     }
@@ -437,9 +431,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
   Future<void> openQuickCareUpdate(ChildModel child) async {
     await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => QuickCareUpdatePage(child: child),
-      ),
+      MaterialPageRoute(builder: (_) => QuickCareUpdatePage(child: child)),
     );
     setState(() {});
   }
@@ -447,9 +439,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
   Future<void> openCareLog(ChildModel child) async {
     await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => NurseryCareLogPage(child: child),
-      ),
+      MaterialPageRoute(builder: (_) => NurseryCareLogPage(child: child)),
     );
     setState(() {});
   }
@@ -481,8 +471,9 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
     Map<String, Map<String, dynamic>> latestUpdateByChild,
   ) {
     return children.where((child) {
-      final matchesSearch =
-          child.name.toLowerCase().contains(searchQuery.toLowerCase());
+      final matchesSearch = child.name.toLowerCase().contains(
+        searchQuery.toLowerCase(),
+      );
 
       final hasUpdateToday = latestUpdateByChild.containsKey(child.id);
 
@@ -509,9 +500,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
           }
 
           if (childrenSnapshot.hasError) {
-            return Center(
-              child: Text('حدث خطأ: ${childrenSnapshot.error}'),
-            );
+            return Center(child: Text('حدث خطأ: ${childrenSnapshot.error}'));
           }
 
           final nurseryChildren = childrenSnapshot.data ?? [];
@@ -538,7 +527,8 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
                   fetchTodayUpdatesSummary(nurseryChildren),
                 ]),
                 builder: (context, extraSnapshot) {
-                  if (extraSnapshot.connectionState == ConnectionState.waiting) {
+                  if (extraSnapshot.connectionState ==
+                      ConnectionState.waiting) {
                     return const Center(child: CircularProgressIndicator());
                   }
 
@@ -552,11 +542,11 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
                       (extraSnapshot.data?[0] as List<ChildModel>? ?? []);
                   final activities =
                       (extraSnapshot.data?[1] as List<Map<String, dynamic>>? ??
-                          []);
+                      []);
                   final latestUpdateByChild =
                       (extraSnapshot.data?[2]
-                              as Map<String, Map<String, dynamic>>? ??
-                          {});
+                          as Map<String, Map<String, dynamic>>? ??
+                      {});
 
                   final filteredChildren = applyChildrenFilters(
                     nurseryChildren,
@@ -600,28 +590,31 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
                                 careStatusColor: hasUpdateToday
                                     ? Colors.green
                                     : Colors.orange,
+
                                 careStatusIcon: hasUpdateToday
                                     ? Icons.check_circle_outline_rounded
                                     : Icons.warning_amber_rounded,
                                 hasUpdateToday: hasUpdateToday,
-                                latestUpdateType:
-                                    (latestUpdate?['type'] ?? '').toString(),
+                                latestUpdateType: (latestUpdate?['type'] ?? '')
+                                    .toString(),
                                 latestUpdateTime:
                                     latestUpdate?['time'] as Timestamp?,
-                                latestUpdateNote:
-                                    (latestUpdate?['note'] ?? '').toString(),
+                                latestUpdateNote: (latestUpdate?['note'] ?? '')
+                                    .toString(),
                                 onCamera: () => openCameraCheckin(child),
                                 onAddUpdate: () => openAddUpdate(child),
                                 onQuickCare: () => openQuickCareUpdate(child),
                                 onCareLog: () => openCareLog(child),
                                 onHandoffLog: () => openChildHandoffLog(child),
-                                onIncidentReport: () => openIncidentReport(child),
+                                onIncidentReport: () =>
+                                    openIncidentReport(child),
                               ),
                             );
                           }),
                         const SizedBox(height: 10),
                         OutlinedButton.icon(
-                          onPressed: () => openSendNotification(nurseryChildren),
+                          onPressed: () =>
+                              openSendNotification(nurseryChildren),
                           icon: const Icon(Icons.notifications_outlined),
                           label: const Text('إرسال إشعار للأهل'),
                         ),
@@ -650,9 +643,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
           end: Alignment.bottomLeft,
         ),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: AppColors.primary.withOpacity(0.08),
-        ),
+        border: Border.all(color: AppColors.primary.withOpacity(0.08)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -660,17 +651,17 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
           Text(
             'أهلاً بكِ',
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.textDark,
-                ),
+              fontWeight: FontWeight.w800,
+              color: AppColors.textDark,
+            ),
           ),
           const SizedBox(height: 8),
           Text(
             'تابعي أطفال الحضانة من خلال الرعاية اليومية، الصور، الملاحظات السريعة، الحوادث، والتواصل مع الأهل.',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: AppColors.textLight,
-                  height: 1.5,
-                ),
+              color: AppColors.textLight,
+              height: 1.5,
+            ),
           ),
         ],
       ),
@@ -688,18 +679,12 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
       child: const Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            Icons.info_outline_rounded,
-            color: AppColors.secondary,
-          ),
+          Icon(Icons.info_outline_rounded, color: AppColors.secondary),
           SizedBox(width: 10),
           Expanded(
             child: Text(
               'ملاحظة: تسجيل دخول وخروج أطفال الحضانة لم يعد من صلاحيات موظفات الحضانة، وأصبح من مسؤولية الإدارة فقط. دور موظفة الحضانة هنا يركز على الرعاية والتحديثات والمتابعة اليومية.',
-              style: TextStyle(
-                color: AppColors.textDark,
-                height: 1.5,
-              ),
+              style: TextStyle(color: AppColors.textDark, height: 1.5),
             ),
           ),
         ],
@@ -772,10 +757,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
               SizedBox(width: 8),
               Text(
                 'تنبيهات اليوم',
-                style: TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 15,
-                ),
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
               ),
             ],
           ),
@@ -942,9 +924,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(
-          color: AppColors.border.withOpacity(0.8),
-        ),
+        border: Border.all(color: AppColors.border.withOpacity(0.8)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.03),
@@ -1024,17 +1004,11 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: AppColors.border.withOpacity(0.8),
-        ),
+        border: Border.all(color: AppColors.border.withOpacity(0.8)),
       ),
       child: const Column(
         children: [
-          Icon(
-            Icons.search_off_rounded,
-            size: 34,
-            color: AppColors.textLight,
-          ),
+          Icon(Icons.search_off_rounded, size: 34, color: AppColors.textLight),
           SizedBox(height: 10),
           Text(
             'لا يوجد أطفال مطابقون للبحث أو الفلترة الحالية.',
@@ -1100,10 +1074,7 @@ class _NurseryChildDashboardCard extends StatelessWidget {
               children: [
                 CircleAvatar(
                   backgroundColor: AppColors.primary,
-                  child: const Icon(
-                    Icons.child_care,
-                    color: Colors.white,
-                  ),
+                  child: const Icon(Icons.child_care, color: Colors.white),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -1131,8 +1102,10 @@ class _NurseryChildDashboardCard extends StatelessWidget {
                   ),
                 ),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
                   decoration: BoxDecoration(
                     color: careStatusColor.withOpacity(0.10),
                     borderRadius: BorderRadius.circular(14),
@@ -1299,11 +1272,7 @@ class _RecentActivityTile extends StatelessWidget {
               color: color.withOpacity(0.12),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(
-              icon,
-              color: color,
-              size: 21,
-            ),
+            child: Icon(icon, color: color, size: 21),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -1365,9 +1334,7 @@ class _StatCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: AppColors.border.withOpacity(0.8),
-        ),
+        border: Border.all(color: AppColors.border.withOpacity(0.8)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.03),
@@ -1385,10 +1352,7 @@ class _StatCard extends StatelessWidget {
               color: AppColors.primary.withOpacity(0.12),
               borderRadius: BorderRadius.circular(14),
             ),
-            child: Icon(
-              icon,
-              color: AppColors.primary,
-            ),
+            child: Icon(icon, color: AppColors.primary),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -1426,11 +1390,7 @@ class _QuickActionChip extends StatelessWidget {
   final String label;
   final VoidCallback? onTap;
 
-  const _QuickActionChip({
-    required this.icon,
-    required this.label,
-    this.onTap,
-  });
+  const _QuickActionChip({required this.icon, required this.label, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -1442,18 +1402,12 @@ class _QuickActionChip extends StatelessWidget {
         decoration: BoxDecoration(
           color: AppColors.background,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: AppColors.border.withOpacity(0.8),
-          ),
+          border: Border.all(color: AppColors.border.withOpacity(0.8)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              icon,
-              size: 18,
-              color: AppColors.primary,
-            ),
+            Icon(icon, size: 18, color: AppColors.primary),
             const SizedBox(width: 6),
             Text(
               label,

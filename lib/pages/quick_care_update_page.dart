@@ -37,6 +37,10 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
   String activityStatus = 'شارك بالنشاط';
   String noteMood = 'هادئ';
 
+  String childMood = 'طبيعي';
+  String quantityLevel = 'متوسط';
+  List<String> selectedSymptoms = [];
+
   final List<String> careTypes = const [
     'وجبة',
     'نوم',
@@ -66,7 +70,8 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
       };
     }
 
-    final userDoc = await _firestore.collection('users').doc(currentUser.uid).get();
+    final userDoc =
+        await _firestore.collection('users').doc(currentUser.uid).get();
     final data = userDoc.data() ?? {};
 
     return {
@@ -110,6 +115,57 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
     }
   }
 
+  String getCurrentTimeLabel() {
+    final now = DateTime.now();
+    final hour = now.hour.toString().padLeft(2, '0');
+    final minute = now.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
+  }
+
+  String getStatusLabel() {
+    final joinedSymptoms = selectedSymptoms.join(' ');
+    final hasRiskWords = mealStatus.contains('استفراغ') ||
+        mealStatus.contains('حساسية') ||
+        healthStatus.contains('يحتاج متابعة') ||
+        joinedSymptoms.contains('حرارة') ||
+        joinedSymptoms.contains('إسهال');
+
+    final hasMediumWords = mealStatus.contains('رفض') ||
+        mealStatus.contains('لا يأكل') ||
+        mealStatus.contains('سوائل') ||
+        sleepStatus.contains('بصعوبة') ||
+        sleepStatus.contains('استيقظ') ||
+        activityStatus.contains('احتاج تشجيع') ||
+        activityStatus.contains('لم يرغب') ||
+        childMood == 'متعب';
+
+    if (hasRiskWords) return 'خطر';
+    if (hasMediumWords) return 'يحتاج متابعة';
+    return 'طبيعي';
+  }
+
+  Color getStatusColor() {
+    switch (getStatusLabel()) {
+      case 'خطر':
+        return Colors.redAccent;
+      case 'يحتاج متابعة':
+        return Colors.orange;
+      default:
+        return Colors.green;
+    }
+  }
+
+  IconData getStatusIcon() {
+    switch (getStatusLabel()) {
+      case 'خطر':
+        return Icons.warning_amber_rounded;
+      case 'يحتاج متابعة':
+        return Icons.info_outline_rounded;
+      default:
+        return Icons.check_circle_outline_rounded;
+    }
+  }
+
   void applyQuickTemplate(String text) {
     setState(() {
       _noteCtrl.text = text;
@@ -118,40 +174,44 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
 
   String buildSuggestedNote() {
     final extra = _noteCtrl.text.trim();
+    final symptomsText = selectedSymptoms.isEmpty
+        ? ''
+        : ' الأعراض الملحوظة: ${selectedSymptoms.join('، ')}.';
+    final moodText = ' الحالة العامة: $childMood.';
+    final quantityText = _quantityCtrl.text.trim().isNotEmpty
+        ? ' الكمية: ${_quantityCtrl.text.trim()}.'
+        : ' مستوى الكمية: $quantityLevel.';
 
     switch (selectedType) {
       case 'وجبة':
-        final quantity = _quantityCtrl.text.trim();
-        final base = quantity.isNotEmpty
-            ? 'الطفل $mealStatus، والكمية: $quantity.'
-            : 'الطفل $mealStatus.';
-        return extra.isEmpty ? base : '$base $extra';
+        final base = 'الطفل $mealStatus.$quantityText$moodText$symptomsText';
+        return extra.isEmpty ? base.trim() : '$base ${extra.trim()}';
 
       case 'نوم':
         final duration = _durationCtrl.text.trim();
         final base = duration.isNotEmpty
-            ? 'الطفل $sleepStatus لمدة $duration.'
-            : 'الطفل $sleepStatus.';
-        return extra.isEmpty ? base : '$base $extra';
+            ? 'الطفل $sleepStatus لمدة $duration.$moodText$symptomsText'
+            : 'الطفل $sleepStatus.$moodText$symptomsText';
+        return extra.isEmpty ? base.trim() : '$base ${extra.trim()}';
 
       case 'حفاض':
-        final base = 'الحالة: $diaperStatus.';
-        return extra.isEmpty ? base : '$base $extra';
+        final base = 'الحالة: $diaperStatus.$moodText$symptomsText';
+        return extra.isEmpty ? base.trim() : '$base ${extra.trim()}';
 
       case 'صحة':
         final temp = _tempCtrl.text.trim();
         final base = temp.isNotEmpty
-            ? 'الحالة الصحية: $healthStatus، والحرارة: $temp.'
-            : 'الحالة الصحية: $healthStatus.';
-        return extra.isEmpty ? base : '$base $extra';
+            ? 'الحالة الصحية: $healthStatus، ودرجة الحرارة: $temp.$moodText$symptomsText'
+            : 'الحالة الصحية: $healthStatus.$moodText$symptomsText';
+        return extra.isEmpty ? base.trim() : '$base ${extra.trim()}';
 
       case 'نشاط':
-        final base = 'الطفل $activityStatus.';
-        return extra.isEmpty ? base : '$base $extra';
+        final base = 'الطفل $activityStatus.$moodText$symptomsText';
+        return extra.isEmpty ? base.trim() : '$base ${extra.trim()}';
 
       default:
-        final moodText = 'حالة الطفل العامة: $noteMood.';
-        return extra.isEmpty ? moodText : '$moodText $extra';
+        final base = 'حالة الطفل العامة: $noteMood.$moodText$symptomsText';
+        return extra.isEmpty ? base.trim() : '$base ${extra.trim()}';
     }
   }
 
@@ -166,6 +226,28 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
       );
       return;
     }
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('تأكيد الحفظ'),
+          content: const Text('هل أنتِ متأكدة من حفظ تحديث الرعاية؟'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('إلغاء'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('حفظ'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirm != true) return;
 
     setState(() {
       isSaving = true;
@@ -192,6 +274,10 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
         'mediaType': null,
         'mediaPath': null,
         'mediaUrl': null,
+        'quickCareStatus': getStatusLabel(),
+        'childMood': childMood,
+        'quantityLevel': quantityLevel,
+        'symptoms': selectedSymptoms,
       });
 
       if (!mounted) return;
@@ -271,7 +357,8 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
                     color: selected ? color.withOpacity(0.14) : Colors.white,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
-                      color: selected ? color : AppColors.border.withOpacity(0.9),
+                      color:
+                          selected ? color : AppColors.border.withOpacity(0.9),
                       width: selected ? 1.5 : 1.0,
                     ),
                   ),
@@ -325,7 +412,16 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
       child: Column(
         children: [
           _ChoiceWrap(
-            values: const ['أكمل الوجبة', 'أكل نصف الوجبة', 'رفض الوجبة', 'شرب الحليب'],
+            values: const [
+              'أكمل الوجبة',
+              'أكل نصف الوجبة',
+              'رفض الوجبة',
+              'شرب الحليب',
+              'لا يأكل',
+              'يشرب سوائل فقط',
+              'استفراغ',
+              'حساسية',
+            ],
             selectedValue: mealStatus,
             onSelected: (value) {
               setState(() {
@@ -340,25 +436,6 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
               labelText: 'الكمية أو الملاحظة السريعة',
               hintText: 'مثال: كاملة / نصف كوب / قليل',
             ),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _QuickTextChip(
-                label: 'أكل جيدًا',
-                onTap: () => applyQuickTemplate('أكل جيدًا وكان مرتاحًا.'),
-              ),
-              _QuickTextChip(
-                label: 'احتاج مساعدة',
-                onTap: () => applyQuickTemplate('احتاج مساعدة أثناء تناول الوجبة.'),
-              ),
-              _QuickTextChip(
-                label: 'شهية منخفضة',
-                onTap: () => applyQuickTemplate('شهيته كانت منخفضة اليوم.'),
-              ),
-            ],
           ),
         ],
       ),
@@ -398,7 +475,13 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
               ),
               _QuickTextChip(
                 label: 'قلق أثناء النوم',
-                onTap: () => applyQuickTemplate('كان قلقًا أثناء النوم واستيقظ أكثر من مرة.'),
+                onTap: () => applyQuickTemplate(
+                  'كان قلقًا أثناء النوم واستيقظ أكثر من مرة.',
+                ),
+              ),
+              _QuickTextChip(
+                label: 'احتاج تهدئة',
+                onTap: () => applyQuickTemplate('احتاج تهدئة قبل النوم حتى ينام.'),
               ),
             ],
           ),
@@ -413,7 +496,12 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
       child: Column(
         children: [
           _ChoiceWrap(
-            values: const ['تم التبديل', 'يحتاج متابعة', 'تم التنظيف', 'تم التبديل مع ملاحظة'],
+            values: const [
+              'تم التبديل',
+              'يحتاج متابعة',
+              'تم التنظيف',
+              'تم التبديل مع ملاحظة'
+            ],
             selectedValue: diaperStatus,
             onSelected: (value) {
               setState(() {
@@ -432,7 +520,12 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
               ),
               _QuickTextChip(
                 label: 'احمرار بسيط',
-                onTap: () => applyQuickTemplate('تمت ملاحظة احمرار بسيط ويحتاج متابعة.'),
+                onTap: () =>
+                    applyQuickTemplate('تمت ملاحظة احمرار بسيط ويحتاج متابعة.'),
+              ),
+              _QuickTextChip(
+                label: 'بحاجة لفحص',
+                onTap: () => applyQuickTemplate('تمت الملاحظة وقد يحتاج متابعة إضافية.'),
               ),
             ],
           ),
@@ -475,7 +568,12 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
               ),
               _QuickTextChip(
                 label: 'إبلاغ ولي الأمر',
-                onTap: () => applyQuickTemplate('تمت ملاحظة الحالة وإبلاغ ولي الأمر للمتابعة.'),
+                onTap: () =>
+                    applyQuickTemplate('تمت ملاحظة الحالة وإبلاغ ولي الأمر للمتابعة.'),
+              ),
+              _QuickTextChip(
+                label: 'يحتاج راحة',
+                onTap: () => applyQuickTemplate('يحتاج إلى الراحة والمتابعة خلال اليوم.'),
               ),
             ],
           ),
@@ -490,7 +588,12 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
       child: Column(
         children: [
           _ChoiceWrap(
-            values: const ['شارك بالنشاط', 'استمتع بالنشاط', 'احتاج تشجيع', 'لم يرغب بالمشاركة'],
+            values: const [
+              'شارك بالنشاط',
+              'استمتع بالنشاط',
+              'احتاج تشجيع',
+              'لم يرغب بالمشاركة'
+            ],
             selectedValue: activityStatus,
             onSelected: (value) {
               setState(() {
@@ -505,15 +608,19 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
             children: [
               _QuickTextChip(
                 label: 'رسم وتلوين',
-                onTap: () => applyQuickTemplate('شارك في نشاط الرسم والتلوين بشكل جيد.'),
+                onTap: () =>
+                    applyQuickTemplate('شارك في نشاط الرسم والتلوين بشكل جيد.'),
               ),
               _QuickTextChip(
                 label: 'لعب جماعي',
-                onTap: () => applyQuickTemplate('شارك في اللعب الجماعي مع الأطفال.'),
+                onTap: () =>
+                    applyQuickTemplate('شارك في اللعب الجماعي مع الأطفال.'),
               ),
               _QuickTextChip(
                 label: 'احتاج تشجيع',
-                onTap: () => applyQuickTemplate('احتاج تشجيعًا بسيطًا للمشاركة في النشاط.'),
+                onTap: () => applyQuickTemplate(
+                  'احتاج تشجيعًا بسيطًا للمشاركة في النشاط.',
+                ),
               ),
             ],
           ),
@@ -549,7 +656,133 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
                 label: 'يحتاج مراقبة',
                 onTap: () => applyQuickTemplate('يحتاج مراقبة بسيطة خلال اليوم.'),
               ),
+              _QuickTextChip(
+                label: 'احتاج تهدئة',
+                onTap: () => applyQuickTemplate('احتاج تهدئة واحتواء خلال اليوم.'),
+              ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildChildMoodCard() {
+    return _SmartSectionCard(
+      title: 'الحالة العامة للطفل',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _ChoiceWrap(
+            values: const ['سعيد', 'طبيعي', 'متعب'],
+            selectedValue: childMood,
+            onSelected: (value) {
+              setState(() {
+                childMood = value;
+              });
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSymptomsCard() {
+    const symptomOptions = ['حرارة', 'سعال', 'إسهال', 'تعب'];
+
+    return _SmartSectionCard(
+      title: 'أعراض سريعة',
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: symptomOptions.map((symptom) {
+          final isSelected = selectedSymptoms.contains(symptom);
+
+          return FilterChip(
+            label: Text(symptom),
+            selected: isSelected,
+            onSelected: (selected) {
+              setState(() {
+                if (selected) {
+                  if (!selectedSymptoms.contains(symptom)) {
+                    selectedSymptoms.add(symptom);
+                  }
+                } else {
+                  selectedSymptoms.remove(symptom);
+                }
+              });
+            },
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildStatusCard() {
+    final statusColor = getStatusColor();
+    final statusLabel = getStatusLabel();
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: statusColor.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: statusColor.withOpacity(0.25),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(
+              getStatusIcon(),
+              color: statusColor,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'مؤشر الحالة',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textLight,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  statusLabel,
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    color: statusColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Text(
+              getCurrentTimeLabel(),
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                color: AppColors.textDark,
+              ),
+            ),
           ),
         ],
       ),
@@ -618,6 +851,15 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
                           height: 1.5,
                         ),
                       ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'وقت التحديث: ${getCurrentTimeLabel()}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppColors.textLight,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -625,9 +867,15 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
             ),
           ),
           const SizedBox(height: 18),
+          _buildStatusCard(),
+          const SizedBox(height: 18),
           buildTypeSelector(),
           const SizedBox(height: 18),
           buildSmartFields(),
+          const SizedBox(height: 18),
+          _buildChildMoodCard(),
+          const SizedBox(height: 18),
+          _buildSymptomsCard(),
           const SizedBox(height: 18),
           _SmartSectionCard(
             title: 'تفاصيل إضافية',
@@ -636,7 +884,8 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
               maxLines: 4,
               decoration: const InputDecoration(
                 labelText: 'أضيفي وصفًا إضافيًا عند الحاجة',
-                hintText: 'مثال: كان سعيدًا، احتاج وقتًا إضافيًا، تم التواصل مع الأهل...',
+                hintText:
+                    'مثال: كان سعيدًا، احتاج وقتًا إضافيًا، تم التواصل مع الأهل...',
                 alignLabelWithHint: true,
               ),
             ),
@@ -650,15 +899,33 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
               decoration: BoxDecoration(
                 color: AppColors.background,
                 borderRadius: BorderRadius.circular(14),
-              ),
-              child: Text(
-                finalPreview.isEmpty ? 'سيظهر النص النهائي هنا' : finalPreview,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textDark,
-                  height: 1.5,
+                border: Border.all(
+                  color: AppColors.border.withOpacity(0.6),
                 ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.auto_awesome_outlined,
+                    color: currentColor,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      finalPreview.isEmpty
+                          ? 'سيظهر النص النهائي هنا'
+                          : finalPreview,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textDark,
+                        height: 1.6,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

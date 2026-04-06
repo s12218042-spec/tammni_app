@@ -70,11 +70,67 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
   String evaluationStatus = 'أداء جيد';
   String homeworkStatus = 'تم تسليم الواجب';
 
+  String importance = 'عادي';
+  String selectedMood = '😊';
+  String selectedEnergy = 'متوسط';
+  bool notifyParent = true;
+  bool saveAsDraftPreview = true;
+  DateTime selectedDateTime = DateTime.now();
+  bool useNowTime = true;
+  String selectedLocation = 'داخل الصف';
+  final List<String> selectedTags = [];
+
+  final List<String> nurseryTags = const [
+    'أكل',
+    'نوم',
+    'سلوك',
+    'صحة',
+    'نشاط',
+    'عناية',
+    'مهم',
+  ];
+
+  final List<String> teacherTags = const [
+    'نشاط',
+    'تعلم',
+    'واجب',
+    'مشاركة',
+    'سلوك',
+    'تقييم',
+    'مهم',
+  ];
+
+  List<String> get availableTags =>
+      widget.byRole == 'nursery' ? nurseryTags : teacherTags;
+
+  final List<String> nurseryLocations = const [
+    'داخل الصف',
+    'ساحة اللعب',
+    'غرفة النوم',
+    'منطقة الطعام',
+    'الحمام',
+    'مكان آخر',
+  ];
+
+  final List<String> teacherLocations = const [
+    'داخل الصف',
+    'ركن النشاط',
+    'ساحة اللعب',
+    'قاعة التعليم',
+    'مكان آخر',
+  ];
+
+  List<String> get availableLocations =>
+      widget.byRole == 'nursery' ? nurseryLocations : teacherLocations;
+
   @override
   void initState() {
     super.initState();
     if (!types.contains(type)) {
       type = types.first;
+    }
+    if (!availableTags.contains(type)) {
+      _syncTagsWithType();
     }
   }
 
@@ -97,9 +153,9 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
 
   String pageHint() {
     if (widget.byRole == 'nursery') {
-      return 'أضيفي تحديثًا مرنًا عن الطفل مع وصف واضح، ويمكنكِ إرفاق صورة أو فيديو مع التحديث.';
+      return 'أضيفي تحديثًا واضحًا ومهنيًا عن الطفل، مع إمكانية تحديد الأهمية، الوقت، الحالة، وإرفاق صورة أو فيديو.';
     }
-    return 'أضيفي تحديثًا تعليميًا أو ملاحظة عن الطفل مع إمكانية إرفاق صورة أو فيديو.';
+    return 'أضيفي تحديثًا تعليميًا أو ملاحظة منظمة عن الطفل، مع تفاصيل أوضح قبل الحفظ والإرسال.';
   }
 
   IconData typeIcon(String value) {
@@ -145,6 +201,28 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
         return const Color(0xFF7986CB);
       default:
         return AppColors.textLight;
+    }
+  }
+
+  Color importanceColor(String value) {
+    switch (value) {
+      case 'مهم':
+        return const Color(0xFFFF9800);
+      case 'عاجل':
+        return const Color(0xFFE53935);
+      default:
+        return AppColors.primary;
+    }
+  }
+
+  IconData importanceIcon(String value) {
+    switch (value) {
+      case 'مهم':
+        return Icons.priority_high_rounded;
+      case 'عاجل':
+        return Icons.warning_amber_rounded;
+      default:
+        return Icons.notifications_none_rounded;
     }
   }
 
@@ -204,101 +282,205 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
     });
   }
 
-  String buildSuggestedNote() {
-    final note = noteCtrl.text.trim();
-    final extra = extraCtrl.text.trim();
+  void _syncTagsWithType() {
+    final map = {
+      'وجبة': 'أكل',
+      'نوم': 'نوم',
+      'حفاض': 'عناية',
+      'صحة': 'صحة',
+      'نشاط': 'نشاط',
+      'خطة اليوم': 'تعلم',
+      'تقييم': 'تقييم',
+      'واجب': 'واجب',
+      'ملاحظة': 'مهم',
+    };
 
+    final mapped = map[type];
+    if (mapped != null && availableTags.contains(mapped)) {
+      if (!selectedTags.contains(mapped)) {
+        selectedTags.add(mapped);
+      }
+    }
+  }
+
+  void toggleTag(String tag) {
+    setState(() {
+      if (selectedTags.contains(tag)) {
+        selectedTags.remove(tag);
+      } else {
+        selectedTags.add(tag);
+      }
+    });
+  }
+
+  String formatTime(DateTime dateTime) {
+    final hour = dateTime.hour == 0
+        ? 12
+        : dateTime.hour > 12
+            ? dateTime.hour - 12
+            : dateTime.hour;
+    final minute = dateTime.minute.toString().padLeft(2, '0');
+    final period = dateTime.hour >= 12 ? 'م' : 'ص';
+    return '$hour:$minute $period';
+  }
+
+  String formatDate(DateTime dateTime) {
+    return '${dateTime.year}/${dateTime.month}/${dateTime.day}';
+  }
+
+  Future<void> pickDateTime() async {
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: selectedDateTime,
+      firstDate: DateTime.now().subtract(const Duration(days: 30)),
+      lastDate: DateTime.now().add(const Duration(days: 30)),
+      builder: (context, child) {
+        return Theme(data: Theme.of(context), child: child!);
+      },
+    );
+
+    if (pickedDate == null || !mounted) return;
+
+    final pickedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(selectedDateTime),
+      builder: (context, child) {
+        return Theme(data: Theme.of(context), child: child!);
+      },
+    );
+
+    if (pickedTime == null) return;
+
+    setState(() {
+      selectedDateTime = DateTime(
+        pickedDate.year,
+        pickedDate.month,
+        pickedDate.day,
+        pickedTime.hour,
+        pickedTime.minute,
+      );
+      useNowTime = false;
+    });
+  }
+
+  String autoTitle() {
     if (widget.byRole == 'nursery') {
       switch (type) {
         case 'وجبة':
-          final base = mealStatus;
-          if (note.isEmpty && extra.isEmpty) return base;
-          if (note.isNotEmpty && extra.isEmpty) return '$base. $note';
-          if (note.isEmpty && extra.isNotEmpty) return '$base. $extra';
-          return '$base. $note $extra';
-
+          return importance == 'عاجل' ? 'تنبيه بخصوص الوجبة' : 'تحديث وجبة';
         case 'نوم':
-          final base = sleepStatus;
-          if (note.isEmpty && extra.isEmpty) return base;
-          if (note.isNotEmpty && extra.isEmpty) return '$base. $note';
-          if (note.isEmpty && extra.isNotEmpty) return '$base. $extra';
-          return '$base. $note $extra';
-
+          return importance == 'عاجل' ? 'تنبيه بخصوص النوم' : 'تحديث نوم';
         case 'حفاض':
-          final base = diaperStatus;
-          if (note.isEmpty && extra.isEmpty) return base;
-          if (note.isNotEmpty && extra.isEmpty) return '$base. $note';
-          if (note.isEmpty && extra.isNotEmpty) return '$base. $extra';
-          return '$base. $note $extra';
-
+          return 'تحديث عناية';
         case 'صحة':
-          final base = healthStatus;
-          if (note.isEmpty && extra.isEmpty) return base;
-          if (note.isNotEmpty && extra.isEmpty) return '$base. $note';
-          if (note.isEmpty && extra.isNotEmpty) return '$base. $extra';
-          return '$base. $note $extra';
-
+          return importance == 'عاجل' ? 'تنبيه صحي' : 'تحديث صحي';
         case 'نشاط':
-          final base = activityStatus;
-          if (note.isEmpty && extra.isEmpty) return base;
-          if (note.isNotEmpty && extra.isEmpty) return '$base. $note';
-          if (note.isEmpty && extra.isNotEmpty) return '$base. $extra';
-          return '$base. $note $extra';
-
+          return 'تحديث نشاط';
         default:
-          final base = noteStatus;
-          if (note.isEmpty && extra.isEmpty) return base;
-          if (note.isNotEmpty && extra.isEmpty) return '$base. $note';
-          if (note.isEmpty && extra.isNotEmpty) return '$base. $extra';
-          return '$base. $note $extra';
+          return importance == 'عاجل' ? 'ملاحظة عاجلة' : 'ملاحظة عامة';
       }
     } else {
       switch (type) {
         case 'نشاط':
-          final base = activityStatus;
-          if (note.isEmpty && extra.isEmpty) return base;
-          if (note.isNotEmpty && extra.isEmpty) return '$base. $note';
-          if (note.isEmpty && extra.isNotEmpty) return '$base. $extra';
-          return '$base. $note $extra';
-
+          return 'تحديث نشاط';
         case 'خطة اليوم':
-          final base = planStatus;
-          if (note.isEmpty && extra.isEmpty) return base;
-          if (note.isNotEmpty && extra.isEmpty) return '$base. $note';
-          if (note.isEmpty && extra.isNotEmpty) return '$base. $extra';
-          return '$base. $note $extra';
-
+          return 'خطة اليوم';
         case 'تقييم':
-          final base = evaluationStatus;
-          if (note.isEmpty && extra.isEmpty) return base;
-          if (note.isNotEmpty && extra.isEmpty) return '$base. $note';
-          if (note.isEmpty && extra.isNotEmpty) return '$base. $extra';
-          return '$base. $note $extra';
-
+          return importance == 'عاجل' ? 'ملاحظة تقييم مهمة' : 'تحديث تقييم';
         case 'واجب':
-          final base = homeworkStatus;
-          if (note.isEmpty && extra.isEmpty) return base;
-          if (note.isNotEmpty && extra.isEmpty) return '$base. $note';
-          if (note.isEmpty && extra.isNotEmpty) return '$base. $extra';
-          return '$base. $note $extra';
-
+          return 'تحديث واجب';
         default:
-          final base = 'ملاحظة عامة';
-          if (note.isEmpty && extra.isEmpty) return base;
-          if (note.isNotEmpty && extra.isEmpty) return '$base. $note';
-          if (note.isEmpty && extra.isNotEmpty) return '$base. $extra';
-          return '$base. $note $extra';
+          return importance == 'عاجل' ? 'ملاحظة عاجلة' : 'ملاحظة عامة';
       }
     }
+  }
+
+  String buildSuggestedNote() {
+    final note = noteCtrl.text.trim();
+    final extra = extraCtrl.text.trim();
+
+    String baseText;
+
+    if (widget.byRole == 'nursery') {
+      switch (type) {
+        case 'وجبة':
+          baseText = mealStatus;
+          break;
+        case 'نوم':
+          baseText = sleepStatus;
+          break;
+        case 'حفاض':
+          baseText = diaperStatus;
+          break;
+        case 'صحة':
+          baseText = healthStatus;
+          break;
+        case 'نشاط':
+          baseText = activityStatus;
+          break;
+        default:
+          baseText = noteStatus;
+      }
+    } else {
+      switch (type) {
+        case 'نشاط':
+          baseText = activityStatus;
+          break;
+        case 'خطة اليوم':
+          baseText = planStatus;
+          break;
+        case 'تقييم':
+          baseText = evaluationStatus;
+          break;
+        case 'واجب':
+          baseText = homeworkStatus;
+          break;
+        default:
+          baseText = 'ملاحظة عامة';
+      }
+    }
+
+    final parts = <String>[];
+
+    parts.add(baseText);
+
+    if (note.isNotEmpty) {
+      parts.add(note);
+    }
+
+    if (extra.isNotEmpty) {
+      parts.add(extra);
+    }
+
+    final tagText =
+        selectedTags.isEmpty ? '' : 'التصنيفات: ${selectedTags.join('، ')}';
+    final moodText = 'المزاج: $selectedMood';
+    final energyText = 'النشاط: $selectedEnergy';
+    final locationText = selectedLocation.isNotEmpty ? 'المكان: $selectedLocation' : '';
+    final importanceText = 'الأهمية: $importance';
+    final timeText =
+        'الوقت: ${formatDate(selectedDateTime)} - ${formatTime(selectedDateTime)}';
+
+    final summaryParts = [
+      parts.join('. '),
+      moodText,
+      energyText,
+      if (tagText.isNotEmpty) tagText,
+      if (locationText.isNotEmpty) locationText,
+      importanceText,
+      timeText,
+    ];
+
+    return summaryParts.join(' | ');
   }
 
   Future<void> save() async {
     final finalNote = buildSuggestedNote().trim();
 
-    if (finalNote.isEmpty) {
+    if (noteCtrl.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('اكتبي وصفًا واضحًا للتحديث'),
+          content: Text('اكتبي وصفًا واضحًا للتحديث أولًا'),
         ),
       );
       return;
@@ -330,8 +512,10 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
         'group': widget.child.group,
         'type': type,
         'note': finalNote,
+        'title': autoTitle(),
         'createdAt': now,
         'time': FieldValue.serverTimestamp(),
+        'eventAt': Timestamp.fromDate(selectedDateTime),
         'byRole': userInfo['role'],
         'createdByUid': userInfo['uid'],
         'createdByName': userInfo['name'],
@@ -340,30 +524,39 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
         'mediaPath': selectedMediaPath,
         'mediaUrl': uploadedMediaUrl,
         'hasMedia': uploadedMediaUrl != null,
+        'importance': importance,
+        'tags': selectedTags,
+        'mood': selectedMood,
+        'energy': selectedEnergy,
+        'locationLabel': selectedLocation,
+        'notifyParent': notifyParent,
       });
 
-      await _firestore.collection('notifications').add({
-        'childId': widget.child.id,
-        'childName': widget.child.name,
-        'parentUsername': widget.child.parentUsername.trim().toLowerCase(),
-        'section': widget.child.section,
-        'group': widget.child.group,
-        'title': 'تحديث جديد',
-        'body': finalNote,
-        'message': finalNote,
-        'type': 'update_notification',
-        'isRead': false,
-        'createdAt': now,
-        'time': FieldValue.serverTimestamp(),
-        'createdByUid': userInfo['uid'],
-        'createdByName': userInfo['name'],
-        'createdByRole': userInfo['role'],
-      });
+      if (notifyParent) {
+        await _firestore.collection('notifications').add({
+          'childId': widget.child.id,
+          'childName': widget.child.name,
+          'parentUsername': widget.child.parentUsername.trim().toLowerCase(),
+          'section': widget.child.section,
+          'group': widget.child.group,
+          'title': autoTitle(),
+          'body': finalNote,
+          'message': finalNote,
+          'type': 'update_notification',
+          'isRead': false,
+          'createdAt': now,
+          'time': FieldValue.serverTimestamp(),
+          'createdByUid': userInfo['uid'],
+          'createdByName': userInfo['name'],
+          'createdByRole': userInfo['role'],
+          'importance': importance,
+        });
+      }
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('تم إرسال التحديث بنجاح'),
+          content: Text('تم إضافة التحديث بنجاح'),
         ),
       );
       Navigator.pop(context, true);
@@ -885,12 +1078,22 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
           _buildHeader(context),
           const SizedBox(height: 18),
           _buildChildInfoCard(),
-          const SizedBox(height: 20),
+          const SizedBox(height: 18),
+          _buildImportanceSection(),
+          const SizedBox(height: 18),
           _buildTypeSection(context),
+          const SizedBox(height: 18),
+          _buildTagsSection(),
+          const SizedBox(height: 18),
+          _buildTimeAndLocationSection(),
+          const SizedBox(height: 18),
+          _buildStatusSection(),
           const SizedBox(height: 18),
           buildDynamicFields(),
           const SizedBox(height: 18),
           _buildNoteSection(context),
+          const SizedBox(height: 18),
+          _buildOptionsSection(),
           const SizedBox(height: 18),
           _buildPreviewSection(previewText),
           const SizedBox(height: 20),
@@ -908,9 +1111,9 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
                     ),
                   )
                 : const Icon(Icons.send_rounded),
-            label: Text(isLoading ? 'جاري الإرسال...' : 'إرسال التحديث'),
+            label: Text(isLoading ? 'جاري الإرسال...' : 'إضافة التحديث'),
             style: ElevatedButton.styleFrom(
-              minimumSize: const Size(double.infinity, 54),
+              minimumSize: const Size(double.infinity, 56),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(18),
               ),
@@ -1059,6 +1262,58 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
     );
   }
 
+  Widget _buildImportanceSection() {
+    return _sectionCard(
+      title: 'مستوى الأهمية',
+      child: Wrap(
+        spacing: 10,
+        runSpacing: 10,
+        children: ['عادي', 'مهم', 'عاجل'].map((item) {
+          final selected = importance == item;
+          final color = importanceColor(item);
+
+          return InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: () {
+              setState(() {
+                importance = item;
+              });
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: selected ? color.withOpacity(0.12) : Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: selected ? color : AppColors.border.withOpacity(0.9),
+                  width: selected ? 1.4 : 1.0,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    importanceIcon(item),
+                    size: 18,
+                    color: selected ? color : AppColors.textLight,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    item,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: selected ? color : AppColors.textDark,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
   Widget _buildTypeSection(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1071,7 +1326,7 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
         ),
         const SizedBox(height: 8),
         Text(
-          'اختاري النوع المناسب بشكل سريع.',
+          'اختاري النوع المناسب بشكل سريع وواضح.',
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: AppColors.textLight,
               ),
@@ -1089,6 +1344,7 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
               onTap: () {
                 setState(() {
                   type = t;
+                  _syncTagsWithType();
                 });
               },
               child: Container(
@@ -1130,6 +1386,235 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
     );
   }
 
+  Widget _buildTagsSection() {
+    return _sectionCard(
+      title: 'التصنيفات',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'يمكنك اختيار أكثر من تصنيف لنفس التحديث.',
+            style: TextStyle(
+              color: AppColors.textLight,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: availableTags.map((tag) {
+              final selected = selectedTags.contains(tag);
+              return FilterChip(
+                selected: selected,
+                label: Text(tag),
+                onSelected: (_) => toggleTag(tag),
+                selectedColor: AppColors.primary.withOpacity(0.12),
+                checkmarkColor: AppColors.primary,
+                labelStyle: TextStyle(
+                  color: selected ? AppColors.primary : AppColors.textDark,
+                  fontWeight: FontWeight.w700,
+                ),
+                side: BorderSide(
+                  color: selected
+                      ? AppColors.primary
+                      : AppColors.border.withOpacity(0.9),
+                ),
+                backgroundColor: Colors.white,
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTimeAndLocationSection() {
+    return _sectionCard(
+      title: 'الوقت والمكان',
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: _miniInfoCard(
+                  icon: Icons.access_time_rounded,
+                  title: 'وقت التحديث',
+                  value:
+                      '${formatDate(selectedDateTime)} - ${formatTime(selectedDateTime)}',
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _miniInfoCard(
+                  icon: Icons.place_outlined,
+                  title: 'المكان',
+                  value: selectedLocation,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SwitchListTile(
+            value: useNowTime,
+            onChanged: (value) {
+              setState(() {
+                useNowTime = value;
+                if (value) {
+                  selectedDateTime = DateTime.now();
+                }
+              });
+            },
+            contentPadding: EdgeInsets.zero,
+            activeColor: AppColors.primary,
+            title: const Text(
+              'استخدام الوقت الحالي',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            subtitle: const Text('فعّليها لاختيار "الآن" مباشرة'),
+          ),
+          if (!useNowTime) ...[
+            const SizedBox(height: 6),
+            OutlinedButton.icon(
+              onPressed: pickDateTime,
+              icon: const Icon(Icons.schedule_rounded),
+              label: const Text('اختيار التاريخ والوقت'),
+            ),
+          ],
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            value: selectedLocation,
+            decoration: const InputDecoration(
+              labelText: 'المكان (اختياري)',
+              prefixIcon: Icon(Icons.place_outlined),
+            ),
+            items: availableLocations
+                .map(
+                  (location) => DropdownMenuItem<String>(
+                    value: location,
+                    child: Text(location),
+                  ),
+                )
+                .toList(),
+            onChanged: (value) {
+              if (value == null) return;
+              setState(() {
+                selectedLocation = value;
+              });
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatusSection() {
+    return _sectionCard(
+      title: 'تقييم الحالة',
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: _smallLabel('المزاج'),
+              ),
+              Expanded(
+                child: _smallLabel('مستوى النشاط'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: ['😊', '😐', '😢', '😴', '🤒'].map((mood) {
+                    final selected = selectedMood == mood;
+                    return InkWell(
+                      borderRadius: BorderRadius.circular(14),
+                      onTap: () {
+                        setState(() {
+                          selectedMood = mood;
+                        });
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: selected
+                              ? AppColors.primary.withOpacity(0.12)
+                              : Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: selected
+                                ? AppColors.primary
+                                : AppColors.border.withOpacity(0.9),
+                          ),
+                        ),
+                        child: Text(
+                          mood,
+                          style: const TextStyle(fontSize: 22),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: ['منخفض', 'متوسط', 'عالي'].map((energy) {
+                    final selected = selectedEnergy == energy;
+                    return InkWell(
+                      borderRadius: BorderRadius.circular(14),
+                      onTap: () {
+                        setState(() {
+                          selectedEnergy = energy;
+                        });
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: selected
+                              ? AppColors.secondary.withOpacity(0.12)
+                              : Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: selected
+                                ? AppColors.secondary
+                                : AppColors.border.withOpacity(0.9),
+                          ),
+                        ),
+                        child: Text(
+                          energy,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: selected
+                                ? AppColors.secondary
+                                : AppColors.textDark,
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildNoteSection(BuildContext context) {
     return _sectionCard(
       title: 'وصف التحديث',
@@ -1140,10 +1625,13 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
             maxLines: 4,
             textAlign: TextAlign.right,
             decoration: const InputDecoration(
-              hintText: 'اكتبي الوصف الأساسي للتحديث...',
+              hintText: 'اكتبي ماذا حدث مع الطفل بالتفصيل...',
               alignLabelWithHint: true,
               prefixIcon: Icon(Icons.edit_note_outlined),
             ),
+            onChanged: (_) {
+              if (saveAsDraftPreview) setState(() {});
+            },
           ),
           const SizedBox(height: 12),
           TextField(
@@ -1151,10 +1639,55 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
             maxLines: 3,
             textAlign: TextAlign.right,
             decoration: const InputDecoration(
-              hintText: 'تفاصيل إضافية اختيارية...',
+              hintText: 'تفاصيل إضافية اختيارية مثل الملاحظات أو التوصيات...',
               alignLabelWithHint: true,
               prefixIcon: Icon(Icons.notes_outlined),
             ),
+            onChanged: (_) {
+              if (saveAsDraftPreview) setState(() {});
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOptionsSection() {
+    return _sectionCard(
+      title: 'خيارات إضافية',
+      child: Column(
+        children: [
+          CheckboxListTile(
+            value: notifyParent,
+            onChanged: (value) {
+              setState(() {
+                notifyParent = value ?? false;
+              });
+            },
+            activeColor: AppColors.primary,
+            contentPadding: EdgeInsets.zero,
+            controlAffinity: ListTileControlAffinity.leading,
+            title: const Text(
+              'إرسال إشعار لولي الأمر',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            subtitle: const Text('سيتم إنشاء إشعار مع التحديث'),
+          ),
+          CheckboxListTile(
+            value: saveAsDraftPreview,
+            onChanged: (value) {
+              setState(() {
+                saveAsDraftPreview = value ?? true;
+              });
+            },
+            activeColor: AppColors.primary,
+            contentPadding: EdgeInsets.zero,
+            controlAffinity: ListTileControlAffinity.leading,
+            title: const Text(
+              'تحديث المعاينة مباشرة',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            subtitle: const Text('معاينة فورية للنص النهائي قبل الحفظ'),
           ),
         ],
       ),
@@ -1163,22 +1696,52 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
 
   Widget _buildPreviewSection(String previewText) {
     return _sectionCard(
-      title: 'معاينة النص النهائي',
+      title: 'معاينة التحديث',
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: AppColors.background,
           borderRadius: BorderRadius.circular(14),
-        ),
-        child: Text(
-          previewText.isEmpty ? 'سيظهر النص النهائي هنا' : previewText,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w700,
-            color: AppColors.textDark,
-            height: 1.6,
+          border: Border.all(
+            color: importanceColor(importance).withOpacity(0.20),
           ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _previewBadge(
+                  icon: importanceIcon(importance),
+                  label: importance,
+                  color: importanceColor(importance),
+                ),
+                _previewBadge(
+                  icon: typeIcon(type),
+                  label: type,
+                  color: typeColor(type),
+                ),
+                _previewBadge(
+                  icon: Icons.mood_outlined,
+                  label: selectedMood,
+                  color: AppColors.secondary,
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              previewText.isEmpty ? 'سيظهر النص النهائي هنا' : previewText,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textDark,
+                height: 1.7,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1277,43 +1840,43 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
                         color: AppColors.textLight,
                         height: 1.5,
                       ),
-                      textAlign: TextAlign.center,
                     ),
                   ),
-                if (isVideo && !kIsWeb)
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => VideoPreviewPage(
-                              path: selectedMediaPath!,
-                            ),
+                if (isVideo)
+                  Column(
+                    children: [
+                      const SizedBox(height: 8),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: AppColors.background,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: const Text(
+                          'تم اختيار فيديو بنجاح.',
+                          style: TextStyle(
+                            color: AppColors.textDark,
+                            fontWeight: FontWeight.w700,
                           ),
-                        );
-                      },
-                      icon: const Icon(Icons.play_circle_outline),
-                      label: const Text('معاينة الفيديو'),
-                    ),
-                  ),
-                if (isVideo && kIsWeb)
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: AppColors.background,
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: const Text(
-                      'تم اختيار فيديو.\nالمعاينة المحلية غير مدعومة على Flutter Web، لكن سيتم رفع الفيديو عند الإرسال.',
-                      style: TextStyle(
-                        color: AppColors.textLight,
-                        height: 1.5,
+                        ),
                       ),
-                      textAlign: TextAlign.center,
-                    ),
+                      const SizedBox(height: 10),
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => VideoPreviewPage(
+                                path: selectedMediaPath!,
+                              ),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.play_circle_outline_rounded),
+                        label: const Text('معاينة الفيديو'),
+                      ),
+                    ],
                   ),
               ],
             ),
@@ -1337,8 +1900,8 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 14,
+            color: Colors.black.withOpacity(0.035),
+            blurRadius: 16,
             offset: const Offset(0, 8),
           ),
         ],
@@ -1349,12 +1912,12 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
           Text(
             title,
             style: const TextStyle(
-              fontSize: 15,
+              fontSize: 16,
               fontWeight: FontWeight.w800,
               color: AppColors.textDark,
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
           child,
         ],
       ),
@@ -1368,26 +1931,106 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
   }) {
     return Row(
       children: [
-        Icon(icon, size: 18, color: AppColors.textLight),
+        Icon(
+          icon,
+          size: 18,
+          color: AppColors.textLight,
+        ),
         const SizedBox(width: 8),
         Text(
           '$label: ',
           style: const TextStyle(
-            fontSize: 14,
+            color: AppColors.textLight,
             fontWeight: FontWeight.w700,
-            color: AppColors.textDark,
           ),
         ),
         Expanded(
           child: Text(
             value,
             style: const TextStyle(
-              fontSize: 14,
-              color: AppColors.textLight,
+              color: AppColors.textDark,
+              fontWeight: FontWeight.w700,
             ),
           ),
         ),
       ],
+    );
+  }
+
+  Widget _miniInfoCard({
+    required IconData icon,
+    required String title,
+    required String value,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: AppColors.border.withOpacity(0.7),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: AppColors.primary),
+          const SizedBox(height: 8),
+          Text(
+            title,
+            style: const TextStyle(
+              color: AppColors.textLight,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: const TextStyle(
+              color: AppColors.textDark,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _smallLabel(String text) {
+    return Text(
+      text,
+      style: const TextStyle(
+        fontWeight: FontWeight.w700,
+        color: AppColors.textLight,
+      ),
+    );
+  }
+
+  Widget _previewBadge({
+    required IconData icon,
+    required String label,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1409,22 +2052,32 @@ class _ChoiceWrap extends StatelessWidget {
       spacing: 8,
       runSpacing: 8,
       children: values.map((value) {
-        final selected = value == selectedValue;
-
-        return ChoiceChip(
-          label: Text(value),
-          selected: selected,
-          onSelected: (_) => onSelected(value),
-          selectedColor: AppColors.primary.withOpacity(0.14),
-          backgroundColor: AppColors.background,
-          labelStyle: TextStyle(
-            color: selected ? AppColors.primary : AppColors.textDark,
-            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-          ),
-          side: BorderSide(
-            color: selected
-                ? AppColors.primary
-                : AppColors.border.withOpacity(0.8),
+        final selected = selectedValue == value;
+        return InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: () => onSelected(value),
+          child: Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 10,
+            ),
+            decoration: BoxDecoration(
+              color:
+                  selected ? AppColors.primary.withOpacity(0.10) : Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: selected
+                    ? AppColors.primary
+                    : AppColors.border.withOpacity(0.9),
+              ),
+            ),
+            child: Text(
+              value,
+              style: TextStyle(
+                color: selected ? AppColors.primary : AppColors.textDark,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ),
         );
       }).toList(),
@@ -1444,15 +2097,22 @@ class _QuickTextChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ActionChip(
-      label: Text(label),
       onPressed: onTap,
-      backgroundColor: AppColors.secondary.withOpacity(0.10),
-      labelStyle: const TextStyle(
-        color: AppColors.textDark,
-        fontWeight: FontWeight.w600,
-      ),
+      backgroundColor: AppColors.background,
       side: BorderSide(
-        color: AppColors.secondary.withOpacity(0.25),
+        color: AppColors.border.withOpacity(0.85),
+      ),
+      label: Text(
+        label,
+        style: const TextStyle(
+          fontWeight: FontWeight.w700,
+          color: AppColors.textDark,
+        ),
+      ),
+      avatar: const Icon(
+        Icons.auto_awesome_outlined,
+        size: 18,
+        color: AppColors.primary,
       ),
     );
   }

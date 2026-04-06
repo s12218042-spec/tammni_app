@@ -6,6 +6,7 @@ import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 import 'admin_add_child_requests_page.dart';
 import 'admin_add_user_page.dart';
+import 'admin_invoice_page.dart';
 import 'admin_registration_requests_page.dart';
 import 'admin_teacher_assignments_page.dart';
 import 'admin_updates_feed_page.dart';
@@ -13,6 +14,8 @@ import 'manage_children_page.dart';
 import 'manage_classes_page.dart';
 import 'manage_users_page.dart';
 import 'welcome_page.dart';
+import 'admin_chats_page.dart';
+import 'admin_complaints_page.dart';
 
 class AdminHomePage extends StatefulWidget {
   const AdminHomePage({super.key});
@@ -23,6 +26,10 @@ class AdminHomePage extends StatefulWidget {
 
 class _AdminHomePageState extends State<AdminHomePage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  int selectedIndex = 0;
+  bool isArabic = true;
+  bool isDarkMode = false;
 
   Future<void> logout(BuildContext context) async {
     final shouldLogout = await showDialog<bool>(
@@ -63,8 +70,10 @@ class _AdminHomePageState extends State<AdminHomePage> {
     final usersSnapshot = await _firestore.collection('users').get();
     final childrenSnapshot = await _firestore.collection('children').get();
     final classesSnapshot = await _firestore.collection('classes').get();
-    final updatesSnapshot =
-        await _firestore.collection('updates').limit(50).get();
+    final updatesSnapshot = await _firestore
+        .collection('updates')
+        .limit(100)
+        .get();
     final requestsSnapshot = await _firestore
         .collection('registration_requests')
         .limit(100)
@@ -79,8 +88,9 @@ class _AdminHomePageState extends State<AdminHomePage> {
     final classes = classesSnapshot.docs.map((e) => e.data()).toList();
     final updates = updatesSnapshot.docs.map((e) => e.data()).toList();
     final requests = requestsSnapshot.docs.map((e) => e.data()).toList();
-    final addChildRequests =
-        addChildRequestsSnapshot.docs.map((e) => e.data()).toList();
+    final addChildRequests = addChildRequestsSnapshot.docs
+        .map((e) => e.data())
+        .toList();
 
     int activeChildren = 0;
     int archivedChildren = 0;
@@ -149,7 +159,8 @@ class _AdminHomePageState extends State<AdminHomePage> {
       alerts.add(
         const _AdminAlertItem(
           title: 'لا توجد صفوف أو مجموعات بعد',
-          subtitle: 'يفضّل إضافة الصفوف والمجموعات لبدء تنظيم الأطفال والمعلمين.',
+          subtitle:
+              'يفضّل إضافة الصفوف والمجموعات لبدء تنظيم الأطفال والمعلمات.',
           icon: Icons.class_,
           color: Colors.orange,
         ),
@@ -160,7 +171,8 @@ class _AdminHomePageState extends State<AdminHomePage> {
       alerts.add(
         _AdminAlertItem(
           title: 'يوجد $archivedChildren طفل/أطفال مؤرشفون',
-          subtitle: 'راجعي الأطفال المؤرشفين وتحققي إذا كانت حالتهم ما زالت صحيحة.',
+          subtitle:
+              'راجعي الأطفال المؤرشفين وتحققي إذا كانت حالتهم ما زالت صحيحة.',
           icon: Icons.archive_outlined,
           color: Colors.blueGrey,
         ),
@@ -171,7 +183,8 @@ class _AdminHomePageState extends State<AdminHomePage> {
       alerts.add(
         _AdminAlertItem(
           title: 'يوجد $kindergartenWithoutGroup طفل/أطفال روضة بدون مجموعة',
-          subtitle: 'يفضّل تعيين مجموعة لكل طفل في الروضة لتسهيل المتابعة والتقارير.',
+          subtitle:
+              'يفضّل تعيين مجموعة لكل طفل في الروضة لتسهيل المتابعة والتقارير.',
           icon: Icons.warning_amber_rounded,
           color: Colors.deepOrange,
         ),
@@ -182,7 +195,8 @@ class _AdminHomePageState extends State<AdminHomePage> {
       alerts.add(
         _AdminAlertItem(
           title: 'يوجد $pendingRequests طلب/طلبات تسجيل بانتظار المراجعة',
-          subtitle: 'راجعي طلبات أولياء الأمور الجديدة وحددي الموافقة أو الرفض.',
+          subtitle:
+              'راجعي طلبات أولياء الأمور الجديدة وحددي الموافقة أو الرفض.',
           icon: Icons.how_to_reg_rounded,
           color: Colors.teal,
         ),
@@ -192,8 +206,10 @@ class _AdminHomePageState extends State<AdminHomePage> {
     if (pendingAddChildRequests > 0) {
       alerts.add(
         _AdminAlertItem(
-          title: 'يوجد $pendingAddChildRequests طلب/طلبات إضافة طفل بانتظار المراجعة',
-          subtitle: 'راجعي طلبات إضافة الأطفال الجديدة وحددي الموافقة أو الرفض.',
+          title:
+              'يوجد $pendingAddChildRequests طلب/طلبات إضافة طفل بانتظار المراجعة',
+          subtitle:
+              'راجعي طلبات إضافة الأطفال الجديدة وحددي الموافقة أو الرفض.',
           icon: Icons.person_add_alt_1_rounded,
           color: Colors.indigo,
         ),
@@ -212,18 +228,15 @@ class _AdminHomePageState extends State<AdminHomePage> {
       );
     }
 
-    final recentActivities = updates
-        .map((item) {
-          final time = _extractDate(item);
-          return _AdminActivityItem(
-            title: _buildActivityTitle(item),
-            subtitle: _buildActivitySubtitle(item),
-            time: time,
-            icon: _activityIcon((item['type'] ?? '').toString()),
-          );
-        })
-        .toList()
-      ..sort((a, b) => b.time.compareTo(a.time));
+    final recentActivities = updates.map((item) {
+      final time = _extractDate(item);
+      return _AdminActivityItem(
+        title: _buildActivityTitle(item),
+        subtitle: _buildActivitySubtitle(item),
+        time: time,
+        icon: _activityIcon((item['type'] ?? '').toString()),
+      );
+    }).toList()..sort((a, b) => b.time.compareTo(a.time));
 
     return _AdminDashboardData(
       totalUsers: users.length,
@@ -244,7 +257,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
       approvedAddChildRequests: approvedAddChildRequests,
       rejectedAddChildRequests: rejectedAddChildRequests,
       alerts: alerts,
-      recentActivities: recentActivities.take(6).toList(),
+      recentActivities: recentActivities.take(20).toList(),
     );
   }
 
@@ -282,8 +295,8 @@ class _AdminHomePageState extends State<AdminHomePage> {
   }
 
   static String _buildActivitySubtitle(Map<String, dynamic> item) {
-    final createdByName =
-        (item['createdByName'] ?? 'مستخدم غير معروف').toString();
+    final createdByName = (item['createdByName'] ?? 'مستخدم غير معروف')
+        .toString();
     final section = (item['section'] ?? '').toString();
     final group = (item['group'] ?? '').toString();
 
@@ -324,423 +337,639 @@ class _AdminHomePageState extends State<AdminHomePage> {
     final month = date.month.toString().padLeft(2, '0');
     final year = date.year.toString();
 
-    final hour =
-        date.hour > 12 ? date.hour - 12 : (date.hour == 0 ? 12 : date.hour);
+    final hour = date.hour > 12
+        ? date.hour - 12
+        : (date.hour == 0 ? 12 : date.hour);
     final minute = date.minute.toString().padLeft(2, '0');
     final period = date.hour >= 12 ? 'م' : 'ص';
 
     return '$year/$month/$day - $hour:$minute $period';
   }
 
+  String get _pageTitle {
+    switch (selectedIndex) {
+      case 0:
+        return 'لوحة تحكم الإدارة';
+      case 1:
+        return 'المتابعة';
+      case 2:
+        return 'الرسائل';
+      case 3:
+        return 'الإعدادات';
+      default:
+        return 'لوحة تحكم الإدارة';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return AppPageScaffold(
-      title: 'لوحة تحكم الإدارة',
-      actions: [
-        IconButton(
-          tooltip: 'تسجيل الخروج',
-          onPressed: () => logout(context),
-          icon: const Icon(Icons.logout),
+    return FutureBuilder<_AdminDashboardData>(
+      future: _loadDashboardData(),
+      builder: (context, snapshot) {
+        return Scaffold(
+          body: AppPageScaffold(
+            title: _pageTitle,
+            actions: [
+              IconButton(
+                tooltip: 'آخر الأنشطة',
+                onPressed: snapshot.hasData
+                    ? () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => _AdminActivitiesPage(
+                              activities: snapshot.data!.recentActivities,
+                              formatDateTime: _formatDateTime,
+                            ),
+                          ),
+                        );
+                      }
+                    : null,
+                icon: const Icon(Icons.history_rounded),
+              ),
+              IconButton(
+                tooltip: 'الإشعارات',
+                onPressed: snapshot.hasData
+                    ? () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => _AdminNotificationsPage(
+                              alerts: snapshot.data!.alerts,
+                            ),
+                          ),
+                        );
+                      }
+                    : null,
+                icon: const Icon(Icons.notifications_none_rounded),
+              ),
+            ],
+            child: _buildBody(snapshot),
+          ),
+          bottomNavigationBar: NavigationBar(
+            selectedIndex: selectedIndex,
+            onDestinationSelected: (index) {
+              setState(() {
+                selectedIndex = index;
+              });
+            },
+            destinations: const [
+              NavigationDestination(
+                icon: Icon(Icons.dashboard_outlined),
+                selectedIcon: Icon(Icons.dashboard_rounded),
+                label: 'الرئيسية',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.fact_check_outlined),
+                selectedIcon: Icon(Icons.fact_check_rounded),
+                label: 'المتابعة',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.chat_bubble_outline_rounded),
+                selectedIcon: Icon(Icons.chat_bubble_rounded),
+                label: 'الرسائل',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.settings_outlined),
+                selectedIcon: Icon(Icons.settings_rounded),
+                label: 'الإعدادات',
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildBody(AsyncSnapshot<_AdminDashboardData> snapshot) {
+    if (snapshot.connectionState == ConnectionState.waiting) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(40),
+          child: CircularProgressIndicator(),
         ),
-      ],
-      child: FutureBuilder<_AdminDashboardData>(
-        future: _loadDashboardData(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(
-              child: Padding(
-                padding: EdgeInsets.all(40),
-                child: CircularProgressIndicator(),
-              ),
-            );
-          }
+      );
+    }
 
-          if (snapshot.hasError) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Text(
-                  'حدث خطأ أثناء تحميل لوحة التحكم:\n${snapshot.error}',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.redAccent),
+    if (snapshot.hasError) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Text(
+            'حدث خطأ أثناء تحميل البيانات:\n${snapshot.error}',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.redAccent),
+          ),
+        ),
+      );
+    }
+
+    final data = snapshot.data;
+    if (data == null) {
+      return const Center(child: Text('لا توجد بيانات متاحة حالياً'));
+    }
+
+    switch (selectedIndex) {
+      case 0:
+        return _buildDashboardTab(data);
+      case 1:
+        return _buildFollowUpTab();
+      case 2:
+        return _buildMessagesTab();
+      case 3:
+        return _buildSettingsTab();
+      default:
+        return _buildDashboardTab(data);
+    }
+  }
+
+  Widget _buildDashboardTab(_AdminDashboardData data) {
+    return RefreshIndicator(
+      onRefresh: () async {
+        setState(() {});
+      },
+      child: ListView(
+        children: [
+          Text(
+            'أهلاً بكِ في لوحة الإدارة 👋',
+            style: Theme.of(
+              context,
+            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'هذه الصفحة الرئيسية تعرض لكِ لمحة سريعة عن حالة النظام.',
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: AppColors.textLight),
+          ),
+          const SizedBox(height: 20),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              _DashboardStatCard(
+                title: 'إجمالي المستخدمين',
+                value: '${data.totalUsers}',
+                subtitle:
+                    'أدمن ${data.adminsCount} • أولياء ${data.parentsCount}',
+                icon: Icons.groups_rounded,
+              ),
+              _DashboardStatCard(
+                title: 'الأطفال النشطون',
+                value: '${data.activeChildren}',
+                subtitle:
+                    'الحضانة ${data.nurseryChildren} • الروضة ${data.kindergartenChildren}',
+                icon: Icons.child_care_rounded,
+              ),
+              _DashboardStatCard(
+                title: 'الأطفال المؤرشفون',
+                value: '${data.archivedChildren}',
+                subtitle: 'مراجعة الحالات غير النشطة',
+                icon: Icons.archive_rounded,
+              ),
+              _DashboardStatCard(
+                title: 'طلبات التسجيل',
+                value: '${data.pendingRequests}',
+                subtitle:
+                    'معلقة ${data.pendingRequests} • مقبولة ${data.approvedRequests}',
+                icon: Icons.how_to_reg_rounded,
+              ),
+              _DashboardStatCard(
+                title: 'طلبات إضافة الأطفال',
+                value: '${data.pendingAddChildRequests}',
+                subtitle:
+                    'معلقة ${data.pendingAddChildRequests} • مقبولة ${data.approvedAddChildRequests}',
+                icon: Icons.person_add_alt_1_rounded,
+              ),
+              _DashboardStatCard(
+                title: 'الصفوف / المجموعات',
+                value: '${data.totalClasses}',
+                subtitle:
+                    'معلمات ${data.teachersCount} • موظفات ${data.staffCount}',
+                icon: Icons.class_rounded,
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          const _SectionTitle(
+            title: 'تنبيهات مختصرة',
+            icon: Icons.notifications_active_rounded,
+          ),
+          const SizedBox(height: 12),
+          if (data.alerts.isEmpty)
+            const _EmptyDashboardBox(
+              icon: Icons.verified_rounded,
+              title: 'لا توجد تنبيهات حالياً',
+              subtitle: 'الوضع يبدو جيداً داخل النظام.',
+            )
+          else
+            ...data.alerts.take(3).map((alert) => _AlertCard(item: alert)),
+          const SizedBox(height: 24),
+          const _SectionTitle(
+            title: 'آخر الأنشطة المختصرة',
+            icon: Icons.history_rounded,
+          ),
+          const SizedBox(height: 12),
+          if (data.recentActivities.isEmpty)
+            const _EmptyDashboardBox(
+              icon: Icons.history_toggle_off_rounded,
+              title: 'لا توجد أنشطة حديثة',
+              subtitle: 'عند إضافة تحديثات للأطفال ستظهر هنا.',
+            )
+          else
+            ...data.recentActivities
+                .take(4)
+                .map(
+                  (activity) => _ActivityCard(
+                    item: activity,
+                    formattedTime: _formatDateTime(activity.time),
+                  ),
                 ),
-              ),
-            );
-          }
+          const SizedBox(height: 12),
+        ],
+      ),
+    );
+  }
 
-          final data = snapshot.data;
-          if (data == null) {
-            return const Center(child: Text('لا توجد بيانات متاحة حالياً'));
-          }
+  Widget _buildFollowUpTab() {
+    return RefreshIndicator(
+      onRefresh: () async {
+        setState(() {});
+      },
+      child: ListView(
+        children: [
+          const _SectionTitle(
+            title: 'الإجراءات الأساسية',
+            icon: Icons.fact_check_rounded,
+          ),
+          const SizedBox(height: 12),
 
-          return RefreshIndicator(
-            onRefresh: () async {
+          _AdminActionCard(
+            icon: Icons.how_to_reg_rounded,
+            title: 'طلبات تسجيل أولياء الأمور',
+            subtitle: 'مراجعة طلبات التسجيل الجديدة والموافقة أو الرفض',
+            onTap: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const AdminRegistrationRequestsPage(),
+                ),
+              );
               setState(() {});
             },
-            child: ListView(
-              children: [
-                Text(
-                  'أهلاً بكِ في لوحة الإدارة 👋',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+          ),
+
+          _AdminActionCard(
+            icon: Icons.person_add_alt_1_outlined,
+            title: 'طلبات إضافة الأطفال',
+            subtitle: 'مراجعة طلبات إضافة طفل جديد إلى حسابات أولياء الأمور',
+            onTap: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const AdminAddChildRequestsPage(),
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  'من هنا يمكنك متابعة حالة النظام بسرعة، وإدارة المستخدمين والأطفال والصفوف، ومراجعة التنبيهات والأنشطة الحديثة وطلبات التسجيل.',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: AppColors.textLight,
-                      ),
+              );
+              setState(() {});
+            },
+          ),
+
+          _AdminActionCard(
+            icon: Icons.report_problem_outlined,
+            title: 'شكاوى أولياء الأمور',
+            subtitle: 'متابعة الشكاوى والملاحظات من الأهالي',
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const AdminComplaintsPage()),
+              );
+            },
+          ),
+
+          _AdminActionCard(
+            icon: Icons.group_rounded,
+            title: 'إدارة المستخدمين',
+            subtitle:
+                'مراجعة الحسابات الحالية، تعديلها، تفعيلها أو تعطيلها دون إنشاء حسابات جديدة',
+            onTap: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ManageUsersPage()),
+              );
+              setState(() {});
+            },
+          ),
+
+          _AdminActionCard(
+            icon: Icons.child_care_rounded,
+            title: 'إدارة الأطفال',
+            subtitle: 'متابعة بيانات الأطفال، الأرشفة، والحالة الحالية',
+            onTap: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ManageChildrenPage()),
+              );
+              setState(() {});
+            },
+          ),
+
+          _AdminActionCard(
+            icon: Icons.class_rounded,
+            title: 'إدارة الصفوف والأقسام',
+            subtitle: 'تنظيم الصفوف والمجموعات وربط الأطفال بها',
+            onTap: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ManageClassesPage()),
+              );
+              setState(() {});
+            },
+          ),
+
+          _AdminActionCard(
+            icon: Icons.assignment_ind_rounded,
+            title: 'تعيين المعلمات',
+            subtitle: 'ربط المعلمات بالمجموعات والصفوف والمواد',
+            onTap: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const AdminTeacherAssignmentsPage(),
                 ),
-                const SizedBox(height: 20),
+              );
+              setState(() {});
+            },
+          ),
 
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    _DashboardStatCard(
-                      title: 'إجمالي المستخدمين',
-                      value: '${data.totalUsers}',
-                      subtitle:
-                          'أدمن ${data.adminsCount} • أولياء ${data.parentsCount}',
-                      icon: Icons.groups_rounded,
-                    ),
-                    _DashboardStatCard(
-                      title: 'الأطفال النشطون',
-                      value: '${data.activeChildren}',
-                      subtitle:
-                          'الحضانة ${data.nurseryChildren} • الروضة ${data.kindergartenChildren}',
-                      icon: Icons.child_care_rounded,
-                    ),
-                    _DashboardStatCard(
-                      title: 'الأطفال المؤرشفون',
-                      value: '${data.archivedChildren}',
-                      subtitle: 'مراجعة الحالات غير النشطة',
-                      icon: Icons.archive_rounded,
-                    ),
-                    _DashboardStatCard(
-                      title: 'طلبات التسجيل',
-                      value: '${data.pendingRequests}',
-                      subtitle:
-                          'معلقة ${data.pendingRequests} • مقبولة ${data.approvedRequests}',
-                      icon: Icons.how_to_reg_rounded,
-                    ),
-                    _DashboardStatCard(
-                      title: 'طلبات إضافة الأطفال',
-                      value: '${data.pendingAddChildRequests}',
-                      subtitle:
-                          'معلقة ${data.pendingAddChildRequests} • مقبولة ${data.approvedAddChildRequests}',
-                      icon: Icons.person_add_alt_1_rounded,
-                    ),
-                    _DashboardStatCard(
-                      title: 'الصفوف / المجموعات',
-                      value: '${data.totalClasses}',
-                      subtitle:
-                          'معلمات ${data.teachersCount} • موظفات ${data.staffCount}',
-                      icon: Icons.class_rounded,
-                    ),
-                  ],
-                ),
+          _AdminActionCard(
+            icon: Icons.person_add_alt_1_rounded,
+            title: 'إنشاء حسابات الموظفين',
+            subtitle:
+                'إنشاء حسابات المعلمات وموظفات الحضانة والأدمن من قسم مستقل حسب نوع الموظف',
+            onTap: () async {
+              final result = await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const AdminAddUserPage()),
+              );
 
-                const SizedBox(height: 24),
+              if (result == true) {
+                setState(() {});
+              }
+            },
+          ),
 
-                if (data.pendingRequests > 0)
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 18),
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.teal.withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: Colors.teal.withOpacity(0.20),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        const CircleAvatar(
-                          backgroundColor: Colors.white,
-                          child: Icon(
-                            Icons.mark_email_unread_outlined,
-                            color: Colors.teal,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            'يوجد ${data.pendingRequests} طلب/طلبات تسجيل جديدة بانتظار المراجعة.',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.textDark,
-                            ),
-                          ),
-                        ),
-                        TextButton(
-                          onPressed: () async {
-                            await Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) =>
-                                    const AdminRegistrationRequestsPage(),
-                              ),
-                            );
-                            setState(() {});
-                          },
-                          child: const Text('عرض'),
-                        ),
-                      ],
-                    ),
-                  ),
+          _AdminActionCard(
+            icon: Icons.receipt_long_rounded,
+            title: 'إدارة الفواتير',
+            subtitle: 'عرض الفواتير وإنشاء فاتورة حضانة جديدة من خلال الأدمن',
+            onTap: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const AdminInvoicesPage()),
+              );
+              setState(() {});
+            },
+          ),
 
-                if (data.pendingAddChildRequests > 0)
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 18),
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.indigo.withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: Colors.indigo.withOpacity(0.20),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        const CircleAvatar(
-                          backgroundColor: Colors.white,
-                          child: Icon(
-                            Icons.person_add_alt_1_rounded,
-                            color: Colors.indigo,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            'يوجد ${data.pendingAddChildRequests} طلب/طلبات إضافة طفل جديدة بانتظار المراجعة.',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.textDark,
-                            ),
-                          ),
-                        ),
-                        TextButton(
-                          onPressed: () async {
-                            await Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) =>
-                                    const AdminAddChildRequestsPage(),
-                              ),
-                            );
-                            setState(() {});
-                          },
-                          child: const Text('عرض'),
-                        ),
-                      ],
-                    ),
-                  ),
+          const SizedBox(height: 24),
 
-                Text(
-                  'الإجراءات الأساسية',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                ),
-                const SizedBox(height: 12),
+          const _SectionTitle(
+            title: 'أدوات الإدارة المتقدمة',
+            icon: Icons.admin_panel_settings_rounded,
+          ),
+          const SizedBox(height: 12),
 
-                _AdminActionCard(
-  icon: Icons.person_add_alt_1_rounded,
-  title: 'إنشاء حسابات الموظفين',
-  subtitle:
-      'إنشاء حسابات المعلمات وموظفات الحضانة والأدمن من قسم مستقل حسب نوع الموظف',
-  onTap: () async {
-    final result = await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => const AdminAddUserPage(),
+          _AdminActionCard(
+            icon: Icons.dynamic_feed_rounded,
+            title: 'سجل التحديثات الإداري',
+            subtitle: 'متابعة آخر تحديثات الموظفات والمعلمات داخل النظام',
+            onTap: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const AdminUpdatesFeedPage()),
+              );
+              setState(() {});
+            },
+          ),
+
+          _AdminActionCard(
+            icon: Icons.bar_chart_rounded,
+            title: 'التقارير العامة',
+            subtitle: 'تجهيز صفحة تقارير أوسع لاحقًا',
+            onTap: () {
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(const SnackBar(content: Text('قيد العمل')));
+            },
+          ),
+
+          const SizedBox(height: 12),
+        ],
       ),
     );
+  }
 
-    if (result == true) {
-      setState(() {});
-    }
-  },
-),
-                _AdminActionCard(
-                  icon: Icons.how_to_reg_rounded,
-                  title: 'طلبات تسجيل أولياء الأمور',
-                  subtitle: 'مراجعة طلبات التسجيل الجديدة والموافقة أو الرفض',
-                  onTap: () async {
-                    await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const AdminRegistrationRequestsPage(),
-                      ),
-                    );
+  Widget _buildMessagesTab() {
+    return const AdminChatsPage();
+  }
 
-                    setState(() {});
-                  },
-                ),
-                _AdminActionCard(
-                  icon: Icons.person_add_alt_1_outlined,
-                  title: 'طلبات إضافة الأطفال',
-                  subtitle:
-                      'مراجعة طلبات إضافة طفل جديد إلى حسابات أولياء الأمور',
-                  onTap: () async {
-                    await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const AdminAddChildRequestsPage(),
-                      ),
-                    );
-
-                    setState(() {});
-                  },
-                ),
-                _AdminActionCard(
-  icon: Icons.group,
-  title: 'إدارة المستخدمين',
-  subtitle: 'مراجعة الحسابات الحالية، تعديلها، تفعيلها أو تعطيلها دون إنشاء حسابات جديدة',
-  onTap: () async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => const ManageUsersPage(),
-      ),
-    );
-
-    setState(() {});
-  },
-),
-                _AdminActionCard(
-                  icon: Icons.child_care,
-                  title: 'إدارة الأطفال',
-                  subtitle: 'متابعة بيانات الأطفال، الأرشفة، والحالة الحالية',
-                  onTap: () async {
-                    await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const ManageChildrenPage(),
-                      ),
-                    );
-
-                    setState(() {});
-                  },
-                ),
-                _AdminActionCard(
-                  icon: Icons.class_,
-                  title: 'إدارة الصفوف والأقسام',
-                  subtitle: 'تنظيم الصفوف والمجموعات وربط الأطفال بها',
-                  onTap: () async {
-                    await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const ManageClassesPage(),
-                      ),
-                    );
-
-                    setState(() {});
-                  },
-                ),
-                _AdminActionCard(
-                  icon: Icons.bar_chart,
-                  title: 'التقارير العامة',
-                  subtitle: 'تجهيز صفحة تقارير أوسع لاحقاً',
-                  onTap: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('قيد العمل'),
-                      ),
-                    );
-                  },
-                ),
-
-                const SizedBox(height: 24),
-
-                Text(
-                  'أدوات الإدارة المتقدمة',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                ),
-                const SizedBox(height: 12),
-
-                _AdminActionCard(
-                  icon: Icons.assignment_ind_rounded,
-                  title: 'تعيين المعلمات',
-                  subtitle: 'ربط المعلمات بالمجموعات والصفوف والمواد',
-                  onTap: () async {
-                    await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const AdminTeacherAssignmentsPage(),
-                      ),
-                    );
-
-                    setState(() {});
-                  },
-                ),
-                _AdminActionCard(
-                  icon: Icons.dynamic_feed_rounded,
-                  title: 'سجل التحديثات الإداري',
-                  subtitle: 'متابعة آخر تحديثات الموظفات والمعلمات داخل النظام',
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const AdminUpdatesFeedPage(),
-                      ),
-                    );
-                  },
-                ),
-
-                const SizedBox(height: 24),
-
-                Text(
-                  'التنبيهات',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                ),
-                const SizedBox(height: 12),
-
-                if (data.alerts.isEmpty)
-                  const _EmptyDashboardBox(
-                    icon: Icons.verified_rounded,
-                    title: 'لا توجد تنبيهات حالياً',
-                    subtitle: 'الوضع يبدو جيداً داخل النظام.',
-                  )
-                else
-                  ...data.alerts.map((alert) => _AlertCard(item: alert)),
-
-                const SizedBox(height: 24),
-
-                Text(
-                  'آخر الأنشطة',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                ),
-                const SizedBox(height: 12),
-
-                if (data.recentActivities.isEmpty)
-                  const _EmptyDashboardBox(
-                    icon: Icons.history_toggle_off_rounded,
-                    title: 'لا توجد أنشطة حديثة',
-                    subtitle: 'عند إضافة تحديثات للأطفال ستظهر هنا.',
-                  )
-                else
-                  ...data.recentActivities.map(
-                    (activity) => _ActivityCard(
-                      item: activity,
-                      formattedTime: _formatDateTime(activity.time),
-                    ),
-                  ),
-
-                const SizedBox(height: 12),
-              ],
+  Widget _buildSettingsTab() {
+    return ListView(
+      children: [
+        Card(
+          child: ListTile(
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 10,
             ),
-          );
-        },
-      ),
+            leading: CircleAvatar(
+              radius: 28,
+              backgroundColor: AppColors.primary.withOpacity(0.10),
+              child: const Icon(
+                Icons.person_rounded,
+                color: AppColors.primary,
+                size: 28,
+              ),
+            ),
+            title: const Text(
+              'الأدمن',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            subtitle: const Text('إدارة النظام'),
+            trailing: CircleAvatar(
+              radius: 18,
+              backgroundColor: AppColors.primary.withOpacity(0.12),
+              child: const Icon(Icons.edit, size: 18, color: AppColors.primary),
+            ),
+            onTap: () {},
+          ),
+        ),
+        const SizedBox(height: 18),
+        Text(
+          'الإعدادات العامة',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            color: AppColors.textLight,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Card(
+          child: Column(
+            children: [
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Colors.orange.withOpacity(0.12),
+                  child: const Icon(
+                    Icons.person_outline_rounded,
+                    color: Colors.orange,
+                  ),
+                ),
+                title: const Text('تعديل الملف الشخصي'),
+                onTap: () {},
+              ),
+              const Divider(height: 1),
+              SwitchListTile(
+                secondary: CircleAvatar(
+                  backgroundColor: Colors.blue.withOpacity(0.12),
+                  child: const Icon(Icons.language_rounded, color: Colors.blue),
+                ),
+                title: const Text('لغة التطبيق'),
+                subtitle: Text(isArabic ? 'العربية' : 'English'),
+                value: isArabic,
+                onChanged: (value) {
+                  setState(() {
+                    isArabic = value;
+                  });
+                },
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Colors.green.withOpacity(0.12),
+                  child: const Icon(
+                    Icons.notifications_none_rounded,
+                    color: Colors.green,
+                  ),
+                ),
+                title: const Text('التنبيهات'),
+                subtitle: const Text('عرض وإدارة التنبيهات'),
+                onTap: () async {
+                  final data = await _loadDashboardData();
+                  if (!mounted) return;
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          _AdminNotificationsPage(alerts: data.alerts),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 18),
+        Text(
+          'المظهر',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            color: AppColors.textLight,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Card(
+          child: SwitchListTile(
+            secondary: CircleAvatar(
+              backgroundColor: Colors.purple.withOpacity(0.12),
+              child: const Icon(Icons.palette_outlined, color: Colors.purple),
+            ),
+            title: const Text('الوضع الليلي'),
+            value: isDarkMode,
+            onChanged: (value) {
+              setState(() {
+                isDarkMode = value;
+              });
+            },
+          ),
+        ),
+        const SizedBox(height: 18),
+        Text(
+          'المساعدة والدعم',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            color: AppColors.textLight,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Card(
+          child: Column(
+            children: [
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Colors.red.withOpacity(0.12),
+                  child: const Icon(
+                    Icons.support_agent_rounded,
+                    color: Colors.red,
+                  ),
+                ),
+                title: const Text('مركز الدعم'),
+                onTap: () {},
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Colors.redAccent.withOpacity(0.12),
+                  child: const Icon(
+                    Icons.logout_rounded,
+                    color: Colors.redAccent,
+                  ),
+                ),
+                title: const Text(
+                  'تسجيل الخروج',
+                  style: TextStyle(color: Colors.redAccent),
+                ),
+                onTap: () => logout(context),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+        Center(
+          child: Text(
+            'إصدار النظام V1.0.0',
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: AppColors.textLight),
+          ),
+        ),
+        const SizedBox(height: 12),
+      ],
+    );
+  }
+}
+
+class _SectionTitle extends StatelessWidget {
+  final String title;
+  final IconData icon;
+
+  const _SectionTitle({required this.title, required this.icon});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, color: AppColors.primary),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            title,
+            style: Theme.of(
+              context,
+            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -917,10 +1146,7 @@ class _EmptyDashboardBox extends StatelessWidget {
             Text(
               subtitle,
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.black54,
-                height: 1.45,
-              ),
+              style: const TextStyle(color: Colors.black54, height: 1.45),
             ),
           ],
         ),
@@ -932,9 +1158,7 @@ class _EmptyDashboardBox extends StatelessWidget {
 class _AlertCard extends StatelessWidget {
   final _AdminAlertItem item;
 
-  const _AlertCard({
-    required this.item,
-  });
+  const _AlertCard({required this.item});
 
   @override
   Widget build(BuildContext context) {
@@ -943,9 +1167,7 @@ class _AlertCard extends StatelessWidget {
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: item.color.withOpacity(0.18),
-          ),
+          border: Border.all(color: item.color.withOpacity(0.18)),
         ),
         child: Padding(
           padding: const EdgeInsets.all(14),
@@ -990,10 +1212,7 @@ class _ActivityCard extends StatelessWidget {
   final _AdminActivityItem item;
   final String formattedTime;
 
-  const _ActivityCard({
-    required this.item,
-    required this.formattedTime,
-  });
+  const _ActivityCard({required this.item, required this.formattedTime});
 
   @override
   Widget build(BuildContext context) {
@@ -1005,10 +1224,7 @@ class _ActivityCard extends StatelessWidget {
           children: [
             CircleAvatar(
               backgroundColor: AppColors.primary.withOpacity(0.10),
-              child: Icon(
-                item.icon,
-                color: AppColors.primary,
-              ),
+              child: Icon(item.icon, color: AppColors.primary),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -1025,18 +1241,12 @@ class _ActivityCard extends StatelessWidget {
                   const SizedBox(height: 4),
                   Text(
                     item.subtitle,
-                    style: const TextStyle(
-                      color: Colors.black54,
-                      height: 1.35,
-                    ),
+                    style: const TextStyle(color: Colors.black54, height: 1.35),
                   ),
                   const SizedBox(height: 6),
                   Text(
                     formattedTime,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Colors.black45,
-                    ),
+                    style: const TextStyle(fontSize: 12, color: Colors.black45),
                   ),
                 ],
               ),
@@ -1044,6 +1254,61 @@ class _ActivityCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _AdminNotificationsPage extends StatelessWidget {
+  final List<_AdminAlertItem> alerts;
+
+  const _AdminNotificationsPage({required this.alerts});
+
+  @override
+  Widget build(BuildContext context) {
+    return AppPageScaffold(
+      title: 'الإشعارات',
+      child: alerts.isEmpty
+          ? const _EmptyDashboardBox(
+              icon: Icons.notifications_off_rounded,
+              title: 'لا توجد إشعارات حالياً',
+              subtitle: 'عند وجود تنبيهات جديدة ستظهر هنا.',
+            )
+          : ListView(
+              children: alerts.map((alert) => _AlertCard(item: alert)).toList(),
+            ),
+    );
+  }
+}
+
+class _AdminActivitiesPage extends StatelessWidget {
+  final List<_AdminActivityItem> activities;
+  final String Function(DateTime) formatDateTime;
+
+  const _AdminActivitiesPage({
+    required this.activities,
+    required this.formatDateTime,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppPageScaffold(
+      title: 'آخر الأنشطة',
+      child: activities.isEmpty
+          ? const _EmptyDashboardBox(
+              icon: Icons.history_toggle_off_rounded,
+              title: 'لا توجد أنشطة حديثة',
+              subtitle: 'عند إضافة تحديثات للأطفال ستظهر هنا.',
+            )
+          : ListView(
+              children: activities
+                  .map(
+                    (activity) => _ActivityCard(
+                      item: activity,
+                      formattedTime: formatDateTime(activity.time),
+                    ),
+                  )
+                  .toList(),
+            ),
     );
   }
 }

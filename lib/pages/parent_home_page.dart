@@ -12,14 +12,12 @@ import 'parent_chats_page.dart';
 import 'parent_notifications_page.dart';
 import 'parent_updates_page.dart';
 import 'weekly_report_page.dart';
+import 'parent_invoice_page.dart';
 
 class ParentHomePage extends StatefulWidget {
   final String parentUsername;
 
-  const ParentHomePage({
-    super.key,
-    required this.parentUsername,
-  });
+  const ParentHomePage({super.key, required this.parentUsername});
 
   @override
   State<ParentHomePage> createState() => _ParentHomePageState();
@@ -166,9 +164,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
   Future<void> _openChildProfile(ChildModel child) async {
     await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => ChildProfilePage(child: child),
-      ),
+      MaterialPageRoute(builder: (_) => ChildProfilePage(child: child)),
     );
 
     if (!mounted) return;
@@ -178,9 +174,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
   Future<void> _openUpdates(ChildModel child) async {
     await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => ParentUpdatesPage(child: child),
-      ),
+      MaterialPageRoute(builder: (_) => ParentUpdatesPage(child: child)),
     );
 
     if (!mounted) return;
@@ -190,9 +184,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
   Future<void> _openWeeklyReport(ChildModel child) async {
     await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => WeeklyReportPage(child: child),
-      ),
+      MaterialPageRoute(builder: (_) => WeeklyReportPage(child: child)),
     );
 
     if (!mounted) return;
@@ -213,9 +205,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
 
     await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => ParentChatsPage(children: children),
-      ),
+      MaterialPageRoute(builder: (_) => ParentChatsPage(children: children)),
     );
 
     if (!mounted) return;
@@ -225,18 +215,28 @@ class _ParentHomePageState extends State<ParentHomePage> {
   Future<void> _openAddChildRequest() async {
     final result = await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => const AddChildRequestPage(),
-      ),
+      MaterialPageRoute(builder: (_) => const AddChildRequestPage()),
     );
 
     if (result == true && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('تم إرسال طلب إضافة الطفل بنجاح'),
-        ),
+        const SnackBar(content: Text('تم إرسال طلب إضافة الطفل بنجاح')),
       );
     }
+
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  Future<void> _openInvoices() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ParentInvoicesPage(
+          parentUsername: widget.parentUsername,
+        ),
+      ),
+    );
 
     if (!mounted) return;
     setState(() {});
@@ -314,6 +314,11 @@ class _ParentHomePageState extends State<ParentHomePage> {
               onPressed: _openAddChildRequest,
             ),
             IconButton(
+              icon: const Icon(Icons.receipt_long_outlined),
+              tooltip: 'الفواتير',
+              onPressed: _openInvoices,
+            ),
+            IconButton(
               icon: const Icon(Icons.notifications_outlined),
               tooltip: 'الإشعارات',
               onPressed: () {
@@ -341,8 +346,8 @@ class _ParentHomePageState extends State<ParentHomePage> {
                       IconButton(
                         icon: const Icon(Icons.send_outlined),
                         tooltip: 'المراسلات',
-                        onPressed: snapshot.connectionState ==
-                                ConnectionState.waiting
+                        onPressed:
+                            snapshot.connectionState == ConnectionState.waiting
                             ? null
                             : () => _openChats(snapshot.data ?? []),
                       ),
@@ -392,14 +397,14 @@ class _ParentHomePageState extends State<ParentHomePage> {
           child: Builder(
             builder: (context) {
               if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(
-                  child: CircularProgressIndicator(),
-                );
+                return const Center(child: CircularProgressIndicator());
               }
 
               if (snapshot.hasError) {
                 return Center(
-                  child: Text('حدث خطأ أثناء تحميل البيانات: ${snapshot.error}'),
+                  child: Text(
+                    'حدث خطأ أثناء تحميل البيانات: ${snapshot.error}',
+                  ),
                 );
               }
 
@@ -412,8 +417,9 @@ class _ParentHomePageState extends State<ParentHomePage> {
                         physics: const AlwaysScrollableScrollPhysics(),
                         children: [
                           _WelcomeHeader(
-                            parentUsername:
-                                widget.parentUsername.trim().toLowerCase(),
+                            parentUsername: widget.parentUsername
+                                .trim()
+                                .toLowerCase(),
                           ),
                           const SizedBox(height: 16),
                           _buildAddChildCard(),
@@ -425,8 +431,8 @@ class _ParentHomePageState extends State<ParentHomePage> {
                                 children: [
                                   CircleAvatar(
                                     radius: 28,
-                                    backgroundColor:
-                                        AppColors.primary.withOpacity(0.12),
+                                    backgroundColor: AppColors.primary
+                                        .withOpacity(0.12),
                                     child: const Icon(
                                       Icons.child_care,
                                       color: AppColors.primary,
@@ -461,8 +467,9 @@ class _ParentHomePageState extends State<ParentHomePage> {
                         physics: const AlwaysScrollableScrollPhysics(),
                         children: [
                           _WelcomeHeader(
-                            parentUsername:
-                                widget.parentUsername.trim().toLowerCase(),
+                            parentUsername: widget.parentUsername
+                                .trim()
+                                .toLowerCase(),
                           ),
                           const SizedBox(height: 16),
                           _SummaryCard(
@@ -479,10 +486,8 @@ class _ParentHomePageState extends State<ParentHomePage> {
                           const SizedBox(height: 20),
                           Text(
                             'أطفالي',
-                            style:
-                                Theme.of(context).textTheme.titleLarge?.copyWith(
-                                      fontWeight: FontWeight.bold,
-                                    ),
+                            style: Theme.of(context).textTheme.titleLarge
+                                ?.copyWith(fontWeight: FontWeight.bold),
                           ),
                           const SizedBox(height: 10),
                           ...children.map(
@@ -494,7 +499,8 @@ class _ParentHomePageState extends State<ParentHomePage> {
                                 sectionBadgeColor: sectionColor(child.section),
                                 ageText: childAgeText(child.birthDate),
                                 letter: firstLetter(child.name),
-                                attendanceFuture: child.section == 'Kindergarten'
+                                attendanceFuture:
+                                    child.section == 'Kindergarten'
                                     ? isPresentToday(child.id)
                                     : null,
                                 updatesFuture: fetchLastUpdates(child.id),
@@ -519,9 +525,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
 class _WelcomeHeader extends StatelessWidget {
   final String parentUsername;
 
-  const _WelcomeHeader({
-    required this.parentUsername,
-  });
+  const _WelcomeHeader({required this.parentUsername});
 
   String greetingText() {
     final hour = DateTime.now().hour;
@@ -536,10 +540,7 @@ class _WelcomeHeader extends StatelessWidget {
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [
-            AppColors.primary,
-            AppColors.secondary,
-          ],
+          colors: [AppColors.primary, AppColors.secondary],
         ),
         borderRadius: BorderRadius.circular(22),
       ),
@@ -651,18 +652,12 @@ class _MiniStatItem extends StatelessWidget {
         const SizedBox(height: 8),
         Text(
           value,
-          style: const TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 18,
-          ),
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
         ),
         const SizedBox(height: 4),
         Text(
           title,
-          style: const TextStyle(
-            color: AppColors.textLight,
-            fontSize: 12,
-          ),
+          style: const TextStyle(color: AppColors.textLight, fontSize: 12),
           textAlign: TextAlign.center,
         ),
       ],
@@ -740,8 +735,10 @@ class _ChildDashboardCard extends StatelessWidget {
                   ),
                 ),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 7,
+                  ),
                   decoration: BoxDecoration(
                     color: sectionBadgeColor.withOpacity(0.15),
                     borderRadius: BorderRadius.circular(14),
@@ -785,19 +782,20 @@ class _ChildDashboardCard extends StatelessWidget {
               )
             else
               const _StatusBox(
-  icon: Icons.info_outline,
-  color: AppColors.primary,
-  title: 'نظام المتابعة',
-  value: 'مرن حسب الزيارة والتحديثات، والدخول والخروج يوثّق من الإدارة',
-),
+                icon: Icons.info_outline,
+                color: AppColors.primary,
+                title: 'نظام المتابعة',
+                value:
+                    'مرن حسب الزيارة والتحديثات، والدخول والخروج يوثّق من الإدارة',
+              ),
             const SizedBox(height: 14),
             Align(
               alignment: Alignment.centerRight,
               child: Text(
                 'آخر التحديثات',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
               ),
             ),
             const SizedBox(height: 8),
@@ -807,9 +805,7 @@ class _ChildDashboardCard extends StatelessWidget {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Padding(
                     padding: EdgeInsets.symmetric(vertical: 8),
-                    child: Center(
-                      child: CircularProgressIndicator(),
-                    ),
+                    child: Center(child: CircularProgressIndicator()),
                   );
                 }
 
@@ -825,9 +821,7 @@ class _ChildDashboardCard extends StatelessWidget {
                     ),
                     child: const Text(
                       'لا يوجد تحديثات بعد',
-                      style: TextStyle(
-                        color: AppColors.textLight,
-                      ),
+                      style: TextStyle(color: AppColors.textLight),
                     ),
                   );
                 }
@@ -934,10 +928,7 @@ class _InfoPill extends StatelessWidget {
   final IconData icon;
   final String text;
 
-  const _InfoPill({
-    required this.icon,
-    required this.text,
-  });
+  const _InfoPill({required this.icon, required this.text});
 
   @override
   Widget build(BuildContext context) {
@@ -949,18 +940,12 @@ class _InfoPill extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(
-            icon,
-            color: AppColors.primary,
-            size: 18,
-          ),
+          Icon(icon, color: AppColors.primary, size: 18),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               text,
-              style: const TextStyle(
-                fontWeight: FontWeight.w600,
-              ),
+              style: const TextStyle(fontWeight: FontWeight.w600),
             ),
           ),
         ],
@@ -990,9 +975,7 @@ class _StatusBox extends StatelessWidget {
       decoration: BoxDecoration(
         color: color.withOpacity(0.08),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: color.withOpacity(0.18),
-        ),
+        border: Border.all(color: color.withOpacity(0.18)),
       ),
       child: Row(
         children: [
