@@ -1,7 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../models/child_model.dart';
+import '../services/auth_service.dart';
 import '../services/gallery_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
@@ -17,7 +19,7 @@ import 'rewards_page.dart';
 import 'teacher_chats_page.dart';
 import 'teacher_groups_page.dart';
 import 'teacher_reports_page.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'welcome_page.dart';
 
 class TeacherHomePage extends StatefulWidget {
   const TeacherHomePage({super.key});
@@ -31,49 +33,130 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
   final GalleryService _galleryService = GalleryService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  Future<Map<String, String>> fetchCurrentUserInfo() async {
-  final currentUser = _auth.currentUser;
+  int selectedIndex = 0;
+  bool isArabic = true;
+  bool isDarkMode = false;
 
-  if (currentUser == null) {
+  String searchQuery = '';
+  String selectedGroupFilter = 'all';
+
+  String get _pageTitle {
+    switch (selectedIndex) {
+      case 0:
+        return 'الرئيسية - المعلمة';
+      case 1:
+        return 'المتابعة';
+      case 2:
+        return 'الرسائل';
+      case 3:
+        return 'الإعدادات';
+      default:
+        return 'الرئيسية - المعلمة';
+    }
+  }
+
+  Future<Map<String, String>> fetchCurrentUserInfo() async {
+    final currentUser = _auth.currentUser;
+
+    if (currentUser == null) {
+      return {
+        'uid': '',
+        'name': 'مستخدم غير معروف',
+        'role': '',
+      };
+    }
+
+    final userDoc =
+        await _firestore.collection('users').doc(currentUser.uid).get();
+
+    final data = userDoc.data() ?? {};
+
     return {
-      'uid': '',
-      'name': 'مستخدم غير معروف',
-      'role': '',
+      'uid': currentUser.uid,
+      'name': (data['displayName'] ?? data['username'] ?? 'مستخدم').toString(),
+      'role': (data['role'] ?? '').toString(),
     };
   }
 
-  final userDoc =
-      await _firestore.collection('users').doc(currentUser.uid).get();
-
-  final data = userDoc.data() ?? {};
-
-  return {
-    'uid': currentUser.uid,
-    'name': (data['displayName'] ?? data['username'] ?? 'مستخدم').toString(),
-    'role': (data['role'] ?? '').toString(),
-  };
-}
   Future<List<String>> fetchAssignedGroups() async {
-  final currentUser = _auth.currentUser;
-  if (currentUser == null) return [];
+    final currentUser = _auth.currentUser;
+    if (currentUser == null) return [];
 
-  final userDoc =
-      await _firestore.collection('users').doc(currentUser.uid).get();
+    final userDoc =
+        await _firestore.collection('users').doc(currentUser.uid).get();
 
-  if (!userDoc.exists) return [];
+    if (!userDoc.exists) return [];
 
-  final data = userDoc.data() ?? {};
-  final rawGroups = data['assignedGroups'];
+    final data = userDoc.data() ?? {};
+    final rawGroups = data['assignedGroups'];
 
-  if (rawGroups is List) {
-    return rawGroups
-        .map((e) => e.toString().trim())
-        .where((e) => e.isNotEmpty)
-        .toList();
+    if (rawGroups is List) {
+      return rawGroups
+          .map((e) => e.toString().trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+    }
+
+    return [];
   }
 
-  return [];
-}
+  Future<List<ChildModel>> fetchKgChildren() async {
+    final assignedGroups = await fetchAssignedGroups();
+
+    if (assignedGroups.isEmpty) {
+      return [];
+    }
+
+    final snapshot = await _firestore
+        .collection('children')
+        .where('section', isEqualTo: 'Kindergarten')
+        .where('isActive', isEqualTo: true)
+        .get();
+
+    final children = snapshot.docs.map((doc) {
+      final data = doc.data();
+      return ChildModel.fromMap(data, docId: doc.id);
+    }).where((child) {
+      return assignedGroups.contains(child.group.trim());
+    }).toList();
+
+    children.sort((a, b) => a.name.compareTo(b.name));
+    return children;
+  }
+
+  Future<List<Map<String, dynamic>>> fetchTeacherNotifications() async {
+    final currentUser = _auth.currentUser;
+    if (currentUser == null) return [];
+
+    final snapshot = await _firestore
+        .collection('updates')
+        .where('createdByUid', isEqualTo: currentUser.uid)
+        .get();
+
+    final items = snapshot.docs.map((doc) {
+      final data = doc.data();
+      return {
+        'title': (data['type'] ?? 'تحديث').toString(),
+        'childName': (data['childName'] ?? '').toString(),
+        'body': (data['note'] ?? '').toString(),
+        'createdAt': data['time'] ?? data['createdAt'],
+        'hasMedia': data['hasMedia'] == true,
+      };
+    }).toList();
+
+    items.sort((a, b) {
+      final aTime = a['createdAt'] as Timestamp?;
+      final bTime = b['createdAt'] as Timestamp?;
+
+      if (aTime == null && bTime == null) return 0;
+      if (aTime == null) return 1;
+      if (bTime == null) return -1;
+
+      return bTime.compareTo(aTime);
+    });
+
+    return items.take(20).toList();
+  }
 
   void openTeacherGroupsPage() {
     Navigator.push(
@@ -146,30 +229,6 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
       ),
     );
   }
-
-  Future<List<ChildModel>> fetchKgChildren() async {
-  final assignedGroups = await fetchAssignedGroups();
-
-  if (assignedGroups.isEmpty) {
-    return [];
-  }
-
-  final snapshot = await _firestore
-      .collection('children')
-      .where('section', isEqualTo: 'Kindergarten')
-      .where('isActive', isEqualTo: true)
-      .get();
-
-   final children = snapshot.docs.map((doc) {
-  final data = doc.data();
-  return ChildModel.fromMap(data, docId: doc.id);
-}).where((child) {
-  return assignedGroups.contains(child.group.trim());
-}).toList();
-
-  children.sort((a, b) => a.name.compareTo(b.name));
-  return children;
-}
 
   Future<void> refreshPage() async {
     setState(() {});
@@ -287,6 +346,53 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
     }
   }
 
+  Future<void> _openNotificationsPage() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _TeacherNotificationsPage(
+          fetchNotifications: fetchTeacherNotifications,
+        ),
+      ),
+    );
+    setState(() {});
+  }
+
+  Future<void> _logout() async {
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (_) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('تسجيل الخروج'),
+          content: const Text('هل أنتِ متأكدة أنكِ تريدين تسجيل الخروج؟'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('إلغاء'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('خروج'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (shouldLogout != true) return;
+
+    await AuthService().logout();
+
+    if (!mounted) return;
+
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (_) => const WelcomePage()),
+      (route) => false,
+    );
+  }
+
   List<String> extractGroups(List<ChildModel> children) {
     final groups = children
         .map((child) => child.group.trim())
@@ -298,87 +404,390 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
     return groups;
   }
 
+  List<ChildModel> applyChildrenFilters(List<ChildModel> children) {
+    return children.where((child) {
+      final matchesSearch = child.name.toLowerCase().contains(
+            searchQuery.toLowerCase(),
+          );
+
+      final matchesGroup = selectedGroupFilter == 'all'
+          ? true
+          : child.group.trim() == selectedGroupFilter;
+
+      return matchesSearch && matchesGroup;
+    }).toList();
+  }
+
+  Widget _buildBody(List<ChildModel> children) {
+    final groups = extractGroups(children);
+    final filteredChildren = applyChildrenFilters(children);
+
+    switch (selectedIndex) {
+      case 0:
+        return _buildDashboardTab(children, groups);
+      case 1:
+        return _buildFollowUpTab(filteredChildren, groups);
+      case 2:
+        return _buildMessagesTab(children);
+      case 3:
+        return _buildSettingsTab(children);
+      default:
+        return _buildDashboardTab(children, groups);
+    }
+  }
+
+  Widget _buildDashboardTab(List<ChildModel> children, List<String> groups) {
+    return RefreshIndicator(
+      onRefresh: refreshPage,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: [
+          _buildHeader(context),
+          const SizedBox(height: 18),
+          _buildStatsSection(children.length, groups.length),
+          const SizedBox(height: 18),
+          _buildQuickActions(children),
+          const SizedBox(height: 18),
+          _buildAcademicSection(),
+          const SizedBox(height: 18),
+          _buildMonitoringSection(),
+          const SizedBox(height: 18),
+          _buildGroupsSection(groups),
+          const SizedBox(height: 18),
+          _buildAttendanceCard(),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFollowUpTab(List<ChildModel> filteredChildren, List<String> groups) {
+    return RefreshIndicator(
+      onRefresh: refreshPage,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: [
+          _buildSearchAndFilterBar(groups),
+          const SizedBox(height: 18),
+          Text(
+            'أطفال الروضة',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.textDark,
+                ),
+          ),
+          const SizedBox(height: 10),
+          if (filteredChildren.isEmpty)
+            _buildEmptyState()
+          else
+            ...filteredChildren.map(
+              (child) => Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _ChildActionCard(
+                  childModel: child,
+                  onAddUpdate: () => openAddUpdate(child),
+                  onCamera: () => openCameraCheckin(child),
+                ),
+              ),
+            ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMessagesTab(List<ChildModel> children) {
+    return TeacherChatsPage(children: children);
+  }
+
+  Widget _buildSettingsTab(List<ChildModel> children) {
+    return ListView(
+      children: [
+        Card(
+          child: ListTile(
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 10,
+            ),
+            leading: CircleAvatar(
+              radius: 28,
+              backgroundColor: AppColors.primary.withOpacity(0.10),
+              child: const Icon(
+                Icons.school_rounded,
+                color: AppColors.primary,
+                size: 28,
+              ),
+            ),
+            title: const Text(
+              'المعلمة',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            subtitle: const Text('متابعة الروضة والمجموعات'),
+            trailing: CircleAvatar(
+              radius: 18,
+              backgroundColor: AppColors.primary.withOpacity(0.12),
+              child: const Icon(Icons.edit, size: 18, color: AppColors.primary),
+            ),
+            onTap: () {},
+          ),
+        ),
+        const SizedBox(height: 18),
+        Text(
+          'الإعدادات العامة',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                color: AppColors.textLight,
+                fontWeight: FontWeight.w700,
+              ),
+        ),
+        const SizedBox(height: 8),
+        Card(
+          child: Column(
+            children: [
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Colors.orange.withOpacity(0.12),
+                  child: const Icon(
+                    Icons.person_outline_rounded,
+                    color: Colors.orange,
+                  ),
+                ),
+                title: const Text('تعديل الملف الشخصي'),
+                subtitle: const Text('سيتم تطوير هذه الصفحة لاحقاً'),
+                onTap: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('قيد التطوير')),
+                  );
+                },
+              ),
+              const Divider(height: 1),
+              SwitchListTile(
+                secondary: CircleAvatar(
+                  backgroundColor: Colors.blue.withOpacity(0.12),
+                  child: const Icon(Icons.language_rounded, color: Colors.blue),
+                ),
+                title: const Text('لغة التطبيق'),
+                subtitle: Text(isArabic ? 'العربية' : 'English'),
+                value: isArabic,
+                onChanged: (value) {
+                  setState(() {
+                    isArabic = value;
+                  });
+                },
+              ),
+              const Divider(height: 1),
+              SwitchListTile(
+                secondary: CircleAvatar(
+                  backgroundColor: Colors.purple.withOpacity(0.12),
+                  child:
+                      const Icon(Icons.palette_outlined, color: Colors.purple),
+                ),
+                title: const Text('الوضع الليلي'),
+                value: isDarkMode,
+                onChanged: (value) {
+                  setState(() {
+                    isDarkMode = value;
+                  });
+                },
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 18),
+        Text(
+          'الخدمات',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                color: AppColors.textLight,
+                fontWeight: FontWeight.w700,
+              ),
+        ),
+        const SizedBox(height: 8),
+        Card(
+          child: Column(
+            children: [
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Colors.green.withOpacity(0.12),
+                  child: const Icon(
+                    Icons.notifications_none_rounded,
+                    color: Colors.green,
+                  ),
+                ),
+                title: const Text('الإشعارات'),
+                subtitle: const Text('عرض إشعارات المعلمة'),
+                onTap: _openNotificationsPage,
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: AppColors.primary.withOpacity(0.12),
+                  child: const Icon(
+                    Icons.send_outlined,
+                    color: AppColors.primary,
+                  ),
+                ),
+                title: const Text('الرسائل'),
+                subtitle: const Text('فتح محادثات المعلمة'),
+                onTap: () => openTeacherChats(children),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 18),
+        Text(
+          'المساعدة والدعم',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                color: AppColors.textLight,
+                fontWeight: FontWeight.w700,
+              ),
+        ),
+        const SizedBox(height: 8),
+        Card(
+          child: Column(
+            children: [
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Colors.red.withOpacity(0.12),
+                  child: const Icon(
+                    Icons.support_agent_rounded,
+                    color: Colors.red,
+                  ),
+                ),
+                title: const Text('مركز الدعم'),
+                onTap: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('قيد التطوير')),
+                  );
+                },
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Colors.redAccent.withOpacity(0.12),
+                  child: const Icon(
+                    Icons.logout_rounded,
+                    color: Colors.redAccent,
+                  ),
+                ),
+                title: const Text(
+                  'تسجيل الخروج',
+                  style: TextStyle(color: Colors.redAccent),
+                ),
+                onTap: _logout,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+        Center(
+          child: Text(
+            'إصدار النظام V1.0.0',
+            style: Theme.of(context)
+                .textTheme
+                .bodySmall
+                ?.copyWith(color: AppColors.textLight),
+          ),
+        ),
+        const SizedBox(height: 12),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<ChildModel>>(
       future: fetchKgChildren(),
       builder: (context, snapshot) {
         final children = snapshot.data ?? [];
-        final groups = extractGroups(children);
 
-        return AppPageScaffold(
-          title: 'لوحة المعلمة',
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.send_outlined),
-              tooltip: 'المراسلات',
-              onPressed: snapshot.connectionState == ConnectionState.waiting
-                  ? null
-                  : () => openTeacherChats(children),
-            ),
-          ],
-          child: Builder(
-            builder: (context) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(
-                  child: CircularProgressIndicator(),
-                );
-              }
-
-              if (snapshot.hasError) {
-                return Center(
-                  child: Text(
-                    'حدث خطأ أثناء تحميل البيانات',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                );
-              }
-
-              return RefreshIndicator(
-                onRefresh: refreshPage,
-                child: ListView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  children: [
-                    _buildHeader(context),
-                    const SizedBox(height: 18),
-                    _buildStatsSection(children.length, groups.length),
-                    const SizedBox(height: 18),
-                    _buildQuickActions(children),
-                    const SizedBox(height: 18),
-                    _buildAcademicSection(),
-                    const SizedBox(height: 18),
-                    _buildMonitoringSection(),
-                    const SizedBox(height: 18),
-                    _buildGroupsSection(groups),
-                    const SizedBox(height: 18),
-                    _buildAttendanceCard(),
-                    const SizedBox(height: 22),
-                    Text(
-                      'أطفال الروضة',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.textDark,
-                          ),
+        return Scaffold(
+          body: AppPageScaffold(
+            title: _pageTitle,
+            actions: selectedIndex == 0
+                ? [
+                    IconButton(
+                      icon: const Icon(Icons.notifications_none_rounded),
+                      tooltip: 'الإشعارات',
+                      onPressed: _openNotificationsPage,
                     ),
-                    const SizedBox(height: 10),
-                    if (children.isEmpty)
-                      _buildEmptyState()
-                    else
-                      ...children.map(
-                        (child) => Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: _ChildActionCard(
-                            childModel: child,
-                            onAddUpdate: () => openAddUpdate(child),
-                            onCamera: () => openCameraCheckin(child),
-                          ),
+                    IconButton(
+                      icon: const Icon(Icons.refresh_rounded),
+                      tooltip: 'تحديث الصفحة',
+                      onPressed: refreshPage,
+                    ),
+                  ]
+                : selectedIndex == 2
+                    ? [
+                        IconButton(
+                          icon: const Icon(Icons.notifications_none_rounded),
+                          tooltip: 'الإشعارات',
+                          onPressed: _openNotificationsPage,
                         ),
-                      ),
-                    const SizedBox(height: 8),
-                  ],
-                ),
-              );
+                      ]
+                    : selectedIndex == 3
+                        ? [
+                            IconButton(
+                              icon: const Icon(Icons.notifications_none_rounded),
+                              tooltip: 'الإشعارات',
+                              onPressed: _openNotificationsPage,
+                            ),
+                          ]
+                        : [
+                            IconButton(
+                              icon: const Icon(Icons.refresh_rounded),
+                              tooltip: 'تحديث الصفحة',
+                              onPressed: refreshPage,
+                            ),
+                          ],
+            child: Builder(
+              builder: (context) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(
+                    child: CircularProgressIndicator(),
+                  );
+                }
+
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Text(
+                      'حدث خطأ أثناء تحميل البيانات',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  );
+                }
+
+                return _buildBody(children);
+              },
+            ),
+          ),
+          bottomNavigationBar: NavigationBar(
+            selectedIndex: selectedIndex,
+            onDestinationSelected: (index) {
+              setState(() {
+                selectedIndex = index;
+              });
             },
+            destinations: const [
+              NavigationDestination(
+                icon: Icon(Icons.home_outlined),
+                selectedIcon: Icon(Icons.home_rounded),
+                label: 'الرئيسية',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.fact_check_outlined),
+                selectedIcon: Icon(Icons.fact_check_rounded),
+                label: 'المتابعة',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.chat_bubble_outline_rounded),
+                selectedIcon: Icon(Icons.chat_bubble_rounded),
+                label: 'الرسائل',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.settings_outlined),
+                selectedIcon: Icon(Icons.settings_rounded),
+                label: 'الإعدادات',
+              ),
+            ],
           ),
         );
       },
@@ -496,6 +905,45 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
   }
 
   Widget _buildQuickActions(List<ChildModel> children) {
+    final actions = [
+      _TeacherQuickActionItem(
+        title: 'الحضور',
+        subtitle: 'تسجيل حضور اليوم',
+        icon: Icons.how_to_reg_rounded,
+        onTap: openAttendance,
+      ),
+      _TeacherQuickActionItem(
+        title: 'المراسلات',
+        subtitle: 'فتح محادثات المعلمة',
+        icon: Icons.send_outlined,
+        onTap: () => openTeacherChats(children),
+      ),
+      _TeacherQuickActionItem(
+        title: 'المجموعات',
+        subtitle: 'عرض مجموعات المعلمة والطلاب',
+        icon: Icons.groups_2_rounded,
+        onTap: openTeacherGroupsPage,
+      ),
+      _TeacherQuickActionItem(
+        title: 'التقييمات',
+        subtitle: 'عرض وإضافة الدرجات',
+        icon: Icons.grade_outlined,
+        onTap: openGradesPage,
+      ),
+      _TeacherQuickActionItem(
+        title: 'الواجبات',
+        subtitle: 'إدارة واجبات الطلاب',
+        icon: Icons.assignment_outlined,
+        onTap: openAssignmentsPage,
+      ),
+      _TeacherQuickActionItem(
+        title: 'التعزيز',
+        subtitle: 'نجوم وشارات وتشجيع',
+        icon: Icons.emoji_events_outlined,
+        onTap: openRewardsPage,
+      ),
+    ];
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -508,37 +956,25 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
           ),
         ),
         const SizedBox(height: 12),
-        Column(
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: _QuickActionButton(
-                    title: 'الحضور',
-                    subtitle: 'تسجيل حضور اليوم',
-                    icon: Icons.how_to_reg_rounded,
-                    onTap: openAttendance,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _QuickActionButton(
-                    title: 'المراسلات',
-                    subtitle: 'فتح محادثات المعلمة',
-                    icon: Icons.send_outlined,
-                    onTap: () => openTeacherChats(children),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            _QuickActionButton(
-              title: 'المجموعات',
-              subtitle: 'عرض مجموعات المعلمة والطلاب',
-              icon: Icons.groups_2_rounded,
-              onTap: openTeacherGroupsPage,
-            ),
-          ],
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: actions.length,
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+            childAspectRatio: 1.18,
+          ),
+          itemBuilder: (context, index) {
+            final item = actions[index];
+            return _TeacherQuickActionCard(
+              title: item.title,
+              subtitle: item.subtitle,
+              icon: item.icon,
+              onTap: item.onTap,
+            );
+          },
         ),
       ],
     );
@@ -818,6 +1254,63 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
     );
   }
 
+  Widget _buildSearchAndFilterBar(List<String> groups) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          children: [
+            TextField(
+              decoration: InputDecoration(
+                hintText: 'ابحثي باسم الطفل...',
+                prefixIcon: const Icon(Icons.search),
+                filled: true,
+                fillColor: AppColors.background,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+              onChanged: (val) {
+                setState(() {
+                  searchQuery = val;
+                });
+              },
+            ),
+            const SizedBox(height: 12),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _FilterChipItem(
+                    label: 'الكل',
+                    isSelected: selectedGroupFilter == 'all',
+                    onTap: () {
+                      setState(() {
+                        selectedGroupFilter = 'all';
+                      });
+                    },
+                  ),
+                  ...groups.map(
+                    (group) => _FilterChipItem(
+                      label: group,
+                      isSelected: selectedGroupFilter == group,
+                      onTap: () {
+                        setState(() {
+                          selectedGroupFilter = group;
+                        });
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildEmptyState() {
     return Container(
       padding: const EdgeInsets.all(20),
@@ -836,29 +1329,240 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
             color: AppColors.textLight.withOpacity(0.8),
           ),
           const SizedBox(height: 10),
-           const Text(
-  'لا توجد مجموعات أو أطفال مخصصون لهذه المعلمة حالياً',
-  textAlign: TextAlign.center,
-  style: TextStyle(
-    fontSize: 15.5,
-    fontWeight: FontWeight.w700,
-    color: AppColors.textDark,
-  ),
-),
-const SizedBox(height: 6),
-const Text(
-  'عند ربط المعلمة بمجموعاتها سيظهر الأطفال هنا مباشرة.',
-  textAlign: TextAlign.center,
-  style: TextStyle(
-    fontSize: 13.5,
-    color: AppColors.textLight,
-    height: 1.5,
-  ),
-),
+          const Text(
+            'لا توجد مجموعات أو أطفال مخصصون لهذه المعلمة حالياً',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 15.5,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textDark,
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'عند ربط المعلمة بمجموعاتها سيظهر الأطفال هنا مباشرة.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 13.5,
+              color: AppColors.textLight,
+              height: 1.5,
+            ),
+          ),
         ],
       ),
     );
   }
+}
+
+class _TeacherNotificationsPage extends StatelessWidget {
+  final Future<List<Map<String, dynamic>>> Function() fetchNotifications;
+
+  const _TeacherNotificationsPage({
+    required this.fetchNotifications,
+  });
+
+  String _formatTimestamp(dynamic raw) {
+    if (raw is Timestamp) {
+      final d = raw.toDate();
+      return '${d.year}/${d.month}/${d.day} - ${d.hour}:${d.minute.toString().padLeft(2, '0')}';
+    }
+    return 'غير محدد';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AppPageScaffold(
+      title: 'الإشعارات',
+      child: FutureBuilder<List<Map<String, dynamic>>>(
+        future: fetchNotifications(),
+        builder: (context, snapshot) {
+          final items = snapshot.data ?? [];
+
+          return ListView(
+            children: [
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: _InfoPanel(
+                    icon: Icons.notifications_active_outlined,
+                    title: 'إشعارات المعلمة',
+                    message:
+                        'تظهر هنا آخر التحديثات التي أضافتها المعلمة مثل التحديثات اليومية والوسائط.',
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'آخر الإشعارات',
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16,
+                  color: AppColors.textDark,
+                ),
+              ),
+              const SizedBox(height: 12),
+              if (snapshot.connectionState == ConnectionState.waiting)
+                const Center(child: CircularProgressIndicator())
+              else if (items.isEmpty)
+                const Card(
+                  child: Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text(
+                      'لا توجد إشعارات أو تحديثات مضافة بعد.',
+                      style: TextStyle(color: AppColors.textLight),
+                    ),
+                  ),
+                )
+              else
+                ...items.map(
+                  (item) => Card(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    child: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          CircleAvatar(
+                            backgroundColor:
+                                AppColors.primary.withOpacity(0.12),
+                            child: Icon(
+                              item['hasMedia'] == true
+                                  ? Icons.photo_camera_outlined
+                                  : Icons.notifications_none_rounded,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  (item['title'] ?? 'تحديث').toString(),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14.5,
+                                  ),
+                                ),
+                                if ((item['childName'] ?? '')
+                                    .toString()
+                                    .trim()
+                                    .isNotEmpty) ...[
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'الطفل: ${item['childName']}',
+                                    style: const TextStyle(
+                                      color: AppColors.textLight,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
+                                if ((item['body'] ?? '')
+                                    .toString()
+                                    .trim()
+                                    .isNotEmpty) ...[
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    (item['body'] ?? '').toString(),
+                                    style: const TextStyle(
+                                      color: AppColors.textLight,
+                                      height: 1.35,
+                                    ),
+                                  ),
+                                ],
+                                const SizedBox(height: 6),
+                                Text(
+                                  _formatTimestamp(item['createdAt']),
+                                  style: const TextStyle(
+                                    color: AppColors.textLight,
+                                    fontSize: 12.5,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _InfoPanel extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String message;
+
+  const _InfoPanel({
+    required this.icon,
+    required this.title,
+    required this.message,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.primary.withOpacity(0.12)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            backgroundColor: AppColors.primary.withOpacity(0.12),
+            child: Icon(icon, color: AppColors.primary),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14.5,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  message,
+                  style: const TextStyle(
+                    color: Colors.black54,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TeacherQuickActionItem {
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _TeacherQuickActionItem({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.onTap,
+  });
 }
 
 class _StatCard extends StatelessWidget {
@@ -874,66 +1578,146 @@ class _StatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return SizedBox(
       width: 160,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: AppColors.border.withOpacity(0.8),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: AppColors.border.withOpacity(0.8),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.03),
+              blurRadius: 14,
+              offset: const Offset(0, 7),
+            ),
+          ],
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 14,
-            offset: const Offset(0, 7),
-          ),
-        ],
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.10),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(
+                icon,
+                color: AppColors.primary,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      color: AppColors.textLight,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 15.5,
+                      color: AppColors.textDark,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
-      child: Row(
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: AppColors.primary.withOpacity(0.10),
-              borderRadius: BorderRadius.circular(14),
+    );
+  }
+}
+
+class _TeacherQuickActionCard extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _TeacherQuickActionCard({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(22),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(22),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(
+              color: AppColors.border.withOpacity(0.8),
             ),
-            child: Icon(
-              icon,
-              color: AppColors.primary,
-              size: 22,
-            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.03),
+                blurRadius: 14,
+                offset: const Offset(0, 7),
+              ),
+            ],
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 12.5,
-                    color: AppColors.textLight,
-                    fontWeight: FontWeight.w600,
-                  ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(14),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  value,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 15.5,
-                    color: AppColors.textDark,
-                    fontWeight: FontWeight.w800,
-                  ),
+                child: Icon(
+                  icon,
+                  color: AppColors.primary,
+                  size: 24,
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.textDark,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  color: AppColors.textLight,
+                  height: 1.4,
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -1178,6 +1962,30 @@ class _ChildActionCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _FilterChipItem extends StatelessWidget {
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _FilterChipItem({
+    required this.label,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsetsDirectional.only(end: 8),
+      child: ChoiceChip(
+        label: Text(label),
+        selected: isSelected,
+        onSelected: (_) => onTap(),
       ),
     );
   }
