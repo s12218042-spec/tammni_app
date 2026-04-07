@@ -227,26 +227,31 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
   }
 
   Future<Map<String, String>> fetchCurrentUserInfo() async {
-    final currentUser = _auth.currentUser;
+  final currentUser = _auth.currentUser;
 
-    if (currentUser == null) {
-      return {
-        'uid': '',
-        'name': 'مستخدم غير معروف',
-        'role': '',
-      };
-    }
-
-    final userDoc =
-        await _firestore.collection('users').doc(currentUser.uid).get();
-    final data = userDoc.data() ?? {};
-
+  if (currentUser == null) {
     return {
-      'uid': currentUser.uid,
-      'name': (data['displayName'] ?? data['username'] ?? 'مستخدم').toString(),
-      'role': (data['role'] ?? '').toString(),
+      'uid': '',
+      'name': 'مستخدم غير معروف',
+      'role': '',
     };
   }
+
+  final query = await _firestore
+      .collection('users')
+      .where('uid', isEqualTo: currentUser.uid)
+      .limit(1)
+      .get();
+
+  final data = query.docs.isNotEmpty ? query.docs.first.data() : <String, dynamic>{};
+
+  return {
+    'uid': currentUser.uid,
+    'name': (data['displayName'] ?? data['name'] ?? data['username'] ?? 'مستخدم')
+        .toString(),
+    'role': (data['role'] ?? '').toString(),
+  };
+}
 
   Future<void> pickMedia() async {
     final res = await Navigator.push(
@@ -523,7 +528,7 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
         'mediaType': selectedMediaType,
         'mediaPath': selectedMediaPath,
         'mediaUrl': uploadedMediaUrl,
-        'hasMedia': uploadedMediaUrl != null,
+        'hasMedia': uploadedMediaUrl != null || selectedMediaPath != null,
         'importance': importance,
         'tags': selectedTags,
         'mood': selectedMood,

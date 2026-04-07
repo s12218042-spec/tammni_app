@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../models/child_model.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
+import 'video_preview_page.dart';
 
 class GalleryPage extends StatefulWidget {
   final ChildModel child;
@@ -41,24 +42,28 @@ class _GalleryPageState extends State<GalleryPage> {
     final items = snapshot.docs.map((doc) {
       final data = doc.data();
 
+      final mediaUrl = (data['mediaUrl'] ?? '').toString().trim();
+      final mediaPath = (data['mediaPath'] ?? '').toString().trim();
+      final mediaType = (data['mediaType'] ?? '').toString().trim();
+
+      final resolvedSource = mediaUrl.isNotEmpty ? mediaUrl : mediaPath;
+
       return {
         'id': doc.id,
         'type': data['type'] ?? '',
         'note': data['note'] ?? '',
         'time': data['time'],
-        'mediaPath': data['mediaPath'],
-        'mediaType': data['mediaType'],
+        'mediaPath': mediaPath,
+        'mediaUrl': mediaUrl,
+        'resolvedSource': resolvedSource,
+        'mediaType': mediaType,
         'byRole': data['byRole'] ?? '',
       };
     }).where((item) {
-      final mediaPath = item['mediaPath'];
-      final mediaType = item['mediaType'];
+      final resolvedSource = (item['resolvedSource'] ?? '').toString().trim();
+      final mediaType = (item['mediaType'] ?? '').toString().trim();
 
-      if (mediaPath == null || mediaPath.toString().trim().isEmpty) {
-        return false;
-      }
-
-      if (mediaType == null || mediaType.toString().trim().isEmpty) {
+      if (resolvedSource.isEmpty || mediaType.isEmpty) {
         return false;
       }
 
@@ -168,21 +173,36 @@ class _GalleryPageState extends State<GalleryPage> {
 
   Widget buildMediaTile(Map<String, dynamic> item) {
     final mediaPath = item['mediaPath']?.toString() ?? '';
+    final mediaUrl = item['mediaUrl']?.toString() ?? '';
+    final resolvedSource = item['resolvedSource']?.toString() ?? '';
     final mediaType = item['mediaType']?.toString() ?? '';
     final note = item['note']?.toString() ?? '';
     final type = item['type']?.toString() ?? '';
     final time = item['time'] as Timestamp?;
 
     final isVideo = mediaType == 'video';
-    final isNetwork = mediaPath.startsWith('http');
+    final isNetwork = resolvedSource.startsWith('http');
 
     return GestureDetector(
       onTap: () {
+        if (isVideo) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => VideoPreviewPage(
+                path: resolvedSource,
+                title: widget.child.name,
+              ),
+            ),
+          );
+          return;
+        }
+
         Navigator.push(
           context,
           MaterialPageRoute(
             builder: (_) => GalleryPreviewPage(
-              mediaPath: mediaPath,
+              mediaPath: resolvedSource,
               mediaType: mediaType,
               title: widget.child.name,
               subtitle: note.isNotEmpty ? note : type,
@@ -209,7 +229,9 @@ class _GalleryPageState extends State<GalleryPage> {
             children: [
               Positioned.fill(
                 child: buildMediaContent(
-                  mediaPath: mediaPath,
+                  mediaSource: resolvedSource,
+                  localFallbackPath: mediaPath,
+                  remoteUrl: mediaUrl,
                   isNetwork: isNetwork,
                   isVideo: isVideo,
                 ),
@@ -311,7 +333,9 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 
   Widget buildMediaContent({
-    required String mediaPath,
+    required String mediaSource,
+    required String localFallbackPath,
+    required String remoteUrl,
     required bool isNetwork,
     required bool isVideo,
   }) {
@@ -328,9 +352,9 @@ class _GalleryPageState extends State<GalleryPage> {
       );
     }
 
-    if (isNetwork) {
+    if (remoteUrl.trim().isNotEmpty) {
       return Image.network(
-        mediaPath,
+        remoteUrl.trim(),
         fit: BoxFit.cover,
         errorBuilder: (_, __, ___) {
           return buildBrokenMedia();
@@ -343,6 +367,16 @@ class _GalleryPageState extends State<GalleryPage> {
               child: CircularProgressIndicator(),
             ),
           );
+        },
+      );
+    }
+
+    if (isNetwork) {
+      return Image.network(
+        mediaSource,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) {
+          return buildBrokenMedia();
         },
       );
     }
@@ -366,7 +400,7 @@ class _GalleryPageState extends State<GalleryPage> {
       );
     }
 
-    final file = File(mediaPath);
+    final file = File(localFallbackPath);
     if (!file.existsSync()) {
       return buildBrokenMedia();
     }
@@ -649,35 +683,7 @@ class GalleryPreviewPage extends StatelessWidget {
             Expanded(
               child: Center(
                 child: isVideo
-                    ? Container(
-                        margin: const EdgeInsets.all(20),
-                        padding: const EdgeInsets.all(24),
-                        decoration: BoxDecoration(
-                          color: Colors.white10,
-                          borderRadius: BorderRadius.circular(24),
-                          border: Border.all(color: Colors.white12),
-                        ),
-                        child: const Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.videocam_rounded,
-                              color: Colors.white,
-                              size: 72,
-                            ),
-                            SizedBox(height: 12),
-                            Text(
-                              'معاينة الفيديو الكاملة ستُفعّل لاحقًا',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
+                    ? const SizedBox.shrink()
                     : buildImagePreview(),
               ),
             ),

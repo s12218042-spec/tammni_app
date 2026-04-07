@@ -14,6 +14,10 @@ import 'parent_invoice_page.dart';
 import 'parent_notifications_page.dart';
 import 'parent_updates_page.dart';
 import 'welcome_page.dart';
+import 'account_settings_page.dart';
+import '../services/account_settings_service.dart';
+import 'account_history_page.dart';
+import 'parent_complaints_page.dart';
 
 class ParentHomePage extends StatefulWidget {
   final String parentUsername;
@@ -27,6 +31,7 @@ class ParentHomePage extends StatefulWidget {
 class _ParentHomePageState extends State<ParentHomePage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final MessageService _messageService = MessageService();
+  final AccountSettingsService _accountSettingsService = AccountSettingsService();
 
   int selectedIndex = 0;
   bool isArabic = true;
@@ -250,6 +255,20 @@ class _ParentHomePageState extends State<ParentHomePage> {
     setState(() {});
   }
 
+  Future<void> _openComplaints() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ParentComplaintsPage(
+          parentUsername: widget.parentUsername,
+        ),
+      ),
+    );
+
+    if (!mounted) return;
+    setState(() {});
+  }
+
   Future<void> _logout() async {
     final shouldLogout = await showDialog<bool>(
       context: context,
@@ -350,6 +369,12 @@ class _ParentHomePageState extends State<ParentHomePage> {
                 title: 'الإشعارات',
                 subtitle: 'متابعة التنبيهات',
                 onTap: _openNotifications,
+              ),
+              _QuickActionCard(
+                icon: Icons.report_problem_outlined,
+                title: 'الشكاوى',
+                subtitle: 'إرسال شكوى أو ملاحظة',
+                onTap: _openComplaints,
               ),
               _QuickActionCard(
                 icon: Icons.send_outlined,
@@ -538,31 +563,56 @@ class _ParentHomePageState extends State<ParentHomePage> {
     return ListView(
       children: [
         Card(
-          child: ListTile(
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 10,
-            ),
-            leading: CircleAvatar(
-              radius: 28,
-              backgroundColor: AppColors.primary.withOpacity(0.10),
-              child: const Icon(
-                Icons.person_rounded,
-                color: AppColors.primary,
-                size: 28,
-              ),
-            ),
-            title: const Text(
-              'وليّ الأمر',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            subtitle: Text(widget.parentUsername.trim().toLowerCase()),
-            trailing: CircleAvatar(
-              radius: 18,
-              backgroundColor: AppColors.primary.withOpacity(0.12),
-              child: const Icon(Icons.edit, size: 18, color: AppColors.primary),
-            ),
-            onTap: () {},
+          child: FutureBuilder<AccountSettingsData>(
+            future: _accountSettingsService.getCurrentUserData(),
+            builder: (context, snapshot) {
+              final data = snapshot.data;
+
+              final displayName = data?.name.trim().isNotEmpty == true
+                  ? data!.name
+                  : 'وليّ الأمر';
+
+              final subtitle = data == null
+                  ? widget.parentUsername.trim().toLowerCase()
+                  : '${data.roleLabel} • ${data.username.isNotEmpty ? data.username : widget.parentUsername.trim().toLowerCase()}';
+
+              return ListTile(
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                leading: CircleAvatar(
+                  radius: 28,
+                  backgroundColor: AppColors.primary.withOpacity(0.10),
+                  child: Text(
+                    displayName.trim().isNotEmpty ? displayName.trim()[0] : 'و',
+                    style: const TextStyle(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 22,
+                    ),
+                  ),
+                ),
+                title: Text(
+                  displayName,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                subtitle: Text(subtitle),
+                trailing: CircleAvatar(
+                  radius: 18,
+                  backgroundColor: AppColors.primary.withOpacity(0.12),
+                  child: const Icon(Icons.edit, size: 18, color: AppColors.primary),
+                ),
+                onTap: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const AccountSettingsPage()),
+                  );
+                  if (!mounted) return;
+                  setState(() {});
+                },
+              );
+            },
           ),
         ),
         const SizedBox(height: 18),
@@ -586,11 +636,14 @@ class _ParentHomePageState extends State<ParentHomePage> {
                   ),
                 ),
                 title: const Text('تعديل الملف الشخصي'),
-                subtitle: const Text('سيتم تطوير هذه الصفحة لاحقاً'),
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('قيد التطوير')),
+                subtitle: const Text('تعديل الاسم، كلمة المرور، وإدارة الحساب'),
+                onTap: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const AccountSettingsPage()),
                   );
+                  if (!mounted) return;
+                  setState(() {});
                 },
               ),
               const Divider(height: 1),
@@ -612,8 +665,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
               SwitchListTile(
                 secondary: CircleAvatar(
                   backgroundColor: Colors.purple.withOpacity(0.12),
-                  child:
-                      const Icon(Icons.palette_outlined, color: Colors.purple),
+                  child: const Icon(Icons.palette_outlined, color: Colors.purple),
                 ),
                 title: const Text('الوضع الليلي'),
                 value: isDarkMode,
@@ -653,6 +705,26 @@ class _ParentHomePageState extends State<ParentHomePage> {
               const Divider(height: 1),
               ListTile(
                 leading: CircleAvatar(
+                  backgroundColor: Colors.teal.withOpacity(0.12),
+                  child: const Icon(
+                    Icons.history_rounded,
+                    color: Colors.teal,
+                  ),
+                ),
+                title: const Text('سجل نشاط الحساب'),
+                subtitle: const Text('عرض تغييرات الحساب والنشاطات الأخيرة'),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const AccountHistoryPage(),
+                    ),
+                  );
+                },
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: CircleAvatar(
                   backgroundColor: Colors.indigo.withOpacity(0.12),
                   child: const Icon(
                     Icons.receipt_long_rounded,
@@ -675,6 +747,19 @@ class _ParentHomePageState extends State<ParentHomePage> {
                 title: const Text('طلب إضافة طفل'),
                 subtitle: const Text('إرسال طلب جديد للإدارة'),
                 onTap: _openAddChildRequest,
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Colors.red.withOpacity(0.12),
+                  child: const Icon(
+                    Icons.report_problem_outlined,
+                    color: Colors.red,
+                  ),
+                ),
+                title: const Text('الشكاوى والملاحظات'),
+                subtitle: const Text('إرسال شكوى أو متابعة رد الإدارة'),
+                onTap: _openComplaints,
               ),
               const Divider(height: 1),
               ListTile(
@@ -713,11 +798,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
                   ),
                 ),
                 title: const Text('مركز الدعم'),
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('قيد التطوير')),
-                  );
-                },
+                onTap: _openComplaints,
               ),
               const Divider(height: 1),
               ListTile(

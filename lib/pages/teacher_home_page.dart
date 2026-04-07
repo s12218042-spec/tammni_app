@@ -3,13 +3,15 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../models/child_model.dart';
+import '../services/account_settings_service.dart';
 import '../services/auth_service.dart';
 import '../services/gallery_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
-import 'attendance_page.dart';
+import 'account_settings_page.dart';
 import 'add_update_page.dart';
 import 'assignments_page.dart';
+import 'attendance_page.dart';
 import 'bulk_attendance_page.dart';
 import 'bulk_grade_entry_page.dart';
 import 'camera_checkin_page.dart';
@@ -32,6 +34,8 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final GalleryService _galleryService = GalleryService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
+  final AccountSettingsService _accountSettingsService =
+      AccountSettingsService();
 
   int selectedIndex = 0;
   bool isArabic = true;
@@ -113,12 +117,13 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
         .where('isActive', isEqualTo: true)
         .get();
 
-    final children = snapshot.docs.map((doc) {
-      final data = doc.data();
-      return ChildModel.fromMap(data, docId: doc.id);
-    }).where((child) {
-      return assignedGroups.contains(child.group.trim());
-    }).toList();
+    final children = snapshot.docs
+        .map((doc) {
+          final data = doc.data();
+          return ChildModel.fromMap(data, docId: doc.id);
+        })
+        .where((child) => assignedGroups.contains(child.group.trim()))
+        .toList();
 
     children.sort((a, b) => a.name.compareTo(b.name));
     return children;
@@ -128,21 +133,74 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
     final currentUser = _auth.currentUser;
     if (currentUser == null) return [];
 
-    final snapshot = await _firestore
+    final updatesSnapshot = await _firestore
         .collection('updates')
         .where('createdByUid', isEqualTo: currentUser.uid)
         .get();
 
-    final items = snapshot.docs.map((doc) {
+    final directNotificationsSnapshot = await _firestore
+        .collection('notifications')
+        .where('targetUid', isEqualTo: currentUser.uid)
+        .get();
+
+    final fallbackNotificationsSnapshot = await _firestore
+        .collection('notifications')
+        .where('uid', isEqualTo: currentUser.uid)
+        .get();
+
+    final accountHistorySnapshot = await _firestore
+        .collection('account_activity_logs')
+        .where('targetUid', isEqualTo: currentUser.uid)
+        .get();
+
+    final List<Map<String, dynamic>> items = [];
+
+    for (final doc in updatesSnapshot.docs) {
       final data = doc.data();
-      return {
+      items.add({
         'title': (data['type'] ?? 'تحديث').toString(),
         'childName': (data['childName'] ?? '').toString(),
         'body': (data['note'] ?? '').toString(),
         'createdAt': data['time'] ?? data['createdAt'],
         'hasMedia': data['hasMedia'] == true,
-      };
-    }).toList();
+        'sourceType': 'update',
+        'status': 'info',
+      });
+    }
+
+    final seenNotificationIds = <String>{};
+
+    for (final doc in [
+      ...directNotificationsSnapshot.docs,
+      ...fallbackNotificationsSnapshot.docs,
+    ]) {
+      if (seenNotificationIds.contains(doc.id)) continue;
+      seenNotificationIds.add(doc.id);
+
+      final data = doc.data();
+      items.add({
+        'title': (data['title'] ?? 'إشعار').toString(),
+        'childName': (data['childName'] ?? '').toString(),
+        'body': (data['body'] ?? data['message'] ?? '').toString(),
+        'createdAt': data['createdAt'],
+        'hasMedia': false,
+        'sourceType': 'notification',
+        'status': (data['status'] ?? 'info').toString(),
+      });
+    }
+
+    for (final doc in accountHistorySnapshot.docs) {
+      final data = doc.data();
+      items.add({
+        'title': (data['title'] ?? 'نشاط حساب').toString(),
+        'childName': '',
+        'body': (data['message'] ?? '').toString(),
+        'createdAt': data['createdAt'],
+        'hasMedia': false,
+        'sourceType': 'account_activity',
+        'status': (data['status'] ?? 'info').toString(),
+      });
+    }
 
     items.sort((a, b) {
       final aTime = a['createdAt'] as Timestamp?;
@@ -155,78 +213,62 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
       return bTime.compareTo(aTime);
     });
 
-    return items.take(20).toList();
+    return items.take(30).toList();
   }
 
   void openTeacherGroupsPage() {
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => const TeacherGroupsPage(),
-      ),
+      MaterialPageRoute(builder: (_) => const TeacherGroupsPage()),
     );
   }
 
   void openGradesPage() {
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => const GradesPage(),
-      ),
+      MaterialPageRoute(builder: (_) => const GradesPage()),
     );
   }
 
   void openAssignmentsPage() {
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => const AssignmentsPage(),
-      ),
+      MaterialPageRoute(builder: (_) => const AssignmentsPage()),
     );
   }
 
   void openRewardsPage() {
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => const RewardsPage(),
-      ),
+      MaterialPageRoute(builder: (_) => const RewardsPage()),
     );
   }
 
   void openDetailedAttendancePage() {
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => const DetailedAttendancePage(),
-      ),
+      MaterialPageRoute(builder: (_) => const DetailedAttendancePage()),
     );
   }
 
   void openBulkAttendancePage() {
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => const BulkAttendancePage(),
-      ),
+      MaterialPageRoute(builder: (_) => const BulkAttendancePage()),
     );
   }
 
   void openBulkGradeEntryPage() {
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => const BulkGradeEntryPage(),
-      ),
+      MaterialPageRoute(builder: (_) => const BulkGradeEntryPage()),
     );
   }
 
   void openTeacherReportsPage() {
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => const TeacherReportsPage(),
-      ),
+      MaterialPageRoute(builder: (_) => const TeacherReportsPage()),
     );
   }
 
@@ -269,7 +311,9 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
     if (children.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('لا توجد مراسلات متاحة لأنه لا يوجد أطفال نشطون في الروضة'),
+          content: Text(
+            'لا توجد مراسلات متاحة لأنه لا يوجد أطفال نشطون في الروضة',
+          ),
         ),
       );
       return;
@@ -307,7 +351,9 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
           localPath: path,
           mediaType: type,
         );
+
         final userInfo = await fetchCurrentUserInfo();
+
         await _firestore.collection('updates').add({
           'childId': child.id,
           'childName': child.name,
@@ -461,7 +507,10 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
     );
   }
 
-  Widget _buildFollowUpTab(List<ChildModel> filteredChildren, List<String> groups) {
+  Widget _buildFollowUpTab(
+    List<ChildModel> filteredChildren,
+    List<String> groups,
+  ) {
     return RefreshIndicator(
       onRefresh: refreshPage,
       child: ListView(
@@ -504,31 +553,64 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
     return ListView(
       children: [
         Card(
-          child: ListTile(
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 10,
-            ),
-            leading: CircleAvatar(
-              radius: 28,
-              backgroundColor: AppColors.primary.withOpacity(0.10),
-              child: const Icon(
-                Icons.school_rounded,
-                color: AppColors.primary,
-                size: 28,
-              ),
-            ),
-            title: const Text(
-              'المعلمة',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            subtitle: const Text('متابعة الروضة والمجموعات'),
-            trailing: CircleAvatar(
-              radius: 18,
-              backgroundColor: AppColors.primary.withOpacity(0.12),
-              child: const Icon(Icons.edit, size: 18, color: AppColors.primary),
-            ),
-            onTap: () {},
+          child: FutureBuilder<AccountSettingsData>(
+            future: _accountSettingsService.getCurrentUserData(),
+            builder: (context, snapshot) {
+              final data = snapshot.data;
+
+              final displayName = data?.name.trim().isNotEmpty == true
+                  ? data!.name
+                  : 'المعلمة';
+
+              final subtitle = data == null
+                  ? 'متابعة الروضة والمجموعات'
+                  : '${data.roleLabel} • ${data.username.isNotEmpty ? data.username : "بدون اسم مستخدم"}';
+
+              return ListTile(
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                leading: CircleAvatar(
+                  radius: 28,
+                  backgroundColor: AppColors.primary.withOpacity(0.10),
+                  child: Text(
+                    displayName.trim().isNotEmpty
+                        ? displayName.trim()[0]
+                        : 'م',
+                    style: const TextStyle(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 22,
+                    ),
+                  ),
+                ),
+                title: Text(
+                  displayName,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                subtitle: Text(subtitle),
+                trailing: CircleAvatar(
+                  radius: 18,
+                  backgroundColor: AppColors.primary.withOpacity(0.12),
+                  child: const Icon(
+                    Icons.edit,
+                    size: 18,
+                    color: AppColors.primary,
+                  ),
+                ),
+                onTap: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const AccountSettingsPage(),
+                    ),
+                  );
+                  if (!mounted) return;
+                  setState(() {});
+                },
+              );
+            },
           ),
         ),
         const SizedBox(height: 18),
@@ -552,18 +634,24 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
                   ),
                 ),
                 title: const Text('تعديل الملف الشخصي'),
-                subtitle: const Text('سيتم تطوير هذه الصفحة لاحقاً'),
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('قيد التطوير')),
+                subtitle: const Text('تعديل الاسم، كلمة المرور، وإدارة الحساب'),
+                onTap: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const AccountSettingsPage(),
+                    ),
                   );
+                  if (!mounted) return;
+                  setState(() {});
                 },
               ),
               const Divider(height: 1),
               SwitchListTile(
                 secondary: CircleAvatar(
                   backgroundColor: Colors.blue.withOpacity(0.12),
-                  child: const Icon(Icons.language_rounded, color: Colors.blue),
+                  child:
+                      const Icon(Icons.language_rounded, color: Colors.blue),
                 ),
                 title: const Text('لغة التطبيق'),
                 subtitle: Text(isArabic ? 'العربية' : 'English'),
@@ -578,8 +666,10 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
               SwitchListTile(
                 secondary: CircleAvatar(
                   backgroundColor: Colors.purple.withOpacity(0.12),
-                  child:
-                      const Icon(Icons.palette_outlined, color: Colors.purple),
+                  child: const Icon(
+                    Icons.palette_outlined,
+                    color: Colors.purple,
+                  ),
                 ),
                 title: const Text('الوضع الليلي'),
                 value: isDarkMode,
@@ -613,7 +703,7 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
                   ),
                 ),
                 title: const Text('الإشعارات'),
-                subtitle: const Text('عرض إشعارات المعلمة'),
+                subtitle: const Text('عرض إشعارات المعلمة والنظام'),
                 onTap: _openNotificationsPage,
               ),
               const Divider(height: 1),
@@ -681,10 +771,9 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
         Center(
           child: Text(
             'إصدار النظام V1.0.0',
-            style: Theme.of(context)
-                .textTheme
-                .bodySmall
-                ?.copyWith(color: AppColors.textLight),
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AppColors.textLight,
+                ),
           ),
         ),
         const SizedBox(height: 12),
@@ -726,7 +815,8 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
                     : selectedIndex == 3
                         ? [
                             IconButton(
-                              icon: const Icon(Icons.notifications_none_rounded),
+                              icon:
+                                  const Icon(Icons.notifications_none_rounded),
                               tooltip: 'الإشعارات',
                               onPressed: _openNotificationsPage,
                             ),
@@ -1369,6 +1459,57 @@ class _TeacherNotificationsPage extends StatelessWidget {
     return 'غير محدد';
   }
 
+  Color _statusColor(String status) {
+    switch (status.trim().toLowerCase()) {
+      case 'success':
+      case 'approved':
+        return AppColors.success;
+      case 'warning':
+      case 'pending':
+        return AppColors.warning;
+      case 'danger':
+      case 'rejected':
+        return AppColors.danger;
+      default:
+        return AppColors.primary;
+    }
+  }
+
+  IconData _iconForItem(Map<String, dynamic> item) {
+    final sourceType = (item['sourceType'] ?? '').toString();
+    final hasMedia = item['hasMedia'] == true;
+    final status = (item['status'] ?? '').toString().toLowerCase();
+
+    if (hasMedia) return Icons.photo_camera_outlined;
+
+    if (sourceType == 'account_activity') {
+      if (status == 'success' || status == 'approved') {
+        return Icons.check_circle_outline_rounded;
+      }
+      if (status == 'warning' || status == 'pending') {
+        return Icons.warning_amber_rounded;
+      }
+      if (status == 'danger' || status == 'rejected') {
+        return Icons.error_outline_rounded;
+      }
+      return Icons.manage_accounts_outlined;
+    }
+
+    if (sourceType == 'notification') {
+      return Icons.notifications_active_outlined;
+    }
+
+    return Icons.notifications_none_rounded;
+  }
+
+  String _sectionTitle(List<Map<String, dynamic>> items) {
+    final hasGeneral = items.any(
+      (item) => (item['sourceType'] ?? '').toString() != 'update',
+    );
+
+    return hasGeneral ? 'آخر الإشعارات والتنبيهات' : 'آخر الإشعارات';
+  }
+
   @override
   Widget build(BuildContext context) {
     return AppPageScaffold(
@@ -1387,14 +1528,14 @@ class _TeacherNotificationsPage extends StatelessWidget {
                     icon: Icons.notifications_active_outlined,
                     title: 'إشعارات المعلمة',
                     message:
-                        'تظهر هنا آخر التحديثات التي أضافتها المعلمة مثل التحديثات اليومية والوسائط.',
+                        'تظهر هنا التحديثات التي أضفتها المعلمة بالإضافة إلى إشعارات النظام والنشاطات المرتبطة بالحساب.',
                   ),
                 ),
               ),
               const SizedBox(height: 16),
-              const Text(
-                'آخر الإشعارات',
-                style: TextStyle(
+              Text(
+                _sectionTitle(items),
+                style: const TextStyle(
                   fontWeight: FontWeight.w800,
                   fontSize: 16,
                   color: AppColors.textDark,
@@ -1414,8 +1555,10 @@ class _TeacherNotificationsPage extends StatelessWidget {
                   ),
                 )
               else
-                ...items.map(
-                  (item) => Card(
+                ...items.map((item) {
+                  final color = _statusColor((item['status'] ?? '').toString());
+
+                  return Card(
                     margin: const EdgeInsets.only(bottom: 10),
                     child: Padding(
                       padding: const EdgeInsets.all(14),
@@ -1423,13 +1566,10 @@ class _TeacherNotificationsPage extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           CircleAvatar(
-                            backgroundColor:
-                                AppColors.primary.withOpacity(0.12),
+                            backgroundColor: color.withOpacity(0.12),
                             child: Icon(
-                              item['hasMedia'] == true
-                                  ? Icons.photo_camera_outlined
-                                  : Icons.notifications_none_rounded,
-                              color: AppColors.primary,
+                              _iconForItem(item),
+                              color: color,
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -1438,7 +1578,7 @@ class _TeacherNotificationsPage extends StatelessWidget {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  (item['title'] ?? 'تحديث').toString(),
+                                  (item['title'] ?? 'إشعار').toString(),
                                   style: const TextStyle(
                                     fontWeight: FontWeight.bold,
                                     fontSize: 14.5,
@@ -1484,8 +1624,8 @@ class _TeacherNotificationsPage extends StatelessWidget {
                         ],
                       ),
                     ),
-                  ),
-                ),
+                  );
+                }),
             ],
           );
         },

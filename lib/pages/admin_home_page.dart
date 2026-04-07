@@ -16,6 +16,9 @@ import 'manage_users_page.dart';
 import 'welcome_page.dart';
 import 'admin_chats_page.dart';
 import 'admin_complaints_page.dart';
+import 'account_settings_page.dart';
+import '../services/account_settings_service.dart';
+import 'admin_account_deletion_requests_page.dart';
 
 class AdminHomePage extends StatefulWidget {
   const AdminHomePage({super.key});
@@ -26,6 +29,7 @@ class AdminHomePage extends StatefulWidget {
 
 class _AdminHomePageState extends State<AdminHomePage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final AccountSettingsService _accountSettingsService = AccountSettingsService();
 
   int selectedIndex = 0;
   bool isArabic = true;
@@ -82,6 +86,10 @@ class _AdminHomePageState extends State<AdminHomePage> {
         .collection('add_child_requests')
         .limit(100)
         .get();
+    final deletionRequestsSnapshot = await _firestore
+    .collection('account_deletion_requests')
+    .limit(100)
+    .get();
 
     final users = usersSnapshot.docs.map((e) => e.data()).toList();
     final children = childrenSnapshot.docs.map((e) => e.data()).toList();
@@ -91,6 +99,9 @@ class _AdminHomePageState extends State<AdminHomePage> {
     final addChildRequests = addChildRequestsSnapshot.docs
         .map((e) => e.data())
         .toList();
+    final deletionRequests = deletionRequestsSnapshot.docs
+    .map((e) => e.data())
+    .toList();
 
     int activeChildren = 0;
     int archivedChildren = 0;
@@ -145,6 +156,9 @@ class _AdminHomePageState extends State<AdminHomePage> {
     int pendingAddChildRequests = 0;
     int approvedAddChildRequests = 0;
     int rejectedAddChildRequests = 0;
+    int pendingDeletionRequests = 0;
+    int approvedDeletionRequests = 0;
+    int rejectedDeletionRequests = 0;
 
     for (final request in addChildRequests) {
       final status = (request['status'] ?? 'pending').toString().trim();
@@ -152,7 +166,13 @@ class _AdminHomePageState extends State<AdminHomePage> {
       if (status == 'approved') approvedAddChildRequests++;
       if (status == 'rejected') rejectedAddChildRequests++;
     }
-
+   
+    for (final request in deletionRequests) {
+      final status = (request['status'] ?? 'pending').toString().trim();
+      if (status == 'pending') pendingDeletionRequests++;
+      if (status == 'approved') approvedDeletionRequests++;
+      if (status == 'rejected') rejectedDeletionRequests++;
+    }
     final alerts = <_AdminAlertItem>[];
 
     if (classes.isEmpty) {
@@ -216,6 +236,19 @@ class _AdminHomePageState extends State<AdminHomePage> {
       );
     }
 
+    if (pendingDeletionRequests > 0) {
+  alerts.add(
+    _AdminAlertItem(
+      title:
+          'يوجد $pendingDeletionRequests طلب/طلبات حذف حساب بانتظار المراجعة',
+      subtitle:
+          'راجعي طلبات حذف الحسابات وحددي الموافقة أو الرفض.',
+      icon: Icons.delete_forever_outlined,
+      color: Colors.redAccent,
+    ),
+  );
+}
+
     if (users.isEmpty) {
       alerts.add(
         const _AdminAlertItem(
@@ -256,6 +289,9 @@ class _AdminHomePageState extends State<AdminHomePage> {
       pendingAddChildRequests: pendingAddChildRequests,
       approvedAddChildRequests: approvedAddChildRequests,
       rejectedAddChildRequests: rejectedAddChildRequests,
+      pendingDeletionRequests: pendingDeletionRequests,
+      approvedDeletionRequests: approvedDeletionRequests,
+      rejectedDeletionRequests: rejectedDeletionRequests,
       alerts: alerts,
       recentActivities: recentActivities.take(20).toList(),
     );
@@ -543,6 +579,13 @@ class _AdminHomePageState extends State<AdminHomePage> {
                 icon: Icons.person_add_alt_1_rounded,
               ),
               _DashboardStatCard(
+                title: 'طلبات حذف الحسابات',
+                value: '${data.pendingDeletionRequests}',
+                subtitle:
+                    'معلقة ${data.pendingDeletionRequests} • مقبولة ${data.approvedDeletionRequests}',
+                icon: Icons.delete_forever_outlined,
+              ),
+              _DashboardStatCard(
                 title: 'الصفوف / المجموعات',
                 value: '${data.totalClasses}',
                 subtitle:
@@ -662,6 +705,21 @@ class _AdminHomePageState extends State<AdminHomePage> {
           ),
 
           _AdminActionCard(
+  icon: Icons.delete_forever_outlined,
+  title: 'طلبات حذف الحسابات',
+  subtitle: 'مراجعة طلبات الحذف الدائم المقدمة من المستخدمين',
+  onTap: () async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const AdminAccountDeletionRequestsPage(),
+      ),
+    );
+    setState(() {});
+  },
+),
+
+          _AdminActionCard(
             icon: Icons.child_care_rounded,
             title: 'إدارة الأطفال',
             subtitle: 'متابعة بيانات الأطفال، الأرشفة، والحالة الحالية',
@@ -778,33 +836,58 @@ class _AdminHomePageState extends State<AdminHomePage> {
     return ListView(
       children: [
         Card(
-          child: ListTile(
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 10,
+  child: FutureBuilder<AccountSettingsData>(
+    future: _accountSettingsService.getCurrentUserData(),
+    builder: (context, snapshot) {
+      final data = snapshot.data;
+
+      final displayName = data?.name.trim().isNotEmpty == true
+          ? data!.name
+          : 'الأدمن';
+
+      final subtitle = data == null
+          ? 'إدارة النظام'
+          : '${data.roleLabel} • ${data.username.isNotEmpty ? data.username : "بدون اسم مستخدم"}';
+
+      return ListTile(
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 10,
+        ),
+        leading: CircleAvatar(
+          radius: 28,
+          backgroundColor: AppColors.primary.withOpacity(0.10),
+          child: Text(
+            displayName.trim().isNotEmpty ? displayName.trim()[0] : 'أ',
+            style: const TextStyle(
+              color: AppColors.primary,
+              fontWeight: FontWeight.bold,
+              fontSize: 22,
             ),
-            leading: CircleAvatar(
-              radius: 28,
-              backgroundColor: AppColors.primary.withOpacity(0.10),
-              child: const Icon(
-                Icons.person_rounded,
-                color: AppColors.primary,
-                size: 28,
-              ),
-            ),
-            title: const Text(
-              'الأدمن',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            subtitle: const Text('إدارة النظام'),
-            trailing: CircleAvatar(
-              radius: 18,
-              backgroundColor: AppColors.primary.withOpacity(0.12),
-              child: const Icon(Icons.edit, size: 18, color: AppColors.primary),
-            ),
-            onTap: () {},
           ),
         ),
+        title: Text(
+          displayName,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Text(subtitle),
+        trailing: CircleAvatar(
+          radius: 18,
+          backgroundColor: AppColors.primary.withOpacity(0.12),
+          child: const Icon(Icons.edit, size: 18, color: AppColors.primary),
+        ),
+        onTap: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const AccountSettingsPage()),
+          );
+          if (!mounted) return;
+          setState(() {});
+        },
+      );
+    },
+  ),
+),
         const SizedBox(height: 18),
         Text(
           'الإعدادات العامة',
@@ -818,16 +901,24 @@ class _AdminHomePageState extends State<AdminHomePage> {
           child: Column(
             children: [
               ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Colors.orange.withOpacity(0.12),
-                  child: const Icon(
-                    Icons.person_outline_rounded,
-                    color: Colors.orange,
-                  ),
-                ),
-                title: const Text('تعديل الملف الشخصي'),
-                onTap: () {},
-              ),
+  leading: CircleAvatar(
+    backgroundColor: Colors.orange.withOpacity(0.12),
+    child: const Icon(
+      Icons.person_outline_rounded,
+      color: Colors.orange,
+    ),
+  ),
+  title: const Text('تعديل الملف الشخصي'),
+  subtitle: const Text('تعديل الاسم، كلمة المرور، وإدارة الحساب'),
+  onTap: () async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const AccountSettingsPage()),
+    );
+    if (!mounted) return;
+    setState(() {});
+  },
+),
               const Divider(height: 1),
               SwitchListTile(
                 secondary: CircleAvatar(
@@ -1331,6 +1422,9 @@ class _AdminDashboardData {
   final int pendingAddChildRequests;
   final int approvedAddChildRequests;
   final int rejectedAddChildRequests;
+  final int pendingDeletionRequests;
+  final int approvedDeletionRequests;
+  final int rejectedDeletionRequests;
   final List<_AdminAlertItem> alerts;
   final List<_AdminActivityItem> recentActivities;
 
@@ -1352,6 +1446,9 @@ class _AdminDashboardData {
     required this.pendingAddChildRequests,
     required this.approvedAddChildRequests,
     required this.rejectedAddChildRequests,
+    required this.pendingDeletionRequests,
+    required this.approvedDeletionRequests,
+    required this.rejectedDeletionRequests,
     required this.alerts,
     required this.recentActivities,
   });

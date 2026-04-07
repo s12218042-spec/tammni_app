@@ -172,6 +172,7 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
 
     final items = snapshot.docs.map((doc) {
       final data = doc.data();
+
       return {
         'id': doc.id,
         'type': data['type'] ?? '',
@@ -179,9 +180,9 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
         'byRole': data['byRole'] ?? '',
         'time': data['time'] as Timestamp?,
         'createdAt': data['createdAt'] as Timestamp?,
-        'mediaUrl': data['mediaUrl'],
-        'mediaType': data['mediaType'],
-        'mediaPath': data['mediaPath'],
+        'mediaUrl': (data['mediaUrl'] ?? '').toString(),
+        'mediaType': (data['mediaType'] ?? '').toString(),
+        'mediaPath': (data['mediaPath'] ?? '').toString(),
         'hasMedia': data['hasMedia'] == true,
       };
     }).toList();
@@ -290,7 +291,6 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
                   ),
                 ),
                 const SizedBox(height: 16),
-
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16),
@@ -345,9 +345,7 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
                     ),
                   ),
                 ),
-
                 const SizedBox(height: 14),
-
                 if (child.section == 'Kindergarten')
                   FutureBuilder<bool>(
                     future: fetchAttendance(),
@@ -368,9 +366,7 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
                     title: 'نظام المتابعة',
                     value: 'مرن حسب الزيارة والتحديثات، والدخول والخروج يوثّق من الإدارة',
                   ),
-
                 const SizedBox(height: 18),
-
                 Text(
                   'كل التحديثات',
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
@@ -378,7 +374,6 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
                       ),
                 ),
                 const SizedBox(height: 10),
-
                 if (updates.isEmpty)
                   Card(
                     child: Padding(
@@ -432,9 +427,9 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
                         icon: typeIcon(u['type'] ?? ''),
                         timeTextValue: timeText(displayTime),
                         dateTextValue: dateText(displayTime),
-                        mediaUrl: u['mediaUrl'],
-                        mediaType: u['mediaType'],
-                        mediaPath: u['mediaPath'],
+                        mediaUrl: u['mediaUrl']?.toString(),
+                        mediaType: u['mediaType']?.toString(),
+                        mediaPath: u['mediaPath']?.toString(),
                         hasMedia: u['hasMedia'] == true,
                       );
                     },
@@ -571,13 +566,22 @@ class _UpdateCard extends StatelessWidget {
     required this.hasMedia,
   });
 
+  bool get _hasRemoteUrl => (mediaUrl ?? '').trim().isNotEmpty;
+
+  bool get _hasLocalPath => (mediaPath ?? '').trim().isNotEmpty;
+
+  String get _resolvedSource {
+    if (_hasRemoteUrl) return mediaUrl!.trim();
+    return (mediaPath ?? '').trim();
+  }
+
+  bool get _hasRemoteImage => _hasRemoteUrl && mediaType == 'image';
+  bool get _hasRemoteVideo => _hasRemoteUrl && mediaType == 'video';
+  bool get _hasLocalImage => !kIsWeb && _hasLocalPath && mediaType == 'image';
+  bool get _hasLocalVideo => !kIsWeb && _hasLocalPath && mediaType == 'video';
+
   @override
   Widget build(BuildContext context) {
-    final hasRemoteImage = mediaUrl != null && mediaType == 'image';
-    final hasRemoteVideo = mediaUrl != null && mediaType == 'video';
-    final hasLocalImage = !kIsWeb && mediaPath != null && mediaType == 'image';
-    final hasLocalVideo = !kIsWeb && mediaPath != null && mediaType == 'video';
-
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -705,13 +709,13 @@ class _UpdateCard extends StatelessWidget {
                 ),
               ],
             ),
-            if (hasRemoteImage)
+            if (_hasRemoteImage)
               Padding(
                 padding: const EdgeInsets.only(top: 12),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(16),
                   child: Image.network(
-                    mediaUrl!,
+                    mediaUrl!.trim(),
                     height: 190,
                     width: double.infinity,
                     fit: BoxFit.cover,
@@ -729,57 +733,63 @@ class _UpdateCard extends StatelessWidget {
                   ),
                 ),
               ),
-            if (hasLocalImage)
+            if (!_hasRemoteImage && _hasLocalImage)
               Padding(
                 padding: const EdgeInsets.only(top: 12),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(16),
                   child: Image.file(
-                    File(mediaPath!),
+                    File(mediaPath!.trim()),
                     height: 190,
                     width: double.infinity,
                     fit: BoxFit.cover,
-                  ),
-                ),
-              ),
-            if (hasRemoteVideo)
-              Padding(
-                padding: const EdgeInsets.only(top: 12),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('الفيديو مرفوع، ويمكن ربطه بمشغل لاحقًا'),
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        height: 120,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: AppColors.background,
+                          borderRadius: BorderRadius.circular(16),
                         ),
+                        child: const Text('تعذر فتح الصورة المحلية'),
                       );
                     },
-                    icon: const Icon(Icons.play_circle_outline),
-                    label: const Text('عرض الفيديو'),
                   ),
                 ),
               ),
-            if (hasLocalVideo)
+            if (_hasRemoteVideo || _hasLocalVideo)
               Padding(
                 padding: const EdgeInsets.only(top: 12),
                 child: SizedBox(
                   width: double.infinity,
                   child: OutlinedButton.icon(
                     onPressed: () {
+                      if (_resolvedSource.isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('لا يوجد مصدر صالح للفيديو'),
+                          ),
+                        );
+                        return;
+                      }
+
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) => VideoPreviewPage(path: mediaPath!),
+                          builder: (_) => VideoPreviewPage(
+                            path: _resolvedSource,
+                          ),
                         ),
                       );
                     },
                     icon: const Icon(Icons.play_circle_outline),
-                    label: const Text('تشغيل الفيديو'),
+                    label: Text(
+                      _hasRemoteVideo ? 'عرض الفيديو' : 'تشغيل الفيديو',
+                    ),
                   ),
                 ),
               ),
-            if (kIsWeb && mediaPath != null && mediaUrl == null)
+            if (kIsWeb && !_hasRemoteUrl && _hasLocalPath)
               Padding(
                 padding: const EdgeInsets.only(top: 12),
                 child: Container(

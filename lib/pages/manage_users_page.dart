@@ -88,22 +88,74 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
   String accountStatusLabel(Map<String, dynamic> data) {
     final raw = (data['accountStatus'] ?? '').toString().trim().toLowerCase();
     final isActive = (data['isActive'] ?? true) == true;
+    final deletionRequested = (data['deletionRequested'] ?? false) == true;
+    final deletionApproved = (data['deletionApproved'] ?? false) == true;
 
-    if (raw == 'inactive' || !isActive) return 'غير نشط';
-    if (raw == 'suspended') return 'موقوف';
-    if (raw == 'archived') return 'مؤرشف';
-    if (raw == 'pending') return 'قيد المراجعة';
+    if (raw == 'pending_deletion' || deletionApproved) {
+      return 'حذف مقبول';
+    }
+
+    if (deletionRequested && raw != 'pending_deletion') {
+      return 'طلب حذف قيد المراجعة';
+    }
+
+    if (raw == 'deactivated') {
+      return 'معطّل مؤقتًا';
+    }
+
+    if (raw == 'inactive' || !isActive) {
+      return 'غير نشط';
+    }
+
+    if (raw == 'suspended') {
+      return 'موقوف';
+    }
+
+    if (raw == 'archived') {
+      return 'مؤرشف';
+    }
+
+    if (raw == 'pending') {
+      return 'قيد المراجعة';
+    }
+
     return 'نشط';
   }
 
   Color accountStatusColor(Map<String, dynamic> data) {
     final raw = (data['accountStatus'] ?? '').toString().trim().toLowerCase();
     final isActive = (data['isActive'] ?? true) == true;
+    final deletionRequested = (data['deletionRequested'] ?? false) == true;
+    final deletionApproved = (data['deletionApproved'] ?? false) == true;
 
-    if (raw == 'inactive' || !isActive) return Colors.grey;
-    if (raw == 'suspended') return Colors.deepOrange;
-    if (raw == 'archived') return Colors.blueGrey;
-    if (raw == 'pending') return Colors.amber.shade700;
+    if (raw == 'pending_deletion' || deletionApproved) {
+      return Colors.redAccent;
+    }
+
+    if (deletionRequested && raw != 'pending_deletion') {
+      return Colors.amber.shade800;
+    }
+
+    if (raw == 'deactivated') {
+      return Colors.orange;
+    }
+
+    if (raw == 'inactive' || !isActive) {
+      return Colors.grey;
+    }
+
+    if (raw == 'suspended') {
+      return Colors.deepOrange;
+    }
+
+    if (raw == 'archived') {
+      return Colors.blueGrey;
+    }
+
+    if (raw == 'pending') {
+      return Colors.amber.shade700;
+    }
+
     return Colors.green;
   }
 
@@ -316,7 +368,10 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
     final raw = professionalInfo['assignedGroups'] ?? data['assignedGroups'];
 
     if (raw is List) {
-      return raw.map((e) => e.toString().trim()).where((e) => e.isNotEmpty).toList();
+      return raw
+          .map((e) => e.toString().trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
     }
     return [];
   }
@@ -326,7 +381,10 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
     final raw = professionalInfo['subjects'] ?? data['subjects'];
 
     if (raw is List) {
-      return raw.map((e) => e.toString().trim()).where((e) => e.isNotEmpty).toList();
+      return raw
+          .map((e) => e.toString().trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
     }
     return [];
   }
@@ -373,10 +431,14 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
     final professionalInfo = _mapField(data, 'professionalInfo');
     final adminNotes = _mapField(data, 'adminNotes');
 
-    final raw = professionalInfo['permissions'] ?? adminNotes['extraPermissions'];
+    final raw =
+        professionalInfo['permissions'] ?? adminNotes['extraPermissions'];
 
     if (raw is List) {
-      return raw.map((e) => e.toString().trim()).where((e) => e.isNotEmpty).toList();
+      return raw
+          .map((e) => e.toString().trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
     }
     return [];
   }
@@ -502,15 +564,14 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
       final data = doc.data();
 
       final userRole = normalizeRole((data['role'] ?? '').toString());
-      final name = ((data['displayName'] ?? data['name'] ?? '')
-              .toString()
-              .toLowerCase())
-          .trim();
+      final name =
+          ((data['displayName'] ?? data['name'] ?? '').toString().toLowerCase())
+              .trim();
       final username = (data['username'] ?? '').toString().toLowerCase().trim();
       final email = (data['email'] ?? '').toString().toLowerCase().trim();
       final section = extractSection(data).toLowerCase();
       final phone = extractPhone(data).toLowerCase();
-      final statusLabel = accountStatusLabel(data).toLowerCase();
+      final statusLabelText = accountStatusLabel(data).toLowerCase();
 
       final normalizedFilter = normalizeRole(selectedRoleFilter);
       final matchesRole =
@@ -518,7 +579,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
 
       final statusFilter = selectedStatusFilter.trim().toLowerCase();
       final matchesStatus =
-          statusFilter == 'all' || statusLabel == statusFilter;
+          statusFilter == 'all' || statusLabelText == statusFilter;
 
       final query = searchText.trim().toLowerCase();
       final matchesSearch = query.isEmpty ||
@@ -532,27 +593,130 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
     }).toList();
   }
 
+  Future<void> _logAccountAction({
+    required String targetUid,
+    required String action,
+    required String title,
+    required String message,
+    String status = 'info',
+  }) async {
+    await _firestore.collection('account_activity_logs').add({
+      'targetUid': targetUid,
+      'action': action,
+      'title': title,
+      'message': message,
+      'status': status,
+      'actorUid': '',
+      'actorName': 'الإدارة',
+      'actorRole': 'admin',
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
   Future<void> toggleUserActive({
     required String uid,
     required bool currentValue,
+    required String userName,
   }) async {
-    await _firestore.collection('users').doc(uid).update({
-      'isActive': !currentValue,
-      'accountStatus': !currentValue ? 'active' : 'inactive',
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
+    if (!currentValue) {
+      final updates = <String, dynamic>{
+        'isActive': true,
+        'accountStatus': 'active',
+        'updatedAt': FieldValue.serverTimestamp(),
+        'deletionRequested': false,
+        'deletionRequestType': '',
+        'deletionApproved': false,
+        'deactivationReason': '',
+      };
 
-    if (!mounted) return;
+      await _firestore.collection('users').doc(uid).update(updates);
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          !currentValue
-              ? 'تم تفعيل الحساب بنجاح ✅'
-              : 'تم تعطيل الحساب بنجاح ✅',
+      await _logAccountAction(
+        targetUid: uid,
+        action: 'account_reactivated_by_admin',
+        title: 'تمت إعادة تفعيل الحساب',
+        message: 'قامت الإدارة بإعادة تفعيل الحساب',
+        status: 'success',
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم تفعيل الحساب بنجاح ✅')),
+      );
+      return;
+    }
+
+    final reasonController = TextEditingController();
+
+    try {
+      final reason = await showDialog<String>(
+        context: context,
+        builder: (_) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: const Text('تعطيل الحساب'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'يمكنك إضافة سبب للتعطيل المؤقت:',
+                  style: TextStyle(height: 1.5),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: reasonController,
+                  maxLines: 3,
+                  decoration: InputDecoration(
+                    hintText: 'سبب التعطيل (اختياري)',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('إلغاء'),
+              ),
+              ElevatedButton(
+                onPressed: () =>
+                    Navigator.pop(context, reasonController.text.trim()),
+                child: const Text('تعطيل'),
+              ),
+            ],
+          ),
         ),
-      ),
-    );
+      );
+
+      if (reason == null) return;
+
+      await _firestore.collection('users').doc(uid).update({
+        'isActive': false,
+        'accountStatus': 'deactivated',
+        'deactivationReason': reason,
+        'deactivatedBy': 'admin',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      await _logAccountAction(
+        targetUid: uid,
+        action: 'account_deactivated_by_admin',
+        title: 'تم تعطيل الحساب من الإدارة',
+        message: reason.isNotEmpty
+            ? 'قامت الإدارة بتعطيل الحساب. السبب: $reason'
+            : 'قامت الإدارة بتعطيل الحساب مؤقتًا',
+        status: 'warning',
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم تعطيل الحساب بنجاح ✅')),
+      );
+    } finally {
+      reasonController.dispose();
+    }
   }
 
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
@@ -620,10 +784,13 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                   _DetailsSection(
                     title: 'البيانات الأساسية',
                     children: [
-                      _DetailItem(label: 'الاسم', value: _firstNonEmpty([
-                        _fieldAsString(userData['displayName']),
-                        _fieldAsString(userData['name']),
-                      ])),
+                      _DetailItem(
+                        label: 'الاسم',
+                        value: _firstNonEmpty([
+                          _fieldAsString(userData['displayName']),
+                          _fieldAsString(userData['name']),
+                        ]),
+                      ),
                       _DetailItem(
                         label: 'اسم المستخدم',
                         value: _fieldAsString(userData['username']),
@@ -644,6 +811,11 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                         label: 'القسم',
                         value: extractSection(userData),
                       ),
+                      _DetailItem(
+                        label: 'سبب التعطيل',
+                        value:
+                            _fieldAsString(userData['deactivationReason']),
+                      ),
                     ],
                   ),
                   _DetailsSection(
@@ -663,9 +835,8 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                       ),
                       _DetailItem(
                         label: 'الحالة الاجتماعية',
-                        value: maritalStatusLabel(
-                          extractMaritalStatus(userData),
-                        ),
+                        value:
+                            maritalStatusLabel(extractMaritalStatus(userData)),
                       ),
                       _DetailItem(
                         label: 'رقم الجوال',
@@ -771,9 +942,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                         if (normalizedRole == 'admin')
                           _DetailItem(
                             label: 'نطاق الإدارة',
-                            value: adminScopeLabel(
-                              extractAdminScope(userData),
-                            ),
+                            value: adminScopeLabel(extractAdminScope(userData)),
                           ),
                         if (normalizedRole == 'admin')
                           _DetailItem(
@@ -994,8 +1163,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                           });
 
                           try {
-                            final exists =
-                                await usernameExistsForAnotherUser(
+                            final exists = await usernameExistsForAnotherUser(
                               username: newUsername,
                               currentDocId: docId,
                             );
@@ -1383,6 +1551,18 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                             child: Text('غير نشط'),
                           ),
                           DropdownMenuItem(
+                            value: 'معطّل مؤقتًا',
+                            child: Text('معطّل مؤقتًا'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'طلب حذف قيد المراجعة',
+                            child: Text('طلب حذف قيد المراجعة'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'حذف مقبول',
+                            child: Text('حذف مقبول'),
+                          ),
+                          DropdownMenuItem(
                             value: 'موقوف',
                             child: Text('موقوف'),
                           ),
@@ -1431,6 +1611,8 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                   final phone = extractPhone(u);
                   final statusText = accountStatusLabel(u);
                   final isActive = (u['isActive'] ?? true) == true;
+                  final rawStatus =
+                      (u['accountStatus'] ?? '').toString().trim().toLowerCase();
 
                   return _UserCard(
                     name: name,
@@ -1444,6 +1626,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                     statusText: statusText,
                     statusColor: accountStatusColor(u),
                     isActive: isActive,
+                    rawStatus: rawStatus,
                     onViewDetails: () async {
                       await openUserDetailsDialog(
                         docId: doc.id,
@@ -1454,6 +1637,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                       await toggleUserActive(
                         uid: doc.id,
                         currentValue: isActive,
+                        userName: name,
                       );
                     },
                     onDelete: () async {
@@ -1492,6 +1676,7 @@ class _UserCard extends StatelessWidget {
   final String statusText;
   final Color statusColor;
   final bool isActive;
+  final String rawStatus;
   final VoidCallback onDelete;
   final VoidCallback onEdit;
   final VoidCallback onToggleActive;
@@ -1509,6 +1694,7 @@ class _UserCard extends StatelessWidget {
     required this.statusText,
     required this.statusColor,
     required this.isActive,
+    required this.rawStatus,
     required this.onDelete,
     required this.onEdit,
     required this.onToggleActive,
@@ -1600,7 +1786,11 @@ class _UserCard extends StatelessWidget {
             if (phone.isNotEmpty)
               Row(
                 children: [
-                  const Icon(Icons.phone_outlined, size: 17, color: Colors.black54),
+                  const Icon(
+                    Icons.phone_outlined,
+                    size: 17,
+                    color: Colors.black54,
+                  ),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
@@ -1632,10 +1822,18 @@ class _UserCard extends StatelessWidget {
                   child: OutlinedButton.icon(
                     onPressed: onToggleActive,
                     icon: Icon(
-                      isActive ? Icons.block_outlined : Icons.check_circle_outline,
+                      isActive
+                          ? Icons.block_outlined
+                          : Icons.check_circle_outline,
                     ),
                     label: Text(
-                      isActive ? 'تعطيل' : 'تفعيل',
+                      isActive
+                          ? 'تعطيل'
+                          : rawStatus == 'deactivated'
+                              ? 'إعادة تفعيل'
+                              : rawStatus == 'pending_deletion'
+                                  ? 'إعادة تفعيل'
+                                  : 'تفعيل',
                     ),
                   ),
                 ),
@@ -1651,7 +1849,10 @@ class _UserCard extends StatelessWidget {
                 Expanded(
                   child: OutlinedButton.icon(
                     onPressed: onDelete,
-                    icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                    icon: const Icon(
+                      Icons.delete_outline,
+                      color: Colors.redAccent,
+                    ),
                     label: const Text(
                       'حذف',
                       style: TextStyle(color: Colors.redAccent),

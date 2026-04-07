@@ -15,6 +15,9 @@ import 'nursery_chats_page.dart';
 import 'quick_care_update_page.dart';
 import 'send_parent_notification_page.dart';
 import 'welcome_page.dart';
+import 'account_settings_page.dart';
+import '../services/account_settings_service.dart';
+import 'account_history_page.dart';
 
 class NurseryStaffHomePage extends StatefulWidget {
   const NurseryStaffHomePage({super.key});
@@ -26,6 +29,7 @@ class NurseryStaffHomePage extends StatefulWidget {
 class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final GalleryService _galleryService = GalleryService();
+  final AccountSettingsService _accountSettingsService = AccountSettingsService();
 
   int selectedIndex = 0;
   bool isArabic = true;
@@ -715,32 +719,56 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
     return ListView(
       children: [
         Card(
-          child: ListTile(
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            leading: CircleAvatar(
-              radius: 28,
-              backgroundColor: AppColors.primary.withOpacity(0.10),
-              child: const Icon(
-                Icons.badge_outlined,
-                color: AppColors.primary,
-                size: 28,
-              ),
+  child: FutureBuilder<AccountSettingsData>(
+    future: _accountSettingsService.getCurrentUserData(),
+    builder: (context, snapshot) {
+      final data = snapshot.data;
+
+      final displayName = data?.name.trim().isNotEmpty == true
+          ? data!.name
+          : 'موظفة الحضانة';
+
+      final subtitle = data == null
+          ? 'متابعة الرعاية اليومية'
+          : '${data.roleLabel} • ${data.username.isNotEmpty ? data.username : "بدون اسم مستخدم"}';
+
+      return ListTile(
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        leading: CircleAvatar(
+          radius: 28,
+          backgroundColor: AppColors.primary.withOpacity(0.10),
+          child: Text(
+            displayName.trim().isNotEmpty ? displayName.trim()[0] : 'م',
+            style: const TextStyle(
+              color: AppColors.primary,
+              fontWeight: FontWeight.bold,
+              fontSize: 22,
             ),
-            title: const Text(
-              'موظفة الحضانة',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            subtitle: const Text('متابعة الرعاية اليومية'),
-            trailing: CircleAvatar(
-              radius: 18,
-              backgroundColor: AppColors.primary.withOpacity(0.12),
-              child:
-                  const Icon(Icons.edit, size: 18, color: AppColors.primary),
-            ),
-            onTap: () {},
           ),
         ),
+        title: Text(
+          displayName,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Text(subtitle),
+        trailing: CircleAvatar(
+          radius: 18,
+          backgroundColor: AppColors.primary.withOpacity(0.12),
+          child: const Icon(Icons.edit, size: 18, color: AppColors.primary),
+        ),
+        onTap: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const AccountSettingsPage()),
+          );
+          if (!mounted) return;
+          setState(() {});
+        },
+      );
+    },
+  ),
+),
         const SizedBox(height: 18),
         Text(
           'الإعدادات العامة',
@@ -754,21 +782,24 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
           child: Column(
             children: [
               ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Colors.orange.withOpacity(0.12),
-                  child: const Icon(
-                    Icons.person_outline_rounded,
-                    color: Colors.orange,
-                  ),
-                ),
-                title: const Text('تعديل الملف الشخصي'),
-                subtitle: const Text('سيتم تطوير هذه الصفحة لاحقًا'),
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('قيد التطوير')),
-                  );
-                },
-              ),
+  leading: CircleAvatar(
+    backgroundColor: Colors.orange.withOpacity(0.12),
+    child: const Icon(
+      Icons.person_outline_rounded,
+      color: Colors.orange,
+    ),
+  ),
+  title: const Text('تعديل الملف الشخصي'),
+  subtitle: const Text('تعديل الاسم، كلمة المرور، وإدارة الحساب'),
+  onTap: () async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const AccountSettingsPage()),
+    );
+    if (!mounted) return;
+    setState(() {});
+  },
+),
               const Divider(height: 1),
               SwitchListTile(
                 secondary: CircleAvatar(
@@ -812,39 +843,59 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
         ),
         const SizedBox(height: 8),
         Card(
-          child: Column(
-            children: [
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Colors.green.withOpacity(0.12),
-                  child: const Icon(
-                    Icons.notifications_none_rounded,
-                    color: Colors.green,
-                  ),
-                ),
-                title: const Text('الإشعارات'),
-                subtitle: const Text('عرض الإشعارات المرسلة وفتح صفحة الإشعارات'),
-                onTap: () => _openNotificationsPage(nurseryChildren),
-              ),
-              const Divider(height: 1),
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: AppColors.primary.withOpacity(0.12),
-                  child: const Icon(
-                    Icons.flash_on_rounded,
-                    color: AppColors.primary,
-                  ),
-                ),
-                title: const Text('رعاية سريعة'),
-                subtitle: const Text('اختيار طفل وإضافة رعاية سريعة'),
-                onTap: () async {
-                  final child = await pickChild(nurseryChildren);
-                  if (child != null) openQuickCareUpdate(child);
-                },
-              ),
-            ],
+  child: Column(
+    children: [
+      ListTile(
+        leading: CircleAvatar(
+          backgroundColor: Colors.green.withOpacity(0.12),
+          child: const Icon(
+            Icons.notifications_none_rounded,
+            color: Colors.green,
           ),
         ),
+        title: const Text('الإشعارات'),
+        subtitle: const Text('عرض الإشعارات المرسلة وفتح صفحة الإشعارات'),
+        onTap: () => _openNotificationsPage(nurseryChildren),
+      ),
+      const Divider(height: 1),
+      ListTile(
+        leading: CircleAvatar(
+          backgroundColor: Colors.teal.withOpacity(0.12),
+          child: const Icon(
+            Icons.history_rounded,
+            color: Colors.teal,
+          ),
+        ),
+        title: const Text('سجل نشاط الحساب'),
+        subtitle: const Text('عرض تغييرات الحساب والنشاطات الأخيرة'),
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const AccountHistoryPage(),
+            ),
+          );
+        },
+      ),
+      const Divider(height: 1),
+      ListTile(
+        leading: CircleAvatar(
+          backgroundColor: AppColors.primary.withOpacity(0.12),
+          child: const Icon(
+            Icons.flash_on_rounded,
+            color: AppColors.primary,
+          ),
+        ),
+        title: const Text('رعاية سريعة'),
+        subtitle: const Text('اختيار طفل وإضافة رعاية سريعة'),
+        onTap: () async {
+          final child = await pickChild(nurseryChildren);
+          if (child != null) openQuickCareUpdate(child);
+        },
+      ),
+    ],
+  ),
+),
         const SizedBox(height: 18),
         Text(
           'المساعدة والدعم',
