@@ -1,11 +1,7 @@
-import 'dart:math';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
-import '../firebase_options.dart';
 import '../theme/app_theme.dart';
 import '../utils/child_section_utils.dart';
 import '../widgets/app_page_scaffold.dart';
@@ -56,7 +52,7 @@ class _AdminRegistrationRequestsPageState
       case 'temporary_password':
         return 'كلمة مرور مؤقتة';
       case 'email_reset':
-        return 'تفعيل عبر البريد';
+        return 'رابط تعيين كلمة المرور عبر البريد';
       case 'manual_activation':
         return 'تفعيل يدوي';
       default:
@@ -171,9 +167,15 @@ class _AdminRegistrationRequestsPageState
   }
 
   Future<bool> _usernameExists(String username) async {
+    final clean = username.trim().toLowerCase();
+
+    final lookupDoc =
+        await _firestore.collection('login_usernames').doc(clean).get();
+    if (lookupDoc.exists) return true;
+
     final snapshot = await _firestore
         .collection('users')
-        .where('username', isEqualTo: username)
+        .where('username', isEqualTo: clean)
         .limit(1)
         .get();
 
@@ -181,36 +183,23 @@ class _AdminRegistrationRequestsPageState
   }
 
   Future<bool> _emailExists(String email) async {
+    final clean = email.trim().toLowerCase();
+
+    final loginLookup = await _firestore
+        .collection('login_usernames')
+        .where('email', isEqualTo: clean)
+        .limit(1)
+        .get();
+
+    if (loginLookup.docs.isNotEmpty) return true;
+
     final snapshot = await _firestore
         .collection('users')
-        .where('email', isEqualTo: email)
+        .where('email', isEqualTo: clean)
         .limit(1)
         .get();
 
     return snapshot.docs.isNotEmpty;
-  }
-
-  String _generateTemporaryPassword() {
-    const letters =
-        'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
-    const specials = '@#\$%&*';
-    final random = Random.secure();
-
-    String pick(String source) => source[random.nextInt(source.length)];
-
-    final chars = <String>[
-      pick('ABCDEFGHJKLMNPQRSTUVWXYZ'),
-      pick('abcdefghijkmnopqrstuvwxyz'),
-      pick('23456789'),
-      pick(specials),
-    ];
-
-    while (chars.length < 10) {
-      chars.add(pick(letters));
-    }
-
-    chars.shuffle(random);
-    return chars.join();
   }
 
   Future<void> _updateRequestStatus({
@@ -232,30 +221,28 @@ class _AdminRegistrationRequestsPageState
     });
   }
 
-  Future<void> _showTemporaryPasswordDialog({
+  Future<void> _showApprovalDoneDialog({
     required String parentName,
     required String email,
     required String username,
-    required String temporaryPassword,
   }) async {
     if (!mounted) return;
 
     await showDialog(
       context: context,
-      barrierDismissible: false,
       builder: (_) => Directionality(
         textDirection: TextDirection.rtl,
         child: AlertDialog(
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(22),
           ),
-          title: const Text('تم إنشاء الحساب بنجاح'),
+          title: const Text('تم اعتماد الطلب'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                'تم اعتماد الطلب وإنشاء حساب تسجيل دخول لوليّ الأمر:\n$parentName',
+                'تم اعتماد طلب وليّ الأمر:\n$parentName',
                 textAlign: TextAlign.right,
                 style: const TextStyle(height: 1.6),
               ),
@@ -264,19 +251,20 @@ class _AdminRegistrationRequestsPageState
               const SizedBox(height: 8),
               _dialogInfoRow('اسم المستخدم', username),
               const SizedBox(height: 8),
-              _dialogInfoRow('طريقة التفعيل', 'كلمة مرور مؤقتة'),
-              const SizedBox(height: 8),
-              _dialogInfoRow('كلمة المرور المؤقتة', temporaryPassword),
+              _dialogInfoRow(
+                'طريقة التفعيل',
+                'تم إرسال رابط تعيين كلمة المرور إلى البريد الإلكتروني',
+              ),
               const SizedBox(height: 14),
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.orange.withOpacity(0.08),
+                  color: Colors.green.withOpacity(0.08),
                   borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: Colors.orange.withOpacity(0.25)),
+                  border: Border.all(color: Colors.green.withOpacity(0.22)),
                 ),
                 child: const Text(
-                  'انسخي هذه البيانات الآن وارسليها لوليّ الأمر. كلمة المرور المؤقتة لا يتم حفظها كنص صريح داخل طلب التسجيل.',
+                  'سيقوم وليّ الأمر بفتح الرابط من بريده الإلكتروني وتعيين كلمة المرور بنفسه، ثم تسجيل الدخول بالتطبيق.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     height: 1.5,
@@ -349,9 +337,25 @@ class _AdminRegistrationRequestsPageState
     final rawUsername =
         (parentInfo['username'] ?? '').toString().trim().toLowerCase();
     final email = (parentInfo['email'] ?? '').toString().trim().toLowerCase();
+    final authUid = (item['authUid'] ?? '').toString().trim();
+    final emailVerified = (item['emailVerified'] ?? false) == true;
+    final authPreCreated = (item['authPreCreated'] ?? false) == true;
 
-    if (parentName.isEmpty || rawUsername.isEmpty || email.isEmpty) {
-      _showSnack('الطلب ناقص: الاسم أو اسم المستخدم أو البريد الإلكتروني');
+    if (parentName.isEmpty ||
+        rawUsername.isEmpty ||
+        email.isEmpty ||
+        authUid.isEmpty) {
+      _showSnack('الطلب ناقص: الاسم أو اسم المستخدم أو البريد أو authUid');
+      return;
+    }
+
+    if (!emailVerified) {
+      _showSnack('لا يمكن الموافقة على الطلب قبل التحقق من البريد الإلكتروني');
+      return;
+    }
+
+    if (!authPreCreated) {
+      _showSnack('هذا الطلب لا يحتوي على حساب Auth مبدئي');
       return;
     }
 
@@ -370,7 +374,7 @@ class _AdminRegistrationRequestsPageState
             mainAxisSize: MainAxisSize.min,
             children: [
               const Text(
-                'سيتم اعتماد الطلب وإنشاء حساب تسجيل دخول فعلي لوليّ الأمر داخل Firebase Authentication، ثم إنشاء بياناته وبيانات الأطفال داخل Firestore. في هذه النسخة سيتم تفعيل الحساب بكلمة مرور مؤقتة تُسلَّم من الإدارة لصاحب الحساب.',
+                'سيتم اعتماد الطلب وربط بيانات وليّ الأمر والأطفال داخل النظام، ثم إرسال رابط تعيين كلمة المرور إلى البريد الإلكتروني المعتمد.',
                 textAlign: TextAlign.center,
                 style: TextStyle(height: 1.6),
               ),
@@ -408,21 +412,16 @@ class _AdminRegistrationRequestsPageState
       isProcessing = true;
     });
 
-    FirebaseApp? secondaryApp;
-    FirebaseAuth? secondaryAuth;
-    UserCredential? createdCredential;
-    final temporaryPassword = _generateTemporaryPassword();
-
     try {
       final usernameExists = await _usernameExists(rawUsername);
       if (usernameExists) {
-        _showSnack('اسم المستخدم موجود مسبقًا داخل users');
+        _showSnack('اسم المستخدم موجود مسبقًا داخل users أو login_usernames');
         return;
       }
 
       final emailExists = await _emailExists(email);
       if (emailExists) {
-        _showSnack('البريد الإلكتروني موجود مسبقًا داخل users');
+        _showSnack('البريد الإلكتروني موجود مسبقًا داخل users أو login_usernames');
         return;
       }
 
@@ -440,34 +439,14 @@ class _AdminRegistrationRequestsPageState
       }
 
       final adminInfo = await _getCurrentAdminInfo();
+      final batch = _firestore.batch();
 
-      secondaryApp = await Firebase.initializeApp(
-        name: 'parentApprovalApp_${DateTime.now().millisecondsSinceEpoch}',
-        options: DefaultFirebaseOptions.currentPlatform,
-      );
-
-      secondaryAuth = FirebaseAuth.instanceFor(app: secondaryApp);
-
-      createdCredential = await secondaryAuth.createUserWithEmailAndPassword(
-        email: email,
-        password: temporaryPassword,
-      );
-
-      final createdUser = createdCredential.user;
-      if (createdUser == null) {
-        throw Exception('فشل إنشاء حساب Firebase Auth لوليّ الأمر');
-      }
-
-      final parentUid = createdUser.uid;
-
-      final WriteBatch batch = _firestore.batch();
-
-      final parentDocRef = _firestore.collection('users').doc(parentUid);
+      final parentDocRef = _firestore.collection('users').doc(authUid);
       final loginLookupRef =
-    _firestore.collection('login_usernames').doc(rawUsername);
+          _firestore.collection('login_usernames').doc(rawUsername);
 
       batch.set(parentDocRef, {
-        'uid': parentUid,
+        'uid': authUid,
         'name': parentName,
         'displayName': parentName,
         'fullName': parentName,
@@ -501,21 +480,27 @@ class _AdminRegistrationRequestsPageState
         'notes': parentInfo['notes'] ?? '',
         'accountSource': 'registration_request',
         'authAccountCreated': true,
+        'authPreCreated': true,
+        'emailVerified': true,
         'accountStatus': 'active',
         'passwordStored': false,
-        'temporaryPasswordSetByAdmin': true,
-        'activationMethod': 'temporary_password',
+        'temporaryPasswordSetByAdmin': false,
+        'activationMethod': 'email_reset',
+        'mustChangePassword': false,
+        'isFirstLogin': false,
+        'passwordChangedAt': null,
       });
 
       batch.set(loginLookupRef, {
-       'username': rawUsername,
-       'email': email,
-       'uid': parentUid,
-       'role': 'parent',
-       'isActive': true,
-       'createdAt': FieldValue.serverTimestamp(),
-       'createdFromRequestId': requestId,
-       });
+        'username': rawUsername,
+        'email': email,
+        'uid': authUid,
+        'role': 'parent',
+        'isActive': true,
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+        'createdFromRequestId': requestId,
+      });
 
       for (final rawChild in childrenInfo) {
         final child = Map<String, dynamic>.from(rawChild as Map);
@@ -562,7 +547,7 @@ class _AdminRegistrationRequestsPageState
           'specialInstructions':
               (child['specialInstructions'] ?? '').toString(),
           'authorizedPickupContacts': child['authorizedPickupContacts'] ?? [],
-          'parentUid': parentUid,
+          'parentUid': authUid,
           'parentUsername': rawUsername,
           'parentName': parentName,
           'createdAt': FieldValue.serverTimestamp(),
@@ -586,29 +571,31 @@ class _AdminRegistrationRequestsPageState
         'updatedAt': FieldValue.serverTimestamp(),
         'processedToUserDoc': true,
         'processedChildrenCount': childrenInfo.length,
-        'linkedParentUid': parentUid,
+        'linkedParentUid': authUid,
         'linkedParentUsername': rawUsername,
         'linkedParentName': parentName,
         'authAccountCreated': true,
         'passwordStored': false,
-        'approvalMode': 'auth_and_firestore',
-        'activationMethod': 'temporary_password',
-        'temporaryPasswordGenerated': true,
+        'approvalMode': 'auth_precreated_and_firestore',
+        'activationMethod': 'email_reset',
+        'temporaryPasswordGenerated': false,
+        'mustChangePassword': false,
+        'isFirstLogin': false,
       });
 
       final notificationRef = _firestore.collection('notifications').doc();
       batch.set(notificationRef, {
-        'uid': parentUid,
-        'targetUid': parentUid,
+        'uid': authUid,
+        'targetUid': authUid,
         'title': 'تمت الموافقة على طلب التسجيل',
         'body':
-            'تمت الموافقة على طلب إنشاء حسابك. يمكنك الآن تسجيل الدخول بالبيانات التي زودتك بها الإدارة.',
+            'تمت الموافقة على طلب إنشاء حسابك. تم إرسال رابط تعيين كلمة المرور إلى بريدك الإلكتروني. بعد تعيين كلمة المرور يمكنك تسجيل الدخول باستخدام اسم المستخدم الخاص بك.',
         'message':
-            'تمت الموافقة على طلب إنشاء حسابك. يمكنك الآن تسجيل الدخول بالبيانات التي زودتك بها الإدارة.',
+            'تمت الموافقة على طلب إنشاء حسابك. تم إرسال رابط تعيين كلمة المرور إلى بريدك الإلكتروني. بعد تعيين كلمة المرور يمكنك تسجيل الدخول باستخدام اسم المستخدم الخاص بك.',
         'type': 'registration_request',
         'status': 'approved',
         'requestId': requestId,
-        'activationMethod': 'temporary_password',
+        'activationMethod': 'email_reset',
         'isRead': false,
         'createdAt': FieldValue.serverTimestamp(),
         'createdByUid': adminInfo['uid'],
@@ -617,48 +604,33 @@ class _AdminRegistrationRequestsPageState
 
       await batch.commit();
 
+      await _auth.sendPasswordResetEmail(email: email);
+
       if (!mounted) return;
 
-      _showSnack('تمت الموافقة وإنشاء حساب تسجيل دخول فعلي لوليّ الأمر');
+      _showSnack('تمت الموافقة على الطلب وإرسال رابط تعيين كلمة المرور');
       setState(() {});
 
-      await _showTemporaryPasswordDialog(
+      await _showApprovalDoneDialog(
         parentName: parentName,
         email: email,
         username: rawUsername,
-        temporaryPassword: temporaryPassword,
       );
     } on FirebaseAuthException catch (e) {
-      String message = 'حدث خطأ أثناء إنشاء حساب تسجيل الدخول';
+      String message = 'حدث خطأ أثناء إرسال رابط تعيين كلمة المرور';
 
-      if (e.code == 'email-already-in-use') {
-        message = 'البريد الإلكتروني مستخدم مسبقًا في Firebase Auth';
+      if (e.code == 'user-not-found') {
+        message = 'حساب Firebase Auth المرتبط بهذا البريد غير موجود';
       } else if (e.code == 'invalid-email') {
         message = 'البريد الإلكتروني غير صالح';
-      } else if (e.code == 'weak-password') {
-        message = 'كلمة المرور المؤقتة ضعيفة، أعيدي المحاولة';
       } else if (e.message != null && e.message!.trim().isNotEmpty) {
         message = e.message!;
       }
 
       _showSnack(message);
     } catch (e) {
-      if (createdCredential?.user != null) {
-        try {
-          await createdCredential!.user!.delete();
-        } catch (_) {}
-      }
-
       _showSnack('حدث خطأ أثناء تنفيذ الموافقة: $e');
     } finally {
-      try {
-        await secondaryAuth?.signOut();
-      } catch (_) {}
-
-      try {
-        await secondaryApp?.delete();
-      } catch (_) {}
-
       if (mounted) {
         setState(() {
           isProcessing = false;
@@ -737,6 +709,8 @@ class _AdminRegistrationRequestsPageState
           'approvalMode': '',
           'activationMethod': '',
           'temporaryPasswordGenerated': false,
+          'mustChangePassword': false,
+          'isFirstLogin': false,
         },
       );
 
@@ -766,6 +740,8 @@ class _AdminRegistrationRequestsPageState
         (item['linkedParentUsername'] ?? '').toString().trim();
     final activationMethod = (item['activationMethod'] ?? '').toString().trim();
     final authAccountCreated = (item['authAccountCreated'] ?? false) == true;
+    final emailVerified = (item['emailVerified'] ?? false) == true;
+    final authUid = (item['authUid'] ?? '').toString().trim();
 
     showModalBottomSheet(
       context: context,
@@ -951,6 +927,14 @@ class _AdminRegistrationRequestsPageState
                         'تم إنشاء حساب Auth',
                         authAccountCreated ? 'نعم' : 'لا',
                       ),
+                      _InfoRow(
+                        'تم التحقق من البريد',
+                        emailVerified ? 'نعم' : 'لا',
+                      ),
+                      _InfoRow(
+                        'Auth UID',
+                        authUid.isEmpty ? '-' : authUid,
+                      ),
                       if (status == 'pending') ...[
                         const _InfoRow(
                           'متابعة الطلب',
@@ -1075,6 +1059,7 @@ class _AdminRegistrationRequestsPageState
     final status = (item['status'] ?? 'pending').toString();
     final createdAt = item['createdAt'] as Timestamp?;
     final activationMethod = (item['activationMethod'] ?? '').toString().trim();
+    final emailVerified = (item['emailVerified'] ?? false) == true;
 
     final parentName =
         (parentInfo['fullName'] ?? parentInfo['name'] ?? '-').toString();
@@ -1180,6 +1165,30 @@ class _AdminRegistrationRequestsPageState
                     child: Text(
                       'تاريخ الطلب: ${_formatDate(createdAt)}',
                       style: const TextStyle(color: AppColors.textDark),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Icon(
+                    emailVerified
+                        ? Icons.verified_rounded
+                        : Icons.mark_email_unread_outlined,
+                    size: 18,
+                    color: emailVerified ? Colors.green : Colors.orange,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      emailVerified
+                          ? 'البريد الإلكتروني متحقق'
+                          : 'البريد الإلكتروني غير متحقق',
+                      style: TextStyle(
+                        color: emailVerified ? Colors.green : Colors.orange,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                 ],

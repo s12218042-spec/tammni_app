@@ -1,13 +1,27 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+class LoginResult {
+  final User user;
+  final Map<String, dynamic> userData;
+  final bool mustChangePassword;
+  final bool isFirstLogin;
+
+  LoginResult({
+    required this.user,
+    required this.userData,
+    required this.mustChangePassword,
+    required this.isFirstLogin,
+  });
+}
+
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   User? get currentUser => _auth.currentUser;
 
-  Future<User?> login({
+  Future<LoginResult> login({
     required String username,
     required String password,
   }) async {
@@ -112,8 +126,13 @@ class AuthService {
           (userData['username'] ?? '').toString().trim().toLowerCase();
       final userIsActive = (userData['isActive'] ?? true) == true;
 
+      final mustChangePassword = userData['mustChangePassword'] == true;
+      final isFirstLogin = userData['isFirstLogin'] == true;
+
       print('LOGIN STEP 10: storedUsername = $storedUsername');
       print('LOGIN STEP 11: userIsActive = $userIsActive');
+      print('LOGIN STEP 12: mustChangePassword = $mustChangePassword');
+      print('LOGIN STEP 13: isFirstLogin = $isFirstLogin');
 
       if (storedUsername.isNotEmpty && storedUsername != cleanUsername) {
         throw FirebaseAuthException(
@@ -129,15 +148,20 @@ class AuthService {
         );
       }
 
-      print('LOGIN STEP 12: updating lastLoginAt');
+      print('LOGIN STEP 14: updating lastLoginAt');
 
-     // await _firestore.collection('users').doc(authUid).update({
-     //   'lastLoginAt': FieldValue.serverTimestamp(),
-    //  });
+      await _firestore.collection('users').doc(authUid).update({
+        'lastLoginAt': FieldValue.serverTimestamp(),
+      });
 
-      print('LOGIN STEP 13: success');
+      print('LOGIN STEP 15: success');
 
-      return authUser;
+      return LoginResult(
+        user: authUser,
+        userData: userData,
+        mustChangePassword: mustChangePassword,
+        isFirstLogin: isFirstLogin,
+      );
     } on FirebaseAuthException {
       rethrow;
     } catch (e, st) {

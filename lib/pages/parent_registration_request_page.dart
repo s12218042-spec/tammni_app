@@ -1,4 +1,7 @@
+import 'dart:math';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
@@ -17,6 +20,7 @@ class _ParentRegistrationRequestPageState
     extends State<ParentRegistrationRequestPage> {
   final _formKey = GlobalKey<FormState>();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
 
   // بيانات الحساب
   final fullNameCtrl = TextEditingController();
@@ -51,6 +55,16 @@ class _ParentRegistrationRequestPageState
   String selectedEmploymentStatus = 'working';
 
   bool isSubmitting = false;
+  bool isSendingVerification = false;
+  bool isCheckingVerification = false;
+
+  bool emailVerificationSent = false;
+  bool emailVerified = false;
+
+  String verificationMethod = '';
+  String verificationEmail = '';
+  String authUid = '';
+  String hiddenTempPassword = '';
 
   final List<_ChildDraft> children = [_ChildDraft()];
 
@@ -201,7 +215,7 @@ class _ParentRegistrationRequestPageState
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'املئي البيانات بدقة ثم أرسلي الطلب ليتم مراجعته من الإدارة. عند الموافقة سيتم إنشاء الحساب وتحديد طريقة التفعيل المناسبة.',
+                  'املئي البيانات بدقة ثم تحققي من البريد الإلكتروني قبل إرسال الطلب ليتم مراجعته من الإدارة.',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: AppColors.textLight,
                         height: 1.45,
@@ -233,7 +247,7 @@ class _ParentRegistrationRequestPageState
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              'هذا النموذج مخصص لإرسال طلب إنشاء حساب فقط. بعد المراجعة والموافقة من الإدارة سيتم إنشاء الحساب وتزويدك بطريقة الدخول المناسبة.',
+              'هذا النموذج مخصص لإرسال طلب إنشاء حساب. يجب أولًا التحقق من البريد الإلكتروني. بعد موافقة الإدارة سيتم إرسال رابط تعيين كلمة المرور إلى البريد نفسه.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: AppColors.textDark,
                     height: 1.5,
@@ -247,6 +261,13 @@ class _ParentRegistrationRequestPageState
 
   String normalizeUsername(String value) {
     return value.trim().toLowerCase();
+  }
+
+  String _generateHiddenTempPassword() {
+    const chars =
+        'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789@#\$%&*';
+    final random = Random.secure();
+    return List.generate(12, (_) => chars[random.nextInt(chars.length)]).join();
   }
 
   String? _validatePalestinianId(String value) {
@@ -364,7 +385,7 @@ class _ParentRegistrationRequestPageState
     return ChildSectionUtils.shouldShowGroupField(child.section);
   }
 
- Future<bool> _usernameExistsAnywhere(String username) async {
+  Future<bool> _usernameExistsAnywhere(String username) async {
   final clean = normalizeUsername(username);
 
   final lookupDoc = await _firestore
@@ -375,7 +396,7 @@ class _ParentRegistrationRequestPageState
   return lookupDoc.exists;
 }
 
- Future<bool> _emailExistsAnywhere(String email) async {
+  Future<bool> _emailExistsAnywhere(String email) async {
   final clean = email.trim().toLowerCase();
 
   final snapshot = await _firestore
@@ -463,6 +484,148 @@ class _ParentRegistrationRequestPageState
     });
   }
 
+  Future<void> sendEmailVerificationLink() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    FocusScope.of(context).unfocus();
+
+    setState(() {
+      isSendingVerification = true;
+    });
+
+    try {
+      usernameCtrl.text = normalizeUsername(usernameCtrl.text);
+      emailCtrl.text = emailCtrl.text.trim().toLowerCase();
+
+      final cleanUsername = usernameCtrl.text.trim();
+      final cleanEmail = emailCtrl.text.trim();
+
+      final usernameTaken = await _usernameExistsAnywhere(cleanUsername);
+      if (usernameTaken) {
+        throw Exception('اسم المستخدم مستخدم مسبقًا أو يوجد طلب معلق بنفس الاسم');
+      }
+
+      final emailTaken = await _emailExistsAnywhere(cleanEmail);
+      if (emailTaken) {
+        throw Exception('البريد الإلكتروني مستخدم مسبقًا أو يوجد طلب معلق بنفس البريد');
+      }
+
+      final currentUser = _auth.currentUser;
+      if (currentUser != null && currentUser.email != cleanEmail) {
+        await _auth.signOut();
+      }
+
+      User? authUser = _auth.currentUser;
+
+      if (authUser == null) {
+        hiddenTempPassword = _generateHiddenTempPassword();
+
+        final credential = await _auth.createUserWithEmailAndPassword(
+          email: cleanEmail,
+          password: hiddenTempPassword,
+        );
+
+        authUser = credential.user;
+      }
+
+      if (authUser == null) {
+        throw Exception('تعذر إنشاء حساب التحقق بالبريد');
+      }
+
+      if ((authUser.email ?? '').trim().toLowerCase() != cleanEmail) {
+        await _auth.signOut();
+
+        hiddenTempPassword = _generateHiddenTempPassword();
+
+        final credential = await _auth.createUserWithEmailAndPassword(
+          email: cleanEmail,
+          password: hiddenTempPassword,
+        );
+
+        authUser = credential.user;
+      }
+
+      if (authUser == null) {
+        throw Exception('تعذر إنشاء حساب التحقق بالبريد');
+      }
+
+      await authUser.sendEmailVerification();
+      await authUser.reload();
+
+      final refreshedUser = _auth.currentUser;
+
+      setState(() {
+        emailVerificationSent = true;
+        emailVerified = refreshedUser?.emailVerified ?? false;
+        verificationEmail = cleanEmail;
+        authUid = refreshedUser?.uid ?? authUser!.uid;
+        verificationMethod = 'email_link';
+      });
+
+      _showSnack('تم إرسال رابط التحقق إلى بريدك الإلكتروني');
+    } on FirebaseAuthException catch (e) {
+      String message = 'تعذر إرسال رابط التحقق';
+
+      if (e.code == 'email-already-in-use') {
+        message = 'البريد الإلكتروني مستخدم مسبقًا';
+      } else if (e.code == 'invalid-email') {
+        message = 'البريد الإلكتروني غير صالح';
+      } else if (e.code == 'weak-password') {
+        message = 'حدث خطأ في إنشاء حساب التحقق، حاولي مرة أخرى';
+      } else if (e.message != null && e.message!.trim().isNotEmpty) {
+        message = e.message!;
+      }
+
+      _showSnack(message);
+    } catch (e) {
+      _showSnack(e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) {
+        setState(() {
+          isSendingVerification = false;
+        });
+      }
+    }
+  }
+
+  Future<void> checkEmailVerificationStatus() async {
+    setState(() {
+      isCheckingVerification = true;
+    });
+
+    try {
+      final user = _auth.currentUser;
+
+      if (user == null) {
+        throw Exception('لا يوجد حساب تحقق نشط. أرسلي رابط التحقق أولًا');
+      }
+
+      await user.reload();
+      final refreshedUser = _auth.currentUser;
+
+      final verified = refreshedUser?.emailVerified ?? false;
+
+      setState(() {
+        emailVerified = verified;
+        authUid = refreshedUser?.uid ?? '';
+      });
+
+      if (verified) {
+        _showSnack('تم التحقق من البريد الإلكتروني بنجاح');
+      } else {
+        _showSnack('لم يتم التحقق من البريد بعد. افتحي الرابط من البريد ثم أعيدي المحاولة');
+      }
+    } catch (e) {
+      _showSnack(e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) {
+        setState(() {
+          isCheckingVerification = false;
+        });
+      }
+    }
+  }
+
   Future<void> submitRequest() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -471,6 +634,21 @@ class _ParentRegistrationRequestPageState
         _showSnack('تأكدي من تعبئة بيانات جميع الأطفال والمخولين بالاستلام');
         return;
       }
+    }
+
+    if (!emailVerificationSent) {
+      _showSnack('يجب إرسال رابط التحقق إلى البريد الإلكتروني أولًا');
+      return;
+    }
+
+    if (!emailVerified) {
+      _showSnack('يجب التحقق من البريد الإلكتروني قبل إرسال الطلب');
+      return;
+    }
+
+    if (authUid.trim().isEmpty) {
+      _showSnack('تعذر تحديد حساب التحقق. أعيدي إرسال رابط التحقق');
+      return;
     }
 
     setState(() {
@@ -511,7 +689,11 @@ class _ParentRegistrationRequestPageState
       final requestData = <String, dynamic>{
         'requestType': 'parent_registration',
         'status': 'pending',
-        'authAccountCreated': false,
+        'authAccountCreated': true,
+        'authPreCreated': true,
+        'authUid': authUid.trim(),
+        'emailVerified': true,
+        'verificationMethod': verificationMethod,
         'approvalMode': '',
         'activationMethod': '',
         'linkedParentUid': '',
@@ -555,11 +737,15 @@ class _ParentRegistrationRequestPageState
 
       await _firestore.collection('registration_requests').add(requestData);
 
+      await _auth.signOut();
+
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('تم إرسال طلب التسجيل بنجاح، وسيتم مراجعته من الإدارة'),
+          content: Text(
+            'تم إرسال طلب التسجيل بنجاح، وسيتم مراجعته من الإدارة',
+          ),
         ),
       );
 
@@ -579,6 +765,109 @@ class _ParentRegistrationRequestPageState
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message)),
+    );
+  }
+
+  Widget buildVerificationCard() {
+    Color statusColor;
+    String statusText;
+    IconData statusIcon;
+
+    if (emailVerified) {
+      statusColor = Colors.green;
+      statusText = 'تم التحقق من البريد الإلكتروني';
+      statusIcon = Icons.verified_rounded;
+    } else if (emailVerificationSent) {
+      statusColor = Colors.orange;
+      statusText = 'تم إرسال رابط التحقق، بانتظار التأكيد';
+      statusIcon = Icons.mark_email_read_outlined;
+    } else {
+      statusColor = AppColors.textLight;
+      statusText = 'لم يتم التحقق من البريد بعد';
+      statusIcon = Icons.email_outlined;
+    }
+
+    return buildMainCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          buildSectionTitle(
+            'التحقق من البريد الإلكتروني',
+            'يجب التحقق من البريد قبل إرسال الطلب للإدارة.',
+          ),
+          const SizedBox(height: 14),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: statusColor.withOpacity(0.08),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: statusColor.withOpacity(0.22)),
+            ),
+            child: Row(
+              children: [
+                Icon(statusIcon, color: statusColor),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    emailVerificationSent
+                        ? '$statusText\n${verificationEmail.isEmpty ? '' : verificationEmail}'
+                        : statusText,
+                    style: TextStyle(
+                      color: statusColor,
+                      fontWeight: FontWeight.w700,
+                      height: 1.5,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: isSendingVerification ? null : sendEmailVerificationLink,
+                  icon: isSendingVerification
+    ? const SizedBox(
+        width: 18,
+        height: 18,
+        child: CircularProgressIndicator(strokeWidth: 2.2),
+      )
+    : const Icon(Icons.mark_email_unread_outlined),
+                  label: Text(
+                    isSendingVerification
+                        ? 'جارٍ الإرسال...'
+                        : (emailVerificationSent
+                            ? 'إعادة إرسال رابط التحقق'
+                            : 'إرسال رابط التحقق'),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: isCheckingVerification ? null : checkEmailVerificationStatus,
+              icon: isCheckingVerification
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2.2),
+                    )
+                  : const Icon(Icons.verified_user_outlined),
+              label: Text(
+                isCheckingVerification
+                    ? 'جارٍ التحقق...'
+                    : 'تحققت من بريدي الإلكتروني',
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -615,6 +904,17 @@ class _ParentRegistrationRequestPageState
               hint: 'مثال: aya_parent',
             ),
             validator: (value) => _validateUsername(value ?? ''),
+            onChanged: (_) {
+              if (emailVerificationSent || emailVerified) {
+                setState(() {
+                  emailVerificationSent = false;
+                  emailVerified = false;
+                  verificationMethod = '';
+                  verificationEmail = '';
+                  authUid = '';
+                });
+              }
+            },
           ),
           const SizedBox(height: 14),
           TextFormField(
@@ -637,6 +937,17 @@ class _ParentRegistrationRequestPageState
               }
 
               return null;
+            },
+            onChanged: (_) {
+              if (emailVerificationSent || emailVerified) {
+                setState(() {
+                  emailVerificationSent = false;
+                  emailVerified = false;
+                  verificationMethod = '';
+                  verificationEmail = '';
+                  authUid = '';
+                });
+              }
             },
           ),
         ],
@@ -1381,7 +1692,7 @@ class _ParentRegistrationRequestPageState
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  'بعد إرسال الطلب ستقوم الإدارة بمراجعته، ثم إنشاء الحساب وتفعيل طريقة الدخول المناسبة عند الموافقة.',
+                  'بعد إرسال الطلب ستقوم الإدارة بمراجعته. عند الموافقة سيتم إرسال رابط تعيين كلمة المرور إلى بريدك الإلكتروني.',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         fontWeight: FontWeight.w700,
                         color: AppColors.textDark,
@@ -1427,6 +1738,8 @@ class _ParentRegistrationRequestPageState
             buildInfoCard(),
             const SizedBox(height: 18),
             buildAccountSection(),
+            const SizedBox(height: 14),
+            buildVerificationCard(),
             const SizedBox(height: 14),
             buildPersonalSection(),
             const SizedBox(height: 14),

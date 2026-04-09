@@ -10,6 +10,7 @@ import '../services/auth_service.dart';
 import '../services/notification_service.dart';
 import '../theme/app_theme.dart';
 import 'admin_home_page.dart';
+import 'force_change_password_page.dart';
 import 'nursery_staff_home_page.dart';
 import 'parent_home_page.dart';
 import 'parent_registration_request_page.dart';
@@ -106,17 +107,39 @@ class _WelcomePageState extends State<WelcomePage> {
     });
 
     try {
-      final user = await _authService.login(
+      final loginResult = await _authService.login(
         username: usernameCtrl.text.trim(),
         password: passwordCtrl.text,
       );
 
-      if (user == null) {
-        _showSnack('فشل تسجيل الدخول');
+      final user = loginResult.user;
+      final userData = loginResult.userData;
+
+      final role = (userData['role'] ?? '').toString().trim().toLowerCase();
+      final username = (userData['username'] ?? '').toString().trim();
+
+      await NotificationService.instance.saveCurrentUserToken();
+
+      if (loginResult.mustChangePassword || loginResult.isFirstLogin) {
+        final changed = await Navigator.push<bool>(
+          context,
+          MaterialPageRoute(
+           builder: (_) => ForceChangePasswordPage(
+  userRole: role,
+  username: username.isNotEmpty ? username : usernameCtrl.text.trim(),
+  temporaryPassword:
+      (userData['temporaryPasswordPlain'] ?? '').toString(),
+),
+          ),
+        );
+
+        if (changed == true) {
+          await _goToUserHome(user);
+        }
+
         return;
       }
 
-      await NotificationService.instance.saveCurrentUserToken();
       await _goToUserHome(user);
     } on FirebaseException catch (e) {
       String message = 'حدث خطأ أثناء تسجيل الدخول';
@@ -125,10 +148,18 @@ class _WelcomePageState extends State<WelcomePage> {
         message = 'اسم المستخدم غير موجود';
       } else if (e.code == 'wrong-password') {
         message = 'كلمة المرور غير صحيحة';
-      } else if (e.code == 'invalid-email') {
+      } else if (e.code == 'invalid-email' || e.code == 'missing-email') {
         message = 'لا يوجد بريد إلكتروني مرتبط بهذا المستخدم';
       } else if (e.code == 'invalid-credential') {
         message = 'بيانات الدخول غير صحيحة';
+      } else if (e.code == 'user-disabled') {
+        message = 'هذا الحساب غير نشط حاليًا';
+      } else if (e.code == 'user-doc-not-found') {
+        message = 'بيانات المستخدم غير موجودة في النظام';
+      } else if (e.code == 'username-mismatch') {
+        message = 'حدث تعارض في اسم المستخدم';
+      } else if (e.code == 'uid-mismatch') {
+        message = 'حدث تعارض في بيانات تسجيل الدخول';
       }
 
       _showSnack(message);
@@ -422,6 +453,8 @@ class _WelcomePageState extends State<WelcomePage> {
     final username = (data['username'] ?? '').toString().trim();
     final isProfileCompleted = data['isProfileCompleted'] ?? true;
     final isActive = data['isActive'] ?? true;
+    final mustChangePassword = data['mustChangePassword'] == true;
+    final isFirstLogin = data['isFirstLogin'] == true;
 
     if (isActive != true) {
       await FirebaseAuth.instance.signOut();
@@ -447,31 +480,55 @@ class _WelcomePageState extends State<WelcomePage> {
       return;
     }
 
+    final normalizedRole =
+        role == 'nursery' || role == 'nursery staff' ? 'nursery_staff' : role;
+
+    if (mustChangePassword || isFirstLogin) {
+      final changed = await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ForceChangePasswordPage(
+  userRole: normalizedRole,
+  username: username,
+  temporaryPassword:
+      (data['temporaryPasswordPlain'] ?? '').toString(),
+),
+        ),
+      );
+
+      if (changed == true) {
+        await _goToUserHome(user);
+        return;
+      }
+
+      if (!mounted) return;
+      setState(() {
+        isCheckingUser = false;
+      });
+      return;
+    }
+
     Widget nextPage;
 
-     final normalizedRole = role == 'nursery' || role == 'nursery staff'
-    ? 'nursery_staff'
-    : role;
+    if (normalizedRole == 'parent') {
+      nextPage = ParentHomePage(parentUsername: username);
+    } else if (normalizedRole == 'nursery_staff') {
+      nextPage = const NurseryStaffHomePage();
+    } else if (normalizedRole == 'teacher') {
+      nextPage = const TeacherHomePage();
+    } else if (normalizedRole == 'admin') {
+      nextPage = const AdminHomePage();
+    } else {
+      await FirebaseAuth.instance.signOut();
 
-if (normalizedRole == 'parent') {
-  nextPage = ParentHomePage(parentUsername: username);
-} else if (normalizedRole == 'nursery_staff') {
-  nextPage = const NurseryStaffHomePage();
-} else if (normalizedRole == 'teacher') {
-  nextPage = const TeacherHomePage();
-} else if (normalizedRole == 'admin') {
-  nextPage = const AdminHomePage();
-} else {
-  await FirebaseAuth.instance.signOut();
+      if (!mounted) return;
+      setState(() {
+        isCheckingUser = false;
+      });
 
-  if (!mounted) return;
-  setState(() {
-    isCheckingUser = false;
-  });
-
-  _showSnack('نوع الحساب غير معروف: $role');
-  return;
-}
+      _showSnack('نوع الحساب غير معروف: $role');
+      return;
+    }
 
     if (!mounted) return;
 
@@ -650,7 +707,6 @@ if (normalizedRole == 'parent') {
                             ),
                           ),
                           const SizedBox(height: 34),
-
                           GlassContainer(
                             padding: const EdgeInsets.all(18),
                             borderRadius: BorderRadius.circular(28),
@@ -710,9 +766,7 @@ if (normalizedRole == 'parent') {
                               ),
                             ),
                           ),
-
                           const SizedBox(height: 28),
-
                           Container(
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(24),
@@ -754,9 +808,7 @@ if (normalizedRole == 'parent') {
                                     ),
                             ),
                           ),
-
                           const SizedBox(height: 16),
-
                           GlassContainer(
                             padding: EdgeInsets.zero,
                             borderRadius: BorderRadius.circular(20),
@@ -802,9 +854,7 @@ if (normalizedRole == 'parent') {
                               ),
                             ),
                           ),
-
                           const SizedBox(height: 18),
-
                           Center(
                             child: TextButton.icon(
                               onPressed: _openParentRegistrationRequest,
@@ -820,9 +870,7 @@ if (normalizedRole == 'parent') {
                               ),
                             ),
                           ),
-
                           const SizedBox(height: 10),
-
                           GlassContainer(
                             padding: const EdgeInsets.all(14),
                             borderRadius: BorderRadius.circular(20),
@@ -832,19 +880,19 @@ if (normalizedRole == 'parent') {
                               children: [
                                 _MiniInfoChip(
                                   icon: Icons.admin_panel_settings_outlined,
-                                  text: 'حسابات المعلمات والموظفات والأدمن تنشئها الإدارة فقط',
+                                  text:
+                                      'حسابات المعلمات والموظفات والأدمن تنشئها الإدارة فقط',
                                 ),
                                 SizedBox(height: 10),
                                 _MiniInfoChip(
                                   icon: Icons.family_restroom_outlined,
-                                  text: 'أولياء الأمور يقدّمون طلب تسجيل ثم تتم المراجعة والموافقة',
+                                  text:
+                                      'أولياء الأمور يقدّمون طلب تسجيل ثم تتم المراجعة والموافقة',
                                 ),
                               ],
                             ),
                           ),
-
                           const SizedBox(height: 22),
-
                           const Text(
                             'طمّني • Nursery & Kindergarten Management',
                             textAlign: TextAlign.center,

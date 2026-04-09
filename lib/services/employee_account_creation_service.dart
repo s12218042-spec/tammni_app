@@ -134,6 +134,13 @@ class EmployeeAccountCreationService {
         'email': cleanEmail,
         'role': role,
         'isActive': userData['isActive'] ?? true,
+
+        // First login / temporary password flow
+        'mustChangePassword': true,
+        'isFirstLogin': true,
+        'passwordChangedAt': null,
+        'temporaryPasswordPlain': cleanPassword,
+
         'updatedAt': FieldValue.serverTimestamp(),
         'createdAt': userData['createdAt'] ?? FieldValue.serverTimestamp(),
       };
