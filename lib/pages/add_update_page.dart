@@ -227,31 +227,62 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
   }
 
   Future<Map<String, String>> fetchCurrentUserInfo() async {
-  final currentUser = _auth.currentUser;
+    final currentUser = _auth.currentUser;
 
-  if (currentUser == null) {
+    if (currentUser == null) {
+      return {
+        'uid': '',
+        'name': 'مستخدم غير معروف',
+        'role': '',
+      };
+    }
+
+    final query = await _firestore
+        .collection('users')
+        .where('uid', isEqualTo: currentUser.uid)
+        .limit(1)
+        .get();
+
+    final data =
+        query.docs.isNotEmpty ? query.docs.first.data() : <String, dynamic>{};
+
     return {
-      'uid': '',
-      'name': 'مستخدم غير معروف',
-      'role': '',
+      'uid': currentUser.uid,
+      'name': (data['displayName'] ?? data['name'] ?? data['username'] ?? 'مستخدم')
+          .toString(),
+      'role': (data['role'] ?? '').toString(),
     };
   }
 
-  final query = await _firestore
-      .collection('users')
-      .where('uid', isEqualTo: currentUser.uid)
-      .limit(1)
-      .get();
+  Future<Map<String, String>> fetchParentLinkInfo() async {
+    String parentUid = '';
+    String parentUsername = widget.child.parentUsername.trim().toLowerCase();
 
-  final data = query.docs.isNotEmpty ? query.docs.first.data() : <String, dynamic>{};
+    try {
+      final childDoc =
+          await _firestore.collection('children').doc(widget.child.id).get();
 
-  return {
-    'uid': currentUser.uid,
-    'name': (data['displayName'] ?? data['name'] ?? data['username'] ?? 'مستخدم')
-        .toString(),
-    'role': (data['role'] ?? '').toString(),
-  };
-}
+      if (childDoc.exists) {
+        final data = childDoc.data() ?? <String, dynamic>{};
+
+        parentUid = (data['parentUid'] ?? '').toString().trim();
+
+        final docParentUsername =
+            (data['parentUsername'] ?? '').toString().trim().toLowerCase();
+
+        if (docParentUsername.isNotEmpty) {
+          parentUsername = docParentUsername;
+        }
+      }
+    } catch (_) {
+      // fallback على بيانات widget.child
+    }
+
+    return {
+      'parentUid': parentUid,
+      'parentUsername': parentUsername,
+    };
+  }
 
   Future<void> pickMedia() async {
     final res = await Navigator.push(
@@ -461,7 +492,8 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
         selectedTags.isEmpty ? '' : 'التصنيفات: ${selectedTags.join('، ')}';
     final moodText = 'المزاج: $selectedMood';
     final energyText = 'النشاط: $selectedEnergy';
-    final locationText = selectedLocation.isNotEmpty ? 'المكان: $selectedLocation' : '';
+    final locationText =
+        selectedLocation.isNotEmpty ? 'المكان: $selectedLocation' : '';
     final importanceText = 'الأهمية: $importance';
     final timeText =
         'الوقت: ${formatDate(selectedDateTime)} - ${formatTime(selectedDateTime)}';
@@ -508,11 +540,13 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
       }
 
       final userInfo = await fetchCurrentUserInfo();
+      final parentInfo = await fetchParentLinkInfo();
 
       await _firestore.collection('updates').add({
         'childId': widget.child.id,
         'childName': widget.child.name,
-        'parentUsername': widget.child.parentUsername,
+        'parentUid': parentInfo['parentUid'],
+        'parentUsername': parentInfo['parentUsername'],
         'section': widget.child.section,
         'group': widget.child.group,
         'type': type,
@@ -541,7 +575,8 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
         await _firestore.collection('notifications').add({
           'childId': widget.child.id,
           'childName': widget.child.name,
-          'parentUsername': widget.child.parentUsername.trim().toLowerCase(),
+          'parentUid': parentInfo['parentUid'],
+          'parentUsername': parentInfo['parentUsername'],
           'section': widget.child.section,
           'group': widget.child.group,
           'title': autoTitle(),

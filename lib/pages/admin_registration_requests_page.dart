@@ -1,7 +1,11 @@
+import 'dart:math';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
+import '../firebase_options.dart';
 import '../theme/app_theme.dart';
 import '../utils/child_section_utils.dart';
 import '../widgets/app_page_scaffold.dart';
@@ -44,6 +48,19 @@ class _AdminRegistrationRequestsPageState
       case 'pending':
       default:
         return 'قيد المراجعة';
+    }
+  }
+
+  String _activationMethodLabel(String value) {
+    switch (value) {
+      case 'temporary_password':
+        return 'كلمة مرور مؤقتة';
+      case 'email_reset':
+        return 'تفعيل عبر البريد';
+      case 'manual_activation':
+        return 'تفعيل يدوي';
+      default:
+        return '-';
     }
   }
 
@@ -173,6 +190,29 @@ class _AdminRegistrationRequestsPageState
     return snapshot.docs.isNotEmpty;
   }
 
+  String _generateTemporaryPassword() {
+    const letters =
+        'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+    const specials = '@#\$%&*';
+    final random = Random.secure();
+
+    String pick(String source) => source[random.nextInt(source.length)];
+
+    final chars = <String>[
+      pick('ABCDEFGHJKLMNPQRSTUVWXYZ'),
+      pick('abcdefghijkmnopqrstuvwxyz'),
+      pick('23456789'),
+      pick(specials),
+    ];
+
+    while (chars.length < 10) {
+      chars.add(pick(letters));
+    }
+
+    chars.shuffle(random);
+    return chars.join();
+  }
+
   Future<void> _updateRequestStatus({
     required String requestId,
     required String newStatus,
@@ -190,6 +230,103 @@ class _AdminRegistrationRequestsPageState
       'updatedAt': FieldValue.serverTimestamp(),
       ...?extraData,
     });
+  }
+
+  Future<void> _showTemporaryPasswordDialog({
+    required String parentName,
+    required String email,
+    required String username,
+    required String temporaryPassword,
+  }) async {
+    if (!mounted) return;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+          ),
+          title: const Text('تم إنشاء الحساب بنجاح'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'تم اعتماد الطلب وإنشاء حساب تسجيل دخول لوليّ الأمر:\n$parentName',
+                textAlign: TextAlign.right,
+                style: const TextStyle(height: 1.6),
+              ),
+              const SizedBox(height: 14),
+              _dialogInfoRow('البريد الإلكتروني', email),
+              const SizedBox(height: 8),
+              _dialogInfoRow('اسم المستخدم', username),
+              const SizedBox(height: 8),
+              _dialogInfoRow('طريقة التفعيل', 'كلمة مرور مؤقتة'),
+              const SizedBox(height: 8),
+              _dialogInfoRow('كلمة المرور المؤقتة', temporaryPassword),
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: Colors.orange.withOpacity(0.25)),
+                ),
+                child: const Text(
+                  'انسخي هذه البيانات الآن وارسليها لوليّ الأمر. كلمة المرور المؤقتة لا يتم حفظها كنص صريح داخل طلب التسجيل.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    height: 1.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('تم'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _dialogInfoRow(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              fontWeight: FontWeight.w700,
+              color: AppColors.textLight,
+            ),
+          ),
+          const SizedBox(height: 6),
+          SelectableText(
+            value,
+            textAlign: TextAlign.right,
+            style: const TextStyle(
+              fontWeight: FontWeight.w700,
+              color: AppColors.textDark,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _approveRequest(Map<String, dynamic> item) async {
@@ -211,7 +348,7 @@ class _AdminRegistrationRequestsPageState
         (parentInfo['fullName'] ?? parentInfo['name'] ?? '').toString().trim();
     final rawUsername =
         (parentInfo['username'] ?? '').toString().trim().toLowerCase();
-    final email = (parentInfo['email'] ?? '').toString().trim();
+    final email = (parentInfo['email'] ?? '').toString().trim().toLowerCase();
 
     if (parentName.isEmpty || rawUsername.isEmpty || email.isEmpty) {
       _showSnack('الطلب ناقص: الاسم أو اسم المستخدم أو البريد الإلكتروني');
@@ -233,8 +370,7 @@ class _AdminRegistrationRequestsPageState
             mainAxisSize: MainAxisSize.min,
             children: [
               const Text(
-                'سيتم اعتماد الطلب وإنشاء بيانات ولي الأمر والأطفال داخل Firestore فقط.\n\n'
-                'لن يتم إنشاء حساب تسجيل دخول فعلي في Firebase Auth في هذه المرحلة، لأن كلمة المرور لا يتم تخزينها داخل طلب التسجيل.',
+                'سيتم اعتماد الطلب وإنشاء حساب تسجيل دخول فعلي لوليّ الأمر داخل Firebase Authentication، ثم إنشاء بياناته وبيانات الأطفال داخل Firestore. في هذه النسخة سيتم تفعيل الحساب بكلمة مرور مؤقتة تُسلَّم من الإدارة لصاحب الحساب.',
                 textAlign: TextAlign.center,
                 style: TextStyle(height: 1.6),
               ),
@@ -272,6 +408,11 @@ class _AdminRegistrationRequestsPageState
       isProcessing = true;
     });
 
+    FirebaseApp? secondaryApp;
+    FirebaseAuth? secondaryAuth;
+    UserCredential? createdCredential;
+    final temporaryPassword = _generateTemporaryPassword();
+
     try {
       final usernameExists = await _usernameExists(rawUsername);
       if (usernameExists) {
@@ -299,128 +440,225 @@ class _AdminRegistrationRequestsPageState
       }
 
       final adminInfo = await _getCurrentAdminInfo();
-      final parentDocRef = _firestore.collection('users').doc();
 
-      await _firestore.runTransaction((transaction) async {
-        transaction.set(parentDocRef, {
-          'uid': parentDocRef.id,
-          'name': parentName,
-          'displayName': parentName,
-          'fullName': parentName,
-          'username': rawUsername,
-          'email': email,
-          'role': 'parent',
+      secondaryApp = await Firebase.initializeApp(
+        name: 'parentApprovalApp_${DateTime.now().millisecondsSinceEpoch}',
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+
+      secondaryAuth = FirebaseAuth.instanceFor(app: secondaryApp);
+
+      createdCredential = await secondaryAuth.createUserWithEmailAndPassword(
+        email: email,
+        password: temporaryPassword,
+      );
+
+      final createdUser = createdCredential.user;
+      if (createdUser == null) {
+        throw Exception('فشل إنشاء حساب Firebase Auth لوليّ الأمر');
+      }
+
+      final parentUid = createdUser.uid;
+
+      final WriteBatch batch = _firestore.batch();
+
+      final parentDocRef = _firestore.collection('users').doc(parentUid);
+      final loginLookupRef =
+    _firestore.collection('login_usernames').doc(rawUsername);
+
+      batch.set(parentDocRef, {
+        'uid': parentUid,
+        'name': parentName,
+        'displayName': parentName,
+        'fullName': parentName,
+        'username': rawUsername,
+        'email': email,
+        'role': 'parent',
+        'isActive': true,
+        'isProfileCompleted': true,
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+        'createdByUid': adminInfo['uid'],
+        'createdByName': adminInfo['name'],
+        'createdFromRequestId': requestId,
+        'phone': parentInfo['phone'] ?? parentInfo['mobile'] ?? '',
+        'alternatePhone': parentInfo['alternatePhone'] ?? '',
+        'city': parentInfo['city'] ?? '',
+        'address': parentInfo['address'] ?? '',
+        'gender': parentInfo['gender'] ?? '',
+        'birthDate': parentInfo['birthDate'],
+        'identityNumber': parentInfo['identityNumber'] ?? '',
+        'relationship': parentInfo['relationship'] ?? '',
+        'maritalStatus': parentInfo['maritalStatus'] ?? '',
+        'jobTitle': parentInfo['jobTitle'] ?? parentInfo['profession'] ?? '',
+        'workplace': parentInfo['workplace'] ?? '',
+        'workPhone': parentInfo['workPhone'] ?? '',
+        'bestContactTime': parentInfo['bestContactTime'] ?? '',
+        'emergencyContactName': parentInfo['emergencyContactName'] ?? '',
+        'emergencyContactRelation':
+            parentInfo['emergencyContactRelation'] ?? '',
+        'emergencyContactPhone': parentInfo['emergencyContactPhone'] ?? '',
+        'notes': parentInfo['notes'] ?? '',
+        'accountSource': 'registration_request',
+        'authAccountCreated': true,
+        'accountStatus': 'active',
+        'passwordStored': false,
+        'temporaryPasswordSetByAdmin': true,
+        'activationMethod': 'temporary_password',
+      });
+
+      batch.set(loginLookupRef, {
+       'username': rawUsername,
+       'email': email,
+       'uid': parentUid,
+       'role': 'parent',
+       'isActive': true,
+       'createdAt': FieldValue.serverTimestamp(),
+       'createdFromRequestId': requestId,
+       });
+
+      for (final rawChild in childrenInfo) {
+        final child = Map<String, dynamic>.from(rawChild as Map);
+
+        final childBirthDate = _parseRequestBirthDate(child['birthDate']);
+        final sectionResult =
+            ChildSectionUtils.resolveSectionAndGroup(childBirthDate);
+        final resolvedSection = sectionResult.section;
+        final resolvedGroup =
+            ChildSectionUtils.shouldShowGroupField(resolvedSection)
+                ? (child['group'] ?? '').toString().trim()
+                : '';
+
+        final childDocRef = _firestore.collection('children').doc();
+
+        batch.set(childDocRef, {
+          'name': (child['fullName'] ?? child['name'] ?? '').toString().trim(),
+          'fullName':
+              (child['fullName'] ?? child['name'] ?? '').toString().trim(),
+          'identityNumber': (child['identityNumber'] ?? '').toString().trim(),
+          'gender': (child['gender'] ?? '').toString().trim(),
+          'birthDate': childBirthDate == null
+              ? null
+              : Timestamp.fromDate(childBirthDate),
+          'section': resolvedSection,
+          'group': resolvedGroup,
+          'status': 'active',
           'isActive': true,
-          'isProfileCompleted': true,
+          'hasChronicDiseases': (child['hasChronicDiseases'] ?? false) == true,
+          'chronicDiseases': (child['chronicDiseases'] ?? '').toString(),
+          'hasAllergies': (child['hasAllergies'] ?? false) == true,
+          'allergies': (child['allergies'] ?? '').toString(),
+          'takesMedications': (child['takesMedications'] ?? false) == true,
+          'medications': (child['medications'] ?? '').toString(),
+          'hasDietaryRestrictions':
+              (child['hasDietaryRestrictions'] ?? false) == true,
+          'dietaryRestrictions':
+              (child['dietaryRestrictions'] ?? '').toString(),
+          'hasSpecialNeeds': (child['hasSpecialNeeds'] ?? false) == true,
+          'specialNeeds': (child['specialNeeds'] ?? '').toString(),
+          'healthNotes': (child['healthNotes'] ?? '').toString(),
+          'bloodType': (child['bloodType'] ?? '').toString(),
+          'dietInstructions': (child['dietInstructions'] ?? '').toString(),
+          'specialInstructions':
+              (child['specialInstructions'] ?? '').toString(),
+          'authorizedPickupContacts': child['authorizedPickupContacts'] ?? [],
+          'parentUid': parentUid,
+          'parentUsername': rawUsername,
+          'parentName': parentName,
           'createdAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
           'createdByUid': adminInfo['uid'],
           'createdByName': adminInfo['name'],
           'createdFromRequestId': requestId,
-          'phone': parentInfo['phone'] ?? parentInfo['mobile'] ?? '',
-          'alternatePhone': parentInfo['alternatePhone'] ?? '',
-          'city': parentInfo['city'] ?? '',
-          'address': parentInfo['address'] ?? '',
-          'gender': parentInfo['gender'] ?? '',
-          'birthDate': parentInfo['birthDate'],
-          'identityNumber': parentInfo['identityNumber'] ?? '',
-          'relationship': parentInfo['relationship'] ?? '',
-          'maritalStatus': parentInfo['maritalStatus'] ?? '',
-          'jobTitle': parentInfo['jobTitle'] ?? parentInfo['profession'] ?? '',
-          'workplace': parentInfo['workplace'] ?? '',
-          'workPhone': parentInfo['workPhone'] ?? '',
-          'bestContactTime': parentInfo['bestContactTime'] ?? '',
-          'emergencyContactName': parentInfo['emergencyContactName'] ?? '',
-          'emergencyContactRelation':
-              parentInfo['emergencyContactRelation'] ?? '',
-          'emergencyContactPhone': parentInfo['emergencyContactPhone'] ?? '',
-          'notes': parentInfo['notes'] ?? '',
-          'accountSource': 'registration_request',
-          'authAccountCreated': false,
-          'accountStatus': 'pending_auth_setup',
-          'passwordStored': false,
+          'history': [],
         });
+      }
 
-        for (final rawChild in childrenInfo) {
-          final child = Map<String, dynamic>.from(rawChild as Map);
+      final requestRef =
+          _firestore.collection('registration_requests').doc(requestId);
 
-          final childBirthDate = _parseRequestBirthDate(child['birthDate']);
-          final sectionResult =
-              ChildSectionUtils.resolveSectionAndGroup(childBirthDate);
-          final resolvedSection = sectionResult.section;
-          final resolvedGroup =
-              ChildSectionUtils.shouldShowGroupField(resolvedSection)
-                  ? (child['group'] ?? '').toString().trim()
-                  : '';
-
-          final childDocRef = _firestore.collection('children').doc();
-
-          transaction.set(childDocRef, {
-            'name': (child['fullName'] ?? child['name'] ?? '').toString().trim(),
-            'fullName':
-                (child['fullName'] ?? child['name'] ?? '').toString().trim(),
-            'identityNumber': (child['identityNumber'] ?? '').toString().trim(),
-            'gender': (child['gender'] ?? '').toString().trim(),
-            'birthDate': childBirthDate == null
-                ? null
-                : Timestamp.fromDate(childBirthDate),
-            'section': resolvedSection,
-            'group': resolvedGroup,
-            'status': 'active',
-            'isActive': true,
-            'hasChronicDiseases': (child['hasChronicDiseases'] ?? false) == true,
-            'chronicDiseases': (child['chronicDiseases'] ?? '').toString(),
-            'hasAllergies': (child['hasAllergies'] ?? false) == true,
-            'allergies': (child['allergies'] ?? '').toString(),
-            'takesMedications': (child['takesMedications'] ?? false) == true,
-            'medications': (child['medications'] ?? '').toString(),
-            'hasDietaryRestrictions':
-                (child['hasDietaryRestrictions'] ?? false) == true,
-            'dietaryRestrictions':
-                (child['dietaryRestrictions'] ?? '').toString(),
-            'hasSpecialNeeds': (child['hasSpecialNeeds'] ?? false) == true,
-            'specialNeeds': (child['specialNeeds'] ?? '').toString(),
-            'healthNotes': (child['healthNotes'] ?? '').toString(),
-            'bloodType': (child['bloodType'] ?? '').toString(),
-            'dietInstructions': (child['dietInstructions'] ?? '').toString(),
-            'specialInstructions':
-                (child['specialInstructions'] ?? '').toString(),
-            'authorizedPickupContacts': child['authorizedPickupContacts'] ?? [],
-            'parentUid': parentDocRef.id,
-            'parentUsername': rawUsername,
-            'parentName': parentName,
-            'createdAt': FieldValue.serverTimestamp(),
-            'updatedAt': FieldValue.serverTimestamp(),
-            'createdByUid': adminInfo['uid'],
-            'createdByName': adminInfo['name'],
-            'createdFromRequestId': requestId,
-            'history': [],
-          });
-        }
+      batch.update(requestRef, {
+        'status': 'approved',
+        'reviewNote': noteController.text.trim(),
+        'reviewedByUid': adminInfo['uid'],
+        'reviewedByName': adminInfo['name'],
+        'reviewedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+        'processedToUserDoc': true,
+        'processedChildrenCount': childrenInfo.length,
+        'linkedParentUid': parentUid,
+        'linkedParentUsername': rawUsername,
+        'linkedParentName': parentName,
+        'authAccountCreated': true,
+        'passwordStored': false,
+        'approvalMode': 'auth_and_firestore',
+        'activationMethod': 'temporary_password',
+        'temporaryPasswordGenerated': true,
       });
 
-      await _updateRequestStatus(
-        requestId: requestId,
-        newStatus: 'approved',
-        reviewNote: noteController.text,
-        extraData: {
-          'processedToUserDoc': true,
-          'processedChildrenCount': childrenInfo.length,
-          'linkedParentUsername': rawUsername,
-          'linkedParentName': parentName,
-          'authAccountCreated': false,
-          'passwordStored': false,
-          'approvalMode': 'firestore_only',
-        },
-      );
+      final notificationRef = _firestore.collection('notifications').doc();
+      batch.set(notificationRef, {
+        'uid': parentUid,
+        'targetUid': parentUid,
+        'title': 'تمت الموافقة على طلب التسجيل',
+        'body':
+            'تمت الموافقة على طلب إنشاء حسابك. يمكنك الآن تسجيل الدخول بالبيانات التي زودتك بها الإدارة.',
+        'message':
+            'تمت الموافقة على طلب إنشاء حسابك. يمكنك الآن تسجيل الدخول بالبيانات التي زودتك بها الإدارة.',
+        'type': 'registration_request',
+        'status': 'approved',
+        'requestId': requestId,
+        'activationMethod': 'temporary_password',
+        'isRead': false,
+        'createdAt': FieldValue.serverTimestamp(),
+        'createdByUid': adminInfo['uid'],
+        'createdByName': adminInfo['name'],
+      });
+
+      await batch.commit();
 
       if (!mounted) return;
 
-      _showSnack('تمت الموافقة وإنشاء بيانات ولي الأمر والأطفال داخل Firestore');
+      _showSnack('تمت الموافقة وإنشاء حساب تسجيل دخول فعلي لوليّ الأمر');
       setState(() {});
+
+      await _showTemporaryPasswordDialog(
+        parentName: parentName,
+        email: email,
+        username: rawUsername,
+        temporaryPassword: temporaryPassword,
+      );
+    } on FirebaseAuthException catch (e) {
+      String message = 'حدث خطأ أثناء إنشاء حساب تسجيل الدخول';
+
+      if (e.code == 'email-already-in-use') {
+        message = 'البريد الإلكتروني مستخدم مسبقًا في Firebase Auth';
+      } else if (e.code == 'invalid-email') {
+        message = 'البريد الإلكتروني غير صالح';
+      } else if (e.code == 'weak-password') {
+        message = 'كلمة المرور المؤقتة ضعيفة، أعيدي المحاولة';
+      } else if (e.message != null && e.message!.trim().isNotEmpty) {
+        message = e.message!;
+      }
+
+      _showSnack(message);
     } catch (e) {
+      if (createdCredential?.user != null) {
+        try {
+          await createdCredential!.user!.delete();
+        } catch (_) {}
+      }
+
       _showSnack('حدث خطأ أثناء تنفيذ الموافقة: $e');
     } finally {
+      try {
+        await secondaryAuth?.signOut();
+      } catch (_) {}
+
+      try {
+        await secondaryApp?.delete();
+      } catch (_) {}
+
       if (mounted) {
         setState(() {
           isProcessing = false;
@@ -494,6 +732,12 @@ class _AdminRegistrationRequestsPageState
         requestId: requestId,
         newStatus: 'rejected',
         reviewNote: noteController.text,
+        extraData: {
+          'authAccountCreated': false,
+          'approvalMode': '',
+          'activationMethod': '',
+          'temporaryPasswordGenerated': false,
+        },
       );
 
       if (!mounted) return;
@@ -520,6 +764,8 @@ class _AdminRegistrationRequestsPageState
     final reviewedByName = (item['reviewedByName'] ?? '').toString();
     final linkedParentUsername =
         (item['linkedParentUsername'] ?? '').toString().trim();
+    final activationMethod = (item['activationMethod'] ?? '').toString().trim();
+    final authAccountCreated = (item['authAccountCreated'] ?? false) == true;
 
     showModalBottomSheet(
       context: context,
@@ -701,6 +947,10 @@ class _AdminRegistrationRequestsPageState
                     title: 'الحالة الحالية',
                     children: [
                       _InfoRow('الحالة', _statusLabel(status)),
+                      _InfoRow(
+                        'تم إنشاء حساب Auth',
+                        authAccountCreated ? 'نعم' : 'لا',
+                      ),
                       if (status == 'pending') ...[
                         const _InfoRow(
                           'متابعة الطلب',
@@ -717,6 +967,10 @@ class _AdminRegistrationRequestsPageState
                           linkedParentUsername.isEmpty
                               ? '-'
                               : linkedParentUsername,
+                        ),
+                        _InfoRow(
+                          'طريقة التفعيل',
+                          _activationMethodLabel(activationMethod),
                         ),
                         if (reviewNote.trim().isNotEmpty)
                           _InfoRow('ملاحظة المراجعة', reviewNote),
@@ -820,6 +1074,7 @@ class _AdminRegistrationRequestsPageState
         (item['childrenInfo'] as List<dynamic>?) ?? <dynamic>[];
     final status = (item['status'] ?? 'pending').toString();
     final createdAt = item['createdAt'] as Timestamp?;
+    final activationMethod = (item['activationMethod'] ?? '').toString().trim();
 
     final parentName =
         (parentInfo['fullName'] ?? parentInfo['name'] ?? '-').toString();
@@ -929,6 +1184,22 @@ class _AdminRegistrationRequestsPageState
                   ),
                 ],
               ),
+              if (status == 'approved' && activationMethod.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    const Icon(Icons.vpn_key_outlined,
+                        size: 18, color: AppColors.textLight),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'طريقة التفعيل: ${_activationMethodLabel(activationMethod)}',
+                        style: const TextStyle(color: AppColors.textDark),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
               const SizedBox(height: 14),
               SizedBox(
                 width: double.infinity,

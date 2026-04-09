@@ -32,32 +32,142 @@ class _GalleryPageState extends State<GalleryPage> {
     return section;
   }
 
+  String _resolveNote(Map<String, dynamic> data) {
+    final candidates = [
+      data['note'],
+      data['message'],
+      data['body'],
+      data['description'],
+      data['details'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return '';
+  }
+
+  String _resolveType(Map<String, dynamic> data) {
+    final candidates = [
+      data['type'],
+      data['updateType'],
+      data['category'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return '';
+  }
+
+  String _resolveByRole(Map<String, dynamic> data) {
+    final candidates = [
+      data['byRole'],
+      data['createdByRole'],
+      data['senderRole'],
+      data['role'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return '';
+  }
+
+  Timestamp? _resolveTimestamp(Map<String, dynamic> data) {
+    final candidates = [
+      data['time'],
+      data['createdAt'],
+      data['timestamp'],
+      data['updatedAt'],
+    ];
+
+    for (final value in candidates) {
+      if (value is Timestamp) return value;
+    }
+
+    return null;
+  }
+
+  String _resolveMediaUrl(Map<String, dynamic> data) {
+    final directUrl = (data['mediaUrl'] ?? '').toString().trim();
+    if (directUrl.isNotEmpty) return directUrl;
+
+    final mediaUrls = data['mediaUrls'];
+    if (mediaUrls is List && mediaUrls.isNotEmpty) {
+      final first = mediaUrls.first?.toString().trim() ?? '';
+      if (first.isNotEmpty) return first;
+    }
+
+    return '';
+  }
+
+  String _resolveMediaPath(Map<String, dynamic> data) {
+    return (data['mediaPath'] ?? '').toString().trim();
+  }
+
+  String _resolveMediaType(Map<String, dynamic> data) {
+    final mediaType = (data['mediaType'] ?? '').toString().trim();
+    if (mediaType.isNotEmpty) return mediaType;
+
+    final resolvedUrl = _resolveMediaUrl(data).toLowerCase();
+    final resolvedPath = _resolveMediaPath(data).toLowerCase();
+    final source = resolvedUrl.isNotEmpty ? resolvedUrl : resolvedPath;
+
+    if (source.endsWith('.mp4') ||
+        source.endsWith('.mov') ||
+        source.endsWith('.avi') ||
+        source.endsWith('.mkv') ||
+        source.contains('video')) {
+      return 'video';
+    }
+
+    if (source.endsWith('.jpg') ||
+        source.endsWith('.jpeg') ||
+        source.endsWith('.png') ||
+        source.endsWith('.webp') ||
+        source.contains('image')) {
+      return 'image';
+    }
+
+    return '';
+  }
+
   Future<List<Map<String, dynamic>>> fetchMediaUpdates() async {
     final snapshot = await _firestore
         .collection('updates')
         .where('childId', isEqualTo: widget.child.id)
-        .orderBy('time', descending: true)
         .get();
 
     final items = snapshot.docs.map((doc) {
       final data = doc.data();
 
-      final mediaUrl = (data['mediaUrl'] ?? '').toString().trim();
-      final mediaPath = (data['mediaPath'] ?? '').toString().trim();
-      final mediaType = (data['mediaType'] ?? '').toString().trim();
+      final mediaUrl = _resolveMediaUrl(data);
+      final mediaPath = _resolveMediaPath(data);
+      final mediaType = _resolveMediaType(data);
+      final displayTime = _resolveTimestamp(data);
 
       final resolvedSource = mediaUrl.isNotEmpty ? mediaUrl : mediaPath;
 
       return {
         'id': doc.id,
-        'type': data['type'] ?? '',
-        'note': data['note'] ?? '',
-        'time': data['time'],
+        'type': _resolveType(data),
+        'note': _resolveNote(data),
+        'displayTime': displayTime,
         'mediaPath': mediaPath,
         'mediaUrl': mediaUrl,
         'resolvedSource': resolvedSource,
         'mediaType': mediaType,
-        'byRole': data['byRole'] ?? '',
+        'byRole': _resolveByRole(data),
       };
     }).where((item) {
       final resolvedSource = (item['resolvedSource'] ?? '').toString().trim();
@@ -77,6 +187,17 @@ class _GalleryPageState extends State<GalleryPage> {
 
       return true;
     }).toList();
+
+    items.sort((a, b) {
+      final aTime = a['displayTime'] as Timestamp?;
+      final bTime = b['displayTime'] as Timestamp?;
+
+      if (aTime == null && bTime == null) return 0;
+      if (aTime == null) return 1;
+      if (bTime == null) return -1;
+
+      return bTime.compareTo(aTime);
+    });
 
     return items;
   }
@@ -178,13 +299,15 @@ class _GalleryPageState extends State<GalleryPage> {
     final mediaType = item['mediaType']?.toString() ?? '';
     final note = item['note']?.toString() ?? '';
     final type = item['type']?.toString() ?? '';
-    final time = item['time'] as Timestamp?;
+    final time = item['displayTime'] as Timestamp?;
 
     final isVideo = mediaType == 'video';
     final isNetwork = resolvedSource.startsWith('http');
 
     return GestureDetector(
       onTap: () {
+        if (resolvedSource.trim().isEmpty) return;
+
         if (isVideo) {
           Navigator.push(
             context,
@@ -431,7 +554,7 @@ class _GalleryPageState extends State<GalleryPage> {
     final Map<String, List<Map<String, dynamic>>> grouped = {};
 
     for (final item in items) {
-      final timestamp = item['time'] as Timestamp?;
+      final timestamp = item['displayTime'] as Timestamp?;
       if (timestamp == null) continue;
 
       final date = timestamp.toDate();
@@ -446,6 +569,14 @@ class _GalleryPageState extends State<GalleryPage> {
 
   @override
   Widget build(BuildContext context) {
+    final childGroup = widget.child.section == 'Nursery'
+        ? ''
+        : widget.child.group.trim();
+
+    final headerSubtitle = childGroup.isEmpty
+        ? sectionLabel(widget.child.section)
+        : '${sectionLabel(widget.child.section)} • $childGroup';
+
     return AppPageScaffold(
       title: 'معرض صور الطفل',
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
@@ -492,7 +623,7 @@ class _GalleryPageState extends State<GalleryPage> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '${sectionLabel(widget.child.section)} • ${widget.child.group}',
+                        headerSubtitle,
                         style: const TextStyle(
                           fontSize: 13,
                           color: AppColors.textLight,
@@ -589,7 +720,7 @@ class _GalleryPageState extends State<GalleryPage> {
                   itemBuilder: (context, index) {
                     final key = sortedKeys[index];
                     final groupItems = grouped[key]!;
-                    final timestamp = groupItems.first['time'] as Timestamp?;
+                    final timestamp = groupItems.first['displayTime'] as Timestamp?;
                     final title = timestamp == null
                         ? key
                         : formatDateLabel(timestamp.toDate());

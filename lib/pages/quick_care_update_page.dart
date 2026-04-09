@@ -76,8 +76,39 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
 
     return {
       'uid': currentUser.uid,
-      'name': (data['displayName'] ?? data['username'] ?? 'مستخدم').toString(),
+      'name': (data['displayName'] ?? data['name'] ?? data['username'] ?? 'مستخدم')
+          .toString(),
       'role': (data['role'] ?? '').toString(),
+    };
+  }
+
+  Future<Map<String, String>> fetchParentLinkInfo() async {
+    String parentUid = '';
+    String parentUsername = widget.child.parentUsername.trim().toLowerCase();
+
+    try {
+      final childDoc =
+          await _firestore.collection('children').doc(widget.child.id).get();
+
+      if (childDoc.exists) {
+        final data = childDoc.data() ?? <String, dynamic>{};
+
+        parentUid = (data['parentUid'] ?? '').toString().trim();
+
+        final docParentUsername =
+            (data['parentUsername'] ?? '').toString().trim().toLowerCase();
+
+        if (docParentUsername.isNotEmpty) {
+          parentUsername = docParentUsername;
+        }
+      }
+    } catch (_) {
+      // fallback على بيانات widget.child
+    }
+
+    return {
+      'parentUid': parentUid,
+      'parentUsername': parentUsername,
     };
   }
 
@@ -255,11 +286,13 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
 
     try {
       final userInfo = await fetchCurrentUserInfo();
+      final parentInfo = await fetchParentLinkInfo();
 
       await _firestore.collection('updates').add({
         'childId': widget.child.id,
         'childName': widget.child.name,
-        'parentUsername': widget.child.parentUsername,
+        'parentUid': parentInfo['parentUid'],
+        'parentUsername': parentInfo['parentUsername'],
         'section': widget.child.section,
         'group': widget.child.group,
         'type': selectedType,

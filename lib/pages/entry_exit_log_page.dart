@@ -190,6 +190,36 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
     };
   }
 
+  Future<Map<String, String>> fetchParentLinkInfo() async {
+    String parentUid = '';
+    String parentUsername = widget.child.parentUsername.trim().toLowerCase();
+
+    try {
+      final childDoc =
+          await _firestore.collection('children').doc(widget.child.id).get();
+
+      if (childDoc.exists) {
+        final data = childDoc.data() ?? <String, dynamic>{};
+
+        parentUid = (data['parentUid'] ?? '').toString().trim();
+
+        final docParentUsername =
+            (data['parentUsername'] ?? '').toString().trim().toLowerCase();
+
+        if (docParentUsername.isNotEmpty) {
+          parentUsername = docParentUsername;
+        }
+      }
+    } catch (_) {
+      // fallback على بيانات widget.child
+    }
+
+    return {
+      'parentUid': parentUid,
+      'parentUsername': parentUsername,
+    };
+  }
+
   Future<void> saveEntryExitEvent() async {
     if (!isAdminUser) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -247,11 +277,13 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
       }
 
       final userInfo = await fetchCurrentUserInfo();
+      final parentInfo = await fetchParentLinkInfo();
 
       await _firestore.collection('entry_exit_logs').add({
         'childId': widget.child.id,
         'childName': widget.child.name,
-        'parentUsername': widget.child.parentUsername,
+        'parentUid': parentInfo['parentUid'],
+        'parentUsername': parentInfo['parentUsername'],
         'section': widget.child.section,
         'group': widget.child.group,
         'eventType': selectedEventType,
@@ -812,7 +844,9 @@ class _EntryExitLogCard extends StatelessWidget {
     final role = value.trim().toLowerCase();
     if (role == 'admin') return 'الإدارة';
     if (role == 'teacher') return 'معلمة';
-    if (role == 'nursery_staff' || role == 'nursery staff' || role == 'nursery') {
+    if (role == 'nursery_staff' ||
+        role == 'nursery staff' ||
+        role == 'nursery') {
       return 'موظفة حضانة';
     }
     if (role == 'parent') return 'ولي أمر';

@@ -42,10 +42,16 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
   }
 
   String senderLabel(String byRole) {
-    if (byRole == 'nursery') return 'موظفة الحضانة';
-    if (byRole == 'teacher') return 'المعلمة';
-    if (byRole == 'admin') return 'الإدارة';
-    return byRole.isEmpty ? 'غير محدد' : byRole;
+    final role = byRole.trim().toLowerCase();
+
+    if (role == 'nursery' || role == 'nursery_staff') {
+      return 'موظفة الحضانة';
+    }
+    if (role == 'teacher') return 'المعلمة';
+    if (role == 'admin') return 'الإدارة';
+    if (role == 'parent') return 'ولي الأمر';
+
+    return byRole.trim().isEmpty ? 'غير محدد' : byRole;
   }
 
   Color typeColor(String type) {
@@ -164,6 +170,74 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
     return snapshot.docs.first.data()['present'] == true;
   }
 
+  String _resolveNote(Map<String, dynamic> data) {
+    final candidates = [
+      data['note'],
+      data['message'],
+      data['body'],
+      data['description'],
+      data['details'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return '';
+  }
+
+  String _resolveRole(Map<String, dynamic> data) {
+    final candidates = [
+      data['byRole'],
+      data['createdByRole'],
+      data['senderRole'],
+      data['role'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return '';
+  }
+
+  String _resolveCreatorName(Map<String, dynamic> data) {
+    final candidates = [
+      data['createdByName'],
+      data['senderName'],
+      data['byName'],
+      data['staffName'],
+      data['teacherName'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return '';
+  }
+
+  Timestamp? _resolveTimestamp(Map<String, dynamic> data) {
+    final candidates = [
+      data['time'],
+      data['createdAt'],
+      data['timestamp'],
+      data['updatedAt'],
+    ];
+
+    for (final value in candidates) {
+      if (value is Timestamp) return value;
+    }
+
+    return null;
+  }
+
   Future<List<Map<String, dynamic>>> fetchUpdates() async {
     final snapshot = await _firestore
         .collection('updates')
@@ -175,21 +249,23 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
 
       return {
         'id': doc.id,
-        'type': data['type'] ?? '',
-        'note': data['note'] ?? '',
-        'byRole': data['byRole'] ?? '',
-        'time': data['time'] as Timestamp?,
-        'createdAt': data['createdAt'] as Timestamp?,
+        'type': (data['type'] ?? data['updateType'] ?? '').toString(),
+        'note': _resolveNote(data),
+        'byRole': _resolveRole(data),
+        'createdByName': _resolveCreatorName(data),
+        'displayTime': _resolveTimestamp(data),
         'mediaUrl': (data['mediaUrl'] ?? '').toString(),
         'mediaType': (data['mediaType'] ?? '').toString(),
         'mediaPath': (data['mediaPath'] ?? '').toString(),
-        'hasMedia': data['hasMedia'] == true,
+        'hasMedia': data['hasMedia'] == true ||
+            (data['mediaUrl'] ?? '').toString().trim().isNotEmpty ||
+            (data['mediaPath'] ?? '').toString().trim().isNotEmpty,
       };
     }).toList();
 
     items.sort((a, b) {
-      final aTime = (a['time'] as Timestamp?) ?? (a['createdAt'] as Timestamp?);
-      final bTime = (b['time'] as Timestamp?) ?? (b['createdAt'] as Timestamp?);
+      final aTime = a['displayTime'] as Timestamp?;
+      final bTime = b['displayTime'] as Timestamp?;
 
       if (aTime == null && bTime == null) return 0;
       if (aTime == null) return 1;
@@ -310,7 +386,9 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
                               child: _InfoMiniCard(
                                 icon: Icons.groups_outlined,
                                 title: 'المجموعة',
-                                value: child.group.isEmpty ? 'غير محدد' : child.group,
+                                value: child.section == 'Nursery'
+                                    ? 'غير مطبق'
+                                    : (child.group.isEmpty ? 'غير محدد' : child.group),
                               ),
                             ),
                           ],
@@ -416,13 +494,13 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
                 else
                   ...updates.map(
                     (u) {
-                      final Timestamp? displayTime =
-                          (u['time'] as Timestamp?) ?? (u['createdAt'] as Timestamp?);
+                      final Timestamp? displayTime = u['displayTime'] as Timestamp?;
 
                       return _UpdateCard(
                         type: u['type'] ?? '',
                         note: u['note'] ?? '',
                         senderText: senderLabel(u['byRole'] ?? ''),
+                        creatorName: u['createdByName'] ?? '',
                         badgeColor: typeColor(u['type'] ?? ''),
                         icon: typeIcon(u['type'] ?? ''),
                         timeTextValue: timeText(displayTime),
@@ -543,6 +621,7 @@ class _UpdateCard extends StatelessWidget {
   final String type;
   final String note;
   final String senderText;
+  final String creatorName;
   final Color badgeColor;
   final IconData icon;
   final String timeTextValue;
@@ -556,6 +635,7 @@ class _UpdateCard extends StatelessWidget {
     required this.type,
     required this.note,
     required this.senderText,
+    required this.creatorName,
     required this.badgeColor,
     required this.icon,
     required this.timeTextValue,
@@ -579,6 +659,13 @@ class _UpdateCard extends StatelessWidget {
   bool get _hasRemoteVideo => _hasRemoteUrl && mediaType == 'video';
   bool get _hasLocalImage => !kIsWeb && _hasLocalPath && mediaType == 'image';
   bool get _hasLocalVideo => !kIsWeb && _hasLocalPath && mediaType == 'video';
+
+  String get _senderDisplay {
+    if (creatorName.trim().isNotEmpty) {
+      return '$creatorName - $senderText';
+    }
+    return senderText;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -680,7 +767,7 @@ class _UpdateCard extends StatelessWidget {
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    'بواسطة: $senderText',
+                    'بواسطة: $_senderDisplay',
                     style: const TextStyle(
                       color: Colors.black54,
                       fontSize: 13,

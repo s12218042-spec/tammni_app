@@ -16,23 +16,161 @@ class ParentHandoffLogPage extends StatelessWidget {
   String _formatDate(Timestamp? ts) {
     if (ts == null) return '-';
     final d = ts.toDate();
-    return '${d.year}/${d.month}/${d.day} - ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+    final hour = d.hour.toString().padLeft(2, '0');
+    final minute = d.minute.toString().padLeft(2, '0');
+    return '${d.year}/${d.month}/${d.day} - $hour:$minute';
   }
 
   Color _handoffColor(String type) {
-    if (type == 'pickup') return Colors.orange;
+    final cleanType = type.trim().toLowerCase();
+    if (cleanType == 'pickup') return Colors.orange;
     return Colors.green;
   }
 
   IconData _handoffIcon(String type) {
-    if (type == 'pickup') return Icons.logout_outlined;
+    final cleanType = type.trim().toLowerCase();
+    if (cleanType == 'pickup') return Icons.logout_outlined;
     return Icons.login_outlined;
   }
 
   String _handoffLabel(String type) {
-    if (type == 'pickup') return 'استلام';
-    if (type == 'dropoff') return 'تسليم';
-    return type;
+    final cleanType = type.trim().toLowerCase();
+    if (cleanType == 'pickup') return 'استلام';
+    if (cleanType == 'dropoff') return 'تسليم';
+    return cleanType.isEmpty ? 'سجل' : type;
+  }
+
+  String _resolveHandoffType(Map<String, dynamic> data) {
+    final candidates = [
+      data['handoffType'],
+      data['type'],
+      data['action'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return '';
+  }
+
+  String _resolvePersonName(Map<String, dynamic> data) {
+    final candidates = [
+      data['personName'],
+      data['receiverName'],
+      data['handoffPersonName'],
+      data['person'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return '';
+  }
+
+  String _resolveRelation(Map<String, dynamic> data) {
+    final candidates = [
+      data['relation'],
+      data['kinship'],
+      data['relationship'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return '';
+  }
+
+  String _resolveNote(Map<String, dynamic> data) {
+    final candidates = [
+      data['note'],
+      data['message'],
+      data['body'],
+      data['description'],
+      data['details'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return '';
+  }
+
+  String _resolveCreatedByName(Map<String, dynamic> data) {
+    final candidates = [
+      data['createdByName'],
+      data['byName'],
+      data['staffName'],
+      data['adminName'],
+      data['senderName'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return '';
+  }
+
+  Timestamp? _resolveTimestamp(Map<String, dynamic> data) {
+    final candidates = [
+      data['createdAt'],
+      data['time'],
+      data['timestamp'],
+      data['updatedAt'],
+    ];
+
+    for (final value in candidates) {
+      if (value is Timestamp) return value;
+    }
+
+    return null;
+  }
+
+  Future<List<Map<String, dynamic>>> fetchHandoffs() async {
+    final snapshot = await FirebaseFirestore.instance
+        .collection('child_handoffs')
+        .where('childId', isEqualTo: child.id)
+        .get();
+
+    final items = snapshot.docs.map((doc) {
+      final data = doc.data();
+
+      return {
+        'handoffType': _resolveHandoffType(data),
+        'personName': _resolvePersonName(data),
+        'relation': _resolveRelation(data),
+        'note': _resolveNote(data),
+        'createdByName': _resolveCreatedByName(data),
+        'displayTime': _resolveTimestamp(data),
+      };
+    }).toList();
+
+    items.sort((a, b) {
+      final aTime = a['displayTime'] as Timestamp?;
+      final bTime = b['displayTime'] as Timestamp?;
+
+      if (aTime == null && bTime == null) return 0;
+      if (aTime == null) return 1;
+      if (bTime == null) return -1;
+
+      return bTime.compareTo(aTime);
+    });
+
+    return items;
   }
 
   @override
@@ -72,12 +210,8 @@ class ParentHandoffLogPage extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('child_handoffs')
-                  .where('childId', isEqualTo: child.id)
-                  .orderBy('createdAt', descending: true)
-                  .snapshots(),
+            child: FutureBuilder<List<Map<String, dynamic>>>(
+              future: fetchHandoffs(),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
                   return Card(
@@ -95,7 +229,7 @@ class ParentHandoffLogPage extends StatelessWidget {
                   return const Center(child: CircularProgressIndicator());
                 }
 
-                final docs = snapshot.data?.docs ?? [];
+                final docs = snapshot.data ?? [];
 
                 if (docs.isEmpty) {
                   return Card(
@@ -128,15 +262,13 @@ class ParentHandoffLogPage extends StatelessWidget {
                   itemCount: docs.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 10),
                   itemBuilder: (context, index) {
-                    final data = docs[index].data() as Map<String, dynamic>;
-                    final handoffType =
-                        (data['handoffType'] ?? '').toString();
+                    final data = docs[index];
+                    final handoffType = (data['handoffType'] ?? '').toString();
                     final personName = (data['personName'] ?? '').toString();
                     final relation = (data['relation'] ?? '').toString();
                     final note = (data['note'] ?? '').toString();
-                    final createdByName =
-                        (data['createdByName'] ?? '').toString();
-                    final createdAt = data['createdAt'] as Timestamp?;
+                    final createdByName = (data['createdByName'] ?? '').toString();
+                    final createdAt = data['displayTime'] as Timestamp?;
                     final color = _handoffColor(handoffType);
 
                     return Card(
@@ -196,7 +328,7 @@ class ParentHandoffLogPage extends StatelessWidget {
                               label: 'صلة القرابة',
                               value: relation.isEmpty ? '-' : relation,
                             ),
-                            if (note.isNotEmpty) ...[
+                            if (note.trim().isNotEmpty) ...[
                               const SizedBox(height: 8),
                               _InfoRow(
                                 icon: Icons.notes_outlined,
@@ -204,7 +336,7 @@ class ParentHandoffLogPage extends StatelessWidget {
                                 value: note,
                               ),
                             ],
-                            if (createdByName.isNotEmpty) ...[
+                            if (createdByName.trim().isNotEmpty) ...[
                               const SizedBox(height: 8),
                               _InfoRow(
                                 icon: Icons.badge_outlined,

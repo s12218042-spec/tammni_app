@@ -28,129 +28,129 @@ class AuthService {
       );
     }
 
-    final snapshot = await _firestore
-        .collection('users')
-        .where('username', isEqualTo: cleanUsername)
-        .limit(1)
-        .get();
-
-    if (snapshot.docs.isEmpty) {
-      throw FirebaseAuthException(
-        code: 'user-not-found',
-        message: 'اسم المستخدم غير موجود',
-      );
-    }
-
-    final userDoc = snapshot.docs.first;
-    final data = userDoc.data();
-
-    final email = (data['email'] ?? '').toString().trim().toLowerCase();
-    final role = (data['role'] ?? '').toString().trim();
-    final isActive = (data['isActive'] ?? true) == true;
-    final authAccountCreated = (data['authAccountCreated'] ?? true) == true;
-    final accountStatus = (data['accountStatus'] ?? '').toString().trim();
-
-    if (email.isEmpty) {
-      throw FirebaseAuthException(
-        code: 'invalid-email',
-        message: 'لا يوجد بريد إلكتروني مرتبط بهذا المستخدم',
-      );
-    }
-
-    if (!isActive) {
-      throw FirebaseAuthException(
-        code: 'user-disabled',
-        message: 'هذا الحساب غير مفعّل حاليًا',
-      );
-    }
-
-    // مهم جدًا مع التدفق الجديد:
-    // بعض حسابات أولياء الأمور تُنشأ في Firestore فقط بدون Firebase Auth فعلي.
-    if (role == 'parent' && !authAccountCreated) {
-      throw FirebaseAuthException(
-        code: 'auth-account-not-created',
-        message: accountStatus == 'pending_auth_setup'
-            ? 'تمت الموافقة على الطلب إداريًا، لكن حساب تسجيل الدخول لم يُفعّل بعد. راجعي الإدارة لإكمال تفعيل الدخول.'
-            : 'هذا الحساب غير جاهز لتسجيل الدخول بعد. راجعي الإدارة.',
-      );
-    }
-
     try {
+      print('LOGIN STEP 1: reading login_usernames/$cleanUsername');
+
+      final lookupDoc = await _firestore
+          .collection('login_usernames')
+          .doc(cleanUsername)
+          .get();
+
+      print('LOGIN STEP 2: lookupDoc.exists = ${lookupDoc.exists}');
+
+      if (!lookupDoc.exists) {
+        throw FirebaseAuthException(
+          code: 'user-not-found',
+          message: 'اسم المستخدم غير موجود',
+        );
+      }
+
+      final lookupData = lookupDoc.data() ?? {};
+      final email = (lookupData['email'] ?? '').toString().trim().toLowerCase();
+      final lookupUid = (lookupData['uid'] ?? '').toString().trim();
+      final isActive = (lookupData['isActive'] ?? true) == true;
+
+      print('LOGIN STEP 3: email = $email');
+      print('LOGIN STEP 4: lookupUid = $lookupUid');
+      print('LOGIN STEP 5: lookup isActive = $isActive');
+
+      if (email.isEmpty) {
+        throw FirebaseAuthException(
+          code: 'missing-email',
+          message: 'البريد الإلكتروني المرتبط بالحساب غير موجود',
+        );
+      }
+
+      if (!isActive) {
+        throw FirebaseAuthException(
+          code: 'user-disabled',
+          message: 'هذا الحساب غير نشط حاليًا',
+        );
+      }
+
+      print('LOGIN STEP 6: signInWithEmailAndPassword');
+
       final result = await _auth.signInWithEmailAndPassword(
         email: email,
-        password: password,
+        password: cleanPassword,
       );
 
-      await _firestore.collection('users').doc(userDoc.id).set({
-        'lastLoginAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      final authUser = result.user;
+      print('LOGIN STEP 7: auth uid = ${authUser?.uid}');
 
-      return result.user;
-    } on FirebaseAuthException catch (e) {
-      if (e.code == 'wrong-password') {
+      if (authUser == null) {
         throw FirebaseAuthException(
-          code: e.code,
-          message: 'كلمة المرور غير صحيحة',
+          code: 'auth-user-null',
+          message: 'تعذر إكمال تسجيل الدخول',
         );
       }
 
-      if (e.code == 'invalid-credential') {
+      final authUid = authUser.uid;
+
+      if (lookupUid.isNotEmpty && lookupUid != authUid) {
         throw FirebaseAuthException(
-          code: e.code,
-          message: 'بيانات تسجيل الدخول غير صحيحة',
+          code: 'uid-mismatch',
+          message: 'حدث تعارض في بيانات تسجيل الدخول',
         );
       }
 
-      if (e.code == 'user-disabled') {
+      print('LOGIN STEP 8: reading users/$authUid');
+
+      final userDoc = await _firestore.collection('users').doc(authUid).get();
+
+      print('LOGIN STEP 9: userDoc.exists = ${userDoc.exists}');
+
+      if (!userDoc.exists) {
         throw FirebaseAuthException(
-          code: e.code,
-          message: 'هذا الحساب موقوف',
+          code: 'user-doc-not-found',
+          message: 'بيانات المستخدم غير موجودة في النظام',
         );
       }
 
-      if (e.code == 'user-not-found') {
+      final userData = userDoc.data() ?? {};
+      final storedUsername =
+          (userData['username'] ?? '').toString().trim().toLowerCase();
+      final userIsActive = (userData['isActive'] ?? true) == true;
+
+      print('LOGIN STEP 10: storedUsername = $storedUsername');
+      print('LOGIN STEP 11: userIsActive = $userIsActive');
+
+      if (storedUsername.isNotEmpty && storedUsername != cleanUsername) {
         throw FirebaseAuthException(
-          code: e.code,
-          message: 'لم يتم العثور على الحساب',
+          code: 'username-mismatch',
+          message: 'حدث تعارض في اسم المستخدم',
         );
       }
 
+      if (!userIsActive) {
+        throw FirebaseAuthException(
+          code: 'user-disabled',
+          message: 'هذا الحساب غير نشط حاليًا',
+        );
+      }
+
+      print('LOGIN STEP 12: updating lastLoginAt');
+
+     // await _firestore.collection('users').doc(authUid).update({
+     //   'lastLoginAt': FieldValue.serverTimestamp(),
+    //  });
+
+      print('LOGIN STEP 13: success');
+
+      return authUser;
+    } on FirebaseAuthException {
+      rethrow;
+    } catch (e, st) {
+      print('LOGIN UNKNOWN ERROR: $e');
+      print(st);
       throw FirebaseAuthException(
-        code: e.code,
-        message: e.message ?? 'حدث خطأ أثناء تسجيل الدخول',
+        code: 'login-failed',
+        message: 'حدث خطأ أثناء تسجيل الدخول: $e',
       );
     }
   }
 
   Future<void> logout() async {
     await _auth.signOut();
-  }
-
-  Future<bool> usernameExists(String username) async {
-    final cleanUsername = username.trim().toLowerCase();
-
-    if (cleanUsername.isEmpty) return false;
-
-    final snapshot = await _firestore
-        .collection('users')
-        .where('username', isEqualTo: cleanUsername)
-        .limit(1)
-        .get();
-
-    return snapshot.docs.isNotEmpty;
-  }
-
-  Future<bool> emailExists(String email) async {
-    final cleanEmail = email.trim().toLowerCase();
-
-    if (cleanEmail.isEmpty) return false;
-
-    final snapshot = await _firestore
-        .collection('users')
-        .where('email', isEqualTo: cleanEmail)
-        .limit(1)
-        .get();
-
-    return snapshot.docs.isNotEmpty;
   }
 }

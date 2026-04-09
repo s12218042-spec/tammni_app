@@ -1,12 +1,9 @@
-import 'dart:math';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
-import '../widgets/app_page_scaffold.dart';
-import '../services/email_verification_service.dart';
 import '../utils/child_section_utils.dart';
+import '../widgets/app_page_scaffold.dart';
 
 class ParentRegistrationRequestPage extends StatefulWidget {
   const ParentRegistrationRequestPage({super.key});
@@ -25,8 +22,6 @@ class _ParentRegistrationRequestPageState
   final fullNameCtrl = TextEditingController();
   final usernameCtrl = TextEditingController();
   final emailCtrl = TextEditingController();
-  final passwordCtrl = TextEditingController();
-  final confirmPasswordCtrl = TextEditingController();
 
   // البيانات الشخصية
   final nationalIdCtrl = TextEditingController();
@@ -55,22 +50,7 @@ class _ParentRegistrationRequestPageState
   String selectedMaritalStatus = 'married';
   String selectedEmploymentStatus = 'working';
 
-  bool obscurePassword = true;
-  bool obscureConfirmPassword = true;
   bool isSubmitting = false;
-
-  final EmailVerificationService _emailVerificationService =
-      EmailVerificationService();
-
-  bool isSendingVerification = false;
-  bool isCheckingVerification = false;
-
-  // التحقق بالبريد
-  String? generatedVerificationCode;
-  DateTime? verificationSentAt;
-  DateTime? verificationExpiresAt;
-  bool emailVerified = false;
-  final verificationCodeCtrl = TextEditingController();
 
   final List<_ChildDraft> children = [_ChildDraft()];
 
@@ -102,8 +82,6 @@ class _ParentRegistrationRequestPageState
     fullNameCtrl.dispose();
     usernameCtrl.dispose();
     emailCtrl.dispose();
-    passwordCtrl.dispose();
-    confirmPasswordCtrl.dispose();
     nationalIdCtrl.dispose();
     birthDateCtrl.dispose();
     addressCtrl.dispose();
@@ -118,7 +96,6 @@ class _ParentRegistrationRequestPageState
     emergencyRelationCtrl.dispose();
     emergencyPhoneCtrl.dispose();
     notesCtrl.dispose();
-    verificationCodeCtrl.dispose();
 
     for (final child in children) {
       child.dispose();
@@ -224,7 +201,7 @@ class _ParentRegistrationRequestPageState
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'املئي البيانات الأساسية بدقة، ثم أرسلي الطلب ليتم مراجعته من الإدارة والموافقة عليه.',
+                  'املئي البيانات بدقة ثم أرسلي الطلب ليتم مراجعته من الإدارة. عند الموافقة سيتم إنشاء الحساب وتحديد طريقة التفعيل المناسبة.',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: AppColors.textLight,
                         height: 1.45,
@@ -256,7 +233,7 @@ class _ParentRegistrationRequestPageState
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              'هذا الطلب لا ينشئ الحساب مباشرة. بعد التحقق من البريد ومراجعة الإدارة، سيتم اعتماد الحساب وربطه بالطفل أو الأطفال.',
+              'هذا النموذج مخصص لإرسال طلب إنشاء حساب فقط. بعد المراجعة والموافقة من الإدارة سيتم إنشاء الحساب وتزويدك بطريقة الدخول المناسبة.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: AppColors.textDark,
                     height: 1.5,
@@ -387,62 +364,31 @@ class _ParentRegistrationRequestPageState
     return ChildSectionUtils.shouldShowGroupField(child.section);
   }
 
-  String _generateCode() {
-    final random = Random();
-    return (100000 + random.nextInt(900000)).toString();
-  }
+ Future<bool> _usernameExistsAnywhere(String username) async {
+  final clean = normalizeUsername(username);
 
-  Future<bool> _usernameExistsAnywhere(String username) async {
-    final clean = normalizeUsername(username);
+  final lookupDoc = await _firestore
+      .collection('login_usernames')
+      .doc(clean)
+      .get();
 
-    final users = await _firestore
-        .collection('users')
-        .where('username', isEqualTo: clean)
-        .limit(1)
-        .get();
+  return lookupDoc.exists;
+}
 
-    if (users.docs.isNotEmpty) return true;
+ Future<bool> _emailExistsAnywhere(String email) async {
+  final clean = email.trim().toLowerCase();
 
-    final requests = await _firestore
-        .collection('registration_requests')
-        .where('parentInfo.username', isEqualTo: clean)
-        .where('status', isEqualTo: 'pending')
-        .limit(1)
-        .get();
+  final snapshot = await _firestore
+      .collection('login_usernames')
+      .where('email', isEqualTo: clean)
+      .limit(1)
+      .get();
 
-    return requests.docs.isNotEmpty;
-  }
-
-  Future<bool> _emailExistsAnywhere(String email) async {
-    final clean = email.trim().toLowerCase();
-
-    final users = await _firestore
-        .collection('users')
-        .where('email', isEqualTo: clean)
-        .limit(1)
-        .get();
-
-    if (users.docs.isNotEmpty) return true;
-
-    final requests = await _firestore
-        .collection('registration_requests')
-        .where('parentInfo.email', isEqualTo: clean)
-        .where('status', isEqualTo: 'pending')
-        .limit(1)
-        .get();
-
-    return requests.docs.isNotEmpty;
-  }
+  return snapshot.docs.isNotEmpty;
+}
 
   bool _isValidEmail(String value) {
     return _isValidEmailFormat(value.trim().toLowerCase());
-  }
-
-  bool _isValidPassword(String value) {
-    final hasUpper = value.contains(RegExp(r'[A-Z]'));
-    final hasLower = value.contains(RegExp(r'[a-z]'));
-    final hasNumber = value.contains(RegExp(r'[0-9]'));
-    return value.length >= 8 && hasUpper && hasLower && hasNumber;
   }
 
   Future<void> _pickParentBirthDate() async {
@@ -517,115 +463,8 @@ class _ParentRegistrationRequestPageState
     });
   }
 
-  Future<void> sendVerificationCode() async {
-    final email = emailCtrl.text.trim().toLowerCase();
-    final username = usernameCtrl.text.trim();
-
-    final usernameError = _validateUsername(username);
-    if (usernameError != null) {
-      _showSnack(usernameError);
-      return;
-    }
-
-    if (email.isEmpty || !_isValidEmail(email)) {
-      _showSnack('أدخلي بريدًا إلكترونيًا صحيحًا أولًا');
-      return;
-    }
-
-    final usernameTaken = await _usernameExistsAnywhere(username);
-    if (usernameTaken) {
-      _showSnack('اسم المستخدم مستخدم مسبقًا أو يوجد طلب معلق بنفس الاسم');
-      return;
-    }
-
-    final emailTaken = await _emailExistsAnywhere(email);
-    if (emailTaken) {
-      _showSnack('البريد الإلكتروني مستخدم مسبقًا أو يوجد طلب معلق بنفس البريد');
-      return;
-    }
-
-    setState(() {
-      isSendingVerification = true;
-    });
-
-    try {
-      await _emailVerificationService.sendVerificationCode(
-        email: email,
-        username: username,
-      );
-
-      setState(() {
-        generatedVerificationCode = _generateCode();
-        verificationSentAt = DateTime.now();
-        verificationExpiresAt = DateTime.now().add(const Duration(minutes: 10));
-        emailVerified = false;
-        verificationCodeCtrl.clear();
-      });
-
-      _showSnack('تم إرسال كود التحقق إلى البريد الإلكتروني');
-    } catch (e) {
-      _showSnack('فشل إرسال كود التحقق: $e');
-    } finally {
-      if (mounted) {
-        setState(() {
-          isSendingVerification = false;
-        });
-      }
-    }
-  }
-
-  Future<void> verifyCode() async {
-    final email = emailCtrl.text.trim().toLowerCase();
-    final code = verificationCodeCtrl.text.trim();
-
-    if (generatedVerificationCode == null) {
-      _showSnack('أرسلي كود التحقق أولًا');
-      return;
-    }
-
-    if (code.isEmpty) {
-      _showSnack('أدخلي كود التحقق');
-      return;
-    }
-
-    setState(() {
-      isCheckingVerification = true;
-    });
-
-    try {
-      final verified = await _emailVerificationService.verifyCode(
-        email: email,
-        code: code,
-      );
-
-      if (!verified) {
-        _showSnack('كود التحقق غير صحيح أو منتهي الصلاحية');
-        return;
-      }
-
-      setState(() {
-        emailVerified = true;
-      });
-
-      _showSnack('تم التحقق من البريد الإلكتروني بنجاح');
-    } catch (e) {
-      _showSnack('فشل التحقق من الكود: $e');
-    } finally {
-      if (mounted) {
-        setState(() {
-          isCheckingVerification = false;
-        });
-      }
-    }
-  }
-
   Future<void> submitRequest() async {
     if (!_formKey.currentState!.validate()) return;
-
-    if (!emailVerified) {
-      _showSnack('يجب التحقق من البريد الإلكتروني قبل إرسال الطلب');
-      return;
-    }
 
     for (final child in children) {
       if (!child.isValid()) {
@@ -672,15 +511,14 @@ class _ParentRegistrationRequestPageState
       final requestData = <String, dynamic>{
         'requestType': 'parent_registration',
         'status': 'pending',
-        'emailVerified': true,
-        'passwordStored': false,
-        'verificationCode': generatedVerificationCode,
-        'verificationCodeSentAt': verificationSentAt == null
-            ? null
-            : Timestamp.fromDate(verificationSentAt!),
-        'verificationExpiresAt': verificationExpiresAt == null
-            ? null
-            : Timestamp.fromDate(verificationExpiresAt!),
+        'authAccountCreated': false,
+        'approvalMode': '',
+        'activationMethod': '',
+        'linkedParentUid': '',
+        'linkedParentUsername': '',
+        'linkedParentName': '',
+        'processedToUserDoc': false,
+        'processedChildrenCount': 0,
         'parentInfo': {
           'fullName': fullNameCtrl.text.trim(),
           'username': cleanUsername,
@@ -751,7 +589,7 @@ class _ParentRegistrationRequestPageState
         children: [
           buildSectionTitle(
             'بيانات الحساب',
-            'هذه البيانات ستُستخدم لاحقًا عند اعتماد الحساب.',
+            'هذه البيانات ستُستخدم عند اعتماد الحساب من الإدارة.',
           ),
           const SizedBox(height: 14),
           TextFormField(
@@ -798,66 +636,6 @@ class _ParentRegistrationRequestPageState
                 return 'أدخلي بريدًا إلكترونيًا صحيحًا';
               }
 
-              return null;
-            },
-          ),
-          const SizedBox(height: 14),
-          TextFormField(
-            controller: passwordCtrl,
-            obscureText: obscurePassword,
-            decoration: customDecoration(
-              label: 'كلمة المرور',
-              icon: Icons.lock_outline_rounded,
-              hint: '8 أحرف أو أكثر',
-              suffixIcon: IconButton(
-                onPressed: () {
-                  setState(() {
-                    obscurePassword = !obscurePassword;
-                  });
-                },
-                icon: Icon(
-                  obscurePassword
-                      ? Icons.visibility_off_rounded
-                      : Icons.visibility_rounded,
-                ),
-              ),
-            ),
-            validator: (value) {
-              final text = value?.trim() ?? '';
-              if (text.isEmpty) return 'أدخلي كلمة المرور';
-              if (!_isValidPassword(text)) {
-                return 'يجب أن تكون 8 أحرف على الأقل وتحتوي حرف كبير وحرف صغير ورقم';
-              }
-              return null;
-            },
-          ),
-          const SizedBox(height: 14),
-          TextFormField(
-            controller: confirmPasswordCtrl,
-            obscureText: obscureConfirmPassword,
-            decoration: customDecoration(
-              label: 'تأكيد كلمة المرور',
-              icon: Icons.lock_reset_rounded,
-              suffixIcon: IconButton(
-                onPressed: () {
-                  setState(() {
-                    obscureConfirmPassword = !obscureConfirmPassword;
-                  });
-                },
-                icon: Icon(
-                  obscureConfirmPassword
-                      ? Icons.visibility_off_rounded
-                      : Icons.visibility_rounded,
-                ),
-              ),
-            ),
-            validator: (value) {
-              if ((value ?? '').trim().isEmpty) {
-                return 'أدخلي تأكيد كلمة المرور';
-              }
-              if (value!.trim() != passwordCtrl.text.trim()) {
-                return 'كلمتا المرور غير متطابقتين';
-              }
               return null;
             },
           ),
@@ -1058,6 +836,21 @@ class _ParentRegistrationRequestPageState
               icon: Icons.call_rounded,
               hint: 'اختياري',
             ),
+            validator: (value) {
+              final clean = (value ?? '').trim();
+
+              if (clean.isEmpty) return null;
+
+              if (!RegExp(r'^\d{10}$').hasMatch(clean)) {
+                return 'هاتف العمل يجب أن يتكون من 10 أرقام';
+              }
+
+              if (!_isValidPalestinianMobile(clean)) {
+                return 'هاتف العمل يجب أن يكون رقم جوال فلسطيني صحيحًا (059 أو 056)';
+              }
+
+              return null;
+            },
           ),
           const SizedBox(height: 14),
           TextFormField(
@@ -1566,77 +1359,6 @@ class _ParentRegistrationRequestPageState
     );
   }
 
-  Widget buildVerificationSection() {
-    final sent = generatedVerificationCode != null;
-
-    return buildMainCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          buildSectionTitle(
-            'التحقق من البريد الإلكتروني',
-            'سيتم إرسال كود تحقق فعلي إلى البريد الإلكتروني.',
-          ),
-          const SizedBox(height: 14),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: isSendingVerification ? null : sendVerificationCode,
-              icon: isSendingVerification
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.mark_email_read_rounded),
-              label: Text(
-                isSendingVerification
-                    ? 'جارٍ إرسال الكود...'
-                    : 'إرسال كود التحقق',
-              ),
-            ),
-          ),
-          if (sent) ...[
-            const SizedBox(height: 14),
-            TextFormField(
-              controller: verificationCodeCtrl,
-              keyboardType: TextInputType.number,
-              decoration: customDecoration(
-                label: 'أدخلي كود التحقق',
-                icon: Icons.verified_user_rounded,
-              ),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: isCheckingVerification ? null : verifyCode,
-                icon: isCheckingVerification
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Icon(
-                        emailVerified
-                            ? Icons.verified_rounded
-                            : Icons.check_circle_outline_rounded,
-                      ),
-                label: Text(
-                  emailVerified
-                      ? 'تم التحقق'
-                      : isCheckingVerification
-                          ? 'جارٍ التحقق...'
-                          : 'تأكيد الكود',
-                ),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
   Widget buildSubmitSection() {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -1659,9 +1381,7 @@ class _ParentRegistrationRequestPageState
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  emailVerified
-                      ? 'البريد الإلكتروني تم التحقق منه ويمكنك الآن إرسال الطلب'
-                      : 'أكملي التحقق من البريد الإلكتروني قبل إرسال الطلب',
+                  'بعد إرسال الطلب ستقوم الإدارة بمراجعته، ثم إنشاء الحساب وتفعيل طريقة الدخول المناسبة عند الموافقة.',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         fontWeight: FontWeight.w700,
                         color: AppColors.textDark,
@@ -1728,8 +1448,6 @@ class _ParentRegistrationRequestPageState
                 label: const Text('إضافة طفل آخر'),
               ),
             ),
-            const SizedBox(height: 14),
-            buildVerificationSection(),
             const SizedBox(height: 18),
             buildSubmitSection(),
             const SizedBox(height: 12),

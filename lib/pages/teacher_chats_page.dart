@@ -104,7 +104,7 @@ class _TeacherChatsPageState extends State<TeacherChatsPage> {
         'role': data['role'] ?? '',
       };
     }).where((user) {
-      final role = (user['role'] ?? '').toString();
+      final role = (user['role'] ?? '').toString().trim().toLowerCase();
       final username = (user['username'] ?? '').toString().trim().toLowerCase();
       final displayName =
           (user['displayName'] ?? '').toString().trim().toLowerCase();
@@ -397,11 +397,12 @@ class _TeacherChatsPageState extends State<TeacherChatsPage> {
         if (snapshot.hasError) {
           return Center(
             child: Text(
-              'حدث خطأ أثناء تحميل المحادثات',
+              'حدث خطأ أثناء تحميل المحادثات: ${snapshot.error}',
               style: TextStyle(
                 color: Colors.red.shade700,
                 fontWeight: FontWeight.w700,
               ),
+              textAlign: TextAlign.center,
             ),
           );
         }
@@ -552,11 +553,12 @@ class _TeacherChatsPageState extends State<TeacherChatsPage> {
               if (snapshot.hasError) {
                 return Center(
                   child: Text(
-                    'حدث خطأ أثناء تحميل أولياء الأمور',
+                    'حدث خطأ أثناء تحميل أولياء الأمور: ${snapshot.error}',
                     style: TextStyle(
                       color: Colors.red.shade700,
                       fontWeight: FontWeight.w700,
                     ),
+                    textAlign: TextAlign.center,
                   ),
                 );
               }

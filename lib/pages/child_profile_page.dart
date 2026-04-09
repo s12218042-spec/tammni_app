@@ -103,6 +103,55 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
     return '--:--';
   }
 
+  String _resolveNote(Map<String, dynamic> data) {
+    final candidates = [
+      data['note'],
+      data['message'],
+      data['body'],
+      data['description'],
+      data['details'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return '';
+  }
+
+  String _resolveType(Map<String, dynamic> data) {
+    final candidates = [
+      data['type'],
+      data['updateType'],
+      data['category'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return 'تحديث';
+  }
+
+  Timestamp? _resolveTimestamp(Map<String, dynamic> data) {
+    final candidates = [
+      data['time'],
+      data['createdAt'],
+      data['timestamp'],
+      data['updatedAt'],
+    ];
+
+    for (final value in candidates) {
+      if (value is Timestamp) return value;
+    }
+
+    return null;
+  }
+
   Future<Map<String, dynamic>?> fetchChildDetails() async {
     final doc = await _firestore.collection('children').doc(widget.child.id).get();
 
@@ -133,17 +182,18 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
 
     final items = snapshot.docs.map((doc) {
       final data = doc.data();
+      final displayTime = _resolveTimestamp(data);
+
       return {
-        'type': data['type'] ?? '',
-        'note': data['note'] ?? '',
-        'time': data['time'],
-        'createdAt': data['createdAt'],
+        'type': _resolveType(data),
+        'note': _resolveNote(data),
+        'displayTime': displayTime,
       };
     }).toList();
 
     items.sort((a, b) {
-      final aTime = (a['time'] as Timestamp?) ?? (a['createdAt'] as Timestamp?);
-      final bTime = (b['time'] as Timestamp?) ?? (b['createdAt'] as Timestamp?);
+      final aTime = a['displayTime'] as Timestamp?;
+      final bTime = b['displayTime'] as Timestamp?;
 
       if (aTime == null && bTime == null) return 0;
       if (aTime == null) return 1;
@@ -166,33 +216,33 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
     for (final doc in snapshot.docs) {
       final data = doc.data();
 
-      final dynamic mediaUrl = data['mediaUrl'];
-      final dynamic mediaType = data['mediaType'];
-      final dynamic hasMedia = data['hasMedia'];
-      final dynamic note = data['note'];
-      final dynamic type = data['type'];
-      final dynamic time = data['time'];
-      final dynamic createdAt = data['createdAt'];
+      final mediaUrl = (data['mediaUrl'] ?? '').toString().trim();
+      final mediaPath = (data['mediaPath'] ?? '').toString().trim();
+      final mediaUrls = data['mediaUrls'];
+      final hasMedia = data['hasMedia'] == true;
+      final mediaType = (data['mediaType'] ?? '').toString().trim();
+      final displayTime = _resolveTimestamp(data);
 
-      final hasAnyMedia = hasMedia == true ||
-          (mediaUrl is String && mediaUrl.trim().isNotEmpty) ||
-          (data['mediaUrls'] is List && (data['mediaUrls'] as List).isNotEmpty);
+      final hasAnyMedia = hasMedia ||
+          mediaUrl.isNotEmpty ||
+          mediaPath.isNotEmpty ||
+          (mediaUrls is List && mediaUrls.isNotEmpty);
 
       if (hasAnyMedia) {
         items.add({
           'mediaUrl': mediaUrl,
+          'mediaPath': mediaPath,
           'mediaType': mediaType,
-          'note': note ?? '',
-          'type': type ?? '',
-          'time': time,
-          'createdAt': createdAt,
+          'note': _resolveNote(data),
+          'type': _resolveType(data),
+          'displayTime': displayTime,
         });
       }
     }
 
     items.sort((a, b) {
-      final aTime = (a['time'] as Timestamp?) ?? (a['createdAt'] as Timestamp?);
-      final bTime = (b['time'] as Timestamp?) ?? (b['createdAt'] as Timestamp?);
+      final aTime = a['displayTime'] as Timestamp?;
+      final bTime = b['displayTime'] as Timestamp?;
 
       if (aTime == null && bTime == null) return 0;
       if (aTime == null) return 1;
@@ -313,7 +363,9 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
                       child: _ProfileInfoBox(
                         icon: Icons.groups_outlined,
                         title: 'المجموعة الحالية',
-                        value: currentGroup.isEmpty ? 'غير محدد' : currentGroup,
+                        value: currentSection == 'Nursery'
+                            ? 'غير مطبق'
+                            : (currentGroup.isEmpty ? 'غير محدد' : currentGroup),
                       ),
                     ),
                   ],
@@ -425,7 +477,7 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
               children: updates
                   .map(
                     (u) => _RecentUpdateTile(
-                      time: timeText(u['time'] ?? u['createdAt']),
+                      time: timeText(u['displayTime']),
                       type: (u['type'] ?? '').toString(),
                       note: (u['note'] ?? '').toString(),
                     ),
@@ -448,6 +500,15 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
                 child: Padding(
                   padding: EdgeInsets.all(18),
                   child: Center(child: CircularProgressIndicator()),
+                ),
+              );
+            }
+
+            if (snapshot.hasError) {
+              return const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text('حدث خطأ أثناء تحميل الوسائط'),
                 ),
               );
             }
@@ -495,7 +556,7 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
                   (item) => _MediaPreviewTile(
                     type: (item['mediaType'] ?? '').toString(),
                     note: (item['note'] ?? '').toString(),
-                    time: timeText(item['time'] ?? item['createdAt']),
+                    time: timeText(item['displayTime']),
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -578,6 +639,15 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
               );
             }
 
+            if (snapshot.hasError) {
+              return const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text('حدث خطأ أثناء تحميل التحديثات'),
+                ),
+              );
+            }
+
             final updates = snapshot.data ?? [];
 
             if (updates.isEmpty) {
@@ -596,7 +666,7 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
               children: updates
                   .map(
                     (u) => _RecentUpdateTile(
-                      time: timeText(u['time'] ?? u['createdAt']),
+                      time: timeText(u['displayTime']),
                       type: (u['type'] ?? '').toString(),
                       note: (u['note'] ?? '').toString(),
                     ),
@@ -732,6 +802,15 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
               );
             }
 
+            if (snapshot.hasError) {
+              return const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text('حدث خطأ أثناء تحميل الوسائط'),
+                ),
+              );
+            }
+
             final mediaItems = snapshot.data ?? [];
 
             if (mediaItems.isEmpty) {
@@ -773,7 +852,7 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
                   (item) => _MediaPreviewTile(
                     type: (item['mediaType'] ?? '').toString(),
                     note: (item['note'] ?? '').toString(),
-                    time: timeText(item['time'] ?? item['createdAt']),
+                    time: timeText(item['displayTime']),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -1096,6 +1175,9 @@ class _RecentUpdateTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final displayType = type.trim().isEmpty ? 'تحديث' : type;
+    final displayText = note.trim().isEmpty ? displayType : '$displayType: $note';
+
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       child: Padding(
@@ -1120,7 +1202,7 @@ class _RecentUpdateTile extends StatelessWidget {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                '$type: $note',
+                displayText,
                 style: const TextStyle(fontSize: 14),
               ),
             ),

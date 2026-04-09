@@ -431,54 +431,72 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
   }
 
   Future<void> openCameraCheckin(ChildModel child) async {
-    final res = await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const CameraCheckinPage()),
-    );
+  final res = await Navigator.push(
+    context,
+    MaterialPageRoute(builder: (_) => const CameraCheckinPage()),
+  );
 
-    if (res is Map) {
-      final path = res['path'] as String?;
-      final type = res['type'] as String?;
+  if (res is Map) {
+    final path = res['path'] as String?;
+    final type = res['type'] as String?;
+    final description = (res['description'] ?? '').toString().trim();
 
-      if (path == null || type == null) return;
+    if (path == null || type == null) return;
 
-      try {
-        final mediaUrl = await _galleryService.uploadChildMedia(
-          childId: child.id,
-          localPath: path,
-          mediaType: type,
-        );
+    try {
+      final mediaUrl = await _galleryService.uploadChildMedia(
+        childId: child.id,
+        localPath: path,
+        mediaType: type,
+      );
 
-        await _firestore.collection('updates').add({
-          'childId': child.id,
-          'childName': child.name,
-          'parentUsername': child.parentUsername,
-          'section': child.section,
-          'group': child.group,
-          'type': 'كاميرا',
-          'note': type == 'image' ? 'صورة للطفل' : 'فيديو قصير للطفل',
-          'createdAt': Timestamp.now(),
-          'time': FieldValue.serverTimestamp(),
-          'byRole': 'nursery',
-          'mediaPath': path,
-          'mediaType': type,
-          'mediaUrl': mediaUrl,
-          'hasMedia': true,
-        });
+      final userInfo = await fetchCurrentUserInfo();
+      final parentInfo = await fetchParentLinkInfo(child);
 
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('تم إرسال التحديث بالكاميرا')),
-        );
-        setState(() {});
-      } catch (e) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('حدث خطأ أثناء حفظ التحديث بالكاميرا: $e')),
-        );
-      }
+      await _firestore.collection('updates').add({
+        'childId': child.id,
+        'childName': child.name,
+        'parentUid': parentInfo['parentUid'],
+        'parentUsername': parentInfo['parentUsername'],
+        'section': child.section,
+        'group': child.group,
+        'type': 'كاميرا',
+        'note': description.isNotEmpty
+         ? description
+         : (type == 'image' ? 'صورة للطفل' : 'فيديو قصير للطفل'),
+        'title': 'تحديث كاميرا',
+        'createdAt': Timestamp.now(),
+        'time': FieldValue.serverTimestamp(),
+        'eventAt': Timestamp.now(),
+        'byRole': userInfo['role'],
+        'createdByUid': userInfo['uid'],
+        'createdByName': userInfo['name'],
+        'createdByRole': userInfo['role'],
+        'mediaPath': path,
+        'mediaType': type,
+        'mediaUrl': mediaUrl,
+        'hasMedia': true,
+        'importance': 'عادي',
+        'tags': ['كاميرا'],
+        'mood': '',
+        'energy': '',
+        'locationLabel': '',
+        'notifyParent': false,
+      });
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم إرسال التحديث بالكاميرا')),
+      );
+      setState(() {});
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('حدث خطأ أثناء حفظ التحديث بالكاميرا: $e')),
+      );
     }
   }
+}
 
   Future<void> openQuickCareUpdate(ChildModel child) async {
     await Navigator.push(
@@ -560,6 +578,57 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
       (route) => false,
     );
   }
+
+Future<Map<String, String>> fetchCurrentUserInfo() async {
+  final currentUser = AuthService().currentUser;
+
+  if (currentUser == null) {
+    return {
+      'uid': '',
+      'name': 'مستخدم غير معروف',
+      'role': '',
+    };
+  }
+
+  final userDoc = await _firestore.collection('users').doc(currentUser.uid).get();
+  final data = userDoc.data() ?? {};
+
+  return {
+    'uid': currentUser.uid,
+    'name': (data['displayName'] ?? data['name'] ?? data['username'] ?? 'مستخدم')
+        .toString(),
+    'role': (data['role'] ?? '').toString(),
+  };
+}
+
+Future<Map<String, String>> fetchParentLinkInfo(ChildModel child) async {
+  String parentUid = '';
+  String parentUsername = child.parentUsername.trim().toLowerCase();
+
+  try {
+    final childDoc = await _firestore.collection('children').doc(child.id).get();
+
+    if (childDoc.exists) {
+      final data = childDoc.data() ?? <String, dynamic>{};
+
+      parentUid = (data['parentUid'] ?? '').toString().trim();
+
+      final docParentUsername =
+          (data['parentUsername'] ?? '').toString().trim().toLowerCase();
+
+      if (docParentUsername.isNotEmpty) {
+        parentUsername = docParentUsername;
+      }
+    }
+  } catch (_) {
+    // fallback على بيانات child الحالية
+  }
+
+  return {
+    'parentUid': parentUid,
+    'parentUsername': parentUsername,
+  };
+}
 
   String formatTime(Timestamp? ts) {
     if (ts == null) return 'غير محدد';

@@ -38,6 +38,11 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
 
   List<ChildModel> get activeChildren => widget.children;
 
+  bool isNurseryRole(String role) {
+    final value = role.trim().toLowerCase();
+    return value == 'nursery' || value == 'nursery_staff';
+  }
+
   String formatTime(Timestamp timestamp) {
     final date = timestamp.toDate();
     final now = DateTime.now();
@@ -104,7 +109,7 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
         'role': data['role'] ?? '',
       };
     }).where((user) {
-      final role = (user['role'] ?? '').toString();
+      final role = (user['role'] ?? '').toString().trim().toLowerCase();
       final username = (user['username'] ?? '').toString().trim().toLowerCase();
       final displayName =
           (user['displayName'] ?? '').toString().trim().toLowerCase();
@@ -168,7 +173,7 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
 
   Widget buildRecentChatCard(MessageModel message) {
     final childForChat = pickChildForMessage(message);
-    final isNurserySender = message.senderRole == 'nursery';
+    final isNurserySender = isNurseryRole(message.senderRole);
 
     final targetUserId = isNurserySender ? message.receiverId : message.senderId;
     final targetUserName =
@@ -397,17 +402,18 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
         if (snapshot.hasError) {
           return Center(
             child: Text(
-              'حدث خطأ أثناء تحميل المحادثات',
+              'حدث خطأ أثناء تحميل المحادثات: ${snapshot.error}',
               style: TextStyle(
                 color: Colors.red.shade700,
                 fontWeight: FontWeight.w700,
               ),
+              textAlign: TextAlign.center,
             ),
           );
         }
 
         final chats = (snapshot.data ?? [])
-            .where((m) => m.senderRole == 'nursery' || m.receiverRole == 'nursery')
+            .where((m) => isNurseryRole(m.senderRole) || isNurseryRole(m.receiverRole))
             .toList();
 
         if (chats.isEmpty) {
@@ -552,11 +558,12 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
               if (snapshot.hasError) {
                 return Center(
                   child: Text(
-                    'حدث خطأ أثناء تحميل أولياء الأمور',
+                    'حدث خطأ أثناء تحميل أولياء الأمور: ${snapshot.error}',
                     style: TextStyle(
                       color: Colors.red.shade700,
                       fontWeight: FontWeight.w700,
                     ),
+                    textAlign: TextAlign.center,
                   ),
                 );
               }

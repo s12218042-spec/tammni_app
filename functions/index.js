@@ -1,224 +1,234 @@
-const functions = require("firebase-functions");
 const admin = require("firebase-admin");
+const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { defineSecret } = require("firebase-functions/params");
 const { Resend } = require("resend");
 
 admin.initializeApp();
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+const db = admin.firestore();
 
-exports.sendUpdateNotification = functions.firestore
-  .document("updates/{updateId}")
-  .onCreate(async (snap, context) => {
-    const update = snap.data();
-
-    if (!update) return null;
-
-    const childId = update.childId;
-    const childName = update.childName || "طفلك";
-    const type = update.type || "تحديث";
-    const note = update.note || "";
-    const byRole = update.byRole || "";
-    const hasMedia = update.hasMedia === true;
-    const mediaType = update.mediaType || null;
-
-    if (!childId) return null;
-
-    try {
-      const childDoc = await admin.firestore().collection("children").doc(childId).get();
-
-      if (!childDoc.exists) {
-        console.log("الطفل غير موجود");
-        return null;
-      }
-
-      const childData = childDoc.data();
-      const parentUid = childData.parentUid;
-
-      if (!parentUid) {
-        console.log("parentUid غير موجود");
-        return null;
-      }
-
-      const userDoc = await admin.firestore().collection("users").doc(parentUid).get();
-
-      if (!userDoc.exists) {
-        console.log("المستخدم غير موجود");
-        return null;
-      }
-
-      const userData = userDoc.data();
-      const fcmTokens = userData.fcmTokens || [];
-
-      if (!Array.isArray(fcmTokens) || fcmTokens.length === 0) {
-        console.log("لا يوجد FCM tokens");
-        return null;
-      }
-
-      let senderText = "المؤسسة";
-      if (byRole === "nursery") senderText = "موظفة الحضانة";
-      if (byRole === "teacher") senderText = "المعلمة";
-
-      let body = `تم إرسال ${type} جديد بخصوص ${childName}`;
-      if (note) {
-        body = `${senderText}: ${note}`;
-      }
-
-      if (hasMedia && mediaType === "image") {
-        body += " 📷";
-      } else if (hasMedia && mediaType === "video") {
-        body += " 🎥";
-      }
-
-      const message = {
-        tokens: fcmTokens,
-        notification: {
-          title: `تحديث جديد لطفلك ${childName}`,
-          body: body,
-        },
-        data: {
-          childId: String(childId),
-          type: String(type),
-          byRole: String(byRole),
-          click_action: "FLUTTER_NOTIFICATION_CLICK",
-        },
-        android: {
-          priority: "high",
-          notification: {
-            channelId: "tammni_updates_channel",
-          },
-        },
-        apns: {
-          payload: {
-            aps: {
-              sound: "default",
-            },
-          },
-        },
-      };
-
-      const response = await admin.messaging().sendEachForMulticast(message);
-
-      console.log("تم إرسال الإشعار", response.successCount);
-
-      if (response.failureCount > 0) {
-        const invalidTokens = [];
-        response.responses.forEach((resp, idx) => {
-          if (!resp.success) {
-            console.log("فشل token:", fcmTokens[idx], resp.error);
-            invalidTokens.push(fcmTokens[idx]);
-          }
-        });
-
-        if (invalidTokens.length > 0) {
-          await admin.firestore().collection("users").doc(parentUid).update({
-            fcmTokens: admin.firestore.FieldValue.arrayRemove(...invalidTokens),
-          });
-        }
-      }
-
-      return null;
-    } catch (error) {
-      console.error("خطأ في إرسال الإشعار:", error);
-      return null;
-    }
-  });
+const RESEND_API_KEY = defineSecret("RESEND_API_KEY");
+const RESEND_SENDER_EMAIL = defineSecret("RESEND_SENDER_EMAIL");
 
 function generateCode() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
-exports.sendParentVerificationCode = functions.https.onCall(async (data, context) => {
-  const email = (data.email || "").toString().trim().toLowerCase();
-  const username = (data.username || "").toString().trim().toLowerCase();
+function isValidEmail(email) {
+  return /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(email);
+}
 
-  if (!email) {
-    throw new functions.https.HttpsError("invalid-argument", "البريد الإلكتروني مطلوب");
+function normalizeEmail(email) {
+  return String(email || "").trim().toLowerCase();
+}
+
+function normalizeUsername(username) {
+  return String(username || "").trim().toLowerCase();
+}
+
+exports.sendParentVerificationCode = onCall(
+  {
+    secrets: [RESEND_API_KEY, RESEND_SENDER_EMAIL],
+  },
+  async (request) => {
+    try {
+      const email = normalizeEmail(request.data?.email);
+      const username = normalizeUsername(request.data?.username);
+
+      if (!email || !username) {
+        throw new HttpsError(
+          "invalid-argument",
+          "البريد الإلكتروني واسم المستخدم مطلوبان."
+        );
+      }
+
+      if (!isValidEmail(email)) {
+        throw new HttpsError(
+          "invalid-argument",
+          "صيغة البريد الإلكتروني غير صحيحة."
+        );
+      }
+
+      if (!/^[a-z0-9_]+$/.test(username) || username.length < 4) {
+        throw new HttpsError(
+          "invalid-argument",
+          "اسم المستخدم غير صالح."
+        );
+      }
+
+      const existingUserByEmail = await db
+        .collection("users")
+        .where("email", "==", email)
+        .limit(1)
+        .get();
+
+      if (!existingUserByEmail.empty) {
+        throw new HttpsError(
+          "already-exists",
+          "البريد الإلكتروني مستخدم مسبقًا."
+        );
+      }
+
+      const existingUserByUsername = await db
+        .collection("users")
+        .where("username", "==", username)
+        .limit(1)
+        .get();
+
+      if (!existingUserByUsername.empty) {
+        throw new HttpsError(
+          "already-exists",
+          "اسم المستخدم مستخدم مسبقًا."
+        );
+      }
+
+      const existingPendingByEmail = await db
+        .collection("registration_requests")
+        .where("parentInfo.email", "==", email)
+        .where("status", "==", "pending")
+        .limit(1)
+        .get();
+
+      if (!existingPendingByEmail.empty) {
+        throw new HttpsError(
+          "already-exists",
+          "يوجد طلب تسجيل قيد المراجعة بنفس البريد الإلكتروني."
+        );
+      }
+
+      const existingPendingByUsername = await db
+        .collection("registration_requests")
+        .where("parentInfo.username", "==", username)
+        .where("status", "==", "pending")
+        .limit(1)
+        .get();
+
+      if (!existingPendingByUsername.empty) {
+        throw new HttpsError(
+          "already-exists",
+          "يوجد طلب تسجيل قيد المراجعة بنفس اسم المستخدم."
+        );
+      }
+
+      const code = generateCode();
+      const now = admin.firestore.Timestamp.now();
+      const expiresAt = admin.firestore.Timestamp.fromMillis(
+        Date.now() + 10 * 60 * 1000
+      );
+
+      await db.collection("email_verification_codes").doc(email).set({
+        email,
+        username,
+        code,
+        verified: false,
+        attempts: 0,
+        createdAt: now,
+        updatedAt: now,
+        expiresAt,
+      });
+
+      const resend = new Resend(RESEND_API_KEY.value());
+
+      await resend.emails.send({
+        from: RESEND_SENDER_EMAIL.value(),
+        to: email,
+        subject: "رمز التحقق - طمّني",
+        html: `
+          <div dir="rtl" style="font-family: Arial, sans-serif; line-height: 1.8; color: #222;">
+            <h2 style="margin-bottom: 8px;">التحقق من البريد الإلكتروني</h2>
+            <p>مرحبًا،</p>
+            <p>رمز التحقق الخاص بك في تطبيق <strong>طمّني</strong> هو:</p>
+            <div style="font-size: 32px; font-weight: bold; letter-spacing: 4px; color: #2D6CDF; margin: 16px 0;">
+              ${code}
+            </div>
+            <p>صلاحية الرمز <strong>10 دقائق</strong>.</p>
+            <p>إذا لم تطلب هذا الرمز، يمكنك تجاهل الرسالة.</p>
+          </div>
+        `,
+      });
+
+      return {
+        success: true,
+        message: "تم إرسال كود التحقق بنجاح.",
+      };
+    } catch (error) {
+      console.error("sendParentVerificationCode error:", error);
+
+      if (error instanceof HttpsError) {
+        throw error;
+      }
+
+      throw new HttpsError(
+        "internal",
+        error.message || "فشل إرسال كود التحقق."
+      );
+    }
   }
+);
 
-  if (!username) {
-    throw new functions.https.HttpsError("invalid-argument", "اسم المستخدم مطلوب");
-  }
-
-  const emailRegex = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
-  if (!emailRegex.test(email)) {
-    throw new functions.https.HttpsError("invalid-argument", "البريد الإلكتروني غير صالح");
-  }
-
+exports.verifyParentVerificationCode = onCall(async (request) => {
   try {
-    const code = generateCode();
-    const now = admin.firestore.Timestamp.now();
-    const expiresAt = admin.firestore.Timestamp.fromDate(
-      new Date(Date.now() + 10 * 60 * 1000)
-    );
+    const email = normalizeEmail(request.data?.email);
+    const code = String(request.data?.code || "").trim();
 
-    await admin.firestore().collection("email_verifications").doc(email).set({
-      email,
-      username,
-      code,
-      verified: false,
-      createdAt: now,
-      updatedAt: now,
-      expiresAt,
-      attempts: 0,
-    }, { merge: true });
-
-    await resend.emails.send({
-      from: process.env.EMAIL_FROM,
-      to: email,
-      subject: "كود التحقق - طمني",
-      html: `
-        <div style="font-family: Arial, sans-serif; direction: rtl; text-align: right;">
-          <h2>كود التحقق</h2>
-          <p>مرحبًا،</p>
-          <p>كود التحقق الخاص بك هو:</p>
-          <h1 style="letter-spacing: 4px;">${code}</h1>
-          <p>صلاحية الكود 10 دقائق.</p>
-          <p>إذا لم تطلب هذا الكود، يمكنك تجاهل الرسالة.</p>
-        </div>
-      `,
-    });
-
-    return { success: true };
-  } catch (error) {
-    console.error("خطأ في إرسال كود التحقق:", error);
-    throw new functions.https.HttpsError("internal", "فشل إرسال كود التحقق");
-  }
-});
-
-exports.verifyParentVerificationCode = functions.https.onCall(async (data, context) => {
-  const email = (data.email || "").toString().trim().toLowerCase();
-  const code = (data.code || "").toString().trim();
-
-  if (!email || !code) {
-    throw new functions.https.HttpsError("invalid-argument", "البريد والكود مطلوبان");
-  }
-
-  try {
-    const docRef = admin.firestore().collection("email_verifications").doc(email);
-    const doc = await docRef.get();
-
-    if (!doc.exists) {
-      return { verified: false };
+    if (!email || !code) {
+      throw new HttpsError(
+        "invalid-argument",
+        "البريد الإلكتروني والكود مطلوبان."
+      );
     }
 
-    const verificationData = doc.data();
+    const docRef = db.collection("email_verification_codes").doc(email);
+    const docSnap = await docRef.get();
 
-    if (!verificationData) {
-      return { verified: false };
+    if (!docSnap.exists) {
+      return {
+        verified: false,
+        message: "لم يتم العثور على كود تحقق لهذا البريد.",
+      };
     }
 
-    const expiresAt = verificationData.expiresAt?.toDate?.();
-    if (!expiresAt || expiresAt.getTime() < Date.now()) {
-      return { verified: false, reason: "expired" };
+    const data = docSnap.data();
+
+    if (!data) {
+      return {
+        verified: false,
+        message: "بيانات التحقق غير صالحة.",
+      };
     }
 
-    if (verificationData.code !== code) {
+    if (data.verified === true) {
+      return {
+        verified: true,
+        message: "تم التحقق مسبقًا.",
+      };
+    }
+
+    const expiresAtMs = data.expiresAt?.toMillis?.() || 0;
+    if (Date.now() > expiresAtMs) {
+      return {
+        verified: false,
+        message: "انتهت صلاحية كود التحقق.",
+      };
+    }
+
+    if ((data.attempts || 0) >= 5) {
+      return {
+        verified: false,
+        message: "تم تجاوز عدد المحاولات المسموح بها. أعد إرسال الكود.",
+      };
+    }
+
+    if (data.code !== code) {
       await docRef.update({
-        attempts: admin.firestore.FieldValue.increment(1),
+        attempts: (data.attempts || 0) + 1,
         updatedAt: admin.firestore.Timestamp.now(),
       });
 
-      return { verified: false, reason: "invalid_code" };
+      return {
+        verified: false,
+        message: "كود التحقق غير صحيح.",
+      };
     }
 
     await docRef.update({
@@ -227,9 +237,20 @@ exports.verifyParentVerificationCode = functions.https.onCall(async (data, conte
       updatedAt: admin.firestore.Timestamp.now(),
     });
 
-    return { verified: true };
+    return {
+      verified: true,
+      message: "تم التحقق من البريد الإلكتروني بنجاح.",
+    };
   } catch (error) {
-    console.error("خطأ في التحقق من الكود:", error);
-    throw new functions.https.HttpsError("internal", "فشل التحقق من الكود");
+    console.error("verifyParentVerificationCode error:", error);
+
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+
+    throw new HttpsError(
+      "internal",
+      error.message || "فشل التحقق من الكود."
+    );
   }
 });

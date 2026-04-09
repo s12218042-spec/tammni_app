@@ -16,13 +16,15 @@ class ParentNurseryLogPage extends StatelessWidget {
   String formatDateTime(dynamic time) {
     if (time is Timestamp) {
       final date = time.toDate();
-      return '${date.year}/${date.month}/${date.day} - ${date.hour}:${date.minute.toString().padLeft(2, '0')}';
+      final hour = date.hour.toString().padLeft(2, '0');
+      final minute = date.minute.toString().padLeft(2, '0');
+      return '${date.year}/${date.month}/${date.day} - $hour:$minute';
     }
     return 'غير محدد';
   }
 
   String eventLabel(String value) {
-    switch (value) {
+    switch (value.trim().toLowerCase()) {
       case 'entry':
         return 'دخول موثّق';
       case 'exit':
@@ -33,7 +35,7 @@ class ParentNurseryLogPage extends StatelessWidget {
   }
 
   Color eventColor(String value) {
-    switch (value) {
+    switch (value.trim().toLowerCase()) {
       case 'entry':
         return Colors.green;
       case 'exit':
@@ -44,7 +46,7 @@ class ParentNurseryLogPage extends StatelessWidget {
   }
 
   IconData eventIcon(String value) {
-    switch (value) {
+    switch (value.trim().toLowerCase()) {
       case 'entry':
         return Icons.login_rounded;
       case 'exit':
@@ -54,10 +56,108 @@ class ParentNurseryLogPage extends StatelessWidget {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
+  String _resolveEventType(Map<String, dynamic> data) {
+    final candidates = [
+      data['eventType'],
+      data['type'],
+      data['action'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return '';
+  }
+
+  String _resolveNote(Map<String, dynamic> data) {
+    final candidates = [
+      data['note'],
+      data['message'],
+      data['body'],
+      data['description'],
+      data['details'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return '';
+  }
+
+  String _resolveCreatedByName(Map<String, dynamic> data) {
+    final candidates = [
+      data['createdByName'],
+      data['byName'],
+      data['staffName'],
+      data['adminName'],
+      data['senderName'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return '';
+  }
+
+  Timestamp? _resolveTimestamp(Map<String, dynamic> data) {
+    final candidates = [
+      data['time'],
+      data['createdAt'],
+      data['timestamp'],
+      data['updatedAt'],
+    ];
+
+    for (final value in candidates) {
+      if (value is Timestamp) return value;
+    }
+
+    return null;
+  }
+
+  Future<List<Map<String, dynamic>>> fetchLogs() async {
     final firestore = FirebaseFirestore.instance;
 
+    final snapshot = await firestore
+        .collection('entry_exit_logs')
+        .where('childId', isEqualTo: child.id)
+        .get();
+
+    final items = snapshot.docs.map((doc) {
+      final data = doc.data();
+
+      return {
+        'eventType': _resolveEventType(data),
+        'note': _resolveNote(data),
+        'createdByName': _resolveCreatedByName(data),
+        'displayTime': _resolveTimestamp(data),
+      };
+    }).toList();
+
+    items.sort((a, b) {
+      final aTime = a['displayTime'] as Timestamp?;
+      final bTime = b['displayTime'] as Timestamp?;
+
+      if (aTime == null && bTime == null) return 0;
+      if (aTime == null) return 1;
+      if (bTime == null) return -1;
+
+      return bTime.compareTo(aTime);
+    });
+
+    return items;
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return AppPageScaffold(
       title: 'السجل الإداري للدخول والخروج',
       child: Column(
@@ -65,12 +165,8 @@ class ParentNurseryLogPage extends StatelessWidget {
           _buildHeader(),
           const SizedBox(height: 16),
           Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: firestore
-                  .collection('entry_exit_logs')
-                  .where('childId', isEqualTo: child.id)
-                  .orderBy('time', descending: true)
-                  .snapshots(),
+            child: FutureBuilder<List<Map<String, dynamic>>>(
+              future: fetchLogs(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(
@@ -87,7 +183,7 @@ class ParentNurseryLogPage extends StatelessWidget {
                   );
                 }
 
-                final docs = snapshot.data?.docs ?? [];
+                final docs = snapshot.data ?? [];
 
                 if (docs.isEmpty) {
                   return ListView(
@@ -104,12 +200,12 @@ class ParentNurseryLogPage extends StatelessWidget {
                   itemCount: docs.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 12),
                   itemBuilder: (context, index) {
-                    final data = docs[index].data() as Map<String, dynamic>;
+                    final data = docs[index];
 
-                    final eventType = data['eventType'] ?? '';
-                    final note = data['note'] ?? '';
-                    final createdByName = data['createdByName'] ?? '';
-                    final time = data['time'];
+                    final eventType = (data['eventType'] ?? '').toString();
+                    final note = (data['note'] ?? '').toString();
+                    final createdByName = (data['createdByName'] ?? '').toString();
+                    final time = data['displayTime'];
 
                     return _NurseryLogCard(
                       eventText: eventLabel(eventType),
@@ -285,7 +381,7 @@ class _NurseryLogCard extends StatelessWidget {
             title: 'الوقت',
             value: timeText,
           ),
-          if (createdByName.toString().trim().isNotEmpty) ...[
+          if (createdByName.trim().isNotEmpty) ...[
             const SizedBox(height: 10),
             _InfoTile(
               title: 'سُجّل بواسطة',

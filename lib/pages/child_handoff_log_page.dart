@@ -121,6 +121,68 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
     super.dispose();
   }
 
+  Future<Map<String, String>> _fetchParentLinkInfo() async {
+    String parentUid = '';
+    String parentUsername = '';
+
+    if (_safeChildId.isEmpty) {
+      return {
+        'parentUid': '',
+        'parentUsername': '',
+      };
+    }
+
+    try {
+      final childDoc = await _firestore.collection('children').doc(_safeChildId).get();
+
+      if (childDoc.exists) {
+        final data = childDoc.data() ?? <String, dynamic>{};
+
+        parentUid = (data['parentUid'] ?? '').toString().trim();
+        parentUsername =
+            (data['parentUsername'] ?? '').toString().trim().toLowerCase();
+      }
+    } catch (_) {
+      // ignore and fallback
+    }
+
+    if (parentUsername.isEmpty) {
+      final child = widget.child;
+
+      if (child is Map<String, dynamic>) {
+        parentUsername =
+            (child['parentUsername'] ?? '').toString().trim().toLowerCase();
+      } else {
+        try {
+          final dynamic username = child?.parentUsername;
+          if (username != null) {
+            parentUsername = username.toString().trim().toLowerCase();
+          }
+        } catch (_) {}
+      }
+    }
+
+    if (parentUid.isEmpty) {
+      final child = widget.child;
+
+      if (child is Map<String, dynamic>) {
+        parentUid = (child['parentUid'] ?? '').toString().trim();
+      } else {
+        try {
+          final dynamic uid = child?.parentUid;
+          if (uid != null) {
+            parentUid = uid.toString().trim();
+          }
+        } catch (_) {}
+      }
+    }
+
+    return {
+      'parentUid': parentUid,
+      'parentUsername': parentUsername,
+    };
+  }
+
   Future<void> _loadLastLog() async {
     if (_safeChildId.isEmpty) return;
 
@@ -256,10 +318,13 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
 
     try {
       final now = DateTime.now();
+      final parentInfo = await _fetchParentLinkInfo();
 
       await _firestore.collection('child_handoffs').add({
         'childId': _safeChildId,
         'childName': _safeChildName,
+        'parentUid': parentInfo['parentUid'],
+        'parentUsername': parentInfo['parentUsername'],
         'handoffType': _handoffType,
         'personName': _personNameController.text.trim(),
         'relation': _relationController.text.trim(),
@@ -930,9 +995,7 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
                             ],
                           ),
                         ),
-
                         _buildStatusCard(),
-
                         _buildSectionCard(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -987,7 +1050,6 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
                             ],
                           ),
                         ),
-
                         _buildSectionCard(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1104,9 +1166,7 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
                             ],
                           ),
                         ),
-
                         _buildSavePreview(),
-
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton.icon(
@@ -1143,9 +1203,7 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
                             ),
                           ),
                         ),
-
                         const SizedBox(height: 14),
-
                         _buildTodayLogs(docs),
                       ],
                     ),

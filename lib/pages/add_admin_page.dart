@@ -1,9 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
-import '../firebase_options.dart';
+import '../services/employee_account_creation_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 
@@ -17,28 +16,25 @@ class AddAdminPage extends StatefulWidget {
 class _AddAdminPageState extends State<AddAdminPage> {
   final _formKey = GlobalKey<FormState>();
 
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
+  final EmployeeAccountCreationService _accountCreationService =
+      EmployeeAccountCreationService();
 
-  // بيانات الحساب
   final fullNameCtrl = TextEditingController();
   final usernameCtrl = TextEditingController();
   final emailCtrl = TextEditingController();
   final passwordCtrl = TextEditingController();
 
-  // البيانات الشخصية
   final nationalIdCtrl = TextEditingController();
   final phoneCtrl = TextEditingController();
   final addressCtrl = TextEditingController();
 
-  // البيانات المهنية
   final jobTitleCtrl = TextEditingController(text: 'أدمن');
   final specializationCtrl = TextEditingController();
   final yearsOfExperienceCtrl = TextEditingController();
   final permissionsCtrl = TextEditingController();
   final cvNotesCtrl = TextEditingController();
 
-  // الطوارئ / الملاحظات
   final emergencyNameCtrl = TextEditingController();
   final emergencyRelationCtrl = TextEditingController();
   final emergencyPhoneCtrl = TextEditingController();
@@ -208,7 +204,7 @@ class _AddAdminPageState extends State<AddAdminPage> {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              'العمر الأدنى المقترح للأدمن هنا 25 سنة. ويمكن تحديد نطاق الإدارة: كل النظام أو الحضانة فقط أو الروضة فقط.',
+              'العمر الأدنى المقترح للأدمن هنا 25 سنة. ويمكن تحديد نطاق الإدارة: كل النظام أو الحضانة فقط أو الروضة فقط، مع التحقق من عدم تكرار الهوية والجوال واسم المستخدم والبريد.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: AppColors.textDark,
                     height: 1.5,
@@ -291,7 +287,7 @@ class _AddAdminPageState extends State<AddAdminPage> {
 
   bool isValidEmail(String value) {
     return RegExp(
-      r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$",
+      r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$',
     ).hasMatch(value.trim());
   }
 
@@ -355,18 +351,6 @@ class _AddAdminPageState extends State<AddAdminPage> {
     return null;
   }
 
-  Future<FirebaseApp> _createSecondaryApp() async {
-    const appName = 'adminCreationApp';
-    try {
-      return Firebase.app(appName);
-    } catch (_) {
-      return Firebase.initializeApp(
-        name: appName,
-        options: DefaultFirebaseOptions.currentPlatform,
-      );
-    }
-  }
-
   Future<void> createAdmin() async {
     final birthError = validateBirthDate();
     final hireError = validateHireDate();
@@ -389,8 +373,6 @@ class _AddAdminPageState extends State<AddAdminPage> {
     FocusScope.of(context).unfocus();
     setState(() => isLoading = true);
 
-    FirebaseApp? tempApp;
-
     try {
       final cleanName = fullNameCtrl.text.trim();
       final cleanUsername = usernameCtrl.text.trim().toLowerCase();
@@ -409,58 +391,23 @@ class _AddAdminPageState extends State<AddAdminPage> {
       final cleanEmergencyPhone = emergencyPhoneCtrl.text.trim();
       final cleanAdminNotes = adminNotesCtrl.text.trim();
 
+      await _accountCreationService.validateCommonUniqueness(
+        username: cleanUsername,
+        email: cleanEmail,
+        nationalId: cleanNationalId,
+        phone: cleanPhone,
+      );
+
       final currentAdmin = _auth.currentUser;
       if (currentAdmin == null) {
         throw Exception('يجب أن يكون الأدمن مسجل الدخول أولاً');
       }
 
-      final usernameExists = await _firestore
-          .collection('users')
-          .where('username', isEqualTo: cleanUsername)
-          .limit(1)
-          .get();
-
-      if (usernameExists.docs.isNotEmpty) {
-        throw Exception('اسم المستخدم مستخدم مسبقًا');
-      }
-
-      final emailExists = await _firestore
-          .collection('users')
-          .where('email', isEqualTo: cleanEmail)
-          .limit(1)
-          .get();
-
-      if (emailExists.docs.isNotEmpty) {
-        throw Exception('البريد الإلكتروني مستخدم مسبقًا');
-      }
-
-      tempApp = await _createSecondaryApp();
-      final tempAuth = FirebaseAuth.instanceFor(app: tempApp);
-
-      final newUserCredential = await tempAuth.createUserWithEmailAndPassword(
-        email: cleanEmail,
-        password: cleanPassword,
-      );
-
-      final newUid = newUserCredential.user!.uid;
-
-      String createdByName = 'الإدارة';
-      final adminDoc =
-          await _firestore.collection('users').doc(currentAdmin.uid).get();
-      if (adminDoc.exists) {
-        createdByName =
-            (adminDoc.data()?['name'] ??
-                    adminDoc.data()?['displayName'] ??
-                    'الإدارة')
-                .toString();
-      }
+      final createdByName = await _accountCreationService.getCurrentAdminName();
 
       final userData = <String, dynamic>{
-        'uid': newUid,
         'name': cleanName,
         'displayName': cleanName,
-        'username': cleanUsername,
-        'email': cleanEmail,
         'role': 'admin',
         'section': adminScope == 'nursery'
             ? 'Nursery'
@@ -471,11 +418,8 @@ class _AddAdminPageState extends State<AddAdminPage> {
         'isActive': true,
         'accountStatus': 'active',
         'invitationVerified': true,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
         'createdByUid': currentAdmin.uid,
         'createdByName': createdByName,
-
         'personalInfo': {
           'nationalId': cleanNationalId,
           'gender': gender,
@@ -484,7 +428,6 @@ class _AddAdminPageState extends State<AddAdminPage> {
           'phone': cleanPhone,
           'address': cleanAddress,
         },
-
         'professionalInfo': {
           'jobTitle': cleanJobTitle,
           'qualification': qualification,
@@ -498,27 +441,30 @@ class _AddAdminPageState extends State<AddAdminPage> {
           'permissions': cleanPermissions,
           'cvNotes': cleanCvNotes,
         },
-
         'emergencyContact': {
           'name': cleanEmergencyName,
           'relation': cleanEmergencyRelation,
           'phone': cleanEmergencyPhone,
         },
-
         'adminNotes': {
           'internalNotes': cleanAdminNotes,
         },
       };
 
-      await _firestore.collection('users').doc(newUid).set(userData);
-
-      await tempAuth.signOut();
+      await _accountCreationService.createEmployeeAccount(
+        secondaryAppName:
+            'adminCreationApp_${DateTime.now().millisecondsSinceEpoch}',
+        name: cleanName,
+        username: cleanUsername,
+        email: cleanEmail,
+        password: cleanPassword,
+        role: 'admin',
+        userData: userData,
+      );
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('تم إنشاء حساب الأدمن بنجاح'),
-        ),
+        const SnackBar(content: Text('تم إنشاء حساب الأدمن بنجاح')),
       );
 
       Navigator.pop(context, true);
@@ -539,17 +485,9 @@ class _AddAdminPageState extends State<AddAdminPage> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
-        ),
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
       );
     } finally {
-      if (tempApp != null) {
-        try {
-          await tempApp.delete();
-        } catch (_) {}
-      }
-
       if (mounted) {
         setState(() => isLoading = false);
       }
@@ -607,7 +545,6 @@ class _AddAdminPageState extends State<AddAdminPage> {
             const SizedBox(height: 16),
             buildInfoCard(),
             const SizedBox(height: 18),
-
             buildMainCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -660,7 +597,9 @@ class _AddAdminPageState extends State<AddAdminPage> {
                     validator: (value) {
                       final text = value?.trim() ?? '';
                       if (text.isEmpty) return 'أدخلي البريد الإلكتروني';
-                      if (!isValidEmail(text)) return 'أدخلي بريدًا إلكترونيًا صالحًا';
+                      if (!isValidEmail(text)) {
+                        return 'أدخلي بريدًا إلكترونيًا صالحًا';
+                      }
                       return null;
                     },
                   ),
@@ -697,9 +636,7 @@ class _AddAdminPageState extends State<AddAdminPage> {
                 ],
               ),
             ),
-
             const SizedBox(height: 14),
-
             buildMainCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -738,9 +675,7 @@ class _AddAdminPageState extends State<AddAdminPage> {
                       DropdownMenuItem(value: 'ذكر', child: Text('ذكر')),
                     ],
                     onChanged: (value) {
-                      if (value != null) {
-                        setState(() => gender = value);
-                      }
+                      if (value != null) setState(() => gender = value);
                     },
                   ),
                   const SizedBox(height: 14),
@@ -764,9 +699,7 @@ class _AddAdminPageState extends State<AddAdminPage> {
                       DropdownMenuItem(value: 'أرمل/ة', child: Text('أرمل/ة')),
                     ],
                     onChanged: (value) {
-                      if (value != null) {
-                        setState(() => maritalStatus = value);
-                      }
+                      if (value != null) setState(() => maritalStatus = value);
                     },
                   ),
                   const SizedBox(height: 14),
@@ -806,9 +739,7 @@ class _AddAdminPageState extends State<AddAdminPage> {
                 ],
               ),
             ),
-
             const SizedBox(height: 14),
-
             buildMainCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -844,9 +775,7 @@ class _AddAdminPageState extends State<AddAdminPage> {
                       DropdownMenuItem(value: 'kindergarten', child: Text('الروضة فقط')),
                     ],
                     onChanged: (value) {
-                      if (value != null) {
-                        setState(() => adminScope = value);
-                      }
+                      if (value != null) setState(() => adminScope = value);
                     },
                   ),
                   const SizedBox(height: 14),
@@ -864,9 +793,7 @@ class _AddAdminPageState extends State<AddAdminPage> {
                       DropdownMenuItem(value: 'أخرى', child: Text('أخرى')),
                     ],
                     onChanged: (value) {
-                      if (value != null) {
-                        setState(() => qualification = value);
-                      }
+                      if (value != null) setState(() => qualification = value);
                     },
                   ),
                   const SizedBox(height: 14),
@@ -924,9 +851,7 @@ class _AddAdminPageState extends State<AddAdminPage> {
                       DropdownMenuItem(value: 'تعاقد مؤقت', child: Text('تعاقد مؤقت')),
                     ],
                     onChanged: (value) {
-                      if (value != null) {
-                        setState(() => employmentType = value);
-                      }
+                      if (value != null) setState(() => employmentType = value);
                     },
                   ),
                   const SizedBox(height: 14),
@@ -944,9 +869,7 @@ class _AddAdminPageState extends State<AddAdminPage> {
                       DropdownMenuItem(value: 'مؤرشف', child: Text('مؤرشف')),
                     ],
                     onChanged: (value) {
-                      if (value != null) {
-                        setState(() => employmentStatus = value);
-                      }
+                      if (value != null) setState(() => employmentStatus = value);
                     },
                   ),
                   const SizedBox(height: 14),
@@ -972,17 +895,12 @@ class _AddAdminPageState extends State<AddAdminPage> {
                 ],
               ),
             ),
-
             const SizedBox(height: 14),
-
             buildMainCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  buildSectionTitle(
-                    'بيانات الطوارئ',
-                    'بيانات التواصل عند الحاجة.',
-                  ),
+                  buildSectionTitle('بيانات الطوارئ', 'بيانات التواصل عند الحاجة.'),
                   const SizedBox(height: 14),
                   TextFormField(
                     controller: emergencyNameCtrl,
@@ -1030,9 +948,7 @@ class _AddAdminPageState extends State<AddAdminPage> {
                 ],
               ),
             ),
-
             const SizedBox(height: 14),
-
             buildMainCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1054,9 +970,7 @@ class _AddAdminPageState extends State<AddAdminPage> {
                 ],
               ),
             ),
-
             const SizedBox(height: 20),
-
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -1108,7 +1022,6 @@ class _AddAdminPageState extends State<AddAdminPage> {
                 ],
               ),
             ),
-
             const SizedBox(height: 12),
           ],
         ),

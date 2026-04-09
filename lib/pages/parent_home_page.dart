@@ -13,6 +13,7 @@ import 'parent_chats_page.dart';
 import 'parent_invoice_page.dart';
 import 'parent_notifications_page.dart';
 import 'parent_updates_page.dart';
+import 'weekly_report_page.dart';
 import 'welcome_page.dart';
 import 'account_settings_page.dart';
 import '../services/account_settings_service.dart';
@@ -184,6 +185,16 @@ class _ParentHomePageState extends State<ParentHomePage> {
     await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => ParentUpdatesPage(child: child)),
+    );
+
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  Future<void> _openWeeklyReport(ChildModel child) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => WeeklyReportPage(child: child)),
     );
 
     if (!mounted) return;
@@ -470,6 +481,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
                       updatesFuture: fetchLastUpdates(child.id),
                       onOpenProfile: () => _openChildProfile(child),
                       onOpenUpdates: () => _openUpdates(child),
+                      onOpenWeeklyReport: () => _openWeeklyReport(child),
                     ),
                   ),
                 ),
@@ -1258,6 +1270,7 @@ class _ChildFollowUpCard extends StatelessWidget {
   final Future<List<Map<String, dynamic>>> updatesFuture;
   final VoidCallback onOpenProfile;
   final VoidCallback onOpenUpdates;
+  final VoidCallback onOpenWeeklyReport;
 
   const _ChildFollowUpCard({
     required this.childModel,
@@ -1268,10 +1281,13 @@ class _ChildFollowUpCard extends StatelessWidget {
     required this.updatesFuture,
     required this.onOpenProfile,
     required this.onOpenUpdates,
+    required this.onOpenWeeklyReport,
   });
 
   @override
   Widget build(BuildContext context) {
+    final showGroup = childModel.section != 'Nursery';
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -1337,7 +1353,9 @@ class _ChildFollowUpCard extends StatelessWidget {
             _CompactInfoRow(
               icon: Icons.groups_2_outlined,
               label: 'المجموعة',
-              value: childModel.group.isEmpty ? 'غير محدد' : childModel.group,
+              value: showGroup
+                  ? (childModel.group.isEmpty ? 'غير محدد' : childModel.group)
+                  : 'غير مطبق',
             ),
             const SizedBox(height: 14),
             Align(
@@ -1384,6 +1402,11 @@ class _ChildFollowUpCard extends StatelessWidget {
                 }
 
                 final latest = updates.first;
+                final latestType = (latest['type'] ?? '').toString().trim();
+                final latestNote = (latest['note'] ?? '').toString().trim();
+                final latestText = latestNote.isEmpty
+                    ? (latestType.isEmpty ? 'تحديث جديد' : latestType)
+                    : '${latestType.isEmpty ? 'تحديث' : latestType}: $latestNote';
 
                 return Container(
                   width: double.infinity,
@@ -1415,7 +1438,7 @@ class _ChildFollowUpCard extends StatelessWidget {
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          '${latest['type']}: ${latest['note']}',
+                          latestText,
                           style: const TextStyle(fontSize: 13.5),
                         ),
                       ),
@@ -1449,6 +1472,21 @@ class _ChildFollowUpCard extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: onOpenWeeklyReport,
+                icon: const Icon(Icons.description_outlined),
+                label: const Text('التقرير الأسبوعي'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 50),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+              ),
             ),
           ],
         ),

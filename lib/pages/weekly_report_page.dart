@@ -42,32 +42,32 @@ class _WeeklyReportPageState extends State<WeeklyReportPage> {
     return name.trim().substring(0, 1);
   }
 
-   String childAgeText(DateTime? birthDate) {
-  if (birthDate == null) return 'غير محدد';
+  String childAgeText(DateTime? birthDate) {
+    if (birthDate == null) return 'غير محدد';
 
-  final now = DateTime.now();
-  int years = now.year - birthDate.year;
-  int months = now.month - birthDate.month;
+    final now = DateTime.now();
+    int years = now.year - birthDate.year;
+    int months = now.month - birthDate.month;
 
-  if (now.day < birthDate.day) {
-    months--;
+    if (now.day < birthDate.day) {
+      months--;
+    }
+
+    if (months < 0) {
+      years--;
+      months += 12;
+    }
+
+    if (years <= 0) {
+      return '$months شهر';
+    }
+
+    if (months == 0) {
+      return '$years سنة';
+    }
+
+    return '$years سنة و $months شهر';
   }
-
-  if (months < 0) {
-    years--;
-    months += 12;
-  }
-
-  if (years <= 0) {
-    return '$months شهر';
-  }
-
-  if (months == 0) {
-    return '$years سنة';
-  }
-
-  return '$years سنة و $months شهر';
-}
 
   String formatDate(Timestamp? timestamp) {
     if (timestamp == null) return '--/--/----';
@@ -76,6 +76,55 @@ class _WeeklyReportPageState extends State<WeeklyReportPage> {
     final m = t.month.toString().padLeft(2, '0');
     final d = t.day.toString().padLeft(2, '0');
     return '$y/$m/$d';
+  }
+
+  String _resolveNote(Map<String, dynamic> data) {
+    final candidates = [
+      data['note'],
+      data['message'],
+      data['body'],
+      data['description'],
+      data['details'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return '';
+  }
+
+  String _resolveType(Map<String, dynamic> data) {
+    final candidates = [
+      data['type'],
+      data['updateType'],
+      data['category'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return 'غير محدد';
+  }
+
+  Timestamp? _resolveTimestamp(Map<String, dynamic> data) {
+    final candidates = [
+      data['time'],
+      data['createdAt'],
+      data['timestamp'],
+      data['updatedAt'],
+    ];
+
+    for (final value in candidates) {
+      if (value is Timestamp) return value;
+    }
+
+    return null;
   }
 
   Future<Map<String, dynamic>?> fetchChildDetails() async {
@@ -89,9 +138,9 @@ class _WeeklyReportPageState extends State<WeeklyReportPage> {
       'section': data['section'] ?? widget.child.section,
       'group': data['group'] ?? widget.child.group,
       'birthDate': data['birthDate'] ??
-    (widget.child.birthDate != null
-        ? Timestamp.fromDate(widget.child.birthDate!)
-        : null),
+          (widget.child.birthDate != null
+              ? Timestamp.fromDate(widget.child.birthDate!)
+              : null),
       'isActive': data['isActive'] ?? true,
       'status': data['status'] ?? 'active',
     };
@@ -109,24 +158,27 @@ class _WeeklyReportPageState extends State<WeeklyReportPage> {
 
     final items = snapshot.docs.map((doc) {
       final data = doc.data();
+      final displayTime = _resolveTimestamp(data);
+
       return {
         'id': doc.id,
-        'type': data['type'] ?? '',
-        'note': data['note'] ?? '',
-        'time': data['time'] as Timestamp?,
-        'createdAt': data['createdAt'] as Timestamp?,
-        'hasMedia': data['hasMedia'] == true,
-        'mediaType': data['mediaType'] ?? '',
+        'type': _resolveType(data),
+        'note': _resolveNote(data),
+        'displayTime': displayTime,
+        'hasMedia': data['hasMedia'] == true ||
+            (data['mediaUrl'] ?? '').toString().trim().isNotEmpty ||
+            (data['mediaPath'] ?? '').toString().trim().isNotEmpty,
+        'mediaType': (data['mediaType'] ?? '').toString(),
       };
     }).where((item) {
-      final ts = (item['time'] as Timestamp?) ?? (item['createdAt'] as Timestamp?);
+      final ts = item['displayTime'] as Timestamp?;
       if (ts == null) return false;
       return !ts.toDate().isBefore(startDate);
     }).toList();
 
     items.sort((a, b) {
-      final aTime = (a['time'] as Timestamp?) ?? (a['createdAt'] as Timestamp?);
-      final bTime = (b['time'] as Timestamp?) ?? (b['createdAt'] as Timestamp?);
+      final aTime = a['displayTime'] as Timestamp?;
+      final bTime = b['displayTime'] as Timestamp?;
 
       if (aTime == null && bTime == null) return 0;
       if (aTime == null) return 1;
@@ -176,6 +228,10 @@ class _WeeklyReportPageState extends State<WeeklyReportPage> {
 
   int countByTypes(List<Map<String, dynamic>> updates, List<String> types) {
     return updates.where((u) => types.contains((u['type'] ?? '').toString())).length;
+  }
+
+  int countMediaItems(List<Map<String, dynamic>> updates) {
+    return updates.where((u) => u['hasMedia'] == true).length;
   }
 
   Map<String, int> buildTypeMap(List<Map<String, dynamic>> updates) {
@@ -259,7 +315,7 @@ class _WeeklyReportPageState extends State<WeeklyReportPage> {
                 final homeworkCount = countByTypes(updates, ['واجب']);
                 final evaluationCount = countByTypes(updates, ['تقييم']);
                 final planCount = countByTypes(updates, ['خطة اليوم']);
-                final cameraCount = countByTypes(updates, ['كاميرا']);
+                final mediaCount = countMediaItems(updates);
 
                 return ListView(
                   physics: const AlwaysScrollableScrollPhysics(),
@@ -335,7 +391,6 @@ class _WeeklyReportPageState extends State<WeeklyReportPage> {
                       ),
                     ),
                     const SizedBox(height: 16),
-
                     Card(
                       child: Padding(
                         padding: const EdgeInsets.all(16),
@@ -355,7 +410,9 @@ class _WeeklyReportPageState extends State<WeeklyReportPage> {
                                   child: _InfoMiniCard(
                                     icon: Icons.groups_outlined,
                                     title: 'المجموعة',
-                                    value: currentGroup.isEmpty ? 'غير محدد' : currentGroup,
+                                    value: currentSection == 'Nursery'
+                                        ? 'غير مطبق'
+                                        : (currentGroup.isEmpty ? 'غير محدد' : currentGroup),
                                   ),
                                 ),
                               ],
@@ -390,9 +447,7 @@ class _WeeklyReportPageState extends State<WeeklyReportPage> {
                         ),
                       ),
                     ),
-
                     const SizedBox(height: 16),
-
                     Text(
                       'ملخص الأسبوع',
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
@@ -400,7 +455,6 @@ class _WeeklyReportPageState extends State<WeeklyReportPage> {
                           ),
                     ),
                     const SizedBox(height: 10),
-
                     Row(
                       children: [
                         Expanded(
@@ -420,9 +474,7 @@ class _WeeklyReportPageState extends State<WeeklyReportPage> {
                         ),
                       ],
                     ),
-
                     const SizedBox(height: 10),
-
                     if (currentSection == 'Kindergarten')
                       FutureBuilder<int>(
                         future: fetchWeeklyAttendanceCount(),
@@ -445,9 +497,7 @@ class _WeeklyReportPageState extends State<WeeklyReportPage> {
                         value:
                             'الحضانة تعتمد على الزيارات والتحديثات وليس الحضور اليومي الثابت',
                       ),
-
                     const SizedBox(height: 18),
-
                     Text(
                       currentSection == 'Nursery' ? 'تفاصيل الحضانة' : 'تفاصيل الروضة',
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
@@ -455,7 +505,6 @@ class _WeeklyReportPageState extends State<WeeklyReportPage> {
                           ),
                     ),
                     const SizedBox(height: 10),
-
                     if (currentSection == 'Nursery') ...[
                       Row(
                         children: [
@@ -500,8 +549,8 @@ class _WeeklyReportPageState extends State<WeeklyReportPage> {
                       _WideInfoCard(
                         icon: Icons.camera_alt_outlined,
                         color: AppColors.secondary,
-                        title: 'وسائط الكاميرا',
-                        value: '$cameraCount مرفقات هذا الأسبوع',
+                        title: 'الوسائط',
+                        value: '$mediaCount مرفقات هذا الأسبوع',
                       ),
                     ] else ...[
                       Row(
@@ -544,9 +593,7 @@ class _WeeklyReportPageState extends State<WeeklyReportPage> {
                         ],
                       ),
                     ],
-
                     const SizedBox(height: 18),
-
                     Text(
                       'أحدث تحديثات الأسبوع',
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
@@ -554,7 +601,6 @@ class _WeeklyReportPageState extends State<WeeklyReportPage> {
                           ),
                     ),
                     const SizedBox(height: 10),
-
                     if (updates.isEmpty)
                       Card(
                         child: Padding(
@@ -586,8 +632,9 @@ class _WeeklyReportPageState extends State<WeeklyReportPage> {
                     else
                       ...updates.take(5).map(
                         (u) {
-                          final ts = (u['time'] as Timestamp?) ??
-                              (u['createdAt'] as Timestamp?);
+                          final ts = u['displayTime'] as Timestamp?;
+                          final type = (u['type'] ?? 'تحديث').toString();
+                          final note = (u['note'] ?? '').toString();
 
                           return Card(
                             child: Padding(
@@ -615,7 +662,9 @@ class _WeeklyReportPageState extends State<WeeklyReportPage> {
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: Text(
-                                      '${u['type']}: ${u['note']}',
+                                      note.trim().isNotEmpty
+                                          ? '$type: $note'
+                                          : type,
                                       style: const TextStyle(fontSize: 14),
                                     ),
                                   ),

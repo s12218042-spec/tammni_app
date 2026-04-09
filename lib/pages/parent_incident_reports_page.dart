@@ -16,11 +16,13 @@ class ParentIncidentReportsPage extends StatelessWidget {
   String _formatDate(Timestamp? ts) {
     if (ts == null) return '-';
     final d = ts.toDate();
-    return '${d.year}/${d.month}/${d.day} - ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+    final hour = d.hour.toString().padLeft(2, '0');
+    final minute = d.minute.toString().padLeft(2, '0');
+    return '${d.year}/${d.month}/${d.day} - $hour:$minute';
   }
 
   Color _priorityColor(String priority) {
-    switch (priority) {
+    switch (priority.trim().toLowerCase()) {
       case 'high':
         return Colors.red;
       case 'medium':
@@ -33,7 +35,7 @@ class ParentIncidentReportsPage extends StatelessWidget {
   }
 
   String _priorityLabel(String priority) {
-    switch (priority) {
+    switch (priority.trim().toLowerCase()) {
       case 'high':
         return 'عالية';
       case 'medium':
@@ -41,12 +43,12 @@ class ParentIncidentReportsPage extends StatelessWidget {
       case 'low':
         return 'منخفضة';
       default:
-        return priority.isEmpty ? 'غير محددة' : priority;
+        return priority.trim().isEmpty ? 'غير محددة' : priority;
     }
   }
 
   String _incidentTypeLabel(String type) {
-    switch (type) {
+    switch (type.trim().toLowerCase()) {
       case 'health':
         return 'ملاحظة صحية';
       case 'injury':
@@ -56,8 +58,156 @@ class ParentIncidentReportsPage extends StatelessWidget {
       case 'accident':
         return 'حادث';
       default:
-        return type.isEmpty ? 'بلاغ' : type;
+        return type.trim().isEmpty ? 'بلاغ' : type;
     }
+  }
+
+  String _resolveIncidentType(Map<String, dynamic> data) {
+    final candidates = [
+      data['incidentType'],
+      data['type'],
+      data['reportType'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return '';
+  }
+
+  String _resolvePriority(Map<String, dynamic> data) {
+    final candidates = [
+      data['priority'],
+      data['severity'],
+      data['level'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return '';
+  }
+
+  String _resolveDetails(Map<String, dynamic> data) {
+    final candidates = [
+      data['details'],
+      data['note'],
+      data['message'],
+      data['body'],
+      data['description'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return '';
+  }
+
+  String _resolveActionTaken(Map<String, dynamic> data) {
+    final candidates = [
+      data['actionTaken'],
+      data['action'],
+      data['response'],
+      data['actionNote'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return '';
+  }
+
+  String _resolveCreatedByName(Map<String, dynamic> data) {
+    final candidates = [
+      data['createdByName'],
+      data['byName'],
+      data['staffName'],
+      data['adminName'],
+      data['senderName'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return '';
+  }
+
+  bool _resolveParentNotified(Map<String, dynamic> data) {
+    final candidates = [
+      data['parentNotified'],
+      data['notifiedParent'],
+      data['isParentNotified'],
+    ];
+
+    for (final value in candidates) {
+      if (value is bool) return value;
+    }
+
+    return false;
+  }
+
+  Timestamp? _resolveTimestamp(Map<String, dynamic> data) {
+    final candidates = [
+      data['createdAt'],
+      data['time'],
+      data['timestamp'],
+      data['updatedAt'],
+    ];
+
+    for (final value in candidates) {
+      if (value is Timestamp) return value;
+    }
+
+    return null;
+  }
+
+  Future<List<Map<String, dynamic>>> fetchIncidentReports() async {
+    final snapshot = await FirebaseFirestore.instance
+        .collection('incident_reports')
+        .where('childId', isEqualTo: child.id)
+        .get();
+
+    final items = snapshot.docs.map((doc) {
+      final data = doc.data();
+
+      return {
+        'incidentType': _resolveIncidentType(data),
+        'priority': _resolvePriority(data),
+        'details': _resolveDetails(data),
+        'actionTaken': _resolveActionTaken(data),
+        'parentNotified': _resolveParentNotified(data),
+        'createdByName': _resolveCreatedByName(data),
+        'displayTime': _resolveTimestamp(data),
+      };
+    }).toList();
+
+    items.sort((a, b) {
+      final aTime = a['displayTime'] as Timestamp?;
+      final bTime = b['displayTime'] as Timestamp?;
+
+      if (aTime == null && bTime == null) return 0;
+      if (aTime == null) return 1;
+      if (bTime == null) return -1;
+
+      return bTime.compareTo(aTime);
+    });
+
+    return items;
   }
 
   @override
@@ -97,12 +247,8 @@ class ParentIncidentReportsPage extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('incident_reports')
-                  .where('childId', isEqualTo: child.id)
-                  .orderBy('createdAt', descending: true)
-                  .snapshots(),
+            child: FutureBuilder<List<Map<String, dynamic>>>(
+              future: fetchIncidentReports(),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
                   return Card(
@@ -120,7 +266,7 @@ class ParentIncidentReportsPage extends StatelessWidget {
                   return const Center(child: CircularProgressIndicator());
                 }
 
-                final docs = snapshot.data?.docs ?? [];
+                final docs = snapshot.data ?? [];
 
                 if (docs.isEmpty) {
                   return Card(
@@ -153,18 +299,14 @@ class ParentIncidentReportsPage extends StatelessWidget {
                   itemCount: docs.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 10),
                   itemBuilder: (context, index) {
-                    final data = docs[index].data() as Map<String, dynamic>;
-                    final incidentType =
-                        (data['incidentType'] ?? '').toString();
+                    final data = docs[index];
+                    final incidentType = (data['incidentType'] ?? '').toString();
                     final priority = (data['priority'] ?? '').toString();
                     final details = (data['details'] ?? '').toString();
-                    final actionTaken =
-                        (data['actionTaken'] ?? '').toString();
-                    final parentNotified =
-                        (data['parentNotified'] ?? false) == true;
-                    final createdByName =
-                        (data['createdByName'] ?? '').toString();
-                    final createdAt = data['createdAt'] as Timestamp?;
+                    final actionTaken = (data['actionTaken'] ?? '').toString();
+                    final parentNotified = data['parentNotified'] == true;
+                    final createdByName = (data['createdByName'] ?? '').toString();
+                    final createdAt = data['displayTime'] as Timestamp?;
                     final priorityColor = _priorityColor(priority);
 
                     return Card(
@@ -227,7 +369,7 @@ class ParentIncidentReportsPage extends StatelessWidget {
                                 ),
                               ],
                             ),
-                            if (details.isNotEmpty) ...[
+                            if (details.trim().isNotEmpty) ...[
                               const SizedBox(height: 12),
                               const Text(
                                 'التفاصيل',
@@ -241,7 +383,7 @@ class ParentIncidentReportsPage extends StatelessWidget {
                                 style: const TextStyle(height: 1.45),
                               ),
                             ],
-                            if (actionTaken.isNotEmpty) ...[
+                            if (actionTaken.trim().isNotEmpty) ...[
                               const SizedBox(height: 12),
                               const Text(
                                 'الإجراء المتخذ',
@@ -288,7 +430,7 @@ class ParentIncidentReportsPage extends StatelessWidget {
                                     ),
                                   ),
                                 ),
-                                if (createdByName.isNotEmpty)
+                                if (createdByName.trim().isNotEmpty)
                                   Container(
                                     padding: const EdgeInsets.symmetric(
                                       horizontal: 10,

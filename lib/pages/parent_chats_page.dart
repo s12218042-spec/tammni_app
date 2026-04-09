@@ -44,6 +44,11 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
 
   List<ChildModel> get activeChildren => widget.children;
 
+  bool isNurseryRole(String role) {
+    final value = role.trim().toLowerCase();
+    return value == 'nursery' || value == 'nursery_staff';
+  }
+
   Set<String> get allowedSections {
     final sections = <String>{};
 
@@ -72,7 +77,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
   }
 
   String roleLabel(String role) {
-    if (role == 'nursery') return 'موظف حضانة';
+    if (isNurseryRole(role)) return 'موظفة حضانة';
     if (role == 'teacher') return 'معلمة';
     if (role == 'admin') return 'الإدارة';
     if (role == 'parent') return 'ولي أمر';
@@ -86,7 +91,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
   }
 
   IconData roleIcon(String role) {
-    if (role == 'nursery') return Icons.child_care_outlined;
+    if (isNurseryRole(role)) return Icons.child_care_outlined;
     if (role == 'teacher') return Icons.school_outlined;
     if (role == 'admin') return Icons.business_outlined;
     if (role == 'parent') return Icons.person_outline;
@@ -135,20 +140,21 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
       };
     }).where((person) {
       final id = (person['id'] ?? '').toString();
-      final role = (person['role'] ?? '').toString();
+      final role = (person['role'] ?? '').toString().trim().toLowerCase();
       final section = (person['section'] ?? '').toString();
       final name = (person['displayName'] ?? '').toString().toLowerCase();
       final username = (person['username'] ?? '').toString().toLowerCase();
 
       if (id == currentUserId) return false;
 
-      final allowedRole =
-          role == 'teacher' || role == 'nursery' || role == 'admin';
+      final allowedRole = role == 'teacher' ||
+          isNurseryRole(role) ||
+          role == 'admin';
 
       if (!allowedRole) return false;
 
       if (role == 'admin') {
-        if (section.isNotEmpty && !sections.contains(section)) {
+        if (section.isNotEmpty && section != 'all' && !sections.contains(section)) {
           return false;
         }
       } else {
