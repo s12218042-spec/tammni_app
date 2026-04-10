@@ -103,7 +103,7 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
         }
       }
     } catch (_) {
-      // fallback على بيانات widget.child
+      // fallback
     }
 
     return {
@@ -296,9 +296,11 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
         'section': widget.child.section,
         'group': widget.child.group,
         'type': selectedType,
+        'title': 'تحديث رعاية سريع',
         'note': finalNote,
         'createdAt': Timestamp.now(),
         'time': FieldValue.serverTimestamp(),
+        'eventAt': Timestamp.now(),
         'byRole': userInfo['role'],
         'createdByUid': userInfo['uid'],
         'createdByName': userInfo['name'],
@@ -307,10 +309,15 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
         'mediaType': null,
         'mediaPath': null,
         'mediaUrl': null,
+        'storageProvider': null,
+        'bucket': null,
+        'mimeType': null,
+        'sizeBytes': null,
         'quickCareStatus': getStatusLabel(),
         'childMood': childMood,
         'quantityLevel': quantityLevel,
         'symptoms': selectedSymptoms,
+        'notifyParent': false,
       });
 
       if (!mounted) return;

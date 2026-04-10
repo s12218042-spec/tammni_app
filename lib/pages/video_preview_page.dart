@@ -40,9 +40,16 @@ class _VideoPreviewPageState extends State<VideoPreviewPage> {
     super.dispose();
   }
 
+  bool _isWebBlobPath(String value) {
+    final lower = value.trim().toLowerCase();
+    return lower.startsWith('blob:');
+  }
+
   bool _isNetworkPath(String value) {
     final lower = value.trim().toLowerCase();
-    return lower.startsWith('http://') || lower.startsWith('https://');
+    return lower.startsWith('http://') ||
+        lower.startsWith('https://') ||
+        lower.startsWith('blob:');
   }
 
   bool _isFilePath(String value) {
@@ -178,6 +185,7 @@ class _VideoPreviewPageState extends State<VideoPreviewPage> {
   }
 
   Widget _buildErrorState() {
+    final isBlob = _isWebBlobPath(widget.path);
     final isLikelyLocalPath = !_isNetworkPath(widget.path);
 
     return Card(
@@ -201,9 +209,11 @@ class _VideoPreviewPageState extends State<VideoPreviewPage> {
             ),
             const SizedBox(height: 10),
             Text(
-              isLikelyLocalPath
-                  ? 'هذا الفيديو يبدو أنه محفوظ كملف محلي على جهاز آخر، لذلك لا يمكن فتحه هنا. يجب رفعه إلى Firebase Storage وحفظ رابط التحميل ليتمكن وليّ الأمر من مشاهدته.'
-                  : 'تعذر تحميل رابط الفيديو. تأكدي من صحة الرابط واتصال الإنترنت.',
+              isBlob
+                  ? 'تم التقاط الفيديو لكن المتصفح لم يتمكن من تشغيل رابط الـ blob داخل المعاينة الحالية. هذا لا يعني بالضرورة أن الرفع سيفشل، لكنه يعني أن المعاينة المحلية لم تعمل.'
+                  : isLikelyLocalPath
+                      ? 'هذا الفيديو يبدو أنه محفوظ كملف محلي على جهاز آخر، لذلك لا يمكن فتحه هنا. يجب رفعه إلى التخزين وحفظ رابط التحميل ليتمكن وليّ الأمر من مشاهدته.'
+                      : 'تعذر تحميل رابط الفيديو. تأكدي من صحة الرابط واتصال الإنترنت.',
               textAlign: TextAlign.center,
               style: const TextStyle(
                 height: 1.6,

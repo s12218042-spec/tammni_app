@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../theme/app_theme.dart';
 import '../utils/child_section_utils.dart';
@@ -22,17 +23,14 @@ class _ParentRegistrationRequestPageState
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  // بيانات الحساب
   final fullNameCtrl = TextEditingController();
   final usernameCtrl = TextEditingController();
   final emailCtrl = TextEditingController();
 
-  // البيانات الشخصية
   final nationalIdCtrl = TextEditingController();
   final birthDateCtrl = TextEditingController();
   final addressCtrl = TextEditingController();
 
-  // التواصل
   final phoneCtrl = TextEditingController();
   final alternatePhoneCtrl = TextEditingController();
   final cityCtrl = TextEditingController();
@@ -41,12 +39,10 @@ class _ParentRegistrationRequestPageState
   final workPhoneCtrl = TextEditingController();
   final preferredContactTimeCtrl = TextEditingController();
 
-  // الطوارئ
   final emergencyNameCtrl = TextEditingController();
   final emergencyRelationCtrl = TextEditingController();
   final emergencyPhoneCtrl = TextEditingController();
 
-  // ملاحظات
   final notesCtrl = TextEditingController();
 
   String selectedGender = 'female';
@@ -215,7 +211,7 @@ class _ParentRegistrationRequestPageState
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'املئي البيانات بدقة ثم تحققي من البريد الإلكتروني قبل إرسال الطلب ليتم مراجعته من الإدارة.',
+                  'املئي البيانات بدقة، ثم تحققي من البريد الإلكتروني في الخطوة الأخيرة قبل إرسال الطلب ليتم مراجعته من الإدارة.',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: AppColors.textLight,
                         height: 1.45,
@@ -247,7 +243,7 @@ class _ParentRegistrationRequestPageState
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              'هذا النموذج مخصص لإرسال طلب إنشاء حساب. يجب أولًا التحقق من البريد الإلكتروني. بعد موافقة الإدارة سيتم إرسال رابط تعيين كلمة المرور إلى البريد نفسه.',
+              'هذا النموذج مخصص لإرسال طلب إنشاء حساب. بعد موافقة الإدارة سيتم إرسال رابط تعيين كلمة المرور إلى البريد نفسه. يتم تحديد القسم تلقائيًا من عمر الطفل، أما المجموعة فتُحدد لاحقًا من الإدارة.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: AppColors.textDark,
                     height: 1.5,
@@ -270,6 +266,21 @@ class _ParentRegistrationRequestPageState
     return List.generate(12, (_) => chars[random.nextInt(chars.length)]).join();
   }
 
+  bool _isValidPalestinianIdChecksum(String id) {
+    if (!RegExp(r'^\d{9}$').hasMatch(id)) return false;
+
+    int sum = 0;
+    for (int i = 0; i < id.length; i++) {
+      int digit = int.parse(id[i]);
+      int factor = (i % 2 == 0) ? 1 : 2;
+      int result = digit * factor;
+      if (result > 9) result -= 9;
+      sum += result;
+    }
+
+    return sum % 10 == 0;
+  }
+
   String? _validatePalestinianId(String value) {
     final clean = value.trim();
 
@@ -281,27 +292,43 @@ class _ParentRegistrationRequestPageState
       return 'رقم الهوية يجب أن يتكون من 9 أرقام';
     }
 
+    if (RegExp(r'^(\d)\1{8}$').hasMatch(clean)) {
+      return 'رقم الهوية غير صالح';
+    }
+
+    if (!_isValidPalestinianIdChecksum(clean)) {
+      return 'رقم الهوية غير صالح';
+    }
+
     return null;
   }
 
   bool _isValidPalestinianMobile(String value) {
     final clean = value.trim();
-    return RegExp(r'^(059|056)\d{7}$').hasMatch(clean);
+    return RegExp(r'^(059|056|052)\d{7}$').hasMatch(clean);
   }
 
-  String? _validatePalestinianMobile(String value, {required String label}) {
+  String? _validatePalestinianMobile(
+    String value, {
+    required String label,
+    bool requiredField = true,
+  }) {
     final clean = value.trim();
 
     if (clean.isEmpty) {
-      return '$label مطلوب';
+      return requiredField ? '$label مطلوب' : null;
     }
 
     if (!RegExp(r'^\d{10}$').hasMatch(clean)) {
       return '$label يجب أن يتكون من 10 أرقام';
     }
 
+    if (RegExp(r'^(\d)\1{9}$').hasMatch(clean)) {
+      return '$label غير صالح';
+    }
+
     if (!_isValidPalestinianMobile(clean)) {
-      return '$label يجب أن يكون رقم جوال فلسطيني صحيحًا (059 أو 056)';
+      return '$label يجب أن يكون رقم جوال صحيحًا يبدأ بـ 059 أو 056 أو 052';
     }
 
     return null;
@@ -313,13 +340,12 @@ class _ParentRegistrationRequestPageState
 
     if (clean.isEmpty) return null;
 
-    if (!RegExp(r'^\d{10}$').hasMatch(clean)) {
-      return 'رقم الجوال البديل يجب أن يتكون من 10 أرقام';
-    }
-
-    if (!_isValidPalestinianMobile(clean)) {
-      return 'رقم الجوال البديل يجب أن يكون رقم جوال فلسطيني صحيحًا (059 أو 056)';
-    }
+    final validation = _validatePalestinianMobile(
+      clean,
+      label: 'رقم الجوال البديل',
+      requiredField: false,
+    );
+    if (validation != null) return validation;
 
     if (mainPhone.isNotEmpty && clean == mainPhone) {
       return 'رقم الجوال البديل يجب أن يكون مختلفًا عن الأساسي';
@@ -381,32 +407,26 @@ class _ParentRegistrationRequestPageState
     ).hasMatch(clean);
   }
 
-  bool _shouldShowGroupField(_ChildDraft child) {
-    return ChildSectionUtils.shouldShowGroupField(child.section);
+  Future<bool> _usernameExistsAnywhere(String username) async {
+    final clean = normalizeUsername(username);
+
+    final lookupDoc =
+        await _firestore.collection('login_usernames').doc(clean).get();
+
+    return lookupDoc.exists;
   }
 
-  Future<bool> _usernameExistsAnywhere(String username) async {
-  final clean = normalizeUsername(username);
-
-  final lookupDoc = await _firestore
-      .collection('login_usernames')
-      .doc(clean)
-      .get();
-
-  return lookupDoc.exists;
-}
-
   Future<bool> _emailExistsAnywhere(String email) async {
-  final clean = email.trim().toLowerCase();
+    final clean = email.trim().toLowerCase();
 
-  final snapshot = await _firestore
-      .collection('login_usernames')
-      .where('email', isEqualTo: clean)
-      .limit(1)
-      .get();
+    final snapshot = await _firestore
+        .collection('login_usernames')
+        .where('email', isEqualTo: clean)
+        .limit(1)
+        .get();
 
-  return snapshot.docs.isNotEmpty;
-}
+    return snapshot.docs.isNotEmpty;
+  }
 
   bool _isValidEmail(String value) {
     return _isValidEmailFormat(value.trim().toLowerCase());
@@ -439,18 +459,12 @@ class _ParentRegistrationRequestPageState
     if (picked == null) return;
 
     final sectionResult = ChildSectionUtils.resolveSectionAndGroup(picked);
-    final newSection = sectionResult.section;
 
     setState(() {
       child.birthDate = picked;
       child.birthDateCtrl.text =
           '${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
-
-      child.section = newSection;
-
-      if (!ChildSectionUtils.shouldShowGroupField(newSection)) {
-        child.groupCtrl.clear();
-      }
+      child.section = sectionResult.section;
     });
   }
 
@@ -486,6 +500,13 @@ class _ParentRegistrationRequestPageState
 
   Future<void> sendEmailVerificationLink() async {
     if (!_formKey.currentState!.validate()) return;
+
+    for (final child in children) {
+      if (!child.isValid()) {
+        _showSnack('تأكدي من تعبئة بيانات جميع الأطفال والمخولين بالاستلام');
+        return;
+      }
+    }
 
     FocusScope.of(context).unfocus();
 
@@ -558,7 +579,7 @@ class _ParentRegistrationRequestPageState
         emailVerificationSent = true;
         emailVerified = refreshedUser?.emailVerified ?? false;
         verificationEmail = cleanEmail;
-        authUid = refreshedUser?.uid ?? authUser!.uid;
+        authUid = refreshedUser?.uid ?? authUser?.uid ?? '';
         verificationMethod = 'email_link';
       });
 
@@ -709,9 +730,8 @@ class _ParentRegistrationRequestPageState
           'alternatePhone': alternatePhoneCtrl.text.trim(),
           'identityNumber': nationalIdCtrl.text.trim(),
           'gender': selectedGender,
-          'birthDate': birthDateCtrl.text.trim().isEmpty
-              ? null
-              : birthDateCtrl.text.trim(),
+          'birthDate':
+              birthDateCtrl.text.trim().isEmpty ? null : birthDateCtrl.text.trim(),
           'relationship': selectedRelationship,
           'maritalStatus': selectedMaritalStatus,
           'city': cityCtrl.text.trim(),
@@ -734,6 +754,12 @@ class _ParentRegistrationRequestPageState
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       };
+      debugPrint('currentUser uid: ${_auth.currentUser?.uid}');
+debugPrint('currentUser email: ${_auth.currentUser?.email}');
+debugPrint('currentUser verified: ${_auth.currentUser?.emailVerified}');
+debugPrint('authUid in request: ${authUid.trim()}');
+debugPrint('email in request: ${emailCtrl.text.trim().toLowerCase()}');
+debugPrint('requestData: $requestData');
 
       await _firestore.collection('registration_requests').add(requestData);
 
@@ -750,15 +776,21 @@ class _ParentRegistrationRequestPageState
       );
 
       Navigator.pop(context, true);
-    } catch (e) {
-      _showSnack(e.toString().replaceFirst('Exception: ', ''));
-    } finally {
-      if (mounted) {
-        setState(() {
-          isSubmitting = false;
-        });
-      }
-    }
+    } on FirebaseException catch (e) {
+  debugPrint('Firestore error code: ${e.code}');
+  debugPrint('Firestore error message: ${e.message}');
+  _showSnack('خطأ Firestore: ${e.code} - ${e.message}');
+} catch (e, st) {
+  debugPrint('General error: $e');
+  debugPrint('$st');
+  _showSnack(e.toString().replaceFirst('Exception: ', ''));
+} finally {
+  if (mounted) {
+    setState(() {
+      isSubmitting = false;
+    });
+  }
+}
   }
 
   void _showSnack(String message) {
@@ -793,7 +825,7 @@ class _ParentRegistrationRequestPageState
         children: [
           buildSectionTitle(
             'التحقق من البريد الإلكتروني',
-            'يجب التحقق من البريد قبل إرسال الطلب للإدارة.',
+            'هذه آخر خطوة قبل إرسال الطلب للإدارة.',
           ),
           const SizedBox(height: 14),
           Container(
@@ -828,14 +860,15 @@ class _ParentRegistrationRequestPageState
             children: [
               Expanded(
                 child: ElevatedButton.icon(
-                  onPressed: isSendingVerification ? null : sendEmailVerificationLink,
+                  onPressed:
+                      isSendingVerification ? null : sendEmailVerificationLink,
                   icon: isSendingVerification
-    ? const SizedBox(
-        width: 18,
-        height: 18,
-        child: CircularProgressIndicator(strokeWidth: 2.2),
-      )
-    : const Icon(Icons.mark_email_unread_outlined),
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2.2),
+                        )
+                      : const Icon(Icons.mark_email_unread_outlined),
                   label: Text(
                     isSendingVerification
                         ? 'جارٍ الإرسال...'
@@ -851,7 +884,8 @@ class _ParentRegistrationRequestPageState
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
-              onPressed: isCheckingVerification ? null : checkEmailVerificationStatus,
+              onPressed:
+                  isCheckingVerification ? null : checkEmailVerificationStatus,
               icon: isCheckingVerification
                   ? const SizedBox(
                       width: 18,
@@ -967,12 +1001,16 @@ class _ParentRegistrationRequestPageState
           const SizedBox(height: 14),
           TextFormField(
             controller: nationalIdCtrl,
+            keyboardType: TextInputType.number,
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly,
+              LengthLimitingTextInputFormatter(9),
+            ],
             decoration: customDecoration(
               label: 'رقم الهوية',
               icon: Icons.credit_card_rounded,
             ),
             validator: (value) => _validatePalestinianId(value ?? ''),
-            keyboardType: TextInputType.number,
           ),
           const SizedBox(height: 14),
           TextFormField(
@@ -1059,6 +1097,10 @@ class _ParentRegistrationRequestPageState
           TextFormField(
             controller: phoneCtrl,
             keyboardType: TextInputType.phone,
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly,
+              LengthLimitingTextInputFormatter(10),
+            ],
             onChanged: (_) {
               _formKey.currentState?.validate();
             },
@@ -1066,13 +1108,19 @@ class _ParentRegistrationRequestPageState
               label: 'رقم الجوال الأساسي',
               icon: Icons.phone_rounded,
             ),
-            validator: (value) =>
-                _validatePalestinianMobile(value ?? '', label: 'رقم الجوال'),
+            validator: (value) => _validatePalestinianMobile(
+              value ?? '',
+              label: 'رقم الجوال الأساسي',
+            ),
           ),
           const SizedBox(height: 14),
           TextFormField(
             controller: alternatePhoneCtrl,
             keyboardType: TextInputType.phone,
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly,
+              LengthLimitingTextInputFormatter(10),
+            ],
             onChanged: (_) {
               _formKey.currentState?.validate();
             },
@@ -1142,26 +1190,20 @@ class _ParentRegistrationRequestPageState
           TextFormField(
             controller: workPhoneCtrl,
             keyboardType: TextInputType.phone,
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly,
+              LengthLimitingTextInputFormatter(10),
+            ],
             decoration: customDecoration(
               label: 'هاتف العمل',
               icon: Icons.call_rounded,
               hint: 'اختياري',
             ),
-            validator: (value) {
-              final clean = (value ?? '').trim();
-
-              if (clean.isEmpty) return null;
-
-              if (!RegExp(r'^\d{10}$').hasMatch(clean)) {
-                return 'هاتف العمل يجب أن يتكون من 10 أرقام';
-              }
-
-              if (!_isValidPalestinianMobile(clean)) {
-                return 'هاتف العمل يجب أن يكون رقم جوال فلسطيني صحيحًا (059 أو 056)';
-              }
-
-              return null;
-            },
+            validator: (value) => _validatePalestinianMobile(
+              value ?? '',
+              label: 'هاتف العمل',
+              requiredField: false,
+            ),
           ),
           const SizedBox(height: 14),
           TextFormField(
@@ -1218,6 +1260,10 @@ class _ParentRegistrationRequestPageState
           TextFormField(
             controller: emergencyPhoneCtrl,
             keyboardType: TextInputType.phone,
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly,
+              LengthLimitingTextInputFormatter(10),
+            ],
             decoration: customDecoration(
               label: 'رقم هاتف الطوارئ',
               icon: Icons.phone_in_talk_rounded,
@@ -1288,6 +1334,10 @@ class _ParentRegistrationRequestPageState
           TextFormField(
             controller: child.childNationalIdCtrl,
             keyboardType: TextInputType.number,
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly,
+              LengthLimitingTextInputFormatter(9),
+            ],
             decoration: customDecoration(
               label: 'رقم هوية الطفل',
               icon: Icons.badge_outlined,
@@ -1386,24 +1436,14 @@ class _ParentRegistrationRequestPageState
               ],
             ),
           ),
-          if (_shouldShowGroupField(child)) ...[
-            const SizedBox(height: 14),
-            TextFormField(
-              controller: child.groupCtrl,
-              decoration: customDecoration(
-                label: 'المجموعة / الصف',
-                icon: Icons.groups_rounded,
-                hint: 'مثال: KG1',
-              ),
-              validator: (value) {
-                if (_shouldShowGroupField(child) &&
-                    (value?.trim() ?? '').isEmpty) {
-                  return 'أدخلي المجموعة / الصف';
-                }
-                return null;
-              },
-            ),
-          ],
+          const SizedBox(height: 8),
+          Text(
+            'يتم تحديد المجموعة لاحقًا من قبل الإدارة بعد اعتماد الطلب.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AppColors.textLight,
+                  height: 1.4,
+                ),
+          ),
           const SizedBox(height: 18),
           Text(
             'البيانات الصحية',
@@ -1638,6 +1678,10 @@ class _ParentRegistrationRequestPageState
                   TextFormField(
                     controller: pickup.phoneCtrl,
                     keyboardType: TextInputType.phone,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(10),
+                    ],
                     decoration: customDecoration(
                       label: 'رقم الجوال',
                       icon: Icons.phone_rounded,
@@ -1739,8 +1783,6 @@ class _ParentRegistrationRequestPageState
             const SizedBox(height: 18),
             buildAccountSection(),
             const SizedBox(height: 14),
-            buildVerificationCard(),
-            const SizedBox(height: 14),
             buildPersonalSection(),
             const SizedBox(height: 14),
             buildContactSection(),
@@ -1762,6 +1804,8 @@ class _ParentRegistrationRequestPageState
               ),
             ),
             const SizedBox(height: 18),
+            buildVerificationCard(),
+            const SizedBox(height: 14),
             buildSubmitSection(),
             const SizedBox(height: 12),
           ],
@@ -1775,7 +1819,6 @@ class _ChildDraft {
   final fullNameCtrl = TextEditingController();
   final childNationalIdCtrl = TextEditingController();
   final birthDateCtrl = TextEditingController();
-  final groupCtrl = TextEditingController();
 
   final chronicDiseasesCtrl = TextEditingController();
   final allergiesCtrl = TextEditingController();
@@ -1800,11 +1843,6 @@ class _ChildDraft {
     if (fullNameCtrl.text.trim().isEmpty) return false;
     if (childNationalIdCtrl.text.trim().isEmpty) return false;
     if (birthDateCtrl.text.trim().isEmpty) return false;
-
-    if (ChildSectionUtils.shouldShowGroupField(section) &&
-        groupCtrl.text.trim().isEmpty) {
-      return false;
-    }
 
     if (hasChronicDiseases && chronicDiseasesCtrl.text.trim().isEmpty) {
       return false;
@@ -1840,18 +1878,13 @@ class _ChildDraft {
       resolvedSection = sectionResult.section;
     }
 
-    final resolvedGroup =
-        ChildSectionUtils.shouldShowGroupField(resolvedSection)
-            ? groupCtrl.text.trim()
-            : '';
-
     return {
       'fullName': fullNameCtrl.text.trim(),
       'identityNumber': childNationalIdCtrl.text.trim(),
       'birthDate': birthDate == null ? null : Timestamp.fromDate(birthDate!),
       'gender': gender,
       'section': resolvedSection,
-      'group': resolvedGroup,
+      'group': '',
       'status': 'active',
       'hasChronicDiseases': hasChronicDiseases,
       'chronicDiseases':
@@ -1880,7 +1913,6 @@ class _ChildDraft {
     fullNameCtrl.dispose();
     childNationalIdCtrl.dispose();
     birthDateCtrl.dispose();
-    groupCtrl.dispose();
     chronicDiseasesCtrl.dispose();
     allergiesCtrl.dispose();
     medicationsCtrl.dispose();
@@ -1901,7 +1933,7 @@ class _PickupContactDraft {
 
   bool isValid() {
     final phone = phoneCtrl.text.trim();
-    final isValidPhone = RegExp(r'^(059|056)\d{7}$').hasMatch(phone);
+    final isValidPhone = RegExp(r'^(059|056|052)\d{7}$').hasMatch(phone);
 
     return nameCtrl.text.trim().isNotEmpty &&
         relationCtrl.text.trim().isNotEmpty &&

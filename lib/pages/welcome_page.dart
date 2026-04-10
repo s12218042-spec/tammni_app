@@ -870,6 +870,7 @@ class _WelcomePageState extends State<WelcomePage> {
                               ),
                             ),
                           ),
+                        
                           const SizedBox(height: 10),
                           GlassContainer(
                             padding: const EdgeInsets.all(14),

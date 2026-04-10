@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
@@ -12,19 +13,85 @@ class ParentNotificationsPage extends StatelessWidget {
     required this.parentUsername,
   });
 
-  @override
-  Widget build(BuildContext context) {
+  Future<List<Map<String, dynamic>>> _fetchNotifications() async {
+    final firestore = FirebaseFirestore.instance;
+    final currentUid = FirebaseAuth.instance.currentUser?.uid;
     final cleanParentUsername = parentUsername.trim().toLowerCase();
 
+    final List<QueryDocumentSnapshot<Map<String, dynamic>>> allDocs = [];
+
+    if (currentUid != null) {
+      final byUidSnapshot = await firestore
+          .collection('notifications')
+          .where('parentUid', isEqualTo: currentUid)
+          .get();
+
+      allDocs.addAll(byUidSnapshot.docs);
+    }
+
+    final byUsernameSnapshot = await firestore
+        .collection('notifications')
+        .where('parentUsername', isEqualTo: cleanParentUsername)
+        .get();
+
+    final seenIds = <String>{};
+    final uniqueDocs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+
+    for (final doc in [...allDocs, ...byUsernameSnapshot.docs]) {
+      if (seenIds.add(doc.id)) {
+        uniqueDocs.add(doc);
+      }
+    }
+
+    final items = uniqueDocs.map((doc) {
+      final data = doc.data();
+
+      final Timestamp? time =
+          data['time'] is Timestamp ? data['time'] as Timestamp : null;
+
+      final Timestamp? createdAt =
+          data['createdAt'] is Timestamp ? data['createdAt'] as Timestamp : null;
+
+      return {
+        'id': doc.id,
+        'title': (data['title'] ?? '').toString(),
+        'body': (data['body'] ?? data['message'] ?? '').toString(),
+        'childName': (data['childName'] ?? '').toString(),
+        'type': (data['type'] ?? '').toString(),
+        'isRead': data['isRead'] == true,
+        'time': time,
+        'createdAt': createdAt,
+        'createdByName': (data['createdByName'] ?? '').toString(),
+        'createdByRole': (data['createdByRole'] ?? data['byRole'] ?? '')
+            .toString(),
+        'priority': (data['priority'] ?? '').toString(),
+      };
+    }).toList();
+
+    items.sort((a, b) {
+      final Timestamp? aTime =
+          (a['time'] as Timestamp?) ?? (a['createdAt'] as Timestamp?);
+      final Timestamp? bTime =
+          (b['time'] as Timestamp?) ?? (b['createdAt'] as Timestamp?);
+
+      if (aTime == null && bTime == null) return 0;
+      if (aTime == null) return 1;
+      if (bTime == null) return -1;
+
+      return bTime.compareTo(aTime);
+    });
+
+    return items;
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return AppPageScaffold(
       title: 'الإشعارات',
       child: Container(
         color: AppColors.background,
-        child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: FirebaseFirestore.instance
-              .collection('notifications')
-              .where('parentUsername', isEqualTo: cleanParentUsername)
-              .snapshots(),
+        child: FutureBuilder<List<Map<String, dynamic>>>(
+          future: _fetchNotifications(),
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(
@@ -50,9 +117,9 @@ class ParentNotificationsPage extends StatelessWidget {
               );
             }
 
-            final docs = snapshot.data?.docs ?? [];
+            final items = snapshot.data ?? [];
 
-            if (docs.isEmpty) {
+            if (items.isEmpty) {
               return Center(
                 child: Card(
                   child: Padding(
@@ -81,42 +148,6 @@ class ParentNotificationsPage extends StatelessWidget {
               );
             }
 
-            final items = docs.map((doc) {
-              final data = doc.data();
-
-              final Timestamp? time =
-                  data['time'] is Timestamp ? data['time'] as Timestamp : null;
-
-              final Timestamp? createdAt = data['createdAt'] is Timestamp
-                  ? data['createdAt'] as Timestamp
-                  : null;
-
-              return {
-                'id': doc.id,
-                'title': (data['title'] ?? '').toString(),
-                'body': (data['body'] ?? data['message'] ?? '').toString(),
-                'childName': (data['childName'] ?? '').toString(),
-                'type': (data['type'] ?? '').toString(),
-                'isRead': data['isRead'] == true,
-                'time': time,
-                'createdAt': createdAt,
-                'createdByName': (data['createdByName'] ?? '').toString(),
-              };
-            }).toList();
-
-            items.sort((a, b) {
-              final Timestamp? aTime =
-                  (a['time'] as Timestamp?) ?? (a['createdAt'] as Timestamp?);
-              final Timestamp? bTime =
-                  (b['time'] as Timestamp?) ?? (b['createdAt'] as Timestamp?);
-
-              if (aTime == null && bTime == null) return 0;
-              if (aTime == null) return 1;
-              if (bTime == null) return -1;
-
-              return bTime.compareTo(aTime);
-            });
-
             return ListView.separated(
               padding: const EdgeInsets.symmetric(vertical: 10),
               itemCount: items.length,
@@ -129,6 +160,8 @@ class ParentNotificationsPage extends StatelessWidget {
                 final childName = (data['childName'] ?? '').toString();
                 final type = (data['type'] ?? '').toString();
                 final createdByName = (data['createdByName'] ?? '').toString();
+                final createdByRole = (data['createdByRole'] ?? '').toString();
+                final priority = (data['priority'] ?? '').toString();
                 final isRead = data['isRead'] == true;
 
                 final Timestamp? rawTime =
@@ -193,14 +226,37 @@ class ParentNotificationsPage extends StatelessWidget {
                                   ),
                                 ),
                               ],
-                              if (createdByName.isNotEmpty) ...[
+                              if (createdByName.isNotEmpty ||
+                                  createdByRole.isNotEmpty) ...[
                                 const SizedBox(height: 8),
                                 Text(
-                                  'من: $createdByName',
+                                  'من: ${_senderLabel(createdByName, createdByRole)}',
                                   style: const TextStyle(
                                     color: AppColors.textLight,
                                     fontWeight: FontWeight.w600,
                                     fontSize: 12.5,
+                                  ),
+                                ),
+                              ],
+                              if (priority.isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: _priorityColor(priority)
+                                        .withOpacity(0.10),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    _priorityLabel(priority),
+                                    style: TextStyle(
+                                      color: _priorityColor(priority),
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -244,6 +300,37 @@ class ParentNotificationsPage extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  static String _senderLabel(String createdByName, String createdByRole) {
+    final role = createdByRole.trim().toLowerCase();
+
+    String roleLabel;
+    if (role == 'nursery' || role == 'nursery_staff') {
+      roleLabel = 'موظفة الحضانة';
+    } else if (role == 'teacher') {
+      roleLabel = 'المعلمة';
+    } else if (role == 'admin') {
+      roleLabel = 'الإدارة';
+    } else if (role == 'parent') {
+      roleLabel = 'وليّ الأمر';
+    } else {
+      roleLabel = createdByRole.trim();
+    }
+
+    if (createdByName.trim().isNotEmpty && roleLabel.isNotEmpty) {
+      return '$createdByName - $roleLabel';
+    }
+
+    if (createdByName.trim().isNotEmpty) {
+      return createdByName;
+    }
+
+    if (roleLabel.isNotEmpty) {
+      return roleLabel;
+    }
+
+    return 'غير محدد';
   }
 
   static IconData _iconForType(String type) {
@@ -329,6 +416,28 @@ class ParentNotificationsPage extends StatelessWidget {
         return 'إشعار جديد';
       default:
         return 'إشعار جديد';
+    }
+  }
+
+  static String _priorityLabel(String value) {
+    switch (value) {
+      case 'urgent':
+        return 'عاجل';
+      case 'important':
+        return 'مهم';
+      default:
+        return 'عادي';
+    }
+  }
+
+  static Color _priorityColor(String value) {
+    switch (value) {
+      case 'urgent':
+        return Colors.redAccent;
+      case 'important':
+        return Colors.orange;
+      default:
+        return AppColors.primary;
     }
   }
 

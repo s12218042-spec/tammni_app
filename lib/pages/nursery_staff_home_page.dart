@@ -18,6 +18,7 @@ import 'welcome_page.dart';
 import 'account_settings_page.dart';
 import '../services/account_settings_service.dart';
 import 'account_history_page.dart';
+import 'package:image_picker/image_picker.dart';
 
 class NurseryStaffHomePage extends StatefulWidget {
   const NurseryStaffHomePage({super.key});
@@ -430,71 +431,82 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
     }
   }
 
-  Future<void> openCameraCheckin(ChildModel child) async {
+Future<void> openCameraCheckin(ChildModel child) async {
   final res = await Navigator.push(
     context,
     MaterialPageRoute(builder: (_) => const CameraCheckinPage()),
   );
 
-  if (res is Map) {
-    final path = res['path'] as String?;
-    final type = res['type'] as String?;
-    final description = (res['description'] ?? '').toString().trim();
+  if (res is! Map) return;
 
-    if (path == null || type == null) return;
+  final path = res['path'] as String?;
+  final type = res['type'] as String?;
+  final description = (res['description'] ?? '').toString().trim();
+  final file = res['file'] as XFile?;
 
-    try {
-      final mediaUrl = await _galleryService.uploadChildMedia(
-        childId: child.id,
-        localPath: path,
-        mediaType: type,
-      );
+  if (path == null || type == null) return;
 
-      final userInfo = await fetchCurrentUserInfo();
-      final parentInfo = await fetchParentLinkInfo(child);
+  try {
+    final fileToUpload = file ?? XFile(path);
 
-      await _firestore.collection('updates').add({
-        'childId': child.id,
-        'childName': child.name,
-        'parentUid': parentInfo['parentUid'],
-        'parentUsername': parentInfo['parentUsername'],
-        'section': child.section,
-        'group': child.group,
-        'type': 'كاميرا',
-        'note': description.isNotEmpty
-         ? description
-         : (type == 'image' ? 'صورة للطفل' : 'فيديو قصير للطفل'),
-        'title': 'تحديث كاميرا',
-        'createdAt': Timestamp.now(),
-        'time': FieldValue.serverTimestamp(),
-        'eventAt': Timestamp.now(),
-        'byRole': userInfo['role'],
-        'createdByUid': userInfo['uid'],
-        'createdByName': userInfo['name'],
-        'createdByRole': userInfo['role'],
-        'mediaPath': path,
-        'mediaType': type,
-        'mediaUrl': mediaUrl,
-        'hasMedia': true,
-        'importance': 'عادي',
-        'tags': ['كاميرا'],
-        'mood': '',
-        'energy': '',
-        'locationLabel': '',
-        'notifyParent': false,
-      });
+    final uploaded = await _galleryService.uploadChildMediaDetailed(
+      childId: child.id,
+      file: fileToUpload,
+      mediaType: type,
+    );
 
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم إرسال التحديث بالكاميرا')),
-      );
-      setState(() {});
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('حدث خطأ أثناء حفظ التحديث بالكاميرا: $e')),
-      );
+    if (uploaded == null) {
+      throw Exception('فشل رفع الوسائط إلى Supabase');
     }
+
+    final userInfo = await fetchCurrentUserInfo();
+    final parentInfo = await fetchParentLinkInfo(child);
+
+    await _firestore.collection('updates').add({
+      'childId': child.id,
+      'childName': child.name,
+      'parentUid': parentInfo['parentUid'],
+      'parentUsername': parentInfo['parentUsername'],
+      'section': child.section,
+      'group': child.group,
+      'type': 'كاميرا',
+      'note': description.isNotEmpty
+          ? description
+          : (type == 'image' ? 'صورة للطفل' : 'فيديو قصير للطفل'),
+      'title': 'تحديث كاميرا',
+      'createdAt': Timestamp.now(),
+      'time': FieldValue.serverTimestamp(),
+      'eventAt': Timestamp.now(),
+      'byRole': userInfo['role'],
+      'createdByUid': userInfo['uid'],
+      'createdByName': userInfo['name'],
+      'createdByRole': userInfo['role'],
+      'mediaPath': uploaded.path,
+      'mediaType': type,
+      'mediaUrl': uploaded.signedUrl,
+      'storageProvider': uploaded.storageProvider,
+      'bucket': uploaded.bucket,
+      'mimeType': uploaded.mimeType,
+      'sizeBytes': uploaded.sizeBytes,
+      'hasMedia': true,
+      'importance': 'عادي',
+      'tags': ['كاميرا'],
+      'mood': '',
+      'energy': '',
+      'locationLabel': '',
+      'notifyParent': false,
+    });
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('تم إرسال التحديث بالكاميرا')),
+    );
+    setState(() {});
+  } catch (e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('حدث خطأ أثناء حفظ التحديث بالكاميرا: $e')),
+    );
   }
 }
 

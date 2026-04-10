@@ -238,44 +238,101 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
     return null;
   }
 
-  Future<List<Map<String, dynamic>>> fetchUpdates() async {
-    final snapshot = await _firestore
-        .collection('updates')
-        .where('childId', isEqualTo: widget.child.id)
-        .get();
+  bool _isUsableRemoteUrl(String value) {
+  final trimmed = value.trim().toLowerCase();
+  return trimmed.startsWith('http://') || trimmed.startsWith('https://');
+}
 
-    final items = snapshot.docs.map((doc) {
-      final data = doc.data();
+String _resolveMediaUrl(Map<String, dynamic> data) {
+  final directUrl = (data['mediaUrl'] ?? '').toString().trim();
+  if (_isUsableRemoteUrl(directUrl)) return directUrl;
 
-      return {
-        'id': doc.id,
-        'type': (data['type'] ?? data['updateType'] ?? '').toString(),
-        'note': _resolveNote(data),
-        'byRole': _resolveRole(data),
-        'createdByName': _resolveCreatorName(data),
-        'displayTime': _resolveTimestamp(data),
-        'mediaUrl': (data['mediaUrl'] ?? '').toString(),
-        'mediaType': (data['mediaType'] ?? '').toString(),
-        'mediaPath': (data['mediaPath'] ?? '').toString(),
-        'hasMedia': data['hasMedia'] == true ||
-            (data['mediaUrl'] ?? '').toString().trim().isNotEmpty ||
-            (data['mediaPath'] ?? '').toString().trim().isNotEmpty,
-      };
-    }).toList();
-
-    items.sort((a, b) {
-      final aTime = a['displayTime'] as Timestamp?;
-      final bTime = b['displayTime'] as Timestamp?;
-
-      if (aTime == null && bTime == null) return 0;
-      if (aTime == null) return 1;
-      if (bTime == null) return -1;
-
-      return bTime.compareTo(aTime);
-    });
-
-    return items;
+  final mediaUrls = data['mediaUrls'];
+  if (mediaUrls is List && mediaUrls.isNotEmpty) {
+    for (final item in mediaUrls) {
+      final candidate = item?.toString().trim() ?? '';
+      if (_isUsableRemoteUrl(candidate)) return candidate;
+    }
   }
+
+  return '';
+}
+
+String _resolveMediaPath(Map<String, dynamic> data) {
+  final path = (data['mediaPath'] ?? '').toString().trim();
+  if (path.startsWith('blob:')) return '';
+  return path;
+}
+
+String _resolveMediaType(Map<String, dynamic> data) {
+  final mediaType = (data['mediaType'] ?? '').toString().trim().toLowerCase();
+  if (mediaType.isNotEmpty) return mediaType;
+
+  final mediaUrl = _resolveMediaUrl(data).toLowerCase();
+  final mediaPath = _resolveMediaPath(data).toLowerCase();
+  final source = mediaUrl.isNotEmpty ? mediaUrl : mediaPath;
+
+  if (source.endsWith('.mp4') ||
+      source.endsWith('.mov') ||
+      source.endsWith('.avi') ||
+      source.endsWith('.mkv') ||
+      source.contains('video')) {
+    return 'video';
+  }
+
+  if (source.endsWith('.jpg') ||
+      source.endsWith('.jpeg') ||
+      source.endsWith('.png') ||
+      source.endsWith('.webp') ||
+      source.contains('image')) {
+    return 'image';
+  }
+
+  return '';
+}
+
+  Future<List<Map<String, dynamic>>> fetchUpdates() async {
+  final snapshot = await _firestore
+      .collection('updates')
+      .where('childId', isEqualTo: widget.child.id)
+      .get();
+
+  final items = snapshot.docs.map((doc) {
+    final data = doc.data();
+
+    final mediaUrl = _resolveMediaUrl(data);
+    final mediaPath = _resolveMediaPath(data);
+    final mediaType = _resolveMediaType(data);
+    final resolvedSource = mediaUrl.isNotEmpty ? mediaUrl : mediaPath;
+
+    return {
+      'id': doc.id,
+      'type': (data['type'] ?? data['updateType'] ?? '').toString(),
+      'note': _resolveNote(data),
+      'byRole': _resolveRole(data),
+      'createdByName': _resolveCreatorName(data),
+      'displayTime': _resolveTimestamp(data),
+      'mediaUrl': mediaUrl,
+      'mediaType': mediaType,
+      'mediaPath': mediaPath,
+      'resolvedSource': resolvedSource,
+      'hasMedia': resolvedSource.isNotEmpty && mediaType.isNotEmpty,
+    };
+  }).toList();
+
+  items.sort((a, b) {
+    final aTime = a['displayTime'] as Timestamp?;
+    final bTime = b['displayTime'] as Timestamp?;
+
+    if (aTime == null && bTime == null) return 0;
+    if (aTime == null) return 1;
+    if (bTime == null) return -1;
+
+    return bTime.compareTo(aTime);
+  });
+
+  return items;
+}
 
   @override
   Widget build(BuildContext context) {
@@ -646,19 +703,30 @@ class _UpdateCard extends StatelessWidget {
     required this.hasMedia,
   });
 
-  bool get _hasRemoteUrl => (mediaUrl ?? '').trim().isNotEmpty;
+  bool get _hasRemoteUrl {
+  final value = (mediaUrl ?? '').trim().toLowerCase();
+  return value.startsWith('http://') || value.startsWith('https://');
+}
 
-  bool get _hasLocalPath => (mediaPath ?? '').trim().isNotEmpty;
+bool get _hasLocalPath {
+  final value = (mediaPath ?? '').trim();
+  if (value.isEmpty) return false;
+  if (value.startsWith('blob:')) return false;
+  return true;
+}
 
-  String get _resolvedSource {
-    if (_hasRemoteUrl) return mediaUrl!.trim();
-    return (mediaPath ?? '').trim();
-  }
+String get _normalizedMediaType => (mediaType ?? '').trim().toLowerCase();
 
-  bool get _hasRemoteImage => _hasRemoteUrl && mediaType == 'image';
-  bool get _hasRemoteVideo => _hasRemoteUrl && mediaType == 'video';
-  bool get _hasLocalImage => !kIsWeb && _hasLocalPath && mediaType == 'image';
-  bool get _hasLocalVideo => !kIsWeb && _hasLocalPath && mediaType == 'video';
+String get _resolvedSource {
+  if (_hasRemoteUrl) return mediaUrl!.trim();
+  if (_hasLocalPath) return mediaPath!.trim();
+  return '';
+}
+
+bool get _hasRemoteImage => _hasRemoteUrl && _normalizedMediaType == 'image';
+bool get _hasRemoteVideo => _hasRemoteUrl && _normalizedMediaType == 'video';
+bool get _hasLocalImage => !kIsWeb && _hasLocalPath && _normalizedMediaType == 'image';
+bool get _hasLocalVideo => !kIsWeb && _hasLocalPath && _normalizedMediaType == 'video';
 
   String get _senderDisplay {
     if (creatorName.trim().isNotEmpty) {
@@ -731,7 +799,7 @@ class _UpdateCard extends StatelessWidget {
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: Text(
-                            mediaType == 'video' ? 'فيديو' : 'صورة',
+                            _normalizedMediaType == 'video' ? 'فيديو' : 'صورة',
                             style: const TextStyle(
                               fontWeight: FontWeight.bold,
                               color: Colors.purple,
@@ -871,8 +939,8 @@ class _UpdateCard extends StatelessWidget {
                     },
                     icon: const Icon(Icons.play_circle_outline),
                     label: Text(
-                      _hasRemoteVideo ? 'عرض الفيديو' : 'تشغيل الفيديو',
-                    ),
+                    _hasRemoteVideo ? 'عرض الفيديو' : 'تشغيل الفيديو',
+                 ),
                   ),
                 ),
               ),

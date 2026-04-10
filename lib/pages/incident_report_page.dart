@@ -42,7 +42,7 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
   List<String> witnesses = [];
   File? selectedImage;
 
-  final List<String> placeOptions = [
+  final List<String> placeOptions = const [
     'الصف',
     'ساحة اللعب',
     'غرفة النوم',
@@ -139,7 +139,7 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
         }
       }
     } catch (_) {
-      // fallback على بيانات widget.child
+      // fallback
     }
 
     return {
@@ -149,8 +149,10 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
   }
 
   Future<void> pickImage() async {
-    final XFile? picked =
-        await _picker.pickImage(source: ImageSource.camera);
+    final XFile? picked = await _picker.pickImage(
+      source: ImageSource.camera,
+      imageQuality: 75,
+    );
 
     if (picked != null) {
       setState(() {
@@ -160,10 +162,13 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
   }
 
   void addWitness() {
-    if (witnessCtrl.text.trim().isEmpty) return;
+    final value = witnessCtrl.text.trim();
+    if (value.isEmpty) return;
 
     setState(() {
-      witnesses.add(witnessCtrl.text.trim());
+      if (!witnesses.contains(value)) {
+        witnesses.add(value);
+      }
       witnessCtrl.clear();
     });
   }
@@ -179,6 +184,7 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
     setState(() => isSaving = true);
 
     final autoRisk = autoAnalyzeRisk();
+    final now = Timestamp.now();
 
     try {
       final userInfo = await fetchCurrentUserInfo();
@@ -191,18 +197,31 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
         'parentUsername': parentInfo['parentUsername'],
         'section': widget.child.section,
         'group': widget.child.group,
+
+        'title': 'تقرير حادث',
         'incidentType': incidentType,
         'priority': priority,
         'autoRisk': autoRisk,
+        'status': status,
         'incidentPlace': finalIncidentPlace,
+
         'details': detailsCtrl.text.trim(),
         'actionTaken': actionCtrl.text.trim(),
-        'parentNotified': parentNotified,
-        'status': status,
         'witnesses': witnesses,
+
+        'parentNotified': parentNotified,
+
+        'hasImage': selectedImage != null,
         'imagePath': selectedImage?.path,
-        'createdAt': Timestamp.now(),
+        'imageUrl': null,
+        'imageType': selectedImage != null ? 'image' : null,
+
+        'createdAt': now,
         'time': FieldValue.serverTimestamp(),
+        'eventAt': now,
+        'updatedAt': now,
+        'reviewedAt': null,
+
         'createdByUid': userInfo['uid'],
         'createdByName': userInfo['name'],
         'createdByRole': userInfo['role'],
@@ -211,13 +230,15 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم الحفظ بنجاح')),
+        const SnackBar(content: Text('تم حفظ التقرير بنجاح')),
       );
 
-      Navigator.pop(context);
+      Navigator.pop(context, true);
     } catch (e) {
+      if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('خطأ: $e')),
+        SnackBar(content: Text('حدث خطأ أثناء حفظ التقرير: $e')),
       );
     } finally {
       if (!mounted) return;
@@ -236,15 +257,18 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: riskColor(autoRisk).withOpacity(0.1),
+              color: riskColor(autoRisk).withOpacity(0.10),
               borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: riskColor(autoRisk).withOpacity(0.25),
+              ),
             ),
             child: Row(
               children: [
                 Icon(Icons.auto_awesome, color: riskColor(autoRisk)),
                 const SizedBox(width: 8),
                 Text(
-                  'تحليل: ${riskLabel(autoRisk)}',
+                  'تحليل تلقائي: ${riskLabel(autoRisk)}',
                   style: TextStyle(
                     color: riskColor(autoRisk),
                     fontWeight: FontWeight.bold,
@@ -256,16 +280,23 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
           const SizedBox(height: 16),
           _card(
             'مكان الحادث',
-            Icons.location_on,
+            Icons.location_on_outlined,
             child: Column(
               children: [
-                DropdownButtonFormField(
+                DropdownButtonFormField<String>(
                   value: incidentPlace,
                   items: placeOptions
-                      .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+                      .map(
+                        (e) => DropdownMenuItem<String>(
+                          value: e,
+                          child: Text(e),
+                        ),
+                      )
                       .toList(),
-                  onChanged: (v) =>
-                      setState(() => incidentPlace = v.toString()),
+                  onChanged: (v) {
+                    if (v == null) return;
+                    setState(() => incidentPlace = v);
+                  },
                 ),
                 if (incidentPlace == 'مكان آخر') ...[
                   const SizedBox(height: 12),
@@ -282,7 +313,7 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
           ),
           _card(
             'صورة الحادث',
-            Icons.camera_alt,
+            Icons.camera_alt_outlined,
             child: Column(
               children: [
                 if (selectedImage != null)
@@ -296,19 +327,39 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
                     ),
                   ),
                 const SizedBox(height: 10),
-                ElevatedButton.icon(
-                  onPressed: pickImage,
-                  icon: const Icon(Icons.camera),
-                  label: Text(
-                    selectedImage == null ? 'التقاط صورة' : 'تغيير الصورة',
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: pickImage,
+                        icon: const Icon(Icons.camera_alt_outlined),
+                        label: Text(
+                          selectedImage == null ? 'التقاط صورة' : 'تغيير الصورة',
+                        ),
+                      ),
+                    ),
+                    if (selectedImage != null) ...[
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            setState(() {
+                              selectedImage = null;
+                            });
+                          },
+                          icon: const Icon(Icons.delete_outline),
+                          label: const Text('حذف الصورة'),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ],
             ),
           ),
           _card(
             'ماذا حدث؟',
-            Icons.description,
+            Icons.description_outlined,
             child: TextField(
               controller: detailsCtrl,
               maxLines: 4,
@@ -319,8 +370,8 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
             ),
           ),
           _card(
-            'الإجراء',
-            Icons.medical_services,
+            'الإجراء المتخذ',
+            Icons.medical_services_outlined,
             child: TextField(
               controller: actionCtrl,
               maxLines: 3,
@@ -375,24 +426,41 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
             value: parentNotified,
             onChanged: (v) => setState(() => parentNotified = v),
             title: const Text('إشعار ولي الأمر'),
+            subtitle: const Text('حددي إن كان تم إشعار ولي الأمر بخصوص الحادث'),
           ),
           _card(
             'حالة التقرير',
-            Icons.flag,
-            child: DropdownButtonFormField(
+            Icons.flag_outlined,
+            child: DropdownButtonFormField<String>(
               value: status,
               items: const [
                 DropdownMenuItem(value: 'new', child: Text('جديد')),
                 DropdownMenuItem(value: 'review', child: Text('قيد المراجعة')),
                 DropdownMenuItem(value: 'done', child: Text('مكتمل')),
               ],
-              onChanged: (v) => setState(() => status = v.toString()),
+              onChanged: (v) {
+                if (v == null) return;
+                setState(() => status = v);
+              },
             ),
           ),
           const SizedBox(height: 20),
-          ElevatedButton(
+          ElevatedButton.icon(
             onPressed: isSaving ? null : saveIncident,
-            child: Text(isSaving ? 'جاري الحفظ...' : 'حفظ التقرير'),
+            icon: isSaving
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.save_outlined),
+            label: Text(isSaving ? 'جاري الحفظ...' : 'حفظ التقرير'),
+            style: ElevatedButton.styleFrom(
+              minimumSize: const Size(double.infinity, 54),
+            ),
           ),
         ],
       ),

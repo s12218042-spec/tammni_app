@@ -24,10 +24,13 @@ class ParentIncidentReportsPage extends StatelessWidget {
   Color _priorityColor(String priority) {
     switch (priority.trim().toLowerCase()) {
       case 'high':
+      case 'urgent':
         return Colors.red;
       case 'medium':
+      case 'important':
         return Colors.orange;
       case 'low':
+      case 'normal':
         return Colors.green;
       default:
         return Colors.redAccent;
@@ -37,10 +40,13 @@ class ParentIncidentReportsPage extends StatelessWidget {
   String _priorityLabel(String priority) {
     switch (priority.trim().toLowerCase()) {
       case 'high':
+      case 'urgent':
         return 'عالية';
       case 'medium':
+      case 'important':
         return 'متوسطة';
       case 'low':
+      case 'normal':
         return 'منخفضة';
       default:
         return priority.trim().isEmpty ? 'غير محددة' : priority;
@@ -57,9 +63,30 @@ class ParentIncidentReportsPage extends StatelessWidget {
         return 'سلوك';
       case 'accident':
         return 'حادث';
+      case 'incident':
+        return 'بلاغ';
       default:
         return type.trim().isEmpty ? 'بلاغ' : type;
     }
+  }
+
+  String _roleLabel(String role) {
+    final clean = role.trim().toLowerCase();
+
+    if (clean == 'nursery' || clean == 'nursery_staff') {
+      return 'موظفة الحضانة';
+    }
+    if (clean == 'teacher') {
+      return 'المعلمة';
+    }
+    if (clean == 'admin') {
+      return 'الإدارة';
+    }
+    if (clean == 'parent') {
+      return 'وليّ الأمر';
+    }
+
+    return role.trim().isEmpty ? '' : role;
   }
 
   String _resolveIncidentType(Map<String, dynamic> data) {
@@ -147,6 +174,23 @@ class ParentIncidentReportsPage extends StatelessWidget {
     return '';
   }
 
+  String _resolveCreatedByRole(Map<String, dynamic> data) {
+    final candidates = [
+      data['createdByRole'],
+      data['byRole'],
+      data['senderRole'],
+      data['role'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return '';
+  }
+
   bool _resolveParentNotified(Map<String, dynamic> data) {
     final candidates = [
       data['parentNotified'],
@@ -192,6 +236,7 @@ class ParentIncidentReportsPage extends StatelessWidget {
         'actionTaken': _resolveActionTaken(data),
         'parentNotified': _resolveParentNotified(data),
         'createdByName': _resolveCreatedByName(data),
+        'createdByRole': _resolveCreatedByRole(data),
         'displayTime': _resolveTimestamp(data),
       };
     }).toList();
@@ -306,8 +351,15 @@ class ParentIncidentReportsPage extends StatelessWidget {
                     final actionTaken = (data['actionTaken'] ?? '').toString();
                     final parentNotified = data['parentNotified'] == true;
                     final createdByName = (data['createdByName'] ?? '').toString();
+                    final createdByRole = (data['createdByRole'] ?? '').toString();
                     final createdAt = data['displayTime'] as Timestamp?;
                     final priorityColor = _priorityColor(priority);
+
+                    final senderText = [
+                      if (createdByName.trim().isNotEmpty) createdByName.trim(),
+                      if (_roleLabel(createdByRole).trim().isNotEmpty)
+                        _roleLabel(createdByRole).trim(),
+                    ].join(' - ');
 
                     return Card(
                       child: Padding(
@@ -430,7 +482,7 @@ class ParentIncidentReportsPage extends StatelessWidget {
                                     ),
                                   ),
                                 ),
-                                if (createdByName.trim().isNotEmpty)
+                                if (senderText.trim().isNotEmpty)
                                   Container(
                                     padding: const EdgeInsets.symmetric(
                                       horizontal: 10,
@@ -442,7 +494,7 @@ class ParentIncidentReportsPage extends StatelessWidget {
                                       borderRadius: BorderRadius.circular(12),
                                     ),
                                     child: Text(
-                                      'بواسطة: $createdByName',
+                                      'بواسطة: $senderText',
                                       style: const TextStyle(
                                         color: AppColors.primary,
                                         fontWeight: FontWeight.bold,

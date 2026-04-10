@@ -152,6 +152,60 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
     return null;
   }
 
+  bool _isUsableRemoteUrl(String value) {
+  final trimmed = value.trim().toLowerCase();
+  return trimmed.startsWith('http://') || trimmed.startsWith('https://');
+}
+
+String _resolveMediaUrl(Map<String, dynamic> data) {
+  final directUrl = (data['mediaUrl'] ?? '').toString().trim();
+  if (_isUsableRemoteUrl(directUrl)) return directUrl;
+
+  final mediaUrls = data['mediaUrls'];
+  if (mediaUrls is List && mediaUrls.isNotEmpty) {
+    for (final item in mediaUrls) {
+      final candidate = item?.toString().trim() ?? '';
+      if (_isUsableRemoteUrl(candidate)) return candidate;
+    }
+  }
+
+  return '';
+}
+
+String _resolveMediaPath(Map<String, dynamic> data) {
+  final path = (data['mediaPath'] ?? '').toString().trim();
+
+  if (path.startsWith('blob:')) return '';
+  return path;
+}
+
+String _resolveMediaType(Map<String, dynamic> data) {
+  final mediaType = (data['mediaType'] ?? '').toString().trim().toLowerCase();
+  if (mediaType.isNotEmpty) return mediaType;
+
+  final mediaUrl = _resolveMediaUrl(data).toLowerCase();
+  final mediaPath = _resolveMediaPath(data).toLowerCase();
+  final source = mediaUrl.isNotEmpty ? mediaUrl : mediaPath;
+
+  if (source.endsWith('.mp4') ||
+      source.endsWith('.mov') ||
+      source.endsWith('.avi') ||
+      source.endsWith('.mkv') ||
+      source.contains('video')) {
+    return 'video';
+  }
+
+  if (source.endsWith('.jpg') ||
+      source.endsWith('.jpeg') ||
+      source.endsWith('.png') ||
+      source.endsWith('.webp') ||
+      source.contains('image')) {
+    return 'image';
+  }
+
+  return '';
+}
+
   Future<Map<String, dynamic>?> fetchChildDetails() async {
     final doc = await _firestore.collection('children').doc(widget.child.id).get();
 
@@ -206,53 +260,51 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
   }
 
   Future<List<Map<String, dynamic>>> fetchLatestMedia() async {
-    final snapshot = await _firestore
-        .collection('updates')
-        .where('childId', isEqualTo: widget.child.id)
-        .get();
+  final snapshot = await _firestore
+      .collection('updates')
+      .where('childId', isEqualTo: widget.child.id)
+      .get();
 
-    final items = <Map<String, dynamic>>[];
+  final items = <Map<String, dynamic>>[];
 
-    for (final doc in snapshot.docs) {
-      final data = doc.data();
+  for (final doc in snapshot.docs) {
+    final data = doc.data();
 
-      final mediaUrl = (data['mediaUrl'] ?? '').toString().trim();
-      final mediaPath = (data['mediaPath'] ?? '').toString().trim();
-      final mediaUrls = data['mediaUrls'];
-      final hasMedia = data['hasMedia'] == true;
-      final mediaType = (data['mediaType'] ?? '').toString().trim();
-      final displayTime = _resolveTimestamp(data);
+    final mediaUrl = _resolveMediaUrl(data);
+    final mediaPath = _resolveMediaPath(data);
+    final mediaType = _resolveMediaType(data);
+    final displayTime = _resolveTimestamp(data);
 
-      final hasAnyMedia = hasMedia ||
-          mediaUrl.isNotEmpty ||
-          mediaPath.isNotEmpty ||
-          (mediaUrls is List && mediaUrls.isNotEmpty);
+    final resolvedSource = mediaUrl.isNotEmpty ? mediaUrl : mediaPath;
 
-      if (hasAnyMedia) {
-        items.add({
-          'mediaUrl': mediaUrl,
-          'mediaPath': mediaPath,
-          'mediaType': mediaType,
-          'note': _resolveNote(data),
-          'type': _resolveType(data),
-          'displayTime': displayTime,
-        });
-      }
+    final hasAnyMedia = resolvedSource.isNotEmpty && mediaType.isNotEmpty;
+
+    if (hasAnyMedia) {
+      items.add({
+        'mediaUrl': mediaUrl,
+        'mediaPath': mediaPath,
+        'resolvedSource': resolvedSource,
+        'mediaType': mediaType,
+        'note': _resolveNote(data),
+        'type': _resolveType(data),
+        'displayTime': displayTime,
+      });
     }
-
-    items.sort((a, b) {
-      final aTime = a['displayTime'] as Timestamp?;
-      final bTime = b['displayTime'] as Timestamp?;
-
-      if (aTime == null && bTime == null) return 0;
-      if (aTime == null) return 1;
-      if (bTime == null) return -1;
-
-      return bTime.compareTo(aTime);
-    });
-
-    return items.take(4).toList();
   }
+
+  items.sort((a, b) {
+    final aTime = a['displayTime'] as Timestamp?;
+    final bTime = b['displayTime'] as Timestamp?;
+
+    if (aTime == null && bTime == null) return 0;
+    if (aTime == null) return 1;
+    if (bTime == null) return -1;
+
+    return bTime.compareTo(aTime);
+  });
+
+  return items.take(4).toList();
+}
 
   List<_ProfileTabItem> getTabs(String currentSection) {
     if (currentSection == 'Nursery') {

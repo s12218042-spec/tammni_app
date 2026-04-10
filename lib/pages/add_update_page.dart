@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../models/child_model.dart';
 import '../services/gallery_service.dart';
@@ -36,8 +37,10 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
 
   String type = 'ملاحظة';
   bool isLoading = false;
+
   String? selectedMediaPath;
   String? selectedMediaType; // image / video
+  XFile? selectedMediaFile;
 
   final List<String> nurseryTypes = const [
     'وجبة',
@@ -275,7 +278,7 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
         }
       }
     } catch (_) {
-      // fallback على بيانات widget.child
+      // fallback
     }
 
     return {
@@ -295,12 +298,14 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
     if (res is Map) {
       final path = res['path'] as String?;
       final mediaType = res['type'] as String?;
+      final file = res['file'] as XFile?;
 
       if (path == null || mediaType == null) return;
 
       setState(() {
         selectedMediaPath = path;
         selectedMediaType = mediaType;
+        selectedMediaFile = file;
       });
     }
   }
@@ -309,6 +314,7 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
     setState(() {
       selectedMediaPath = null;
       selectedMediaType = null;
+      selectedMediaFile = null;
     });
   }
 
@@ -512,108 +518,137 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
   }
 
   Future<void> save() async {
-    final finalNote = buildSuggestedNote().trim();
+  final finalNote = buildSuggestedNote().trim();
 
-    if (noteCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('اكتبي وصفًا واضحًا للتحديث أولًا'),
-        ),
+  if (noteCtrl.text.trim().isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('اكتبي وصفًا واضحًا للتحديث أولًا'),
+      ),
+    );
+    return;
+  }
+
+  setState(() {
+    isLoading = true;
+  });
+
+  try {
+    final now = Timestamp.now();
+
+    String? uploadedMediaUrl;
+    String? uploadedMediaPath;
+    String? uploadedBucket;
+    String? uploadedStorageProvider;
+    String? uploadedMimeType;
+    int? uploadedSizeBytes;
+
+    if (selectedMediaType != null &&
+        (selectedMediaFile != null || selectedMediaPath != null)) {
+      final fileToUpload =
+          selectedMediaFile ?? XFile(selectedMediaPath!);
+
+      final uploaded = await _galleryService.uploadChildMediaDetailed(
+        childId: widget.child.id,
+        file: fileToUpload,
+        mediaType: selectedMediaType!,
       );
-      return;
+
+      if (uploaded != null) {
+        uploadedMediaUrl = uploaded.signedUrl;
+        uploadedMediaPath = uploaded.path;
+        uploadedBucket = uploaded.bucket;
+        uploadedStorageProvider = uploaded.storageProvider;
+        uploadedMimeType = uploaded.mimeType;
+        uploadedSizeBytes = uploaded.sizeBytes;
+      }
     }
 
-    setState(() {
-      isLoading = true;
+    final userInfo = await fetchCurrentUserInfo();
+    final parentInfo = await fetchParentLinkInfo();
+    print('uploadedMediaPath = $uploadedMediaPath');
+    print('uploadedMediaUrl = $uploadedMediaUrl');
+    print('uploadedStorageProvider = $uploadedStorageProvider');
+    print('uploadedBucket = $uploadedBucket');
+    print('uploadedMimeType = $uploadedMimeType');
+    print('uploadedSizeBytes = $uploadedSizeBytes');
+
+    await _firestore.collection('updates').add({
+      'childId': widget.child.id,
+      'childName': widget.child.name,
+      'parentUid': parentInfo['parentUid'],
+      'parentUsername': parentInfo['parentUsername'],
+      'section': widget.child.section,
+      'group': widget.child.group,
+      'type': type,
+      'note': finalNote,
+      'title': autoTitle(),
+      'createdAt': now,
+      'time': FieldValue.serverTimestamp(),
+      'eventAt': Timestamp.fromDate(selectedDateTime),
+      'byRole': userInfo['role'],
+      'createdByUid': userInfo['uid'],
+      'createdByName': userInfo['name'],
+      'createdByRole': userInfo['role'],
+      'mediaType': selectedMediaType,
+      'mediaPath': uploadedMediaPath,
+      'mediaUrl': uploadedMediaUrl,
+      'storageProvider': uploadedStorageProvider,
+      'bucket': uploadedBucket,
+      'mimeType': uploadedMimeType,
+      'sizeBytes': uploadedSizeBytes,
+      'hasMedia': uploadedMediaUrl != null || uploadedMediaPath != null,
+      'importance': importance,
+      'tags': selectedTags,
+      'mood': selectedMood,
+      'energy': selectedEnergy,
+      'locationLabel': selectedLocation,
+      'notifyParent': notifyParent,
     });
 
-    try {
-      final now = Timestamp.now();
-      String? uploadedMediaUrl;
-
-      if (selectedMediaPath != null && selectedMediaType != null) {
-        uploadedMediaUrl = await _galleryService.uploadChildMedia(
-          childId: widget.child.id,
-          localPath: selectedMediaPath!,
-          mediaType: selectedMediaType!,
-        );
-      }
-
-      final userInfo = await fetchCurrentUserInfo();
-      final parentInfo = await fetchParentLinkInfo();
-
-      await _firestore.collection('updates').add({
+    if (notifyParent) {
+      await _firestore.collection('notifications').add({
         'childId': widget.child.id,
         'childName': widget.child.name,
         'parentUid': parentInfo['parentUid'],
         'parentUsername': parentInfo['parentUsername'],
         'section': widget.child.section,
         'group': widget.child.group,
-        'type': type,
-        'note': finalNote,
         'title': autoTitle(),
+        'body': finalNote,
+        'message': finalNote,
+        'type': 'update_notification',
+        'isRead': false,
         'createdAt': now,
         'time': FieldValue.serverTimestamp(),
-        'eventAt': Timestamp.fromDate(selectedDateTime),
-        'byRole': userInfo['role'],
         'createdByUid': userInfo['uid'],
         'createdByName': userInfo['name'],
         'createdByRole': userInfo['role'],
-        'mediaType': selectedMediaType,
-        'mediaPath': selectedMediaPath,
-        'mediaUrl': uploadedMediaUrl,
-        'hasMedia': uploadedMediaUrl != null || selectedMediaPath != null,
         'importance': importance,
-        'tags': selectedTags,
-        'mood': selectedMood,
-        'energy': selectedEnergy,
-        'locationLabel': selectedLocation,
-        'notifyParent': notifyParent,
-      });
-
-      if (notifyParent) {
-        await _firestore.collection('notifications').add({
-          'childId': widget.child.id,
-          'childName': widget.child.name,
-          'parentUid': parentInfo['parentUid'],
-          'parentUsername': parentInfo['parentUsername'],
-          'section': widget.child.section,
-          'group': widget.child.group,
-          'title': autoTitle(),
-          'body': finalNote,
-          'message': finalNote,
-          'type': 'update_notification',
-          'isRead': false,
-          'createdAt': now,
-          'time': FieldValue.serverTimestamp(),
-          'createdByUid': userInfo['uid'],
-          'createdByName': userInfo['name'],
-          'createdByRole': userInfo['role'],
-          'importance': importance,
-        });
-      }
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('تم إضافة التحديث بنجاح'),
-        ),
-      );
-      Navigator.pop(context, true);
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('حدث خطأ أثناء حفظ التحديث: $e'),
-        ),
-      );
-    } finally {
-      if (!mounted) return;
-      setState(() {
-        isLoading = false;
       });
     }
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('تم إضافة التحديث بنجاح'),
+      ),
+    );
+    Navigator.pop(context, true);
+  } catch (e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('حدث خطأ أثناء حفظ التحديث: $e'),
+      ),
+    );
+  } finally {
+    if (!mounted) return;
+    setState(() {
+      isLoading = false;
+    });
   }
+}
 
   Widget buildDynamicFields() {
     if (widget.byRole == 'nursery') {

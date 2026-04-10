@@ -55,6 +55,7 @@ class _GalleryPageState extends State<GalleryPage> {
       data['type'],
       data['updateType'],
       data['category'],
+      data['title'],
     ];
 
     for (final value in candidates) {
@@ -89,6 +90,7 @@ class _GalleryPageState extends State<GalleryPage> {
       data['createdAt'],
       data['timestamp'],
       data['updatedAt'],
+      data['eventAt'],
     ];
 
     for (final value in candidates) {
@@ -100,23 +102,53 @@ class _GalleryPageState extends State<GalleryPage> {
 
   String _resolveMediaUrl(Map<String, dynamic> data) {
     final directUrl = (data['mediaUrl'] ?? '').toString().trim();
-    if (directUrl.isNotEmpty) return directUrl;
+    if (_isUsableRemoteUrl(directUrl)) return directUrl;
 
     final mediaUrls = data['mediaUrls'];
     if (mediaUrls is List && mediaUrls.isNotEmpty) {
-      final first = mediaUrls.first?.toString().trim() ?? '';
-      if (first.isNotEmpty) return first;
+      for (final item in mediaUrls) {
+        final candidate = item?.toString().trim() ?? '';
+        if (_isUsableRemoteUrl(candidate)) return candidate;
+      }
     }
 
     return '';
   }
 
   String _resolveMediaPath(Map<String, dynamic> data) {
-    return (data['mediaPath'] ?? '').toString().trim();
+    final path = (data['mediaPath'] ?? '').toString().trim();
+
+    if (path.startsWith('blob:')) return '';
+    return path;
+  }
+
+  bool _isUsableRemoteUrl(String value) {
+    final trimmed = value.trim().toLowerCase();
+    return trimmed.startsWith('http://') || trimmed.startsWith('https://');
+  }
+
+  bool _isLikelyLocalPath(String value) {
+    final source = value.trim().toLowerCase();
+
+    if (source.isEmpty) return false;
+    if (source.startsWith('blob:')) return false;
+    if (source.startsWith('http://') || source.startsWith('https://')) {
+      return false;
+    }
+
+    if (source.startsWith('file://') ||
+        source.startsWith('/storage/') ||
+        source.startsWith('/data/') ||
+        source.startsWith('c:\\') ||
+        source.startsWith('d:\\')) {
+      return true;
+    }
+
+    return !kIsWeb;
   }
 
   String _resolveMediaType(Map<String, dynamic> data) {
-    final mediaType = (data['mediaType'] ?? '').toString().trim();
+    final mediaType = (data['mediaType'] ?? '').toString().trim().toLowerCase();
     if (mediaType.isNotEmpty) return mediaType;
 
     final resolvedUrl = _resolveMediaUrl(data).toLowerCase();
@@ -302,7 +334,7 @@ class _GalleryPageState extends State<GalleryPage> {
     final time = item['displayTime'] as Timestamp?;
 
     final isVideo = mediaType == 'video';
-    final isNetwork = resolvedSource.startsWith('http');
+    final isNetwork = _isUsableRemoteUrl(resolvedSource);
 
     return GestureDetector(
       onTap: () {
@@ -511,7 +543,7 @@ class _GalleryPageState extends State<GalleryPage> {
           child: Padding(
             padding: EdgeInsets.all(12),
             child: Text(
-              'معاينة الملفات المحلية غير مدعومة على الويب',
+              'تعذر عرض هذا الملف',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: AppColors.textLight,
@@ -521,6 +553,10 @@ class _GalleryPageState extends State<GalleryPage> {
           ),
         ),
       );
+    }
+
+    if (!_isLikelyLocalPath(localFallbackPath)) {
+      return buildBrokenMedia();
     }
 
     final file = File(localFallbackPath);
@@ -720,7 +756,8 @@ class _GalleryPageState extends State<GalleryPage> {
                   itemBuilder: (context, index) {
                     final key = sortedKeys[index];
                     final groupItems = grouped[key]!;
-                    final timestamp = groupItems.first['displayTime'] as Timestamp?;
+                    final timestamp =
+                        groupItems.first['displayTime'] as Timestamp?;
                     final title = timestamp == null
                         ? key
                         : formatDateLabel(timestamp.toDate());
@@ -789,7 +826,8 @@ class GalleryPreviewPage extends StatelessWidget {
   });
 
   bool get isVideo => mediaType == 'video';
-  bool get isNetwork => mediaPath.startsWith('http');
+  bool get isNetwork =>
+      mediaPath.startsWith('http://') || mediaPath.startsWith('https://');
 
   @override
   Widget build(BuildContext context) {
@@ -813,9 +851,7 @@ class GalleryPreviewPage extends StatelessWidget {
           children: [
             Expanded(
               child: Center(
-                child: isVideo
-                    ? const SizedBox.shrink()
-                    : buildImagePreview(),
+                child: isVideo ? const SizedBox.shrink() : buildImagePreview(),
               ),
             ),
             Container(
@@ -881,7 +917,7 @@ class GalleryPreviewPage extends StatelessWidget {
       return const Padding(
         padding: EdgeInsets.all(24),
         child: Text(
-          'معاينة الصور المحلية غير مدعومة على الويب',
+          'تعذر عرض هذه الصورة',
           textAlign: TextAlign.center,
           style: TextStyle(
             color: Colors.white,

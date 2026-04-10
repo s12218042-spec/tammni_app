@@ -38,6 +38,112 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
   String selectedTypeFilter = 'all';
   String selectedDateFilter = 'all';
 
+  String _resolveType(Map<String, dynamic> data) {
+    final candidates = [
+      data['type'],
+      data['updateType'],
+      data['category'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return 'ملاحظة';
+  }
+
+  String _resolveNote(Map<String, dynamic> data) {
+    final candidates = [
+      data['note'],
+      data['message'],
+      data['body'],
+      data['description'],
+      data['details'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return '';
+  }
+
+  String _resolveCreatedByName(Map<String, dynamic> data) {
+    final candidates = [
+      data['createdByName'],
+      data['senderName'],
+      data['byName'],
+      data['staffName'],
+      data['teacherName'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return '';
+  }
+
+  Timestamp? _resolveTimestamp(Map<String, dynamic> data) {
+    final candidates = [
+      data['eventAt'],
+      data['time'],
+      data['createdAt'],
+      data['timestamp'],
+      data['updatedAt'],
+    ];
+
+    for (final value in candidates) {
+      if (value is Timestamp) return value;
+    }
+
+    return null;
+  }
+
+  bool _resolveHasMedia(Map<String, dynamic> data) {
+    final mediaUrl = (data['mediaUrl'] ?? '').toString().trim();
+    final mediaPath = (data['mediaPath'] ?? '').toString().trim();
+    final mediaUrls = data['mediaUrls'];
+
+    return data['hasMedia'] == true ||
+        mediaUrl.isNotEmpty ||
+        mediaPath.isNotEmpty ||
+        (mediaUrls is List && mediaUrls.isNotEmpty);
+  }
+
+  String _resolveMediaType(Map<String, dynamic> data) {
+    final directType = (data['mediaType'] ?? '').toString().trim();
+    if (directType.isNotEmpty) return directType;
+
+    final mediaUrl = (data['mediaUrl'] ?? '').toString().trim().toLowerCase();
+    final mediaPath = (data['mediaPath'] ?? '').toString().trim().toLowerCase();
+    final source = mediaUrl.isNotEmpty ? mediaUrl : mediaPath;
+
+    if (source.endsWith('.mp4') ||
+        source.endsWith('.mov') ||
+        source.endsWith('.avi') ||
+        source.endsWith('.mkv') ||
+        source.contains('video')) {
+      return 'video';
+    }
+
+    if (source.endsWith('.jpg') ||
+        source.endsWith('.jpeg') ||
+        source.endsWith('.png') ||
+        source.endsWith('.webp') ||
+        source.contains('image')) {
+      return 'image';
+    }
+
+    return '';
+  }
+
   Future<List<Map<String, dynamic>>> fetchCareLog() async {
     final updatesSnapshot = await _firestore
         .collection('updates')
@@ -48,20 +154,20 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
       final data = doc.data();
 
       return {
+        'id': doc.id,
         'source': 'update',
-        'type': data['type'] ?? 'ملاحظة',
-        'note': data['note'] ?? '',
-        'time': data['time'] as Timestamp?,
-        'createdAt': data['createdAt'] as Timestamp?,
-        'hasMedia': data['hasMedia'] ?? false,
-        'mediaType': data['mediaType'] ?? '',
-        'createdByName': data['createdByName'] ?? '',
+        'type': _resolveType(data),
+        'note': _resolveNote(data),
+        'displayTime': _resolveTimestamp(data),
+        'hasMedia': _resolveHasMedia(data),
+        'mediaType': _resolveMediaType(data),
+        'createdByName': _resolveCreatedByName(data),
       };
     }).toList();
 
     updates.sort((a, b) {
-      final aTime = (a['time'] as Timestamp?) ?? (a['createdAt'] as Timestamp?);
-      final bTime = (b['time'] as Timestamp?) ?? (b['createdAt'] as Timestamp?);
+      final aTime = a['displayTime'] as Timestamp?;
+      final bTime = b['displayTime'] as Timestamp?;
 
       if (aTime == null && bTime == null) return 0;
       if (aTime == null) return 1;
@@ -166,7 +272,7 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
 
     if (selectedDateFilter != 'all') {
       result = result.where((item) {
-        final ts = (item['time'] ?? item['createdAt']) as Timestamp?;
+        final ts = item['displayTime'] as Timestamp?;
         if (ts == null) return false;
 
         final date = ts.toDate();
@@ -195,7 +301,7 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
     int todayCount = 0;
 
     for (final item in items) {
-      final ts = (item['time'] ?? item['createdAt']) as Timestamp?;
+      final ts = item['displayTime'] as Timestamp?;
       final date = ts?.toDate();
 
       if (date != null && isToday(date)) {
@@ -210,14 +316,14 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
   }
 
   bool isNewItem(Map<String, dynamic> item) {
-    final ts = (item['time'] ?? item['createdAt']) as Timestamp?;
+    final ts = item['displayTime'] as Timestamp?;
     if (ts == null) return false;
     return isToday(ts.toDate());
   }
 
   List<Map<String, dynamic>> getTodayItems(List<Map<String, dynamic>> items) {
     return items.where((item) {
-      final ts = (item['time'] ?? item['createdAt']) as Timestamp?;
+      final ts = item['displayTime'] as Timestamp?;
       if (ts == null) return false;
       return isToday(ts.toDate());
     }).toList();
@@ -325,12 +431,12 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
                           type: itemTypeLabel(item['type'] ?? ''),
                           note: item['note'] ?? '',
                           createdByName: item['createdByName'] ?? '',
-                          timeText: formatDateTime(
-                            item['time'] ?? item['createdAt'],
-                          ),
+                          timeText: formatDateTime(item['displayTime']),
                           icon: itemIcon(item['type'] ?? ''),
                           color: itemColor(item['type'] ?? ''),
                           isNew: true,
+                          hasMedia: item['hasMedia'] == true,
+                          mediaType: (item['mediaType'] ?? '').toString(),
                         ),
                       ),
                     ),
@@ -348,12 +454,12 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
                         type: itemTypeLabel(item['type'] ?? ''),
                         note: item['note'] ?? '',
                         createdByName: item['createdByName'] ?? '',
-                        timeText: formatDateTime(
-                          item['time'] ?? item['createdAt'],
-                        ),
+                        timeText: formatDateTime(item['displayTime']),
                         icon: itemIcon(item['type'] ?? ''),
                         color: itemColor(item['type'] ?? ''),
                         isNew: isNewItem(item),
+                        hasMedia: item['hasMedia'] == true,
+                        mediaType: (item['mediaType'] ?? '').toString(),
                       ),
                     ),
                   ),
@@ -943,6 +1049,8 @@ class _CareLogCard extends StatelessWidget {
   final IconData icon;
   final Color color;
   final bool isNew;
+  final bool hasMedia;
+  final String mediaType;
 
   const _CareLogCard({
     required this.type,
@@ -952,6 +1060,8 @@ class _CareLogCard extends StatelessWidget {
     required this.icon,
     required this.color,
     required this.isNew,
+    required this.hasMedia,
+    required this.mediaType,
   });
 
   @override
@@ -1021,6 +1131,15 @@ class _CareLogCard extends StatelessWidget {
                             text: 'جديد',
                             background: AppColors.success.withOpacity(0.10),
                             foreground: AppColors.success,
+                          ),
+                        if (hasMedia)
+                          _Badge(
+                            text: mediaType == 'video' ? 'فيديو' : 'وسائط',
+                            background: AppColors.secondary.withOpacity(0.10),
+                            foreground: AppColors.secondary,
+                            icon: mediaType == 'video'
+                                ? Icons.videocam_outlined
+                                : Icons.image_outlined,
                           ),
                       ],
                     ),

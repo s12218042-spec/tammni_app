@@ -86,10 +86,44 @@ class _SendParentNotificationPageState
 
     return {
       'uid': currentUser.uid,
-      'name': (data['displayName'] ?? data['username'] ?? 'مستخدم').toString(),
+      'name': (data['displayName'] ?? data['name'] ?? data['username'] ?? 'مستخدم')
+     .toString(),
       'role': (data['role'] ?? '').toString(),
     };
   }
+
+  Future<Map<String, String>> fetchParentLinkInfo() async {
+  String parentUid = widget.child.parentUid.trim();
+  String parentUsername = widget.child.parentUsername.trim().toLowerCase();
+
+  try {
+    final childDoc =
+        await _firestore.collection('children').doc(widget.child.id).get();
+
+    if (childDoc.exists) {
+      final data = childDoc.data() ?? <String, dynamic>{};
+
+      final docParentUid = (data['parentUid'] ?? '').toString().trim();
+      final docParentUsername =
+          (data['parentUsername'] ?? '').toString().trim().toLowerCase();
+
+      if (docParentUid.isNotEmpty) {
+        parentUid = docParentUid;
+      }
+
+      if (docParentUsername.isNotEmpty) {
+        parentUsername = docParentUsername;
+      }
+    }
+  } catch (_) {
+    // fallback على بيانات child الحالية
+  }
+
+  return {
+    'parentUid': parentUid,
+    'parentUsername': parentUsername,
+  };
+}
 
   String buildTitle() {
     switch (selectedTemplate) {
@@ -230,59 +264,62 @@ class _SendParentNotificationPageState
   }
 
   Future<void> sendNotification() async {
-    final finalMessage = buildMessage().trim();
+  final finalMessage = buildMessage().trim();
 
-    if (finalMessage.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('اكتبي الرسالة أولًا')),
-      );
-      return;
-    }
+  if (finalMessage.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('اكتبي الرسالة أولًا')),
+    );
+    return;
+  }
 
-    setState(() {
-      isSending = true;
+  setState(() {
+    isSending = true;
+  });
+
+  try {
+    final userInfo = await fetchCurrentUserInfo();
+    final parentInfo = await fetchParentLinkInfo();
+
+    await _firestore.collection('notifications').add({
+      'childId': widget.child.id,
+      'childName': widget.child.name,
+      'parentUid': parentInfo['parentUid'],
+      'parentUsername': parentInfo['parentUsername'],
+      'section': widget.child.section,
+      'group': widget.child.group,
+      'title': buildTitle(),
+      'body': finalMessage,
+      'message': finalMessage,
+      'type': 'nursery_notification',
+      'templateType': selectedTemplate,
+      'priority': selectedPriority,
+      'isRead': false,
+      'createdAt': Timestamp.now(),
+      'time': FieldValue.serverTimestamp(),
+      'createdByUid': userInfo['uid'],
+      'createdByName': userInfo['name'],
+      'createdByRole': userInfo['role'],
+      'byRole': userInfo['role'],
     });
 
-    try {
-      final userInfo = await fetchCurrentUserInfo();
-
-      await _firestore.collection('notifications').add({
-        'childId': widget.child.id,
-        'childName': widget.child.name,
-        'parentUsername': widget.child.parentUsername,
-        'section': widget.child.section,
-        'group': widget.child.group,
-        'title': buildTitle(),
-        'body': finalMessage,
-        'message': finalMessage,
-        'type': 'nursery_notification',
-        'templateType': selectedTemplate,
-        'priority': selectedPriority,
-        'isRead': false,
-        'createdAt': Timestamp.now(),
-        'time': FieldValue.serverTimestamp(),
-        'createdByUid': userInfo['uid'],
-        'createdByName': userInfo['name'],
-        'createdByRole': userInfo['role'],
-      });
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم إرسال الإشعار بنجاح')),
-      );
-      Navigator.pop(context, true);
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('حدث خطأ أثناء إرسال الإشعار: $e')),
-      );
-    } finally {
-      if (!mounted) return;
-      setState(() {
-        isSending = false;
-      });
-    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('تم إرسال الإشعار بنجاح')),
+    );
+    Navigator.pop(context, true);
+  } catch (e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('حدث خطأ أثناء إرسال الإشعار: $e')),
+    );
+  } finally {
+    if (!mounted) return;
+    setState(() {
+      isSending = false;
+    });
   }
+}
 
   Widget buildHeaderCard() {
     return Container(
@@ -381,7 +418,7 @@ class _SendParentNotificationPageState
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'القسم: ${widget.child.section}  •  المجموعة: $groupText',
+                  'القسم: ${widget.child.section == 'Nursery' ? 'حضانة' : 'روضة'}  •  المجموعة: $groupText',
                   style: const TextStyle(
                     fontSize: 13.5,
                     color: AppColors.textLight,

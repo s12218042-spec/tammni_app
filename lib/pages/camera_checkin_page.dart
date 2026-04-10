@@ -1,5 +1,4 @@
 import 'dart:async';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -40,6 +39,7 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
 
   Future<void> takePhoto() async {
     try {
+      if (!mounted) return;
       setState(() {
         isBusy = true;
       });
@@ -52,6 +52,8 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
         preferredCameraDevice: selectedCamera,
       );
 
+      if (!mounted) return;
+
       if (x == null) {
         setState(() {
           isBusy = false;
@@ -61,6 +63,7 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
 
       final bytes = await x.readAsBytes();
 
+      if (!mounted) return;
       setState(() {
         picked = x;
         imageBytes = bytes;
@@ -68,6 +71,7 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
         isBusy = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         isBusy = false;
       });
@@ -80,6 +84,7 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
 
   Future<void> pickFromGallery() async {
     try {
+      if (!mounted) return;
       setState(() {
         isBusy = true;
       });
@@ -88,6 +93,8 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
         source: ImageSource.gallery,
         imageQuality: 75,
       );
+
+      if (!mounted) return;
 
       if (x == null) {
         setState(() {
@@ -98,6 +105,7 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
 
       final bytes = await x.readAsBytes();
 
+      if (!mounted) return;
       setState(() {
         picked = x;
         imageBytes = bytes;
@@ -105,6 +113,7 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
         isBusy = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         isBusy = false;
       });
@@ -117,6 +126,7 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
 
   Future<void> takeVideo() async {
     try {
+      if (!mounted) return;
       setState(() {
         isBusy = true;
       });
@@ -128,6 +138,8 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
         maxDuration: const Duration(seconds: 15),
         preferredCameraDevice: selectedCamera,
       );
+
+      if (!mounted) return;
 
       if (x == null) {
         setState(() {
@@ -143,6 +155,7 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
         isBusy = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         isBusy = false;
       });
@@ -157,7 +170,6 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
     setState(() {
       picked = null;
       imageBytes = null;
-      mediaType = 'image';
       descriptionCtrl.clear();
     });
   }
@@ -178,6 +190,7 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
 
     Navigator.pop(context, {
       'path': picked!.path,
+      'file': picked,
       'type': mediaType,
       'description': descriptionCtrl.text.trim(),
     });
@@ -755,7 +768,9 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
             const SizedBox(width: 12),
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: isBusy || mediaType != 'image' ? null : pickFromGallery,
+                onPressed: isBusy || mediaType != 'image'
+                    ? null
+                    : pickFromGallery,
                 icon: const Icon(Icons.photo_library_outlined),
                 label: const Text('اختيار من المعرض'),
                 style: OutlinedButton.styleFrom(
@@ -896,5 +911,3 @@ class _OptionChip extends StatelessWidget {
     );
   }
 }
-
-
