@@ -1,6 +1,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+enum EmailRefreshStatus {
+  success,
+  notCompletedYet,
+  noCurrentUser,
+}
+
 class AccountSettingsData {
   final String uid;
   final String name;
@@ -8,6 +14,8 @@ class AccountSettingsData {
   final String email;
   final String role;
   final bool isActive;
+  final String pendingEmail;
+  final DateTime? emailChangeRequestedAt;
 
   const AccountSettingsData({
     required this.uid,
@@ -16,12 +24,20 @@ class AccountSettingsData {
     required this.email,
     required this.role,
     required this.isActive,
+    required this.pendingEmail,
+    required this.emailChangeRequestedAt,
   });
 
   factory AccountSettingsData.fromMap({
     required String uid,
     required Map<String, dynamic> map,
   }) {
+    DateTime? parseDate(dynamic value) {
+      if (value is Timestamp) return value.toDate();
+      if (value is DateTime) return value;
+      return null;
+    }
+
     return AccountSettingsData(
       uid: uid,
       name: (map['name'] ?? map['displayName'] ?? '').toString().trim(),
@@ -29,6 +45,8 @@ class AccountSettingsData {
       email: (map['email'] ?? '').toString().trim(),
       role: _normalizeRole((map['role'] ?? '').toString()),
       isActive: (map['isActive'] ?? true) == true,
+      pendingEmail: (map['pendingEmail'] ?? '').toString().trim(),
+      emailChangeRequestedAt: parseDate(map['emailChangeRequestedAt']),
     );
   }
 
@@ -56,6 +74,8 @@ class AccountSettingsData {
         return 'مستخدم';
     }
   }
+
+  bool get hasPendingEmailChange => pendingEmail.isNotEmpty;
 }
 
 class AccountDeletionRequestData {
@@ -89,6 +109,7 @@ class AccountDeletionRequestData {
   bool get isPending => status == 'pending';
   bool get isApproved => status == 'approved';
   bool get isRejected => status == 'rejected';
+  bool get isCancelled => status == 'cancelled';
 }
 
 class AccountSettingsService {
@@ -97,7 +118,7 @@ class AccountSettingsService {
 
   User? get currentUser => _auth.currentUser;
 
-  Future<QueryDocumentSnapshot<Map<String, dynamic>>> _getUserDoc() async {
+  Future<DocumentSnapshot<Map<String, dynamic>>> _getUserDoc() async {
     final user = _auth.currentUser;
 
     if (user == null) {
@@ -107,20 +128,16 @@ class AccountSettingsService {
       );
     }
 
-    final query = await _firestore
-        .collection('users')
-        .where('uid', isEqualTo: user.uid)
-        .limit(1)
-        .get();
+    final doc = await _firestore.collection('users').doc(user.uid).get();
 
-    if (query.docs.isEmpty) {
+    if (!doc.exists) {
       throw FirebaseAuthException(
         code: 'user-doc-not-found',
         message: 'تعذر العثور على بيانات الحساب',
       );
     }
 
-    return query.docs.first;
+    return doc;
   }
 
   Future<DocumentReference<Map<String, dynamic>>> _getUserDocRef() async {
@@ -142,26 +159,36 @@ class AccountSettingsService {
 
     return AccountSettingsData.fromMap(
       uid: user.uid,
-      map: doc.data(),
+      map: doc.data() ?? <String, dynamic>{},
     );
   }
 
   String? validateFullName(String? value) {
     final name = (value ?? '').trim();
 
-    if (name.isEmpty) {
-      return 'الاسم مطلوب';
-    }
-
-    if (name.length < 2) {
-      return 'الاسم قصير جدًا';
-    }
+    if (name.isEmpty) return 'الاسم مطلوب';
+    if (name.length < 2) return 'الاسم قصير جدًا';
 
     final normalizedSpaces = name.replaceAll(RegExp(r'\s+'), ' ');
-
     final regex = RegExp(r'^[A-Za-z\u0600-\u06FF\s]+$');
     if (!regex.hasMatch(normalizedSpaces)) {
       return 'الاسم يجب أن يحتوي على حروف فقط بدون أرقام أو رموز';
+    }
+
+    return null;
+  }
+
+  String? validateEmail(String? value) {
+    final email = (value ?? '').trim().toLowerCase();
+
+    if (email.isEmpty) return 'البريد الإلكتروني الجديد مطلوب';
+
+    final regex = RegExp(
+      r'^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$',
+    );
+
+    if (!regex.hasMatch(email)) {
+      return 'البريد الإلكتروني غير صالح';
     }
 
     return null;
@@ -391,6 +418,240 @@ class AccountSettingsService {
     }
   }
 
+  Future<void> requestEmailChange({
+    required String newEmail,
+    required String currentPassword,
+  }) async {
+    final user = _auth.currentUser;
+
+    if (user == null) {
+      throw FirebaseAuthException(
+        code: 'no-current-user',
+        message: 'لا يوجد مستخدم مسجّل دخول حاليًا',
+      );
+    }
+
+    if (!_hasPasswordProvider(user)) {
+      throw FirebaseAuthException(
+        code: 'password-provider-not-enabled',
+        message:
+            'هذا الحساب لا يستخدم كلمة مرور مباشرة حاليًا. تغيير البريد لهذا النوع من الحسابات سنعالجه لاحقًا ضمن ربط Google.',
+      );
+    }
+
+    final currentEmail = (user.email ?? '').trim().toLowerCase();
+    final cleanNewEmail = newEmail.trim().toLowerCase();
+    final cleanPassword = currentPassword.trim();
+
+    final emailError = validateEmail(cleanNewEmail);
+    if (emailError != null) {
+      throw FirebaseAuthException(
+        code: 'invalid-new-email',
+        message: emailError,
+      );
+    }
+
+    if (cleanPassword.isEmpty) {
+      throw FirebaseAuthException(
+        code: 'empty-current-password',
+        message: 'كلمة المرور الحالية مطلوبة لتأكيد العملية',
+      );
+    }
+
+    if (currentEmail.isEmpty) {
+      throw FirebaseAuthException(
+        code: 'missing-email',
+        message: 'لا يوجد بريد إلكتروني حالي مرتبط بالحساب',
+      );
+    }
+
+    if (cleanNewEmail == currentEmail) {
+      throw FirebaseAuthException(
+        code: 'same-email',
+        message: 'البريد الجديد مطابق للبريد الحالي',
+      );
+    }
+
+    final credential = EmailAuthProvider.credential(
+      email: currentEmail,
+      password: cleanPassword,
+    );
+
+    try {
+      await user.reauthenticateWithCredential(credential);
+
+      final actionCodeSettings = ActionCodeSettings(
+        url: 'https://daycare-app-220c0.web.app/auth_action.html',
+        handleCodeInApp: false,
+      );
+
+      await user.verifyBeforeUpdateEmail(
+        cleanNewEmail,
+        actionCodeSettings,
+      );
+
+      final userDocRef = await _getUserDocRef();
+      final userDoc = await _getUserDoc();
+      final userData = userDoc.data() ?? <String, dynamic>{};
+      final username =
+          (userData['username'] ?? '').toString().trim().toLowerCase();
+
+      final batch = _firestore.batch();
+
+      batch.set(userDocRef, {
+        'pendingEmail': cleanNewEmail,
+        'emailChangeRequestedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      if (username.isNotEmpty) {
+        final loginRef = _firestore.collection('login_usernames').doc(username);
+        batch.set(loginRef, {
+          'pendingEmail': cleanNewEmail,
+          'emailChangeRequestedAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+
+      await batch.commit();
+
+      await logAccountAction(
+        targetUid: user.uid,
+        action: 'email_change_requested',
+        title: 'تم طلب تغيير البريد الإلكتروني',
+        message:
+            'تم إرسال رابط تحقق إلى البريد الجديد: $cleanNewEmail. لن يتم اعتماد البريد قبل تأكيده.',
+        status: 'warning',
+        extraData: {
+          'oldEmail': currentEmail,
+          'pendingEmail': cleanNewEmail,
+        },
+      );
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'wrong-password' || e.code == 'invalid-credential') {
+        throw FirebaseAuthException(
+          code: e.code,
+          message: 'كلمة المرور الحالية غير صحيحة',
+        );
+      }
+
+      if (e.code == 'requires-recent-login') {
+        throw FirebaseAuthException(
+          code: e.code,
+          message: 'يرجى تسجيل الدخول مرة أخرى ثم إعادة المحاولة',
+        );
+      }
+
+      if (e.code == 'email-already-in-use') {
+        throw FirebaseAuthException(
+          code: e.code,
+          message: 'هذا البريد مستخدم بحساب آخر',
+        );
+      }
+
+      if (e.code == 'invalid-email') {
+        throw FirebaseAuthException(
+          code: e.code,
+          message: 'البريد الإلكتروني الجديد غير صالح',
+        );
+      }
+
+      throw FirebaseAuthException(
+        code: e.code,
+        message: e.message ?? 'تعذر إرسال طلب تغيير البريد الإلكتروني',
+      );
+    }
+  }
+
+  Future<EmailRefreshStatus> refreshEmailAfterVerificationIfNeeded() async {
+    final user = _auth.currentUser;
+
+    if (user == null) {
+      return EmailRefreshStatus.noCurrentUser;
+    }
+
+    final userDoc = await _getUserDoc();
+    final data = userDoc.data() ?? <String, dynamic>{};
+
+    final pendingEmail =
+        (data['pendingEmail'] ?? '').toString().trim().toLowerCase();
+    final username =
+        (data['username'] ?? '').toString().trim().toLowerCase();
+
+    if (pendingEmail.isEmpty) {
+      return EmailRefreshStatus.notCompletedYet;
+    }
+
+    await user.reload();
+    final refreshedUser = _auth.currentUser;
+    final actualEmail = (refreshedUser?.email ?? '').trim().toLowerCase();
+
+    if (actualEmail.isEmpty || actualEmail != pendingEmail) {
+      return EmailRefreshStatus.notCompletedYet;
+    }
+
+    final batch = _firestore.batch();
+
+    batch.set(userDoc.reference, {
+      'email': actualEmail,
+      'pendingEmail': FieldValue.delete(),
+      'emailChangeRequestedAt': FieldValue.delete(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    if (username.isNotEmpty) {
+      final loginUsernameRef =
+          _firestore.collection('login_usernames').doc(username);
+
+      batch.set(loginUsernameRef, {
+        'email': actualEmail,
+        'pendingEmail': FieldValue.delete(),
+        'emailChangeRequestedAt': FieldValue.delete(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+
+    await batch.commit();
+
+    await logAccountAction(
+      targetUid: user.uid,
+      action: 'email_changed',
+      title: 'تم تغيير البريد الإلكتروني',
+      message: 'تم اعتماد البريد الإلكتروني الجديد بنجاح: $actualEmail',
+      status: 'success',
+      extraData: {
+        'newEmail': actualEmail,
+      },
+    );
+
+    return EmailRefreshStatus.success;
+  }
+
+  Future<void> clearPendingEmailChange() async {
+    final userDoc = await _getUserDoc();
+    final data = userDoc.data() ?? <String, dynamic>{};
+    final username = (data['username'] ?? '').toString().trim().toLowerCase();
+
+    final batch = _firestore.batch();
+
+    batch.set(userDoc.reference, {
+      'pendingEmail': FieldValue.delete(),
+      'emailChangeRequestedAt': FieldValue.delete(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    if (username.isNotEmpty) {
+      final loginRef = _firestore.collection('login_usernames').doc(username);
+      batch.set(loginRef, {
+        'pendingEmail': FieldValue.delete(),
+        'emailChangeRequestedAt': FieldValue.delete(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+
+    await batch.commit();
+  }
+
   Future<void> deactivateCurrentAccount({
     required String reason,
   }) async {
@@ -404,7 +665,7 @@ class AccountSettingsService {
     }
 
     final doc = await _getUserDoc();
-    final data = doc.data();
+    final data = doc.data() ?? <String, dynamic>{};
     final role = ((data['role'] ?? '').toString()).trim().toLowerCase();
 
     if (role == 'admin') {
@@ -454,13 +715,12 @@ class AccountSettingsService {
     }
 
     final doc = await _getUserDoc();
-    final data = doc.data();
+    final data = doc.data() ?? <String, dynamic>{};
 
     final rawRole = (data['role'] ?? '').toString().trim().toLowerCase();
-    final role =
-        rawRole == 'nursery' || rawRole == 'nursery staff'
-            ? 'nursery_staff'
-            : rawRole;
+    final role = rawRole == 'nursery' || rawRole == 'nursery staff'
+        ? 'nursery_staff'
+        : rawRole;
 
     if (role == 'admin') {
       throw FirebaseAuthException(
@@ -501,6 +761,8 @@ class AccountSettingsService {
       'processedByName': '',
       'reviewNote': '',
       'requestType': 'permanent_delete',
+      'cancelledAt': null,
+      'updatedAt': FieldValue.serverTimestamp(),
     });
 
     final docRef = doc.reference;
@@ -521,6 +783,85 @@ class AccountSettingsService {
     );
   }
 
+  Future<void> cancelPendingDeletionRequest() async {
+    final user = _auth.currentUser;
+
+    if (user == null) {
+      throw FirebaseAuthException(
+        code: 'no-current-user',
+        message: 'لا يوجد مستخدم مسجّل دخول حاليًا',
+      );
+    }
+
+    final doc = await _getUserDoc();
+    final data = doc.data() ?? <String, dynamic>{};
+    final rawRole = (data['role'] ?? '').toString().trim().toLowerCase();
+
+    if (rawRole == 'admin') {
+      throw FirebaseAuthException(
+        code: 'admin-cancel-delete-not-allowed',
+        message: 'لا يمكن للأدمن تنفيذ هذه العملية',
+      );
+    }
+
+    final snapshot = await _firestore
+        .collection('account_deletion_requests')
+        .where('uid', isEqualTo: user.uid)
+        .get();
+
+    final pendingDocs = snapshot.docs.where((doc) {
+      final map = doc.data();
+      final status = (map['status'] ?? '').toString().trim().toLowerCase();
+      return status == 'pending';
+    }).toList();
+
+    if (pendingDocs.isEmpty) {
+      throw FirebaseAuthException(
+        code: 'no-pending-deletion-request',
+        message: 'لا يوجد طلب حذف قيد المراجعة',
+      );
+    }
+
+    pendingDocs.sort((a, b) {
+      final aTime = (a.data()['requestedAt'] as Timestamp?)?.toDate();
+      final bTime = (b.data()['requestedAt'] as Timestamp?)?.toDate();
+
+      if (aTime == null && bTime == null) return 0;
+      if (aTime == null) return 1;
+      if (bTime == null) return -1;
+      return bTime.compareTo(aTime);
+    });
+
+    final requestRef = pendingDocs.first.reference;
+    final userRef = doc.reference;
+
+    final batch = _firestore.batch();
+
+    batch.set(requestRef, {
+      'status': 'cancelled',
+      'cancelledAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+      'reviewNote': 'تم سحب طلب الحذف من المستخدم',
+    }, SetOptions(merge: true));
+
+    batch.set(userRef, {
+      'deletionRequested': false,
+      'deletionRequestType': FieldValue.delete(),
+      'deletionRequestedAt': FieldValue.delete(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    await batch.commit();
+
+    await logAccountAction(
+      targetUid: user.uid,
+      action: 'deletion_request_cancelled',
+      title: 'تم سحب طلب الحذف',
+      message: 'قام المستخدم بسحب طلب حذف الحساب قبل مراجعته من الإدارة',
+      status: 'info',
+    );
+  }
+
   Future<AccountDeletionRequestData?> getLatestDeletionRequest() async {
     final user = _auth.currentUser;
 
@@ -534,12 +875,22 @@ class AccountSettingsService {
     final snapshot = await _firestore
         .collection('account_deletion_requests')
         .where('uid', isEqualTo: user.uid)
-        .orderBy('requestedAt', descending: true)
-        .limit(1)
         .get();
 
     if (snapshot.docs.isEmpty) return null;
 
-    return AccountDeletionRequestData.fromMap(snapshot.docs.first.data());
+    final docs = [...snapshot.docs];
+
+    docs.sort((a, b) {
+      final aTime = (a.data()['requestedAt'] as Timestamp?)?.toDate();
+      final bTime = (b.data()['requestedAt'] as Timestamp?)?.toDate();
+
+      if (aTime == null && bTime == null) return 0;
+      if (aTime == null) return 1;
+      if (bTime == null) return -1;
+      return bTime.compareTo(aTime);
+    });
+
+    return AccountDeletionRequestData.fromMap(docs.first.data());
   }
 }

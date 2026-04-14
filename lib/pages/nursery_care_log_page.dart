@@ -118,7 +118,7 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
   }
 
   String _resolveMediaType(Map<String, dynamic> data) {
-    final directType = (data['mediaType'] ?? '').toString().trim();
+    final directType = (data['mediaType'] ?? '').toString().trim().toLowerCase();
     if (directType.isNotEmpty) return directType;
 
     final mediaUrl = (data['mediaUrl'] ?? '').toString().trim().toLowerCase();
@@ -329,6 +329,14 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
     }).toList();
   }
 
+  List<Map<String, dynamic>> getPreviousItems(List<Map<String, dynamic>> items) {
+    return items.where((item) {
+      final ts = item['displayTime'] as Timestamp?;
+      if (ts == null) return true;
+      return !isToday(ts.toDate());
+    }).toList();
+  }
+
   void clearFilters() {
     setState(() {
       selectedTypeFilter = 'all';
@@ -396,6 +404,7 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
             final stats = buildStats(allItems);
             final filteredItems = applyFilter(allItems);
             final todayItems = getTodayItems(filteredItems);
+            final previousItems = getPreviousItems(filteredItems);
 
             return ListView(
               physics: const AlwaysScrollableScrollPhysics(),
@@ -442,27 +451,30 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
                     ),
                   const SizedBox(height: 18),
                   _buildSectionHeader(
-                    title: 'كل السجلات',
-                    subtitle: 'سجل الرعاية الكامل حسب الفلاتر المختارة',
-                    icon: Icons.list_alt_rounded,
+                    title: 'السجلات السابقة',
+                    subtitle: 'كل السجلات الأقدم بحسب الفلاتر المختارة',
+                    icon: Icons.history_rounded,
                   ),
                   const SizedBox(height: 12),
-                  ...filteredItems.map(
-                    (item) => Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _CareLogCard(
-                        type: itemTypeLabel(item['type'] ?? ''),
-                        note: item['note'] ?? '',
-                        createdByName: item['createdByName'] ?? '',
-                        timeText: formatDateTime(item['displayTime']),
-                        icon: itemIcon(item['type'] ?? ''),
-                        color: itemColor(item['type'] ?? ''),
-                        isNew: isNewItem(item),
-                        hasMedia: item['hasMedia'] == true,
-                        mediaType: (item['mediaType'] ?? '').toString(),
+                  if (previousItems.isEmpty)
+                    _buildMiniEmptyState('لا توجد سجلات سابقة مطابقة')
+                  else
+                    ...previousItems.map(
+                      (item) => Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: _CareLogCard(
+                          type: itemTypeLabel(item['type'] ?? ''),
+                          note: item['note'] ?? '',
+                          createdByName: item['createdByName'] ?? '',
+                          timeText: formatDateTime(item['displayTime']),
+                          icon: itemIcon(item['type'] ?? ''),
+                          color: itemColor(item['type'] ?? ''),
+                          isNew: isNewItem(item),
+                          hasMedia: item['hasMedia'] == true,
+                          mediaType: (item['mediaType'] ?? '').toString(),
+                        ),
                       ),
                     ),
-                  ),
                 ],
                 const SizedBox(height: 8),
               ],
@@ -829,9 +841,7 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: hasFilters
-            ? AppColors.primary.withOpacity(0.06)
-            : Colors.white,
+        color: hasFilters ? AppColors.primary.withOpacity(0.06) : Colors.white,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
           color: hasFilters
@@ -857,9 +867,8 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w800,
-                  color: hasFilters
-                      ? AppColors.textDark
-                      : AppColors.textLight,
+                  color:
+                      hasFilters ? AppColors.textDark : AppColors.textLight,
                 ),
               ),
               const Spacer(),
@@ -883,8 +892,7 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
                 if (selectedTypeFilter != 'all')
                   _Badge(
                     text: itemTypeLabel(selectedTypeFilter),
-                    background:
-                        itemColor(selectedTypeFilter).withOpacity(0.10),
+                    background: itemColor(selectedTypeFilter).withOpacity(0.10),
                     foreground: itemColor(selectedTypeFilter),
                   ),
                 if (selectedDateFilter != 'all')

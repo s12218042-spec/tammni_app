@@ -35,6 +35,26 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
     super.dispose();
   }
 
+  String _safeText(dynamic value, {String fallback = ''}) {
+    if (value == null) return fallback;
+    final text = value.toString().trim();
+    return text.isEmpty ? fallback : text;
+  }
+
+  Timestamp? _resolveTimestamp(Map<String, dynamic> data) {
+    final candidates = [
+      data['createdAt'],
+      data['updatedAt'],
+      data['reviewedAt'],
+    ];
+
+    for (final value in candidates) {
+      if (value is Timestamp) return value;
+    }
+
+    return null;
+  }
+
   Future<Map<String, dynamic>> _getParentInfo() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     final cleanUsername = widget.parentUsername.trim().toLowerCase();
@@ -46,8 +66,14 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
       if (data != null) {
         return {
           'uid': uid,
-          'name': (data['name'] ?? data['displayName'] ?? 'وليّ الأمر').toString(),
-          'username': (data['username'] ?? cleanUsername).toString(),
+          'name': _safeText(
+            data['name'] ?? data['displayName'],
+            fallback: 'وليّ الأمر',
+          ),
+          'username': _safeText(
+            data['username'],
+            fallback: cleanUsername,
+          ).toLowerCase(),
         };
       }
     }
@@ -61,9 +87,15 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
     if (query.docs.isNotEmpty) {
       final data = query.docs.first.data();
       return {
-        'uid': data['uid'] ?? '',
-        'name': (data['name'] ?? data['displayName'] ?? 'وليّ الأمر').toString(),
-        'username': (data['username'] ?? cleanUsername).toString(),
+        'uid': _safeText(data['uid']),
+        'name': _safeText(
+          data['name'] ?? data['displayName'],
+          fallback: 'وليّ الأمر',
+        ),
+        'username': _safeText(
+          data['username'],
+          fallback: cleanUsername,
+        ).toLowerCase(),
       };
     }
 
@@ -107,10 +139,15 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
         'title': title,
         'message': message,
         'status': 'pending',
-        'parentUid': parentInfo['uid'],
-        'parentName': parentInfo['name'],
-        'parentUsername': parentInfo['username'],
+        'parentUid': _safeText(parentInfo['uid']),
+        'parentName': _safeText(parentInfo['name'], fallback: 'وليّ الأمر'),
+        'parentUsername':
+            _safeText(parentInfo['username']).trim().toLowerCase(),
         'adminReply': '',
+        'reviewNote': '',
+        'reviewedByName': '',
+        'reviewedByUid': '',
+        'reviewedAt': null,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
@@ -197,25 +234,42 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
   ) {
     final q = _searchQuery.trim().toLowerCase();
 
-    return docs.where((doc) {
+    final filtered = docs.where((doc) {
       final data = doc.data();
-      final title = (data['title'] ?? '').toString().toLowerCase();
-      final message = (data['message'] ?? '').toString().toLowerCase();
-      final status = (data['status'] ?? '').toString().toLowerCase();
-      final adminReply = (data['adminReply'] ?? '').toString().toLowerCase();
+      final title = _safeText(data['title']).toLowerCase();
+      final message = _safeText(data['message']).toLowerCase();
+      final status = _safeText(data['status']).toLowerCase();
+      final adminReply = _safeText(data['adminReply']).toLowerCase();
+      final reviewNote = _safeText(data['reviewNote']).toLowerCase();
 
       if (q.isEmpty) return true;
 
       return title.contains(q) ||
           message.contains(q) ||
           status.contains(q) ||
-          adminReply.contains(q);
+          adminReply.contains(q) ||
+          reviewNote.contains(q);
     }).toList();
+
+    filtered.sort((a, b) {
+      final aTime = _resolveTimestamp(a.data());
+      final bTime = _resolveTimestamp(b.data());
+
+      if (aTime == null && bTime == null) return 0;
+      if (aTime == null) return 1;
+      if (bTime == null) return -1;
+
+      return bTime.compareTo(aTime);
+    });
+
+    return filtered;
   }
 
   Future<void> _showComplaintDetails(Map<String, dynamic> data) async {
-    final status = (data['status'] ?? 'pending').toString();
-    final adminReply = (data['adminReply'] ?? '').toString();
+    final status = _safeText(data['status'], fallback: 'pending');
+    final adminReply = _safeText(data['adminReply']);
+    final reviewNote = _safeText(data['reviewNote']);
+    final reviewedByName = _safeText(data['reviewedByName']);
 
     await showDialog(
       context: context,
@@ -229,7 +283,7 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
               children: [
                 _detailItem(
                   label: 'عنوان الشكوى',
-                  value: (data['title'] ?? 'بدون عنوان').toString(),
+                  value: _safeText(data['title'], fallback: 'بدون عنوان'),
                 ),
                 _detailItem(
                   label: 'الحالة',
@@ -241,7 +295,7 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
                 ),
                 _detailItem(
                   label: 'نص الشكوى',
-                  value: (data['message'] ?? 'لا يوجد نص').toString(),
+                  value: _safeText(data['message'], fallback: 'لا يوجد نص'),
                   isMultiline: true,
                 ),
                 _detailItem(
@@ -249,6 +303,22 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
                   value: adminReply.isEmpty ? 'لا يوجد رد بعد' : adminReply,
                   isMultiline: true,
                 ),
+                if (reviewNote.isNotEmpty)
+                  _detailItem(
+                    label: 'ملاحظة الإدارة',
+                    value: reviewNote,
+                    isMultiline: true,
+                  ),
+                if (reviewedByName.isNotEmpty)
+                  _detailItem(
+                    label: 'تمت المراجعة بواسطة',
+                    value: reviewedByName,
+                  ),
+                if (data['reviewedAt'] != null)
+                  _detailItem(
+                    label: 'تاريخ المراجعة',
+                    value: _formatDate(data['reviewedAt']),
+                  ),
               ],
             ),
           ),
@@ -303,11 +373,25 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
+  Stream<QuerySnapshot<Map<String, dynamic>>> _complaintsStream() {
     final currentUid = FirebaseAuth.instance.currentUser?.uid;
     final cleanUsername = widget.parentUsername.trim().toLowerCase();
 
+    if (currentUid != null && currentUid.trim().isNotEmpty) {
+      return _firestore
+          .collection('complaints')
+          .where('parentUid', isEqualTo: currentUid)
+          .snapshots();
+    }
+
+    return _firestore
+        .collection('complaints')
+        .where('parentUsername', isEqualTo: cleanUsername)
+        .snapshots();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return AppPageScaffold(
       title: 'الشكاوى والملاحظات',
       child: Column(
@@ -371,7 +455,9 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
                           : const Icon(Icons.send_rounded),
-                      label: Text(_isSubmitting ? 'جاري الإرسال...' : 'إرسال الشكوى'),
+                      label: Text(
+                        _isSubmitting ? 'جاري الإرسال...' : 'إرسال الشكوى',
+                      ),
                     ),
                   ),
                 ],
@@ -410,17 +496,7 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
           const SizedBox(height: 16),
           Expanded(
             child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: currentUid != null
-                  ? _firestore
-                      .collection('complaints')
-                      .where('parentUid', isEqualTo: currentUid)
-                      .orderBy('createdAt', descending: true)
-                      .snapshots()
-                  : _firestore
-                      .collection('complaints')
-                      .where('parentUsername', isEqualTo: cleanUsername)
-                      .orderBy('createdAt', descending: true)
-                      .snapshots(),
+              stream: _complaintsStream(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(
@@ -480,10 +556,12 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
                   itemCount: docs.length,
                   itemBuilder: (context, index) {
                     final data = docs[index].data();
-                    final title = (data['title'] ?? 'شكوى بدون عنوان').toString();
-                    final message = (data['message'] ?? '').toString();
-                    final status = (data['status'] ?? 'pending').toString();
-                    final adminReply = (data['adminReply'] ?? '').toString();
+                    final title =
+                        _safeText(data['title'], fallback: 'شكوى بدون عنوان');
+                    final message = _safeText(data['message']);
+                    final status = _safeText(data['status'], fallback: 'pending');
+                    final adminReply = _safeText(data['adminReply']);
+                    final reviewNote = _safeText(data['reviewNote']);
 
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 12),
@@ -544,9 +622,7 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
                                   borderRadius: BorderRadius.circular(14),
                                 ),
                                 child: Text(
-                                  message.isEmpty
-                                      ? 'لا يوجد وصف مرفق'
-                                      : message,
+                                  message.isEmpty ? 'لا يوجد وصف مرفق' : message,
                                   maxLines: 3,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(
@@ -588,7 +664,8 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
                                     ),
                                   ),
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       const Text(
                                         'رد الإدارة',
@@ -600,6 +677,41 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
                                       const SizedBox(height: 6),
                                       Text(
                                         adminReply,
+                                        style: const TextStyle(
+                                          color: AppColors.textDark,
+                                          height: 1.4,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                              if (reviewNote.trim().isNotEmpty) ...[
+                                const SizedBox(height: 10),
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: Colors.orange.withOpacity(0.06),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: Colors.orange.withOpacity(0.14),
+                                    ),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'ملاحظة الإدارة',
+                                        style: TextStyle(
+                                          color: Colors.orange,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        reviewNote,
                                         style: const TextStyle(
                                           color: AppColors.textDark,
                                           height: 1.4,

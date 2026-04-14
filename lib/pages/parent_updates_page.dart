@@ -167,7 +167,33 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
         .get();
 
     if (snapshot.docs.isEmpty) return false;
-    return snapshot.docs.first.data()['present'] == true;
+
+    final data = snapshot.docs.first.data();
+    final directStatus = (data['status'] ?? '').toString().trim().toLowerCase();
+    final present = data['present'];
+
+    if (directStatus.isNotEmpty) {
+      return directStatus == 'present';
+    }
+
+    return present == true;
+  }
+
+  String _resolveType(Map<String, dynamic> data) {
+    final candidates = [
+      data['type'],
+      data['updateType'],
+      data['category'],
+      data['title'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return 'تحديث';
   }
 
   String _resolveNote(Map<String, dynamic> data) {
@@ -225,6 +251,7 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
 
   Timestamp? _resolveTimestamp(Map<String, dynamic> data) {
     final candidates = [
+      data['eventAt'],
       data['time'],
       data['createdAt'],
       data['timestamp'],
@@ -239,100 +266,100 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
   }
 
   bool _isUsableRemoteUrl(String value) {
-  final trimmed = value.trim().toLowerCase();
-  return trimmed.startsWith('http://') || trimmed.startsWith('https://');
-}
+    final trimmed = value.trim().toLowerCase();
+    return trimmed.startsWith('http://') || trimmed.startsWith('https://');
+  }
 
-String _resolveMediaUrl(Map<String, dynamic> data) {
-  final directUrl = (data['mediaUrl'] ?? '').toString().trim();
-  if (_isUsableRemoteUrl(directUrl)) return directUrl;
+  String _resolveMediaUrl(Map<String, dynamic> data) {
+    final directUrl = (data['mediaUrl'] ?? '').toString().trim();
+    if (_isUsableRemoteUrl(directUrl)) return directUrl;
 
-  final mediaUrls = data['mediaUrls'];
-  if (mediaUrls is List && mediaUrls.isNotEmpty) {
-    for (final item in mediaUrls) {
-      final candidate = item?.toString().trim() ?? '';
-      if (_isUsableRemoteUrl(candidate)) return candidate;
+    final mediaUrls = data['mediaUrls'];
+    if (mediaUrls is List && mediaUrls.isNotEmpty) {
+      for (final item in mediaUrls) {
+        final candidate = item?.toString().trim() ?? '';
+        if (_isUsableRemoteUrl(candidate)) return candidate;
+      }
     }
+
+    return '';
   }
 
-  return '';
-}
-
-String _resolveMediaPath(Map<String, dynamic> data) {
-  final path = (data['mediaPath'] ?? '').toString().trim();
-  if (path.startsWith('blob:')) return '';
-  return path;
-}
-
-String _resolveMediaType(Map<String, dynamic> data) {
-  final mediaType = (data['mediaType'] ?? '').toString().trim().toLowerCase();
-  if (mediaType.isNotEmpty) return mediaType;
-
-  final mediaUrl = _resolveMediaUrl(data).toLowerCase();
-  final mediaPath = _resolveMediaPath(data).toLowerCase();
-  final source = mediaUrl.isNotEmpty ? mediaUrl : mediaPath;
-
-  if (source.endsWith('.mp4') ||
-      source.endsWith('.mov') ||
-      source.endsWith('.avi') ||
-      source.endsWith('.mkv') ||
-      source.contains('video')) {
-    return 'video';
+  String _resolveMediaPath(Map<String, dynamic> data) {
+    final path = (data['mediaPath'] ?? '').toString().trim();
+    if (path.startsWith('blob:')) return '';
+    return path;
   }
 
-  if (source.endsWith('.jpg') ||
-      source.endsWith('.jpeg') ||
-      source.endsWith('.png') ||
-      source.endsWith('.webp') ||
-      source.contains('image')) {
-    return 'image';
-  }
+  String _resolveMediaType(Map<String, dynamic> data) {
+    final mediaType = (data['mediaType'] ?? '').toString().trim().toLowerCase();
+    if (mediaType.isNotEmpty) return mediaType;
 
-  return '';
-}
+    final mediaUrl = _resolveMediaUrl(data).toLowerCase();
+    final mediaPath = _resolveMediaPath(data).toLowerCase();
+    final source = mediaUrl.isNotEmpty ? mediaUrl : mediaPath;
+
+    if (source.endsWith('.mp4') ||
+        source.endsWith('.mov') ||
+        source.endsWith('.avi') ||
+        source.endsWith('.mkv') ||
+        source.contains('video')) {
+      return 'video';
+    }
+
+    if (source.endsWith('.jpg') ||
+        source.endsWith('.jpeg') ||
+        source.endsWith('.png') ||
+        source.endsWith('.webp') ||
+        source.contains('image')) {
+      return 'image';
+    }
+
+    return '';
+  }
 
   Future<List<Map<String, dynamic>>> fetchUpdates() async {
-  final snapshot = await _firestore
-      .collection('updates')
-      .where('childId', isEqualTo: widget.child.id)
-      .get();
+    final snapshot = await _firestore
+        .collection('updates')
+        .where('childId', isEqualTo: widget.child.id)
+        .get();
 
-  final items = snapshot.docs.map((doc) {
-    final data = doc.data();
+    final items = snapshot.docs.map((doc) {
+      final data = doc.data();
 
-    final mediaUrl = _resolveMediaUrl(data);
-    final mediaPath = _resolveMediaPath(data);
-    final mediaType = _resolveMediaType(data);
-    final resolvedSource = mediaUrl.isNotEmpty ? mediaUrl : mediaPath;
+      final mediaUrl = _resolveMediaUrl(data);
+      final mediaPath = _resolveMediaPath(data);
+      final mediaType = _resolveMediaType(data);
+      final resolvedSource = mediaUrl.isNotEmpty ? mediaUrl : mediaPath;
 
-    return {
-      'id': doc.id,
-      'type': (data['type'] ?? data['updateType'] ?? '').toString(),
-      'note': _resolveNote(data),
-      'byRole': _resolveRole(data),
-      'createdByName': _resolveCreatorName(data),
-      'displayTime': _resolveTimestamp(data),
-      'mediaUrl': mediaUrl,
-      'mediaType': mediaType,
-      'mediaPath': mediaPath,
-      'resolvedSource': resolvedSource,
-      'hasMedia': resolvedSource.isNotEmpty && mediaType.isNotEmpty,
-    };
-  }).toList();
+      return {
+        'id': doc.id,
+        'type': _resolveType(data),
+        'note': _resolveNote(data),
+        'byRole': _resolveRole(data),
+        'createdByName': _resolveCreatorName(data),
+        'displayTime': _resolveTimestamp(data),
+        'mediaUrl': mediaUrl,
+        'mediaType': mediaType,
+        'mediaPath': mediaPath,
+        'resolvedSource': resolvedSource,
+        'hasMedia': resolvedSource.isNotEmpty && mediaType.isNotEmpty,
+      };
+    }).toList();
 
-  items.sort((a, b) {
-    final aTime = a['displayTime'] as Timestamp?;
-    final bTime = b['displayTime'] as Timestamp?;
+    items.sort((a, b) {
+      final aTime = a['displayTime'] as Timestamp?;
+      final bTime = b['displayTime'] as Timestamp?;
 
-    if (aTime == null && bTime == null) return 0;
-    if (aTime == null) return 1;
-    if (bTime == null) return -1;
+      if (aTime == null && bTime == null) return 0;
+      if (aTime == null) return 1;
+      if (bTime == null) return -1;
 
-    return bTime.compareTo(aTime);
-  });
+      return bTime.compareTo(aTime);
+    });
 
-  return items;
-}
+    return items;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -554,12 +581,12 @@ String _resolveMediaType(Map<String, dynamic> data) {
                       final Timestamp? displayTime = u['displayTime'] as Timestamp?;
 
                       return _UpdateCard(
-                        type: u['type'] ?? '',
-                        note: u['note'] ?? '',
-                        senderText: senderLabel(u['byRole'] ?? ''),
-                        creatorName: u['createdByName'] ?? '',
-                        badgeColor: typeColor(u['type'] ?? ''),
-                        icon: typeIcon(u['type'] ?? ''),
+                        type: (u['type'] ?? '').toString(),
+                        note: (u['note'] ?? '').toString(),
+                        senderText: senderLabel((u['byRole'] ?? '').toString()),
+                        creatorName: (u['createdByName'] ?? '').toString(),
+                        badgeColor: typeColor((u['type'] ?? '').toString()),
+                        icon: typeIcon((u['type'] ?? '').toString()),
                         timeTextValue: timeText(displayTime),
                         dateTextValue: dateText(displayTime),
                         mediaUrl: u['mediaUrl']?.toString(),
@@ -704,29 +731,31 @@ class _UpdateCard extends StatelessWidget {
   });
 
   bool get _hasRemoteUrl {
-  final value = (mediaUrl ?? '').trim().toLowerCase();
-  return value.startsWith('http://') || value.startsWith('https://');
-}
+    final value = (mediaUrl ?? '').trim().toLowerCase();
+    return value.startsWith('http://') || value.startsWith('https://');
+  }
 
-bool get _hasLocalPath {
-  final value = (mediaPath ?? '').trim();
-  if (value.isEmpty) return false;
-  if (value.startsWith('blob:')) return false;
-  return true;
-}
+  bool get _hasLocalPath {
+    final value = (mediaPath ?? '').trim();
+    if (value.isEmpty) return false;
+    if (value.startsWith('blob:')) return false;
+    return true;
+  }
 
-String get _normalizedMediaType => (mediaType ?? '').trim().toLowerCase();
+  String get _normalizedMediaType => (mediaType ?? '').trim().toLowerCase();
 
-String get _resolvedSource {
-  if (_hasRemoteUrl) return mediaUrl!.trim();
-  if (_hasLocalPath) return mediaPath!.trim();
-  return '';
-}
+  String get _resolvedSource {
+    if (_hasRemoteUrl) return mediaUrl!.trim();
+    if (_hasLocalPath) return mediaPath!.trim();
+    return '';
+  }
 
-bool get _hasRemoteImage => _hasRemoteUrl && _normalizedMediaType == 'image';
-bool get _hasRemoteVideo => _hasRemoteUrl && _normalizedMediaType == 'video';
-bool get _hasLocalImage => !kIsWeb && _hasLocalPath && _normalizedMediaType == 'image';
-bool get _hasLocalVideo => !kIsWeb && _hasLocalPath && _normalizedMediaType == 'video';
+  bool get _hasRemoteImage => _hasRemoteUrl && _normalizedMediaType == 'image';
+  bool get _hasRemoteVideo => _hasRemoteUrl && _normalizedMediaType == 'video';
+  bool get _hasLocalImage =>
+      !kIsWeb && _hasLocalPath && _normalizedMediaType == 'image';
+  bool get _hasLocalVideo =>
+      !kIsWeb && _hasLocalPath && _normalizedMediaType == 'video';
 
   String get _senderDisplay {
     if (creatorName.trim().isNotEmpty) {
@@ -737,6 +766,8 @@ bool get _hasLocalVideo => !kIsWeb && _hasLocalPath && _normalizedMediaType == '
 
   @override
   Widget build(BuildContext context) {
+    final displayType = type.trim().isEmpty ? 'تحديث' : type;
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -765,7 +796,7 @@ bool get _hasLocalVideo => !kIsWeb && _hasLocalPath && _normalizedMediaType == '
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: Text(
-                          type.isEmpty ? 'تحديث' : type,
+                          displayType,
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             color: badgeColor,
@@ -939,8 +970,8 @@ bool get _hasLocalVideo => !kIsWeb && _hasLocalPath && _normalizedMediaType == '
                     },
                     icon: const Icon(Icons.play_circle_outline),
                     label: Text(
-                    _hasRemoteVideo ? 'عرض الفيديو' : 'تشغيل الفيديو',
-                 ),
+                      _hasRemoteVideo ? 'عرض الفيديو' : 'تشغيل الفيديو',
+                    ),
                   ),
                 ),
               ),

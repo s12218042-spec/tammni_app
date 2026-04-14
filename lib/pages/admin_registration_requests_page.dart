@@ -19,7 +19,7 @@ class _AdminRegistrationRequestsPageState
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  String selectedStatus = 'pending'; // pending / approved / rejected / all
+  final Set<String> selectedStatuses = {'pending'};
   String searchText = '';
   bool isProcessing = false;
 
@@ -58,6 +58,25 @@ class _AdminRegistrationRequestsPageState
       default:
         return '-';
     }
+  }
+
+  void _toggleStatusFilter(String value) {
+    setState(() {
+      if (selectedStatuses.contains(value)) {
+        selectedStatuses.remove(value);
+      } else {
+        selectedStatuses.add(value);
+      }
+    });
+  }
+
+  void _clearFilters() {
+    setState(() {
+      selectedStatuses
+        ..clear()
+        ..add('pending');
+      searchText = '';
+    });
   }
 
   DateTime? _parseRequestBirthDate(dynamic value) {
@@ -128,10 +147,10 @@ class _AdminRegistrationRequestsPageState
           requestType.isEmpty;
     }).toList();
 
-    if (selectedStatus != 'all') {
+    if (selectedStatuses.isNotEmpty) {
       items = items.where((item) {
         final status = (item['status'] ?? 'pending').toString().trim();
-        return status == selectedStatus;
+        return selectedStatuses.contains(status);
       }).toList();
     }
 
@@ -604,7 +623,15 @@ class _AdminRegistrationRequestsPageState
 
       await batch.commit();
 
-      await _auth.sendPasswordResetEmail(email: email);
+      final actionCodeSettings = ActionCodeSettings(
+  url: 'https://daycare-app-220c0.web.app/auth_action.html',
+  handleCodeInApp: false,
+);
+
+await _auth.sendPasswordResetEmail(
+  email: email,
+  actionCodeSettings: actionCodeSettings,
+);
 
       if (!mounted) return;
 
@@ -1038,16 +1065,30 @@ class _AdminRegistrationRequestsPageState
     required String label,
     required String value,
   }) {
-    final isSelected = selectedStatus == value;
+    final isSelected = selectedStatuses.contains(value);
 
-    return ChoiceChip(
-      label: Text(label),
+    return FilterChip(
+      label: Text(
+        label,
+        style: TextStyle(
+          color: isSelected ? Colors.white : AppColors.textDark,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
       selected: isSelected,
-      onSelected: (_) {
-        setState(() {
-          selectedStatus = value;
-        });
-      },
+      onSelected: (_) => _toggleStatusFilter(value),
+      selectedColor: _statusColor(value),
+      checkmarkColor: Colors.white,
+      backgroundColor: Colors.white,
+      side: BorderSide(
+        color: isSelected
+            ? _statusColor(value)
+            : AppColors.primary.withOpacity(0.14),
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+      ),
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
     );
   }
 
@@ -1227,6 +1268,11 @@ class _AdminRegistrationRequestsPageState
 
   @override
   Widget build(BuildContext context) {
+    final hasCustomFilters =
+        searchText.trim().isNotEmpty ||
+        selectedStatuses.length != 1 ||
+        !selectedStatuses.contains('pending');
+
     return AppPageScaffold(
       title: 'طلبات تسجيل أولياء الأمور',
       child: Column(
@@ -1242,6 +1288,16 @@ class _AdminRegistrationRequestsPageState
                       hintText:
                           'ابحثي بالاسم أو اسم المستخدم أو البريد أو اسم الطفل',
                       prefixIcon: const Icon(Icons.search),
+                      suffixIcon: searchText.trim().isEmpty
+                          ? null
+                          : IconButton(
+                              onPressed: () {
+                                setState(() {
+                                  searchText = '';
+                                });
+                              },
+                              icon: const Icon(Icons.close_rounded),
+                            ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(16),
                       ),
@@ -1253,16 +1309,38 @@ class _AdminRegistrationRequestsPageState
                     },
                   ),
                   const SizedBox(height: 14),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _buildFilterChip(label: 'قيد المراجعة', value: 'pending'),
-                      _buildFilterChip(label: 'تمت الموافقة', value: 'approved'),
-                      _buildFilterChip(label: 'مرفوض', value: 'rejected'),
-                      _buildFilterChip(label: 'الكل', value: 'all'),
-                    ],
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _buildFilterChip(
+                          label: 'قيد المراجعة',
+                          value: 'pending',
+                        ),
+                        _buildFilterChip(
+                          label: 'تمت الموافقة',
+                          value: 'approved',
+                        ),
+                        _buildFilterChip(
+                          label: 'مرفوض',
+                          value: 'rejected',
+                        ),
+                      ],
+                    ),
                   ),
+                  if (hasCustomFilters) ...[
+                    const SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        onPressed: _clearFilters,
+                        icon: const Icon(Icons.restart_alt_rounded),
+                        label: const Text('إعادة تعيين الفلاتر'),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -1290,7 +1368,7 @@ class _AdminRegistrationRequestsPageState
                 if (items.isEmpty) {
                   return Center(
                     child: Text(
-                      'لا توجد طلبات حالياً',
+                      'لا توجد طلبات مطابقة حاليًا',
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                             color: AppColors.textLight,
                           ),

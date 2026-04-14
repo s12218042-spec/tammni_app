@@ -17,10 +17,9 @@ class _AdminComplaintsPageState extends State<AdminComplaintsPage> {
   final TextEditingController _searchController = TextEditingController();
 
   String _searchQuery = '';
-  String _selectedStatus = 'all';
+  final Set<String> _selectedStatuses = {};
 
   final List<Map<String, String>> _statusOptions = const [
-    {'value': 'all', 'label': 'الكل'},
     {'value': 'pending', 'label': 'قيد الانتظار'},
     {'value': 'in_review', 'label': 'قيد المراجعة'},
     {'value': 'resolved', 'label': 'تم الحل'},
@@ -87,6 +86,24 @@ class _AdminComplaintsPageState extends State<AdminComplaintsPage> {
     return 'غير محدد';
   }
 
+  void _toggleStatusFilter(String value) {
+    setState(() {
+      if (_selectedStatuses.contains(value)) {
+        _selectedStatuses.remove(value);
+      } else {
+        _selectedStatuses.add(value);
+      }
+    });
+  }
+
+  void _clearFilters() {
+    setState(() {
+      _selectedStatuses.clear();
+      _searchQuery = '';
+      _searchController.clear();
+    });
+  }
+
   Future<void> _updateComplaintStatus({
     required String docId,
     required String newStatus,
@@ -142,7 +159,6 @@ class _AdminComplaintsPageState extends State<AdminComplaintsPage> {
     );
 
     final currentStatus = (data['status'] ?? 'pending').toString();
-
     String selectedStatus = currentStatus.isEmpty ? 'pending' : currentStatus;
 
     await showDialog(
@@ -194,7 +210,6 @@ class _AdminComplaintsPageState extends State<AdminComplaintsPage> {
                           prefixIcon: Icon(Icons.flag_outlined),
                         ),
                         items: _statusOptions
-                            .where((e) => e['value'] != 'all')
                             .map(
                               (option) => DropdownMenuItem<String>(
                                 value: option['value']!,
@@ -307,7 +322,7 @@ class _AdminComplaintsPageState extends State<AdminComplaintsPage> {
           (data['parentUsername'] ?? '').toString().toLowerCase();
 
       final matchesStatus =
-          _selectedStatus == 'all' || status == _selectedStatus;
+          _selectedStatuses.isEmpty || _selectedStatuses.contains(status);
 
       final q = _searchQuery.trim().toLowerCase();
       final matchesSearch = q.isEmpty ||
@@ -649,6 +664,9 @@ class _AdminComplaintsPageState extends State<AdminComplaintsPage> {
   }
 
   Widget _buildSearchAndFilters() {
+    final hasCustomFilters =
+        _searchQuery.trim().isNotEmpty || _selectedStatuses.isNotEmpty;
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -684,32 +702,44 @@ class _AdminComplaintsPageState extends State<AdminComplaintsPage> {
                 spacing: 8,
                 runSpacing: 8,
                 children: _statusOptions.map((option) {
-                  final selected = _selectedStatus == option['value'];
-                  return ChoiceChip(
+                  final value = option['value']!;
+                  final selected = _selectedStatuses.contains(value);
+
+                  return FilterChip(
                     label: Text(option['label']!),
                     selected: selected,
                     onSelected: (_) {
-                      setState(() {
-                        _selectedStatus = option['value']!;
-                      });
+                      _toggleStatusFilter(value);
                     },
-                    selectedColor: AppColors.primary.withOpacity(0.16),
+                    selectedColor: _statusColor(value).withOpacity(0.18),
                     labelStyle: TextStyle(
                       color: selected
-                          ? AppColors.primary
+                          ? _statusColor(value)
                           : AppColors.textDark,
                       fontWeight: FontWeight.w700,
                     ),
                     side: BorderSide(
                       color: selected
-                          ? AppColors.primary
+                          ? _statusColor(value)
                           : AppColors.border,
                     ),
                     backgroundColor: Colors.white,
+                    checkmarkColor: _statusColor(value),
                   );
                 }).toList(),
               ),
             ),
+            if (hasCustomFilters) ...[
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: _clearFilters,
+                  icon: const Icon(Icons.restart_alt_rounded),
+                  label: const Text('إعادة تعيين الفلاتر'),
+                ),
+              ),
+            ],
           ],
         ),
       ),

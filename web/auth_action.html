@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>إجراء التحقق - طمّني</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: linear-gradient(to bottom, #f8fbff, #f3f8ff, #eef8f7);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #1f2937;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 430px;
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 22px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+      padding: 24px;
+      box-sizing: border-box;
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: 25px;
+      text-align: center;
+    }
+
+    p {
+      margin: 0 0 18px;
+      line-height: 1.7;
+      text-align: center;
+      color: #6b7280;
+      font-weight: 600;
+    }
+
+    .field {
+      margin-bottom: 14px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 700;
+    }
+
+    input {
+      width: 100%;
+      padding: 14px 16px;
+      border-radius: 16px;
+      border: 1px solid #d1d5db;
+      font-size: 15px;
+      box-sizing: border-box;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: #6c63ff;
+      box-shadow: 0 0 0 3px rgba(108, 99, 255, 0.12);
+    }
+
+    .hint {
+      background: rgba(108, 99, 255, 0.06);
+      border: 1px solid rgba(108, 99, 255, 0.18);
+      border-radius: 14px;
+      padding: 12px;
+      margin: 12px 0 18px;
+      font-size: 13px;
+      line-height: 1.6;
+      text-align: center;
+      font-weight: 600;
+    }
+
+    .error, .success, .info {
+      border-radius: 14px;
+      padding: 12px;
+      margin-bottom: 16px;
+      text-align: center;
+      line-height: 1.6;
+      font-weight: 700;
+      display: none;
+    }
+
+    .error {
+      background: rgba(239, 68, 68, 0.08);
+      border: 1px solid rgba(239, 68, 68, 0.2);
+      color: #b91c1c;
+    }
+
+    .success {
+      background: rgba(34, 197, 94, 0.08);
+      border: 1px solid rgba(34, 197, 94, 0.2);
+      color: #166534;
+    }
+
+    .info {
+      background: rgba(59, 130, 246, 0.08);
+      border: 1px solid rgba(59, 130, 246, 0.2);
+      color: #1d4ed8;
+      display: block;
+    }
+
+    button {
+      width: 100%;
+      height: 50px;
+      border: none;
+      border-radius: 16px;
+      background: #6c63ff;
+      color: white;
+      font-size: 16px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .footer {
+      margin-top: 16px;
+      text-align: center;
+      color: #6b7280;
+      font-size: 13px;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1 id="pageTitle">جارٍ تنفيذ العملية</h1>
+    <p id="pageDescription">يرجى الانتظار...</p>
+
+    <div id="infoBox" class="info">جارٍ التحقق من الرابط...</div>
+    <div id="errorBox" class="error"></div>
+    <div id="successBox" class="success"></div>
+
+    <form id="resetForm" class="hidden">
+      <div class="field">
+        <label for="password">كلمة المرور الجديدة</label>
+        <input id="password" type="password" autocomplete="new-password" />
+      </div>
+
+      <div class="field">
+        <label for="confirmPassword">تأكيد كلمة المرور الجديدة</label>
+        <input id="confirmPassword" type="password" autocomplete="new-password" />
+      </div>
+
+      <div class="hint">
+        يفضل اختيار كلمة مرور تحتوي على حروف وأرقام، وألا تكون سهلة أو مكررة.
+      </div>
+
+      <button id="submitBtn" type="submit">حفظ كلمة المرور</button>
+    </form>
+
+    <div class="footer">طمّني • Nursery & Kindergarten Management</div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+    import {
+      getAuth,
+      verifyPasswordResetCode,
+      confirmPasswordReset,
+      applyActionCode,
+      checkActionCode
+    } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyBPDZ2NAxXSJHcJtt8lqlPo6DmaYfZoEf4",
+      authDomain: "daycare-app-220c0.firebaseapp.com",
+      projectId: "daycare-app-220c0",
+      appId: "1:488655790669:web:533dc6a7a6a41c995db204",
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+
+    const pageTitle = document.getElementById("pageTitle");
+    const pageDescription = document.getElementById("pageDescription");
+    const infoBox = document.getElementById("infoBox");
+    const errorBox = document.getElementById("errorBox");
+    const successBox = document.getElementById("successBox");
+    const resetForm = document.getElementById("resetForm");
+    const passwordInput = document.getElementById("password");
+    const confirmPasswordInput = document.getElementById("confirmPassword");
+    const submitBtn = document.getElementById("submitBtn");
+
+    const params = new URLSearchParams(window.location.search);
+    const mode = params.get("mode");
+    const oobCode = params.get("oobCode");
+
+    function showError(message) {
+      errorBox.style.display = "block";
+      errorBox.textContent = message;
+    }
+
+    function hideError() {
+      errorBox.style.display = "none";
+      errorBox.textContent = "";
+    }
+
+    function showSuccess(message) {
+      successBox.style.display = "block";
+      successBox.textContent = message;
+    }
+
+    function hideInfo() {
+      infoBox.style.display = "none";
+    }
+
+    function setLoadingText(title, description, info) {
+      pageTitle.textContent = title;
+      pageDescription.textContent = description;
+      infoBox.style.display = "block";
+      infoBox.textContent = info;
+    }
+
+    function validatePassword(password, confirmPassword) {
+      const weakPasswords = new Set([
+        "123456",
+        "1234567",
+        "12345678",
+        "123456789",
+        "111111",
+        "11111111",
+        "000000",
+        "00000000",
+        "password",
+        "password123",
+        "qwerty",
+        "qwerty123",
+        "abcdef",
+        "abc123",
+      ]);
+
+      const text = password.trim();
+      const lowerText = text.toLowerCase();
+
+      if (!text) return "كلمة المرور الجديدة مطلوبة";
+      if (text.length < 6) return "يجب أن تكون كلمة المرور 6 أحرف على الأقل";
+      if (weakPasswords.has(lowerText)) return "كلمة المرور ضعيفة جدًا، اختاري كلمة أقوى";
+
+      const allSame = text.split("").every((char) => char === text[0]);
+      if (allSame) return "كلمة المرور ضعيفة جدًا، لا تستخدمي نفس الحرف أو الرقم مكررًا";
+
+      const onlyNumbers = /^\d+$/.test(text);
+      const onlyLetters = /^[a-zA-Z]+$/.test(text);
+
+      if (onlyNumbers && text.length < 8) {
+        return "كلمة المرور الضعيفة جدًا لا تُقبل، استخدمي حروفًا وأرقامًا";
+      }
+
+      if (onlyLetters && text.length < 8) {
+        return "كلمة المرور الضعيفة جدًا لا تُقبل، استخدمي حروفًا وأرقامًا";
+      }
+
+      if (!confirmPassword.trim()) return "تأكيد كلمة المرور مطلوب";
+      if (text !== confirmPassword.trim()) return "كلمتا المرور غير متطابقتين";
+
+      return null;
+    }
+
+    async function handleResetPassword() {
+      pageTitle.textContent = "تعيين كلمة المرور";
+      pageDescription.textContent = "أدخلي كلمة مرور جديدة ثم أكديها لإكمال العملية.";
+
+      try {
+        await verifyPasswordResetCode(auth, oobCode);
+        hideInfo();
+        resetForm.classList.remove("hidden");
+      } catch (e) {
+        hideInfo();
+        if (e.code === "auth/expired-action-code") {
+          showError("انتهت صلاحية رابط إعادة تعيين كلمة المرور");
+        } else if (e.code === "auth/invalid-action-code") {
+          showError("رابط إعادة تعيين كلمة المرور غير صالح أو تم استخدامه");
+        } else {
+          showError("تعذر التحقق من رابط إعادة تعيين كلمة المرور");
+        }
+      }
+    }
+
+    async function handleVerifyEmail() {
+      pageTitle.textContent = "التحقق من البريد الإلكتروني";
+      pageDescription.textContent = "جارٍ التحقق من البريد الإلكتروني الخاص بك.";
+
+      try {
+        await checkActionCode(auth, oobCode);
+        await applyActionCode(auth, oobCode);
+
+        hideInfo();
+        showSuccess("تم التحقق من البريد الإلكتروني بنجاح. يمكنك الآن العودة إلى التطبيق وإكمال العملية.");
+      } catch (e) {
+        hideInfo();
+        if (e.code === "auth/expired-action-code") {
+          showError("انتهت صلاحية رابط التحقق من البريد الإلكتروني");
+        } else if (e.code === "auth/invalid-action-code") {
+          showError("رابط التحقق من البريد الإلكتروني غير صالح أو تم استخدامه");
+        } else {
+          showError("تعذر التحقق من البريد الإلكتروني");
+        }
+      }
+    }
+
+    async function handleVerifyAndChangeEmail() {
+  pageTitle.textContent = "تأكيد تغيير البريد الإلكتروني";
+  pageDescription.textContent = "جارٍ تأكيد البريد الإلكتروني الجديد وتحديث الحساب.";
+
+  try {
+    const info = await checkActionCode(auth, oobCode);
+    await applyActionCode(auth, oobCode);
+
+    hideInfo();
+
+    const newEmail = info?.data?.email || "";
+    const previousEmail = info?.data?.previousEmail || "";
+
+    if (newEmail && previousEmail) {
+      showSuccess(
+        `تم تأكيد تغيير البريد الإلكتروني بنجاح.\nالبريد السابق: ${previousEmail}\nالبريد الجديد: ${newEmail}\nيمكنك الآن العودة إلى التطبيق.`
+      );
+    } else {
+      showSuccess("تم تأكيد تغيير البريد الإلكتروني بنجاح. يمكنك الآن العودة إلى التطبيق.");
+    }
+  } catch (e) {
+    hideInfo();
+
+    if (e.code === "auth/expired-action-code") {
+      showError("انتهت صلاحية رابط تأكيد تغيير البريد الإلكتروني");
+    } else if (e.code === "auth/invalid-action-code") {
+      showError("رابط تغيير البريد الإلكتروني غير صالح أو تم استخدامه");
+    } else {
+      showError("تعذر تأكيد تغيير البريد الإلكتروني");
+    }
+  }
+}
+
+async function handleRecoverEmail() {
+  pageTitle.textContent = "استرجاع البريد الإلكتروني السابق";
+  pageDescription.textContent = "جارٍ تنفيذ استرجاع البريد الإلكتروني السابق.";
+
+  try {
+    const info = await checkActionCode(auth, oobCode);
+    await applyActionCode(auth, oobCode);
+
+    hideInfo();
+
+    const restoredEmail = info?.data?.email || "";
+    const currentEmail = info?.data?.previousEmail || "";
+
+    if (restoredEmail && currentEmail) {
+      showSuccess(
+        `تم استرجاع البريد الإلكتروني السابق بنجاح.\nالبريد المستعاد: ${restoredEmail}\nالبريد الحالي قبل الاسترجاع: ${currentEmail}`
+      );
+    } else {
+      showSuccess("تم استرجاع البريد الإلكتروني السابق بنجاح.");
+    }
+  } catch (e) {
+    hideInfo();
+
+    if (e.code === "auth/expired-action-code") {
+      showError("انتهت صلاحية رابط استرجاع البريد الإلكتروني");
+    } else if (e.code === "auth/invalid-action-code") {
+      showError("رابط استرجاع البريد الإلكتروني غير صالح أو تم استخدامه");
+    } else {
+      showError("تعذر استرجاع البريد الإلكتروني");
+    }
+  }
+}
+
+    async function init() {
+  if (!mode || !oobCode) {
+    hideInfo();
+    showError("الرابط غير صالح أو ناقص");
+    return;
+  }
+
+  if (mode === "resetPassword") {
+    await handleResetPassword();
+    return;
+  }
+
+  if (mode === "verifyEmail") {
+    await handleVerifyEmail();
+    return;
+  }
+
+  if (mode === "verifyAndChangeEmail") {
+    await handleVerifyAndChangeEmail();
+    return;
+  }
+
+  if (mode === "recoverEmail") {
+    await handleRecoverEmail();
+    return;
+  }
+
+  hideInfo();
+  showError("نوع العملية غير مدعوم في هذه الصفحة");
+}
+
+    resetForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      hideError();
+      successBox.style.display = "none";
+
+      const password = passwordInput.value;
+      const confirmPassword = confirmPasswordInput.value;
+
+      const validationError = validatePassword(password, confirmPassword);
+      if (validationError) {
+        showError(validationError);
+        return;
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = "جارٍ الحفظ...";
+
+      try {
+        await confirmPasswordReset(auth, oobCode, password.trim());
+        resetForm.classList.add("hidden");
+        showSuccess("تم تعيين كلمة المرور بنجاح. يمكنك الآن العودة إلى التطبيق وتسجيل الدخول.");
+      } catch (e) {
+        if (e.code === "auth/expired-action-code") {
+          showError("انتهت صلاحية الرابط، اطلبي رابطًا جديدًا");
+        } else if (e.code === "auth/invalid-action-code") {
+          showError("الرابط غير صالح أو تم استخدامه مسبقًا");
+        } else if (e.code === "auth/weak-password") {
+          showError("كلمة المرور الجديدة ضعيفة جدًا");
+        } else {
+          showError("حدث خطأ أثناء تعيين كلمة المرور");
+        }
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "حفظ كلمة المرور";
+      }
+    });
+
+    init();
+  </script>
+</body>
+</html>

@@ -15,6 +15,18 @@ class MessageModel {
   final bool isRead;
   final List<dynamic> participants;
 
+  final Map<String, String> reactions;
+
+  final List<String> deletedForUserIds;
+  final bool isDeletedForEveryone;
+  final Timestamp? deletedForEveryoneAt;
+  final String deletedForEveryoneBy;
+
+  final String? replyToMessageId;
+  final String? replyToText;
+  final String? replyToSenderId;
+  final String? replyToSenderName;
+
   MessageModel({
     required this.id,
     required this.childId,
@@ -29,23 +41,61 @@ class MessageModel {
     required this.sentAt,
     required this.isRead,
     required this.participants,
+    required this.reactions,
+    required this.deletedForUserIds,
+    required this.isDeletedForEveryone,
+    required this.deletedForEveryoneAt,
+    required this.deletedForEveryoneBy,
+    required this.replyToMessageId,
+    required this.replyToText,
+    required this.replyToSenderId,
+    required this.replyToSenderName,
   });
 
   factory MessageModel.fromMap(String id, Map<String, dynamic> data) {
+    final rawReactions = data['reactions'];
+
+    Map<String, String> parsedReactions = {};
+    if (rawReactions is Map) {
+      parsedReactions = rawReactions.map(
+        (key, value) => MapEntry(
+          key.toString(),
+          value.toString(),
+        ),
+      );
+    }
+
     return MessageModel(
       id: id,
-      childId: data['childId'] ?? '',
-      childName: data['childName'] ?? '',
-      senderId: data['senderId'] ?? '',
-      senderName: data['senderName'] ?? '',
-      senderRole: data['senderRole'] ?? '',
-      receiverId: data['receiverId'] ?? '',
-      receiverName: data['receiverName'] ?? '',
-      receiverRole: data['receiverRole'] ?? '',
-      text: data['text'] ?? '',
-      sentAt: data['sentAt'] ?? Timestamp.now(),
-      isRead: data['isRead'] ?? false,
-      participants: data['participants'] ?? [],
+      childId: (data['childId'] ?? '').toString(),
+      childName: (data['childName'] ?? '').toString(),
+      senderId: (data['senderId'] ?? '').toString(),
+      senderName: (data['senderName'] ?? '').toString(),
+      senderRole: (data['senderRole'] ?? '').toString(),
+      receiverId: (data['receiverId'] ?? '').toString(),
+      receiverName: (data['receiverName'] ?? '').toString(),
+      receiverRole: (data['receiverRole'] ?? '').toString(),
+      text: (data['text'] ?? '').toString(),
+      sentAt: data['sentAt'] is Timestamp
+          ? data['sentAt'] as Timestamp
+          : Timestamp.now(),
+      isRead: data['isRead'] == true,
+      participants: data['participants'] is List
+          ? List<dynamic>.from(data['participants'])
+          : [],
+      reactions: parsedReactions,
+      deletedForUserIds: (data['deletedForUserIds'] as List<dynamic>? ?? [])
+          .map((e) => e.toString())
+          .toList(),
+      isDeletedForEveryone: data['isDeletedForEveryone'] == true,
+      deletedForEveryoneAt: data['deletedForEveryoneAt'] is Timestamp
+          ? data['deletedForEveryoneAt'] as Timestamp
+          : null,
+      deletedForEveryoneBy: (data['deletedForEveryoneBy'] ?? '').toString(),
+      replyToMessageId: data['replyToMessageId']?.toString(),
+      replyToText: data['replyToText']?.toString(),
+      replyToSenderId: data['replyToSenderId']?.toString(),
+      replyToSenderName: data['replyToSenderName']?.toString(),
     );
   }
 
@@ -63,6 +113,15 @@ class MessageModel {
       'sentAt': sentAt,
       'isRead': isRead,
       'participants': participants,
+      'reactions': reactions,
+      'deletedForUserIds': deletedForUserIds,
+      'isDeletedForEveryone': isDeletedForEveryone,
+      'deletedForEveryoneAt': deletedForEveryoneAt,
+      'deletedForEveryoneBy': deletedForEveryoneBy,
+      'replyToMessageId': replyToMessageId,
+      'replyToText': replyToText,
+      'replyToSenderId': replyToSenderId,
+      'replyToSenderName': replyToSenderName,
     };
   }
 }

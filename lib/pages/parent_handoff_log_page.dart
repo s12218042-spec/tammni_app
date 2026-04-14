@@ -23,20 +23,49 @@ class ParentHandoffLogPage extends StatelessWidget {
 
   Color _handoffColor(String type) {
     final cleanType = type.trim().toLowerCase();
-    if (cleanType == 'pickup') return Colors.orange;
-    return Colors.green;
+
+    if (cleanType == 'pickup' || cleanType == 'exit') {
+      return Colors.orange;
+    }
+
+    if (cleanType == 'delivery' ||
+        cleanType == 'dropoff' ||
+        cleanType == 'entry') {
+      return Colors.green;
+    }
+
+    return AppColors.primary;
   }
 
   IconData _handoffIcon(String type) {
     final cleanType = type.trim().toLowerCase();
-    if (cleanType == 'pickup') return Icons.logout_outlined;
-    return Icons.login_outlined;
+
+    if (cleanType == 'pickup' || cleanType == 'exit') {
+      return Icons.logout_outlined;
+    }
+
+    if (cleanType == 'delivery' ||
+        cleanType == 'dropoff' ||
+        cleanType == 'entry') {
+      return Icons.login_outlined;
+    }
+
+    return Icons.swap_horiz_outlined;
   }
 
   String _handoffLabel(String type) {
     final cleanType = type.trim().toLowerCase();
-    if (cleanType == 'pickup') return 'استلام';
-    if (cleanType == 'dropoff') return 'تسليم';
+
+    if (cleanType == 'pickup' || cleanType == 'exit') {
+      return 'استلام';
+    }
+
+    if (cleanType == 'delivery' ||
+        cleanType == 'dropoff' ||
+        cleanType == 'entry') {
+      return 'تسليم';
+    }
+
     return cleanType.isEmpty ? 'سجل' : type;
   }
 
@@ -127,8 +156,8 @@ class ParentHandoffLogPage extends StatelessWidget {
 
   Timestamp? _resolveTimestamp(Map<String, dynamic> data) {
     final candidates = [
-      data['createdAt'],
       data['time'],
+      data['createdAt'],
       data['timestamp'],
       data['updatedAt'],
     ];
@@ -267,7 +296,8 @@ class ParentHandoffLogPage extends StatelessWidget {
                     final personName = (data['personName'] ?? '').toString();
                     final relation = (data['relation'] ?? '').toString();
                     final note = (data['note'] ?? '').toString();
-                    final createdByName = (data['createdByName'] ?? '').toString();
+                    final createdByName =
+                        (data['createdByName'] ?? '').toString();
                     final createdAt = data['displayTime'] as Timestamp?;
                     final color = _handoffColor(handoffType);
 

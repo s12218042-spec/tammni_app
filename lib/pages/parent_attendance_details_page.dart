@@ -13,6 +13,49 @@ class ParentAttendanceDetailsPage extends StatelessWidget {
     required this.child,
   });
 
+  String _safeText(dynamic value, {String fallback = ''}) {
+    if (value == null) return fallback;
+    final text = value.toString().trim();
+    return text.isEmpty ? fallback : text;
+  }
+
+  Timestamp? _resolveTimestamp(Map<String, dynamic> data) {
+    final candidates = [
+      data['updatedAt'],
+      data['time'],
+      data['createdAt'],
+    ];
+
+    for (final value in candidates) {
+      if (value is Timestamp) return value;
+    }
+
+    return null;
+  }
+
+  String _resolveStatus(Map<String, dynamic> data) {
+    final explicitStatus = _safeText(data['status']).toLowerCase();
+
+    if (explicitStatus.isNotEmpty) {
+      switch (explicitStatus) {
+        case 'present':
+          return 'present';
+        case 'absent':
+          return 'absent';
+        case 'late':
+          return 'late';
+        case 'excused':
+          return 'excused';
+      }
+    }
+
+    final present = data['present'];
+    if (present == true) return 'present';
+    if (present == false) return 'absent';
+
+    return 'غير_محدد';
+  }
+
   String formatDate(dynamic time) {
     if (time is Timestamp) {
       final date = time.toDate();
@@ -77,11 +120,10 @@ class ParentAttendanceDetailsPage extends StatelessWidget {
           _buildHeader(),
           const SizedBox(height: 16),
           Expanded(
-            child: StreamBuilder<QuerySnapshot>(
+            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: firestore
                   .collection('attendance')
                   .where('childId', isEqualTo: child.id)
-                  .orderBy('updatedAt', descending: true)
                   .snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
@@ -99,7 +141,19 @@ class ParentAttendanceDetailsPage extends StatelessWidget {
                   );
                 }
 
-                final docs = snapshot.data?.docs ?? [];
+                final rawDocs = snapshot.data?.docs ?? [];
+
+                final docs = [...rawDocs]
+                  ..sort((a, b) {
+                    final aTime = _resolveTimestamp(a.data());
+                    final bTime = _resolveTimestamp(b.data());
+
+                    if (aTime == null && bTime == null) return 0;
+                    if (aTime == null) return 1;
+                    if (bTime == null) return -1;
+
+                    return bTime.compareTo(aTime);
+                  });
 
                 if (docs.isEmpty) {
                   return ListView(
@@ -116,20 +170,25 @@ class ParentAttendanceDetailsPage extends StatelessWidget {
                   itemCount: docs.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 12),
                   itemBuilder: (context, index) {
-                    final data = docs[index].data() as Map<String, dynamic>;
+                    final data = docs[index].data();
 
-                    final present = data['present'];
-                    final status = present == true ? 'present' : 'absent';
-                    final time = data['updatedAt'];
-                    final note = data['note'] ?? '';
-                    final recordedByName = data['recordedByName'] ?? '';
-                    
+                    final status = _resolveStatus(data);
+                    final time = _resolveTimestamp(data);
+                    final note = _safeText(data['note']);
+                    final recordedByName = _safeText(data['recordedByName']);
+                    final recordedByRole = _safeText(data['recordedByRole']);
+
+                    final recordedBy = recordedByName.isEmpty
+                        ? ''
+                        : recordedByRole.isEmpty
+                            ? recordedByName
+                            : '$recordedByName - $recordedByRole';
 
                     return _AttendanceCard(
                       statusText: statusLabel(status),
                       dateText: formatDate(time),
                       note: note,
-                      recordedByName: recordedByName,
+                      recordedByName: recordedBy,
                       color: statusColor(status),
                       icon: statusIcon(status),
                     );
@@ -299,7 +358,7 @@ class _AttendanceCard extends StatelessWidget {
             title: 'التاريخ',
             value: dateText,
           ),
-          if (recordedByName.toString().trim().isNotEmpty) ...[
+          if (recordedByName.trim().isNotEmpty) ...[
             const SizedBox(height: 10),
             _InfoTile(
               title: 'تم التسجيل بواسطة',

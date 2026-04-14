@@ -13,13 +13,49 @@ class ParentGradesPage extends StatelessWidget {
     required this.child,
   });
 
+  String _safeText(dynamic value, {String fallback = ''}) {
+    if (value == null) return fallback;
+    final text = value.toString().trim();
+    return text.isEmpty ? fallback : text;
+  }
+
+  Timestamp? _resolveTimestamp(Map<String, dynamic> data) {
+    final candidates = [
+      data['time'],
+      data['createdAt'],
+      data['updatedAt'],
+    ];
+
+    for (final value in candidates) {
+      if (value is Timestamp) return value;
+    }
+
+    return null;
+  }
+
   String _formatGrade(dynamic grade) {
     if (grade == null) return '-';
+
+    if (grade is num) {
+      if (grade % 1 == 0) {
+        return grade.toInt().toString();
+      }
+      return grade.toString();
+    }
+
     return grade.toString();
   }
 
   String _formatTotal(dynamic total) {
     if (total == null) return '-';
+
+    if (total is num) {
+      if (total % 1 == 0) {
+        return total.toInt().toString();
+      }
+      return total.toString();
+    }
+
     return total.toString();
   }
 
@@ -48,6 +84,25 @@ class ParentGradesPage extends StatelessWidget {
     }
   }
 
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _sortDocs(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final sorted = [...docs];
+
+    sorted.sort((a, b) {
+      final aTime = _resolveTimestamp(a.data());
+      final bTime = _resolveTimestamp(b.data());
+
+      if (aTime == null && bTime == null) return 0;
+      if (aTime == null) return 1;
+      if (bTime == null) return -1;
+
+      return bTime.compareTo(aTime);
+    });
+
+    return sorted;
+  }
+
   @override
   Widget build(BuildContext context) {
     final firestore = FirebaseFirestore.instance;
@@ -59,11 +114,10 @@ class ParentGradesPage extends StatelessWidget {
           _buildHeader(),
           const SizedBox(height: 16),
           Expanded(
-            child: StreamBuilder<QuerySnapshot>(
+            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: firestore
                   .collection('grades')
                   .where('childId', isEqualTo: child.id)
-                  .orderBy('time', descending: true)
                   .snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
@@ -81,7 +135,7 @@ class ParentGradesPage extends StatelessWidget {
                   );
                 }
 
-                final docs = snapshot.data?.docs ?? [];
+                final docs = _sortDocs(snapshot.data?.docs ?? []);
 
                 if (docs.isEmpty) {
                   return ListView(
@@ -98,15 +152,16 @@ class ParentGradesPage extends StatelessWidget {
                   itemCount: docs.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 12),
                   itemBuilder: (context, index) {
-                    final data = docs[index].data() as Map<String, dynamic>;
+                    final data = docs[index].data();
 
-                    final subject = data['subject'] ?? 'مادة غير محددة';
-                    final type = data['type'] ?? 'تقييم';
+                    final subject =
+                        _safeText(data['subject'], fallback: 'مادة غير محددة');
+                    final type = _safeText(data['type'], fallback: 'تقييم');
                     final grade = data['grade'];
                     final total = data['total'];
-                    final note = data['note'] ?? '';
-                    final time = data['time'];
-                    final createdByName = data['createdByName'] ?? '';
+                    final note = _safeText(data['note']);
+                    final displayTime = _resolveTimestamp(data);
+                    final createdByName = _safeText(data['createdByName']);
 
                     return _GradeCard(
                       subject: subject,
@@ -114,7 +169,7 @@ class ParentGradesPage extends StatelessWidget {
                       gradeText: _formatGrade(grade),
                       totalText: _formatTotal(total),
                       note: note,
-                      dateText: _formatDate(time),
+                      dateText: _formatDate(displayTime),
                       createdByName: createdByName,
                       typeColor: _gradeTypeColor(type),
                     );
@@ -319,7 +374,7 @@ class _GradeCard extends StatelessWidget {
               ),
             ],
           ),
-          if (createdByName.toString().trim().isNotEmpty) ...[
+          if (createdByName.trim().isNotEmpty) ...[
             const SizedBox(height: 10),
             _InfoTile(
               title: 'أضيفت بواسطة',

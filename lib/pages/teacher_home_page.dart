@@ -78,8 +78,41 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
 
     return {
       'uid': currentUser.uid,
-      'name': (data['displayName'] ?? data['username'] ?? 'مستخدم').toString(),
+      'name': (data['displayName'] ?? data['name'] ?? data['username'] ?? 'مستخدم')
+          .toString(),
       'role': (data['role'] ?? '').toString(),
+    };
+  }
+
+  Future<Map<String, String>> fetchParentLinkInfo(ChildModel child) async {
+    String parentUid = child.parentUid.trim();
+    String parentUsername = child.parentUsername.trim().toLowerCase();
+
+    try {
+      final childDoc = await _firestore.collection('children').doc(child.id).get();
+
+      if (childDoc.exists) {
+        final data = childDoc.data() ?? <String, dynamic>{};
+
+        final docParentUid = (data['parentUid'] ?? '').toString().trim();
+        final docParentUsername =
+            (data['parentUsername'] ?? '').toString().trim().toLowerCase();
+
+        if (docParentUid.isNotEmpty) {
+          parentUid = docParentUid;
+        }
+
+        if (docParentUsername.isNotEmpty) {
+          parentUsername = docParentUsername;
+        }
+      }
+    } catch (_) {
+      // fallback على بيانات child الحالية
+    }
+
+    return {
+      'parentUid': parentUid,
+      'parentUsername': parentUsername,
     };
   }
 
@@ -93,13 +126,20 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
     if (!userDoc.exists) return [];
 
     final data = userDoc.data() ?? {};
-    final rawGroups = data['assignedGroups'];
+    final professionalInfo =
+        (data['professionalInfo'] is Map<String, dynamic>)
+            ? data['professionalInfo'] as Map<String, dynamic>
+            : <String, dynamic>{};
+
+    final rawGroups = professionalInfo['assignedGroups'] ?? data['assignedGroups'];
 
     if (rawGroups is List) {
       return rawGroups
           .map((e) => e.toString().trim())
           .where((e) => e.isNotEmpty)
-          .toList();
+          .toSet()
+          .toList()
+        ..sort();
     }
 
     return [];
@@ -217,60 +257,76 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
     return items.take(30).toList();
   }
 
-  void openTeacherGroupsPage() {
-    Navigator.push(
+  Future<void> openTeacherGroupsPage() async {
+    await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const TeacherGroupsPage()),
     );
+    if (!mounted) return;
+    setState(() {});
   }
 
-  void openGradesPage() {
-    Navigator.push(
+  Future<void> openGradesPage() async {
+    await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const GradesPage()),
     );
+    if (!mounted) return;
+    setState(() {});
   }
 
-  void openAssignmentsPage() {
-    Navigator.push(
+  Future<void> openAssignmentsPage() async {
+    await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const AssignmentsPage()),
     );
+    if (!mounted) return;
+    setState(() {});
   }
 
-  void openRewardsPage() {
-    Navigator.push(
+  Future<void> openRewardsPage() async {
+    await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const RewardsPage()),
     );
+    if (!mounted) return;
+    setState(() {});
   }
 
-  void openDetailedAttendancePage() {
-    Navigator.push(
+  Future<void> openDetailedAttendancePage() async {
+    await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const DetailedAttendancePage()),
     );
+    if (!mounted) return;
+    setState(() {});
   }
 
-  void openBulkAttendancePage() {
-    Navigator.push(
+  Future<void> openBulkAttendancePage() async {
+    await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const BulkAttendancePage()),
     );
+    if (!mounted) return;
+    setState(() {});
   }
 
-  void openBulkGradeEntryPage() {
-    Navigator.push(
+  Future<void> openBulkGradeEntryPage() async {
+    await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const BulkGradeEntryPage()),
     );
+    if (!mounted) return;
+    setState(() {});
   }
 
-  void openTeacherReportsPage() {
-    Navigator.push(
+  Future<void> openTeacherReportsPage() async {
+    await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const TeacherReportsPage()),
     );
+    if (!mounted) return;
+    setState(() {});
   }
 
   Future<void> refreshPage() async {
@@ -333,89 +389,89 @@ class _TeacherHomePageState extends State<TeacherHomePage> {
   }
 
   Future<void> openCameraCheckin(ChildModel child) async {
-  final res = await Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (_) => const CameraCheckinPage(),
-    ),
-  );
-
-  if (res is! Map) return;
-
-  final path = res['path'] as String?;
-  final type = res['type'] as String?;
-  final description = (res['description'] ?? '').toString().trim();
-  final file = res['file'] as XFile?;
-
-  if (path == null || type == null) return;
-
-  try {
-    final fileToUpload = file ?? XFile(path);
-
-    final uploaded = await _galleryService.uploadChildMediaDetailed(
-      childId: child.id,
-      file: fileToUpload,
-      mediaType: type,
+    final res = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const CameraCheckinPage(),
+      ),
     );
 
-    if (uploaded == null) {
-      throw Exception('فشل رفع الوسائط إلى Supabase');
+    if (res is! Map) return;
+
+    final path = res['path'] as String?;
+    final type = res['type'] as String?;
+    final description = (res['description'] ?? '').toString().trim();
+    final file = res['file'] as XFile?;
+
+    if (path == null || type == null) return;
+
+    try {
+      final fileToUpload = file ?? XFile(path);
+
+      final uploaded = await _galleryService.uploadChildMediaDetailed(
+        childId: child.id,
+        file: fileToUpload,
+        mediaType: type,
+      );
+
+      if (uploaded == null) {
+        throw Exception('فشل رفع الوسائط إلى Supabase');
+      }
+
+      final userInfo = await fetchCurrentUserInfo();
+      final parentInfo = await fetchParentLinkInfo(child);
+
+      await _firestore.collection('updates').add({
+        'childId': child.id,
+        'childName': child.name,
+        'parentUid': parentInfo['parentUid'],
+        'parentUsername': parentInfo['parentUsername'],
+        'section': child.section,
+        'group': child.group,
+        'type': 'كاميرا',
+        'note': description.isNotEmpty
+            ? description
+            : (type == 'image' ? 'صورة للطفل' : 'فيديو قصير للطفل'),
+        'title': 'تحديث كاميرا',
+        'createdAt': Timestamp.now(),
+        'time': FieldValue.serverTimestamp(),
+        'eventAt': Timestamp.now(),
+        'byRole': userInfo['role'],
+        'createdByUid': userInfo['uid'],
+        'createdByName': userInfo['name'],
+        'createdByRole': userInfo['role'],
+        'mediaPath': uploaded.path,
+        'mediaType': type,
+        'mediaUrl': uploaded.signedUrl,
+        'storageProvider': uploaded.storageProvider,
+        'bucket': uploaded.bucket,
+        'mimeType': uploaded.mimeType,
+        'sizeBytes': uploaded.sizeBytes,
+        'hasMedia': true,
+        'importance': 'عادي',
+        'tags': ['كاميرا'],
+        'mood': '',
+        'energy': '',
+        'locationLabel': '',
+        'notifyParent': false,
+      });
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('تم إرسال التحديث بالكاميرا بنجاح'),
+        ),
+      );
+      setState(() {});
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('حدث خطأ أثناء حفظ التحديث بالكاميرا: $e'),
+        ),
+      );
     }
-
-    final userInfo = await fetchCurrentUserInfo();
-
-    await _firestore.collection('updates').add({
-      'childId': child.id,
-      'childName': child.name,
-      'parentUid': child.parentUid,
-      'parentName': child.parentName,
-      'parentUsername': child.parentUsername,
-      'section': child.section,
-      'group': child.group,
-      'type': 'كاميرا',
-      'note': description.isNotEmpty
-          ? description
-          : (type == 'image' ? 'صورة للطفل' : 'فيديو قصير للطفل'),
-      'title': 'تحديث كاميرا',
-      'createdAt': Timestamp.now(),
-      'time': FieldValue.serverTimestamp(),
-      'eventAt': Timestamp.now(),
-      'byRole': userInfo['role'],
-      'createdByUid': userInfo['uid'],
-      'createdByName': userInfo['name'],
-      'createdByRole': userInfo['role'],
-      'mediaPath': uploaded.path,
-      'mediaType': type,
-      'mediaUrl': uploaded.signedUrl,
-      'storageProvider': uploaded.storageProvider,
-      'bucket': uploaded.bucket,
-      'mimeType': uploaded.mimeType,
-      'sizeBytes': uploaded.sizeBytes,
-      'hasMedia': true,
-      'importance': 'عادي',
-      'tags': ['كاميرا'],
-      'mood': '',
-      'energy': '',
-      'locationLabel': '',
-      'notifyParent': false,
-    });
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('تم إرسال التحديث بالكاميرا بنجاح'),
-      ),
-    );
-    setState(() {});
-  } catch (e) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('حدث خطأ أثناء حفظ التحديث بالكاميرا: $e'),
-      ),
-    );
   }
-}
 
   Future<void> _openNotificationsPage() async {
     await Navigator.push(

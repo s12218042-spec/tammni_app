@@ -28,13 +28,20 @@ class _TeacherGroupsPageState extends State<TeacherGroupsPage> {
     if (!userDoc.exists) return [];
 
     final data = userDoc.data() ?? {};
-    final rawGroups = data['assignedGroups'];
+    final professionalInfo =
+        (data['professionalInfo'] is Map<String, dynamic>)
+            ? data['professionalInfo'] as Map<String, dynamic>
+            : <String, dynamic>{};
+
+    final rawGroups = professionalInfo['assignedGroups'] ?? data['assignedGroups'];
 
     if (rawGroups is List) {
       return rawGroups
           .map((e) => e.toString().trim())
           .where((e) => e.isNotEmpty)
-          .toList();
+          .toSet()
+          .toList()
+        ..sort();
     }
 
     return [];
@@ -53,18 +60,19 @@ class _TeacherGroupsPageState extends State<TeacherGroupsPage> {
         .where('isActive', isEqualTo: true)
         .get();
 
-     final children = snapshot.docs.map((doc) {
-  final data = doc.data();
-  return ChildModel.fromMap(data, docId: doc.id);
-}).where((child) {
-  return assignedGroups.contains(child.group.trim());
-}).toList();
+    final children = snapshot.docs.map((doc) {
+      final data = doc.data();
+      return ChildModel.fromMap(data, docId: doc.id);
+    }).where((child) {
+      return assignedGroups.contains(child.group.trim());
+    }).toList();
 
     children.sort((a, b) => a.name.compareTo(b.name));
     return children;
   }
 
   Future<void> refreshPage() async {
+    if (!mounted) return;
     setState(() {});
   }
 
@@ -75,11 +83,12 @@ class _TeacherGroupsPageState extends State<TeacherGroupsPage> {
       final groupName =
           child.group.trim().isEmpty ? 'بدون مجموعة' : child.group.trim();
 
-      if (!grouped.containsKey(groupName)) {
-        grouped[groupName] = [];
-      }
-
+      grouped.putIfAbsent(groupName, () => []);
       grouped[groupName]!.add(child);
+    }
+
+    for (final list in grouped.values) {
+      list.sort((a, b) => a.name.compareTo(b.name));
     }
 
     return grouped;
@@ -129,8 +138,8 @@ class _TeacherGroupsPageState extends State<TeacherGroupsPage> {
                           child: _GroupCard(
                             groupName: groupName,
                             childrenCount: groupedChildren[groupName]!.length,
-                            onTap: () {
-                              Navigator.push(
+                            onTap: () async {
+                              await Navigator.push(
                                 context,
                                 MaterialPageRoute(
                                   builder: (_) => GroupStudentsPage(
@@ -139,6 +148,9 @@ class _TeacherGroupsPageState extends State<TeacherGroupsPage> {
                                   ),
                                 ),
                               );
+
+                              if (!mounted) return;
+                              setState(() {});
                             },
                           ),
                         ),

@@ -30,7 +30,8 @@ class NurseryStaffHomePage extends StatefulWidget {
 class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final GalleryService _galleryService = GalleryService();
-  final AccountSettingsService _accountSettingsService = AccountSettingsService();
+  final AccountSettingsService _accountSettingsService =
+      AccountSettingsService();
 
   int selectedIndex = 0;
   bool isArabic = true;
@@ -52,6 +53,13 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
       default:
         return 'الرئيسية - موظفة الحضانة';
     }
+  }
+
+  bool _isNurseryRole(String value) {
+    final role = value.trim().toLowerCase();
+    return role == 'nursery' ||
+        role == 'nursery_staff' ||
+        role == 'nursery staff';
   }
 
   Future<List<ChildModel>> fetchNurseryChildren() async {
@@ -204,10 +212,25 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
   }
 
   Future<void> openChildHandoffLog(ChildModel child) async {
+    final userInfo = await fetchCurrentUserInfo();
+
+    if (!mounted) return;
+
     await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => ChildHandoffLogPage(child: child)),
+      MaterialPageRoute(
+        builder: (_) => ChildHandoffLogPage(
+          child: child,
+          childId: child.id,
+          childName: child.name,
+          createdByUid: userInfo['uid'],
+          createdByName: userInfo['name'],
+          createdByRole: userInfo['role'],
+        ),
+      ),
     );
+
+    if (!mounted) return;
     setState(() {});
   }
 
@@ -216,6 +239,8 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
       context,
       MaterialPageRoute(builder: (_) => IncidentReportPage(child: child)),
     );
+
+    if (!mounted) return;
     setState(() {});
   }
 
@@ -399,11 +424,11 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
     for (final doc in snapshot.docs) {
       final data = doc.data();
 
-      final createdByRole = (data['createdByRole'] ?? '').toString().toLowerCase();
-      final byRole = (data['byRole'] ?? '').toString().toLowerCase();
+      final createdByRole = (data['createdByRole'] ?? '').toString();
+      final byRole = (data['byRole'] ?? '').toString();
 
-      final isNurseryNotification = createdByRole.contains('nursery') ||
-          byRole.contains('nursery');
+      final isNurseryNotification =
+          _isNurseryRole(createdByRole) || _isNurseryRole(byRole);
 
       if (!isNurseryNotification) continue;
 
@@ -422,99 +447,104 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
     final res = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => AddUpdatePage(child: child, byRole: 'nursery'),
+        builder: (_) => AddUpdatePage(
+          child: child,
+          byRole: 'nursery',
+        ),
       ),
     );
 
-    if (res == true) {
+    if (res == true && mounted) {
       setState(() {});
     }
   }
 
-Future<void> openCameraCheckin(ChildModel child) async {
-  final res = await Navigator.push(
-    context,
-    MaterialPageRoute(builder: (_) => const CameraCheckinPage()),
-  );
-
-  if (res is! Map) return;
-
-  final path = res['path'] as String?;
-  final type = res['type'] as String?;
-  final description = (res['description'] ?? '').toString().trim();
-  final file = res['file'] as XFile?;
-
-  if (path == null || type == null) return;
-
-  try {
-    final fileToUpload = file ?? XFile(path);
-
-    final uploaded = await _galleryService.uploadChildMediaDetailed(
-      childId: child.id,
-      file: fileToUpload,
-      mediaType: type,
+  Future<void> openCameraCheckin(ChildModel child) async {
+    final res = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const CameraCheckinPage()),
     );
 
-    if (uploaded == null) {
-      throw Exception('فشل رفع الوسائط إلى Supabase');
+    if (res is! Map) return;
+
+    final path = res['path'] as String?;
+    final type = res['type'] as String?;
+    final description = (res['description'] ?? '').toString().trim();
+    final file = res['file'] as XFile?;
+
+    if (path == null || type == null) return;
+
+    try {
+      final fileToUpload = file ?? XFile(path);
+
+      final uploaded = await _galleryService.uploadChildMediaDetailed(
+        childId: child.id,
+        file: fileToUpload,
+        mediaType: type,
+      );
+
+      if (uploaded == null) {
+        throw Exception('فشل رفع الوسائط إلى Supabase');
+      }
+
+      final userInfo = await fetchCurrentUserInfo();
+      final parentInfo = await fetchParentLinkInfo(child);
+
+      await _firestore.collection('updates').add({
+        'childId': child.id,
+        'childName': child.name,
+        'parentUid': parentInfo['parentUid'],
+        'parentUsername': parentInfo['parentUsername'],
+        'section': child.section,
+        'group': child.group,
+        'type': 'كاميرا',
+        'note': description.isNotEmpty
+            ? description
+            : (type == 'image' ? 'صورة للطفل' : 'فيديو قصير للطفل'),
+        'title': 'تحديث كاميرا',
+        'createdAt': Timestamp.now(),
+        'time': FieldValue.serverTimestamp(),
+        'eventAt': Timestamp.now(),
+        'byRole': userInfo['role'],
+        'createdByUid': userInfo['uid'],
+        'createdByName': userInfo['name'],
+        'createdByRole': userInfo['role'],
+        'mediaPath': uploaded.path,
+        'mediaType': type,
+        'mediaUrl': uploaded.signedUrl,
+        'storageProvider': uploaded.storageProvider,
+        'bucket': uploaded.bucket,
+        'mimeType': uploaded.mimeType,
+        'sizeBytes': uploaded.sizeBytes,
+        'hasMedia': true,
+        'importance': 'عادي',
+        'tags': ['كاميرا'],
+        'mood': '',
+        'energy': '',
+        'locationLabel': '',
+        'notifyParent': false,
+      });
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم إرسال التحديث بالكاميرا')),
+      );
+      setState(() {});
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('حدث خطأ أثناء حفظ التحديث بالكاميرا: $e')),
+      );
     }
-
-    final userInfo = await fetchCurrentUserInfo();
-    final parentInfo = await fetchParentLinkInfo(child);
-
-    await _firestore.collection('updates').add({
-      'childId': child.id,
-      'childName': child.name,
-      'parentUid': parentInfo['parentUid'],
-      'parentUsername': parentInfo['parentUsername'],
-      'section': child.section,
-      'group': child.group,
-      'type': 'كاميرا',
-      'note': description.isNotEmpty
-          ? description
-          : (type == 'image' ? 'صورة للطفل' : 'فيديو قصير للطفل'),
-      'title': 'تحديث كاميرا',
-      'createdAt': Timestamp.now(),
-      'time': FieldValue.serverTimestamp(),
-      'eventAt': Timestamp.now(),
-      'byRole': userInfo['role'],
-      'createdByUid': userInfo['uid'],
-      'createdByName': userInfo['name'],
-      'createdByRole': userInfo['role'],
-      'mediaPath': uploaded.path,
-      'mediaType': type,
-      'mediaUrl': uploaded.signedUrl,
-      'storageProvider': uploaded.storageProvider,
-      'bucket': uploaded.bucket,
-      'mimeType': uploaded.mimeType,
-      'sizeBytes': uploaded.sizeBytes,
-      'hasMedia': true,
-      'importance': 'عادي',
-      'tags': ['كاميرا'],
-      'mood': '',
-      'energy': '',
-      'locationLabel': '',
-      'notifyParent': false,
-    });
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('تم إرسال التحديث بالكاميرا')),
-    );
-    setState(() {});
-  } catch (e) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('حدث خطأ أثناء حفظ التحديث بالكاميرا: $e')),
-    );
   }
-}
 
   Future<void> openQuickCareUpdate(ChildModel child) async {
     await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => QuickCareUpdatePage(child: child)),
     );
+
+    if (!mounted) return;
     setState(() {});
   }
 
@@ -523,6 +553,8 @@ Future<void> openCameraCheckin(ChildModel child) async {
       context,
       MaterialPageRoute(builder: (_) => NurseryCareLogPage(child: child)),
     );
+
+    if (!mounted) return;
     setState(() {});
   }
 
@@ -537,7 +569,7 @@ Future<void> openCameraCheckin(ChildModel child) async {
       ),
     );
 
-    if (res == true) {
+    if (res == true && mounted) {
       setState(() {});
     }
   }
@@ -553,6 +585,8 @@ Future<void> openCameraCheckin(ChildModel child) async {
         ),
       ),
     );
+
+    if (!mounted) return;
     setState(() {});
   }
 
@@ -591,56 +625,61 @@ Future<void> openCameraCheckin(ChildModel child) async {
     );
   }
 
-Future<Map<String, String>> fetchCurrentUserInfo() async {
-  final currentUser = AuthService().currentUser;
+  Future<Map<String, String>> fetchCurrentUserInfo() async {
+    final currentUser = AuthService().currentUser;
 
-  if (currentUser == null) {
+    if (currentUser == null) {
+      return {
+        'uid': '',
+        'name': 'مستخدم غير معروف',
+        'role': '',
+      };
+    }
+
+    final userDoc =
+        await _firestore.collection('users').doc(currentUser.uid).get();
+    final data = userDoc.data() ?? {};
+
     return {
-      'uid': '',
-      'name': 'مستخدم غير معروف',
-      'role': '',
+      'uid': currentUser.uid,
+      'name': (data['displayName'] ??
+              data['name'] ??
+              data['username'] ??
+              'مستخدم')
+          .toString(),
+      'role': (data['role'] ?? '').toString(),
     };
   }
 
-  final userDoc = await _firestore.collection('users').doc(currentUser.uid).get();
-  final data = userDoc.data() ?? {};
+  Future<Map<String, String>> fetchParentLinkInfo(ChildModel child) async {
+    String parentUid = '';
+    String parentUsername = child.parentUsername.trim().toLowerCase();
 
-  return {
-    'uid': currentUser.uid,
-    'name': (data['displayName'] ?? data['name'] ?? data['username'] ?? 'مستخدم')
-        .toString(),
-    'role': (data['role'] ?? '').toString(),
-  };
-}
+    try {
+      final childDoc =
+          await _firestore.collection('children').doc(child.id).get();
 
-Future<Map<String, String>> fetchParentLinkInfo(ChildModel child) async {
-  String parentUid = '';
-  String parentUsername = child.parentUsername.trim().toLowerCase();
+      if (childDoc.exists) {
+        final data = childDoc.data() ?? <String, dynamic>{};
 
-  try {
-    final childDoc = await _firestore.collection('children').doc(child.id).get();
+        parentUid = (data['parentUid'] ?? '').toString().trim();
 
-    if (childDoc.exists) {
-      final data = childDoc.data() ?? <String, dynamic>{};
+        final docParentUsername =
+            (data['parentUsername'] ?? '').toString().trim().toLowerCase();
 
-      parentUid = (data['parentUid'] ?? '').toString().trim();
-
-      final docParentUsername =
-          (data['parentUsername'] ?? '').toString().trim().toLowerCase();
-
-      if (docParentUsername.isNotEmpty) {
-        parentUsername = docParentUsername;
+        if (docParentUsername.isNotEmpty) {
+          parentUsername = docParentUsername;
+        }
       }
+    } catch (_) {
+      // fallback
     }
-  } catch (_) {
-    // fallback على بيانات child الحالية
-  }
 
-  return {
-    'parentUid': parentUid,
-    'parentUsername': parentUsername,
-  };
-}
+    return {
+      'parentUid': parentUid,
+      'parentUsername': parentUsername,
+    };
+  }
 
   String formatTime(Timestamp? ts) {
     if (ts == null) return 'غير محدد';
@@ -697,7 +736,7 @@ Future<Map<String, String>> fetchParentLinkInfo(ChildModel child) async {
           latestUpdateByChild: latestUpdateByChild,
         );
       case 2:
-  return _buildMessagesTab(nurseryChildren);
+        return _buildMessagesTab(nurseryChildren);
       case 3:
         return _buildSettingsTab(nurseryChildren);
       default:
@@ -793,63 +832,66 @@ Future<Map<String, String>> fetchParentLinkInfo(ChildModel child) async {
   }
 
   Widget _buildMessagesTab(List<ChildModel> nurseryChildren) {
-  return NurseryChatsPage(children: nurseryChildren);
-}
+    return NurseryChatsPage(children: nurseryChildren);
+  }
 
   Widget _buildSettingsTab(List<ChildModel> nurseryChildren) {
     return ListView(
       children: [
         Card(
-  child: FutureBuilder<AccountSettingsData>(
-    future: _accountSettingsService.getCurrentUserData(),
-    builder: (context, snapshot) {
-      final data = snapshot.data;
+          child: FutureBuilder<AccountSettingsData>(
+            future: _accountSettingsService.getCurrentUserData(),
+            builder: (context, snapshot) {
+              final data = snapshot.data;
 
-      final displayName = data?.name.trim().isNotEmpty == true
-          ? data!.name
-          : 'موظفة الحضانة';
+              final displayName = data?.name.trim().isNotEmpty == true
+                  ? data!.name
+                  : 'موظفة الحضانة';
 
-      final subtitle = data == null
-          ? 'متابعة الرعاية اليومية'
-          : '${data.roleLabel} • ${data.username.isNotEmpty ? data.username : "بدون اسم مستخدم"}';
+              final subtitle = data == null
+                  ? 'متابعة الرعاية اليومية'
+                  : '${data.roleLabel} • ${data.username.isNotEmpty ? data.username : "بدون اسم مستخدم"}';
 
-      return ListTile(
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        leading: CircleAvatar(
-          radius: 28,
-          backgroundColor: AppColors.primary.withOpacity(0.10),
-          child: Text(
-            displayName.trim().isNotEmpty ? displayName.trim()[0] : 'م',
-            style: const TextStyle(
-              color: AppColors.primary,
-              fontWeight: FontWeight.bold,
-              fontSize: 22,
-            ),
+              return ListTile(
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                leading: CircleAvatar(
+                  radius: 28,
+                  backgroundColor: AppColors.primary.withOpacity(0.10),
+                  child: Text(
+                    displayName.trim().isNotEmpty ? displayName.trim()[0] : 'م',
+                    style: const TextStyle(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 22,
+                    ),
+                  ),
+                ),
+                title: Text(
+                  displayName,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                subtitle: Text(subtitle),
+                trailing: CircleAvatar(
+                  radius: 18,
+                  backgroundColor: AppColors.primary.withOpacity(0.12),
+                  child:
+                      const Icon(Icons.edit, size: 18, color: AppColors.primary),
+                ),
+                onTap: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const AccountSettingsPage(),
+                    ),
+                  );
+                  if (!mounted) return;
+                  setState(() {});
+                },
+              );
+            },
           ),
         ),
-        title: Text(
-          displayName,
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
-        subtitle: Text(subtitle),
-        trailing: CircleAvatar(
-          radius: 18,
-          backgroundColor: AppColors.primary.withOpacity(0.12),
-          child: const Icon(Icons.edit, size: 18, color: AppColors.primary),
-        ),
-        onTap: () async {
-          await Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const AccountSettingsPage()),
-          );
-          if (!mounted) return;
-          setState(() {});
-        },
-      );
-    },
-  ),
-),
         const SizedBox(height: 18),
         Text(
           'الإعدادات العامة',
@@ -863,29 +905,33 @@ Future<Map<String, String>> fetchParentLinkInfo(ChildModel child) async {
           child: Column(
             children: [
               ListTile(
-  leading: CircleAvatar(
-    backgroundColor: Colors.orange.withOpacity(0.12),
-    child: const Icon(
-      Icons.person_outline_rounded,
-      color: Colors.orange,
-    ),
-  ),
-  title: const Text('تعديل الملف الشخصي'),
-  subtitle: const Text('تعديل الاسم، كلمة المرور، وإدارة الحساب'),
-  onTap: () async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const AccountSettingsPage()),
-    );
-    if (!mounted) return;
-    setState(() {});
-  },
-),
+                leading: CircleAvatar(
+                  backgroundColor: Colors.orange.withOpacity(0.12),
+                  child: const Icon(
+                    Icons.person_outline_rounded,
+                    color: Colors.orange,
+                  ),
+                ),
+                title: const Text('تعديل الملف الشخصي'),
+                subtitle:
+                    const Text('تعديل الاسم، كلمة المرور، وإدارة الحساب'),
+                onTap: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const AccountSettingsPage(),
+                    ),
+                  );
+                  if (!mounted) return;
+                  setState(() {});
+                },
+              ),
               const Divider(height: 1),
               SwitchListTile(
                 secondary: CircleAvatar(
                   backgroundColor: Colors.blue.withOpacity(0.12),
-                  child: const Icon(Icons.language_rounded, color: Colors.blue),
+                  child:
+                      const Icon(Icons.language_rounded, color: Colors.blue),
                 ),
                 title: const Text('لغة التطبيق'),
                 subtitle: Text(isArabic ? 'العربية' : 'English'),
@@ -900,8 +946,10 @@ Future<Map<String, String>> fetchParentLinkInfo(ChildModel child) async {
               SwitchListTile(
                 secondary: CircleAvatar(
                   backgroundColor: Colors.purple.withOpacity(0.12),
-                  child:
-                      const Icon(Icons.palette_outlined, color: Colors.purple),
+                  child: const Icon(
+                    Icons.palette_outlined,
+                    color: Colors.purple,
+                  ),
                 ),
                 title: const Text('الوضع الليلي'),
                 value: isDarkMode,
@@ -924,59 +972,60 @@ Future<Map<String, String>> fetchParentLinkInfo(ChildModel child) async {
         ),
         const SizedBox(height: 8),
         Card(
-  child: Column(
-    children: [
-      ListTile(
-        leading: CircleAvatar(
-          backgroundColor: Colors.green.withOpacity(0.12),
-          child: const Icon(
-            Icons.notifications_none_rounded,
-            color: Colors.green,
+          child: Column(
+            children: [
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Colors.green.withOpacity(0.12),
+                  child: const Icon(
+                    Icons.notifications_none_rounded,
+                    color: Colors.green,
+                  ),
+                ),
+                title: const Text('الإشعارات'),
+                subtitle:
+                    const Text('عرض الإشعارات المرسلة وفتح صفحة الإشعارات'),
+                onTap: () => _openNotificationsPage(nurseryChildren),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Colors.teal.withOpacity(0.12),
+                  child: const Icon(
+                    Icons.history_rounded,
+                    color: Colors.teal,
+                  ),
+                ),
+                title: const Text('سجل نشاط الحساب'),
+                subtitle: const Text('عرض تغييرات الحساب والنشاطات الأخيرة'),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const AccountHistoryPage(),
+                    ),
+                  );
+                },
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: AppColors.primary.withOpacity(0.12),
+                  child: const Icon(
+                    Icons.flash_on_rounded,
+                    color: AppColors.primary,
+                  ),
+                ),
+                title: const Text('رعاية سريعة'),
+                subtitle: const Text('اختيار طفل وإضافة رعاية سريعة'),
+                onTap: () async {
+                  final child = await pickChild(nurseryChildren);
+                  if (child != null) openQuickCareUpdate(child);
+                },
+              ),
+            ],
           ),
         ),
-        title: const Text('الإشعارات'),
-        subtitle: const Text('عرض الإشعارات المرسلة وفتح صفحة الإشعارات'),
-        onTap: () => _openNotificationsPage(nurseryChildren),
-      ),
-      const Divider(height: 1),
-      ListTile(
-        leading: CircleAvatar(
-          backgroundColor: Colors.teal.withOpacity(0.12),
-          child: const Icon(
-            Icons.history_rounded,
-            color: Colors.teal,
-          ),
-        ),
-        title: const Text('سجل نشاط الحساب'),
-        subtitle: const Text('عرض تغييرات الحساب والنشاطات الأخيرة'),
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => const AccountHistoryPage(),
-            ),
-          );
-        },
-      ),
-      const Divider(height: 1),
-      ListTile(
-        leading: CircleAvatar(
-          backgroundColor: AppColors.primary.withOpacity(0.12),
-          child: const Icon(
-            Icons.flash_on_rounded,
-            color: AppColors.primary,
-          ),
-        ),
-        title: const Text('رعاية سريعة'),
-        subtitle: const Text('اختيار طفل وإضافة رعاية سريعة'),
-        onTap: () async {
-          final child = await pickChild(nurseryChildren);
-          if (child != null) openQuickCareUpdate(child);
-        },
-      ),
-    ],
-  ),
-),
         const SizedBox(height: 18),
         Text(
           'المساعدة والدعم',
@@ -1151,23 +1200,15 @@ Future<Map<String, String>> fetchParentLinkInfo(ChildModel child) async {
                                   onPressed: () => setState(() {}),
                                 ),
                               ]
-                            : selectedIndex == 2
-                                ? [
-                                    IconButton(
-                                      icon: const Icon(Icons.notifications_none_rounded),
-                                      tooltip: 'الإشعارات',
-                                      onPressed: () =>
-                                          _openNotificationsPage(nurseryChildren),
-                                    ),
-                                  ]
-                                : [
-                                    IconButton(
-                                      icon: const Icon(Icons.notifications_none_rounded),
-                                      tooltip: 'الإشعارات',
-                                      onPressed: () =>
-                                          _openNotificationsPage(nurseryChildren),
-                                    ),
-                                  ],
+                            : [
+                                IconButton(
+                                  icon:
+                                      const Icon(Icons.notifications_none_rounded),
+                                  tooltip: 'الإشعارات',
+                                  onPressed: () =>
+                                      _openNotificationsPage(nurseryChildren),
+                                ),
+                              ],
                     child: _buildBody(
                       nurseryChildren: nurseryChildren,
                       stats: stats,

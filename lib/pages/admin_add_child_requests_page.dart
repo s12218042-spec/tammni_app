@@ -18,7 +18,7 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  String selectedStatus = 'pending'; // pending / approved / rejected / all
+  final Set<String> selectedStatuses = {'pending'};
   String searchText = '';
   bool isProcessing = false;
 
@@ -46,6 +46,25 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
     }
   }
 
+  void _toggleStatusFilter(String value) {
+    setState(() {
+      if (selectedStatuses.contains(value)) {
+        selectedStatuses.remove(value);
+      } else {
+        selectedStatuses.add(value);
+      }
+    });
+  }
+
+  void _clearFilters() {
+    setState(() {
+      selectedStatuses
+        ..clear()
+        ..add('pending');
+      searchText = '';
+    });
+  }
+
   DateTime? _parseBirthDate(dynamic value) {
     if (value == null) return null;
     if (value is Timestamp) return value.toDate();
@@ -67,7 +86,8 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
     }
 
     try {
-      final doc = await _firestore.collection('users').doc(currentUser.uid).get();
+      final doc =
+          await _firestore.collection('users').doc(currentUser.uid).get();
       final data = doc.data() ?? {};
 
       final displayName = (data['name'] ??
@@ -102,10 +122,10 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
       };
     }).toList();
 
-    if (selectedStatus != 'all') {
+    if (selectedStatuses.isNotEmpty) {
       items = items.where((item) {
         final status = (item['status'] ?? 'pending').toString().trim();
-        return status == selectedStatus;
+        return selectedStatuses.contains(status);
       }).toList();
     }
 
@@ -329,7 +349,8 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
         transaction.set(childDocRef, {
           'name': childName,
           'fullName': childName,
-          'identityNumber': (childInfo['identityNumber'] ?? '').toString().trim(),
+          'identityNumber':
+              (childInfo['identityNumber'] ?? '').toString().trim(),
           'gender': (childInfo['gender'] ?? '').toString().trim(),
           'birthDate': Timestamp.fromDate(childBirthDate),
           'section': resolvedSection,
@@ -502,6 +523,7 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
           isProcessing = false;
         });
       }
+      noteController.dispose();
     }
   }
 
@@ -763,16 +785,30 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
     required String label,
     required String value,
   }) {
-    final isSelected = selectedStatus == value;
+    final isSelected = selectedStatuses.contains(value);
 
-    return ChoiceChip(
-      label: Text(label),
+    return FilterChip(
+      label: Text(
+        label,
+        style: TextStyle(
+          color: isSelected ? Colors.white : AppColors.textDark,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
       selected: isSelected,
-      onSelected: (_) {
-        setState(() {
-          selectedStatus = value;
-        });
-      },
+      onSelected: (_) => _toggleStatusFilter(value),
+      selectedColor: _statusColor(value),
+      checkmarkColor: Colors.white,
+      backgroundColor: Colors.white,
+      side: BorderSide(
+        color: isSelected
+            ? _statusColor(value)
+            : AppColors.primary.withOpacity(0.14),
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+      ),
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
     );
   }
 
@@ -950,7 +986,9 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
                   children: [
                     Expanded(
                       child: ElevatedButton.icon(
-                        onPressed: isProcessing ? null : () => _approveRequest(item),
+                        onPressed: isProcessing
+                            ? null
+                            : () => _approveRequest(item),
                         icon: const Icon(Icons.check_circle_outline),
                         label: const Text('موافقة'),
                         style: ElevatedButton.styleFrom(
@@ -962,7 +1000,9 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: ElevatedButton.icon(
-                        onPressed: isProcessing ? null : () => _rejectRequest(item),
+                        onPressed: isProcessing
+                            ? null
+                            : () => _rejectRequest(item),
                         icon: const Icon(Icons.cancel_outlined),
                         label: const Text('رفض'),
                         style: ElevatedButton.styleFrom(
@@ -983,6 +1023,11 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final hasCustomFilters =
+        searchText.trim().isNotEmpty ||
+        selectedStatuses.length != 1 ||
+        !selectedStatuses.contains('pending');
+
     return AppPageScaffold(
       title: 'طلبات إضافة الأطفال',
       child: Column(
@@ -998,6 +1043,16 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
                       hintText:
                           'ابحثي باسم الطفل أو ولي الأمر أو اسم المستخدم أو البريد',
                       prefixIcon: const Icon(Icons.search),
+                      suffixIcon: searchText.trim().isEmpty
+                          ? null
+                          : IconButton(
+                              onPressed: () {
+                                setState(() {
+                                  searchText = '';
+                                });
+                              },
+                              icon: const Icon(Icons.close_rounded),
+                            ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(16),
                       ),
@@ -1016,9 +1071,19 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
                       _buildFilterChip(label: 'قيد المراجعة', value: 'pending'),
                       _buildFilterChip(label: 'تمت الموافقة', value: 'approved'),
                       _buildFilterChip(label: 'مرفوض', value: 'rejected'),
-                      _buildFilterChip(label: 'الكل', value: 'all'),
                     ],
                   ),
+                  if (hasCustomFilters) ...[
+                    const SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        onPressed: _clearFilters,
+                        icon: const Icon(Icons.restart_alt_rounded),
+                        label: const Text('إعادة تعيين الفلاتر'),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -1046,7 +1111,7 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
                 if (items.isEmpty) {
                   return Center(
                     child: Text(
-                      'لا توجد طلبات حالياً',
+                      'لا توجد طلبات مطابقة حاليًا',
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                             color: AppColors.textLight,
                           ),

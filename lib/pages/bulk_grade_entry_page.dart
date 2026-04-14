@@ -18,12 +18,17 @@ class _BulkGradeEntryPageState extends State<BulkGradeEntryPage> {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final TextEditingController _totalCtrl = TextEditingController();
   final TextEditingController _noteCtrl = TextEditingController();
+  final TextEditingController _searchCtrl = TextEditingController();
 
   bool isLoading = true;
   bool isSaving = false;
 
   List<ChildModel> children = [];
   final Map<String, TextEditingController> gradeControllers = {};
+
+  final Set<String> selectedGroups = {};
+  final Set<String> selectedEntryFilters = {};
+  String searchText = '';
 
   final List<String> subjects = [
     'العربية',
@@ -45,27 +50,25 @@ class _BulkGradeEntryPageState extends State<BulkGradeEntryPage> {
   String? selectedType;
 
   Future<Map<String, String>> fetchCurrentUserInfo() async {
-  final currentUser = _auth.currentUser;
+    final currentUser = _auth.currentUser;
 
-  if (currentUser == null) {
+    if (currentUser == null) {
+      return {
+        'uid': '',
+        'name': 'مستخدم غير معروف',
+        'role': '',
+      };
+    }
+
+    final userDoc = await _firestore.collection('users').doc(currentUser.uid).get();
+    final data = userDoc.data() ?? {};
+
     return {
-      'uid': '',
-      'name': 'مستخدم غير معروف',
-      'role': '',
+      'uid': currentUser.uid,
+      'name': (data['displayName'] ?? data['username'] ?? 'مستخدم').toString(),
+      'role': (data['role'] ?? '').toString(),
     };
   }
-
-  final userDoc =
-      await _firestore.collection('users').doc(currentUser.uid).get();
-
-  final data = userDoc.data() ?? {};
-
-  return {
-    'uid': currentUser.uid,
-    'name': (data['displayName'] ?? data['username'] ?? 'مستخدم').toString(),
-    'role': (data['role'] ?? '').toString(),
-  };
-}
 
   @override
   void initState() {
@@ -77,6 +80,7 @@ class _BulkGradeEntryPageState extends State<BulkGradeEntryPage> {
   void dispose() {
     _totalCtrl.dispose();
     _noteCtrl.dispose();
+    _searchCtrl.dispose();
     for (final controller in gradeControllers.values) {
       controller.dispose();
     }
@@ -87,8 +91,7 @@ class _BulkGradeEntryPageState extends State<BulkGradeEntryPage> {
     final currentUser = _auth.currentUser;
     if (currentUser == null) return [];
 
-    final userDoc =
-        await _firestore.collection('users').doc(currentUser.uid).get();
+    final userDoc = await _firestore.collection('users').doc(currentUser.uid).get();
 
     if (!userDoc.exists) return [];
 
@@ -124,16 +127,20 @@ class _BulkGradeEntryPageState extends State<BulkGradeEntryPage> {
           .where('isActive', isEqualTo: true)
           .get();
 
-       final loadedChildren = snapshot.docs.map((doc) {
-  final data = doc.data();
-  return ChildModel.fromMap(data, docId: doc.id);
-}).where((child) {
-  return assignedGroups.contains(child.group.trim());
-}).toList();
+      final loadedChildren = snapshot.docs.map((doc) {
+        final data = doc.data();
+        return ChildModel.fromMap(data, docId: doc.id);
+      }).where((child) {
+        return assignedGroups.contains(child.group.trim());
+      }).toList();
 
       loadedChildren.sort((a, b) => a.name.compareTo(b.name));
 
+      for (final oldController in gradeControllers.values) {
+        oldController.dispose();
+      }
       gradeControllers.clear();
+
       for (final child in loadedChildren) {
         gradeControllers[child.id] = TextEditingController();
       }
@@ -257,8 +264,110 @@ class _BulkGradeEntryPageState extends State<BulkGradeEntryPage> {
     }
   }
 
+  List<String> extractAvailableGroups() {
+    final groups = children
+        .map((child) => child.group.trim())
+        .where((group) => group.isNotEmpty)
+        .toSet()
+        .toList();
+
+    groups.sort();
+    return groups;
+  }
+
+  bool hasGradeEntry(String childId) {
+    final text = gradeControllers[childId]?.text.trim() ?? '';
+    return text.isNotEmpty;
+  }
+
+  List<ChildModel> applyFilters() {
+    return children.where((child) {
+      final name = child.name.trim().toLowerCase();
+      final group = child.group.trim();
+      final hasEntry = hasGradeEntry(child.id);
+      final query = searchText.trim().toLowerCase();
+
+      final matchesSearch = query.isEmpty ||
+          name.contains(query) ||
+          group.toLowerCase().contains(query);
+
+      final matchesGroup =
+          selectedGroups.isEmpty || selectedGroups.contains(group);
+
+      final matchesEntry = selectedEntryFilters.isEmpty ||
+          (selectedEntryFilters.contains('with_grade') && hasEntry) ||
+          (selectedEntryFilters.contains('without_grade') && !hasEntry);
+
+      return matchesSearch && matchesGroup && matchesEntry;
+    }).toList();
+  }
+
+  void toggleGroup(String value) {
+    setState(() {
+      if (selectedGroups.contains(value)) {
+        selectedGroups.remove(value);
+      } else {
+        selectedGroups.add(value);
+      }
+    });
+  }
+
+  void toggleEntryFilter(String value) {
+    setState(() {
+      if (selectedEntryFilters.contains(value)) {
+        selectedEntryFilters.remove(value);
+      } else {
+        selectedEntryFilters.add(value);
+      }
+    });
+  }
+
+  void clearFilters() {
+    setState(() {
+      selectedGroups.clear();
+      selectedEntryFilters.clear();
+      searchText = '';
+      _searchCtrl.clear();
+    });
+  }
+
+  Widget buildFilterChip({
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+    required Color selectedColor,
+  }) {
+    return FilterChip(
+      label: Text(
+        label,
+        style: TextStyle(
+          color: selected ? Colors.white : AppColors.textDark,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      selected: selected,
+      onSelected: (_) => onTap(),
+      selectedColor: selectedColor,
+      checkmarkColor: Colors.white,
+      backgroundColor: Colors.white,
+      side: BorderSide(
+        color: selected ? selectedColor : AppColors.border,
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+      ),
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final availableGroups = extractAvailableGroups();
+    final filteredChildren = applyFilters();
+    final hasCustomFilters = searchText.trim().isNotEmpty ||
+        selectedGroups.isNotEmpty ||
+        selectedEntryFilters.isNotEmpty;
+
     return AppPageScaffold(
       title: 'إدخال درجات جماعي',
       child: isLoading
@@ -285,6 +394,11 @@ class _BulkGradeEntryPageState extends State<BulkGradeEntryPage> {
                   maxLines: 3,
                 ),
                 const SizedBox(height: 18),
+                _buildFiltersCard(
+                  availableGroups: availableGroups,
+                  hasCustomFilters: hasCustomFilters,
+                ),
+                const SizedBox(height: 18),
                 Text(
                   'إدخال الدرجات للأطفال',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
@@ -295,8 +409,10 @@ class _BulkGradeEntryPageState extends State<BulkGradeEntryPage> {
                 const SizedBox(height: 12),
                 if (children.isEmpty)
                   _buildEmptyState()
+                else if (filteredChildren.isEmpty)
+                  _buildFilteredEmptyState()
                 else
-                  ...children.map(
+                  ...filteredChildren.map(
                     (child) => Padding(
                       padding: const EdgeInsets.only(bottom: 12),
                       child: _BulkGradeCard(
@@ -442,6 +558,106 @@ class _BulkGradeEntryPageState extends State<BulkGradeEntryPage> {
     );
   }
 
+  Widget _buildFiltersCard({
+    required List<String> availableGroups,
+    required bool hasCustomFilters,
+  }) {
+    return _FieldCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            controller: _searchCtrl,
+            decoration: InputDecoration(
+              hintText: 'ابحثي باسم الطفل أو المجموعة',
+              prefixIcon: const Icon(Icons.search_rounded),
+              suffixIcon: searchText.trim().isEmpty
+                  ? null
+                  : IconButton(
+                      onPressed: () {
+                        setState(() {
+                          searchText = '';
+                          _searchCtrl.clear();
+                        });
+                      },
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+              border: InputBorder.none,
+            ),
+            onChanged: (value) {
+              setState(() {
+                searchText = value;
+              });
+            },
+          ),
+          const SizedBox(height: 14),
+          const Text(
+            'حالة الإدخال',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textDark,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              buildFilterChip(
+                label: 'تم إدخال درجة',
+                selected: selectedEntryFilters.contains('with_grade'),
+                selectedColor: Colors.green,
+                onTap: () => toggleEntryFilter('with_grade'),
+              ),
+              buildFilterChip(
+                label: 'بدون درجة',
+                selected: selectedEntryFilters.contains('without_grade'),
+                selectedColor: Colors.orange,
+                onTap: () => toggleEntryFilter('without_grade'),
+              ),
+            ],
+          ),
+          if (availableGroups.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            const Text(
+              'المجموعة',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: AppColors.textDark,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: availableGroups.map((group) {
+                return buildFilterChip(
+                  label: group,
+                  selected: selectedGroups.contains(group),
+                  selectedColor: Colors.teal,
+                  onTap: () => toggleGroup(group),
+                );
+              }).toList(),
+            ),
+          ],
+          if (hasCustomFilters) ...[
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: clearFilters,
+                icon: const Icon(Icons.restart_alt_rounded),
+                label: const Text('إعادة تعيين الفلاتر'),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _buildEmptyState() {
     return Container(
       padding: const EdgeInsets.all(20),
@@ -472,6 +688,48 @@ class _BulkGradeEntryPageState extends State<BulkGradeEntryPage> {
           SizedBox(height: 6),
           Text(
             'عند ربط المعلمة بمجموعاتها سيظهر الأطفال هنا لإدخال الدرجات.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 13.5,
+              color: AppColors.textLight,
+              height: 1.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilteredEmptyState() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(
+          color: AppColors.border.withOpacity(0.8),
+        ),
+      ),
+      child: const Column(
+        children: [
+          Icon(
+            Icons.filter_alt_off_outlined,
+            size: 40,
+            color: AppColors.textLight,
+          ),
+          SizedBox(height: 10),
+          Text(
+            'لا يوجد أطفال مطابقون للفلاتر',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 15.5,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textDark,
+            ),
+          ),
+          SizedBox(height: 6),
+          Text(
+            'جرّبي تغيير البحث أو المجموعة أو حالة الإدخال.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 13.5,
@@ -528,6 +786,8 @@ class _BulkGradeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final groupText = group.isEmpty ? 'بدون مجموعة' : group;
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -576,7 +836,7 @@ class _BulkGradeCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      group.isEmpty ? 'بدون مجموعة' : group,
+                      groupText,
                       style: const TextStyle(
                         fontSize: 13,
                         color: AppColors.textLight,

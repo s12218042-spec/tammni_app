@@ -17,7 +17,9 @@ class ManageChildrenPage extends StatefulWidget {
 class _ManageChildrenPageState extends State<ManageChildrenPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  String selectedView = 'active'; // active / archived / all
+  final Set<String> selectedViews = {'active'};
+  final Set<String> selectedSections = {};
+
   String searchText = '';
 
   String sectionLabel(String section) {
@@ -29,6 +31,42 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
     if (section == 'Kindergarten') return const Color(0xFF7BB6FF);
     if (section == 'OutOfRange') return Colors.redAccent;
     return AppColors.primary;
+  }
+
+  String statusLabel(String value) {
+    if (value == 'active') return 'النشطون';
+    if (value == 'archived') return 'المؤرشفون';
+    return value;
+  }
+
+  void toggleViewFilter(String value) {
+    setState(() {
+      if (selectedViews.contains(value)) {
+        selectedViews.remove(value);
+      } else {
+        selectedViews.add(value);
+      }
+    });
+  }
+
+  void toggleSectionFilter(String value) {
+    setState(() {
+      if (selectedSections.contains(value)) {
+        selectedSections.remove(value);
+      } else {
+        selectedSections.add(value);
+      }
+    });
+  }
+
+  void clearAllFilters() {
+    setState(() {
+      selectedViews
+        ..clear()
+        ..add('active');
+      selectedSections.clear();
+      searchText = '';
+    });
   }
 
   Future<List<Map<String, dynamic>>> fetchChildren() async {
@@ -53,7 +91,6 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
         'parentName': data['parentName'] ?? '',
         'parentUsername': data['parentUsername'] ?? '',
         'parentUid': data['parentUid'] ?? '',
-
         'hasChronicDiseases': data['hasChronicDiseases'] ?? false,
         'chronicDiseases': data['chronicDiseases'] ?? '',
         'hasAllergies': data['hasAllergies'] ?? false,
@@ -72,25 +109,37 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
 
     final filteredByStatus = items.where((child) {
       final isActive = child['isActive'] == true;
+      final currentStatus = isActive ? 'active' : 'archived';
 
-      if (selectedView == 'active') return isActive;
-      if (selectedView == 'archived') return !isActive;
-      return true;
+      if (selectedViews.isEmpty) return true;
+      return selectedViews.contains(currentStatus);
+    }).toList();
+
+    final filteredBySection = filteredByStatus.where((child) {
+      final section = (child['section'] ?? '').toString();
+
+      if (selectedSections.isEmpty) return true;
+      return selectedSections.contains(section);
     }).toList();
 
     final query = searchText.trim().toLowerCase();
 
-    final filtered = filteredByStatus.where((child) {
+    final filtered = filteredBySection.where((child) {
       final name = (child['name'] ?? '').toString().toLowerCase();
       final identity = (child['identityNumber'] ?? '').toString().toLowerCase();
       final section = (child['section'] ?? '').toString().toLowerCase();
       final group = (child['group'] ?? '').toString().toLowerCase();
+      final parentName = (child['parentName'] ?? '').toString().toLowerCase();
+      final parentUsername =
+          (child['parentUsername'] ?? '').toString().toLowerCase();
 
       return query.isEmpty ||
           name.contains(query) ||
           identity.contains(query) ||
           section.contains(query) ||
-          group.contains(query);
+          group.contains(query) ||
+          parentName.contains(query) ||
+          parentUsername.contains(query);
     }).toList();
 
     filtered.sort((a, b) {
@@ -135,20 +184,20 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
   }
 
   ChildModel mapToChildModel(Map<String, dynamic> child) {
-  return ChildModel.fromMap(
-    {
-      'name': child['name'] ?? '',
-      'section': child['section'] ?? '',
-      'group': child['group'] ?? '',
-      'parentName': child['parentName'] ?? '',
-      'parentUsername': child['parentUsername'] ?? '',
-      'birthDate': child['birthDate'],
-      'isActive': child['isActive'] ?? true,
-      'status': child['status'] ?? 'active',
-    },
-    docId: (child['id'] ?? '').toString(),
-  );
-}
+    return ChildModel.fromMap(
+      {
+        'name': child['name'] ?? '',
+        'section': child['section'] ?? '',
+        'group': child['group'] ?? '',
+        'parentName': child['parentName'] ?? '',
+        'parentUsername': child['parentUsername'] ?? '',
+        'birthDate': child['birthDate'],
+        'isActive': child['isActive'] ?? true,
+        'status': child['status'] ?? 'active',
+      },
+      docId: (child['id'] ?? '').toString(),
+    );
+  }
 
   Future<void> openEntryExitLog(Map<String, dynamic> child) async {
     final childModel = mapToChildModel(child);
@@ -847,43 +896,36 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
     );
   }
 
-  Widget buildTopFilter({
+  Widget buildFilterChip({
     required String label,
-    required String value,
+    required bool selected,
+    required VoidCallback onTap,
+    Color? selectedColor,
   }) {
-    final isSelected = selectedView == value;
+    final activeColor = selectedColor ?? AppColors.secondary;
 
-    return Expanded(
-      child: GestureDetector(
-        onTap: () {
-          setState(() {
-            selectedView = value;
-          });
-        },
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 220),
-          padding: const EdgeInsets.symmetric(vertical: 13),
-          decoration: BoxDecoration(
-            color: isSelected ? AppColors.secondary : Colors.white,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color: isSelected
-                  ? AppColors.secondary
-                  : AppColors.primary.withOpacity(0.14),
-            ),
-          ),
-          child: Center(
-            child: Text(
-              label,
-              style: TextStyle(
-                color: isSelected ? Colors.white : AppColors.textDark,
-                fontWeight: FontWeight.w800,
-                fontSize: 14,
-              ),
-            ),
-          ),
+    return FilterChip(
+      label: Text(
+        label,
+        style: TextStyle(
+          color: selected ? Colors.white : AppColors.textDark,
+          fontWeight: FontWeight.w700,
         ),
       ),
+      selected: selected,
+      onSelected: (_) => onTap(),
+      selectedColor: activeColor,
+      checkmarkColor: Colors.white,
+      backgroundColor: Colors.white,
+      side: BorderSide(
+        color: selected
+            ? activeColor
+            : AppColors.primary.withOpacity(0.14),
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+      ),
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
     );
   }
 
@@ -1085,6 +1127,144 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
     );
   }
 
+  Widget buildFiltersCard() {
+    final hasCustomFilters =
+        selectedViews.length != 1 ||
+        !selectedViews.contains('active') ||
+        selectedSections.isNotEmpty ||
+        searchText.trim().isNotEmpty;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            textAlign: TextAlign.right,
+            decoration: InputDecoration(
+              hintText: 'ابحثي باسم الطفل أو رقم الهوية أو القسم أو المجموعة أو اسم ولي الأمر',
+              prefixIcon: const Icon(Icons.search_rounded),
+              suffixIcon: searchText.trim().isEmpty
+                  ? null
+                  : IconButton(
+                      onPressed: () {
+                        setState(() {
+                          searchText = '';
+                        });
+                      },
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+            onChanged: (value) {
+              setState(() {
+                searchText = value;
+              });
+            },
+          ),
+          const SizedBox(height: 14),
+          const Text(
+            'الحالة',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textDark,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              buildFilterChip(
+                label: 'النشطون',
+                selected: selectedViews.contains('active'),
+                onTap: () => toggleViewFilter('active'),
+                selectedColor: Colors.green,
+              ),
+              buildFilterChip(
+                label: 'المؤرشفون',
+                selected: selectedViews.contains('archived'),
+                onTap: () => toggleViewFilter('archived'),
+                selectedColor: Colors.orange,
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          const Text(
+            'القسم',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textDark,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              buildFilterChip(
+                label: sectionLabel('Nursery'),
+                selected: selectedSections.contains('Nursery'),
+                onTap: () => toggleSectionFilter('Nursery'),
+                selectedColor: const Color(0xFFEFA7C8),
+              ),
+              buildFilterChip(
+                label: sectionLabel('Kindergarten'),
+                selected: selectedSections.contains('Kindergarten'),
+                onTap: () => toggleSectionFilter('Kindergarten'),
+                selectedColor: const Color(0xFF7BB6FF),
+              ),
+              buildFilterChip(
+                label: sectionLabel('OutOfRange'),
+                selected: selectedSections.contains('OutOfRange'),
+                onTap: () => toggleSectionFilter('OutOfRange'),
+                selectedColor: Colors.redAccent,
+              ),
+            ],
+          ),
+          if (hasCustomFilters) ...[
+            const SizedBox(height: 14),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: clearAllFilters,
+                icon: const Icon(Icons.restart_alt_rounded),
+                label: const Text('إعادة تعيين الفلاتر'),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String buildEmptyStateText() {
+    final hasStatusFilter = selectedViews.isNotEmpty;
+    final hasSectionFilter = selectedSections.isNotEmpty;
+    final hasSearch = searchText.trim().isNotEmpty;
+
+    if (hasSearch || hasSectionFilter || hasStatusFilter) {
+      return 'لا توجد نتائج مطابقة للفلاتر الحالية';
+    }
+
+    return 'لا توجد بيانات بعد';
+  }
+
   @override
   Widget build(BuildContext context) {
     return AppPageScaffold(
@@ -1109,31 +1289,7 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
             ),
           ),
           const SizedBox(height: 14),
-          TextField(
-            textAlign: TextAlign.right,
-            decoration: InputDecoration(
-              hintText: 'ابحثي باسم الطفل أو رقم الهوية أو القسم أو المجموعة',
-              prefixIcon: const Icon(Icons.search_rounded),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-            ),
-            onChanged: (value) {
-              setState(() {
-                searchText = value;
-              });
-            },
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              buildTopFilter(label: 'النشطون', value: 'active'),
-              const SizedBox(width: 10),
-              buildTopFilter(label: 'المؤرشفون', value: 'archived'),
-              const SizedBox(width: 10),
-              buildTopFilter(label: 'الكل', value: 'all'),
-            ],
-          ),
+          buildFiltersCard(),
           const SizedBox(height: 16),
           Expanded(
             child: FutureBuilder<List<Map<String, dynamic>>>(
@@ -1187,11 +1343,7 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            selectedView == 'active'
-                                ? 'لا يوجد أطفال نشطون حاليًا'
-                                : selectedView == 'archived'
-                                    ? 'لا يوجد أطفال مؤرشفون حاليًا'
-                                    : 'لا توجد بيانات بعد',
+                            buildEmptyStateText(),
                             textAlign: TextAlign.center,
                             style: const TextStyle(
                               fontSize: 14,

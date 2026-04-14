@@ -14,9 +14,20 @@ class DetailedAttendancePage extends StatefulWidget {
 
 class _DetailedAttendancePageState extends State<DetailedAttendancePage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final TextEditingController _searchCtrl = TextEditingController();
+
+  String searchText = '';
+  final Set<String> selectedStatuses = {};
+  final Set<String> selectedGroups = {};
 
   Future<void> refreshPage() async {
     setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
   }
 
   String formatDate(dynamic time) {
@@ -70,6 +81,218 @@ class _DetailedAttendancePageState extends State<DetailedAttendancePage> {
       default:
         return Icons.help_outline_rounded;
     }
+  }
+
+  String resolveStatus(Map<String, dynamic> data) {
+    final rawStatus = (data['status'] ?? '').toString().trim();
+
+    if (rawStatus.isNotEmpty) {
+      return rawStatus;
+    }
+
+    final present = data['present'];
+    if (present == true) return 'present';
+    if (present == false) return 'absent';
+
+    return 'absent';
+  }
+
+  List<String> extractAvailableGroups(List<QueryDocumentSnapshot> docs) {
+    final groups = docs
+        .map((doc) {
+          final data = doc.data() as Map<String, dynamic>;
+          return (data['group'] ?? '').toString().trim();
+        })
+        .where((group) => group.isNotEmpty)
+        .toSet()
+        .toList();
+
+    groups.sort();
+    return groups;
+  }
+
+  List<QueryDocumentSnapshot> applyFilters(List<QueryDocumentSnapshot> docs) {
+    return docs.where((doc) {
+      final data = doc.data() as Map<String, dynamic>;
+
+      final childName =
+          (data['childName'] ?? '').toString().toLowerCase().trim();
+      final group = (data['group'] ?? '').toString().trim();
+      final recordedBy =
+          (data['recordedByName'] ?? '').toString().toLowerCase().trim();
+      final note = (data['note'] ?? '').toString().toLowerCase().trim();
+      final status = resolveStatus(data);
+
+      final query = searchText.trim().toLowerCase();
+
+      final matchesSearch = query.isEmpty ||
+          childName.contains(query) ||
+          group.toLowerCase().contains(query) ||
+          recordedBy.contains(query) ||
+          note.contains(query);
+
+      final matchesStatus =
+          selectedStatuses.isEmpty || selectedStatuses.contains(status);
+
+      final matchesGroup =
+          selectedGroups.isEmpty || selectedGroups.contains(group);
+
+      return matchesSearch && matchesStatus && matchesGroup;
+    }).toList();
+  }
+
+  Widget _buildMultiFilterChip({
+    required String label,
+    required String value,
+    required Set<String> selectedValues,
+  }) {
+    final isSelected = selectedValues.contains(value);
+
+    return FilterChip(
+      label: Text(label),
+      selected: isSelected,
+      onSelected: (selected) {
+        setState(() {
+          if (selected) {
+            selectedValues.add(value);
+          } else {
+            selectedValues.remove(value);
+          }
+        });
+      },
+      selectedColor: AppColors.primary.withOpacity(0.16),
+      checkmarkColor: AppColors.primary,
+      labelStyle: TextStyle(
+        color: isSelected ? AppColors.primary : AppColors.textDark,
+        fontWeight: FontWeight.w700,
+      ),
+      side: BorderSide(
+        color: isSelected ? AppColors.primary : AppColors.border,
+      ),
+      backgroundColor: Colors.white,
+    );
+  }
+
+  Widget _buildFilters(List<QueryDocumentSnapshot> docs) {
+    final availableGroups = extractAvailableGroups(docs);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: _searchCtrl,
+              onChanged: (value) {
+                setState(() {
+                  searchText = value;
+                });
+              },
+              decoration: InputDecoration(
+                hintText: 'ابحثي باسم الطفل أو المجموعة أو مسجل الحضور',
+                prefixIcon: const Icon(Icons.search_rounded),
+                suffixIcon: searchText.isEmpty
+                    ? null
+                    : IconButton(
+                        onPressed: () {
+                          _searchCtrl.clear();
+                          setState(() {
+                            searchText = '';
+                          });
+                        },
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              'فلترة حسب الحالة',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: AppColors.textDark,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _buildMultiFilterChip(
+                  label: 'حاضر',
+                  value: 'present',
+                  selectedValues: selectedStatuses,
+                ),
+                _buildMultiFilterChip(
+                  label: 'غائب',
+                  value: 'absent',
+                  selectedValues: selectedStatuses,
+                ),
+                _buildMultiFilterChip(
+                  label: 'متأخر',
+                  value: 'late',
+                  selectedValues: selectedStatuses,
+                ),
+                _buildMultiFilterChip(
+                  label: 'غياب مبرر',
+                  value: 'excused',
+                  selectedValues: selectedStatuses,
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              'فلترة حسب المجموعة',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: AppColors.textDark,
+              ),
+            ),
+            const SizedBox(height: 8),
+            if (availableGroups.isEmpty)
+              const Text(
+                'لا توجد مجموعات متاحة حاليًا',
+                style: TextStyle(color: AppColors.textLight),
+              )
+            else
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: availableGroups.map((group) {
+                  return _buildMultiFilterChip(
+                    label: group,
+                    value: group,
+                    selectedValues: selectedGroups,
+                  );
+                }).toList(),
+              ),
+            if (selectedStatuses.isNotEmpty ||
+                selectedGroups.isNotEmpty ||
+                searchText.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      searchText = '';
+                      _searchCtrl.clear();
+                      selectedStatuses.clear();
+                      selectedGroups.clear();
+                    });
+                  },
+                  icon: const Icon(Icons.restart_alt_rounded),
+                  label: const Text('مسح الفلاتر'),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -136,35 +359,46 @@ class _DetailedAttendancePageState extends State<DetailedAttendancePage> {
                   );
                 }
 
+                final filteredDocs = applyFilters(docs);
+
                 return RefreshIndicator(
                   onRefresh: refreshPage,
-                  child: ListView.separated(
+                  child: ListView(
                     physics: const AlwaysScrollableScrollPhysics(),
-                    itemCount: docs.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 12),
-                    itemBuilder: (context, index) {
-                      final data = docs[index].data() as Map<String, dynamic>;
+                    children: [
+                      _buildFilters(docs),
+                      const SizedBox(height: 16),
+                      if (filteredDocs.isEmpty)
+                        _buildEmptyState()
+                      else
+                        ...List.generate(filteredDocs.length, (index) {
+                          final data =
+                              filteredDocs[index].data() as Map<String, dynamic>;
 
-                      final childName = data['childName'] ?? 'طفل غير محدد';
-                      final group = data['group'] ?? '';
-                      final present = data['present'];
-                      final status = present == true ? 'present' : 'absent';
-                      final time = data['updatedAt'];
-                      final note = data['note'] ?? '';
-                      final recordedBy = data['recordedByName'] ?? '';
-                      
+                          final childName =
+                              data['childName'] ?? 'طفل غير محدد';
+                          final group = data['group'] ?? '';
+                          final status = resolveStatus(data);
+                          final time =
+                              data['updatedAt'] ?? data['time'] ?? data['createdAt'];
+                          final note = data['note'] ?? '';
+                          final recordedBy = data['recordedByName'] ?? '';
 
-                      return _AttendanceCard(
-                        childName: childName,
-                        group: group,
-                        statusText: statusLabel(status),
-                        dateText: formatDate(time),
-                        note: note,
-                        recordedBy: recordedBy,
-                        color: statusColor(status),
-                        icon: statusIcon(status),
-                      );
-                    },
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: _AttendanceCard(
+                              childName: childName,
+                              group: group,
+                              statusText: statusLabel(status),
+                              dateText: formatDate(time),
+                              note: note,
+                              recordedBy: recordedBy,
+                              color: statusColor(status),
+                              icon: statusIcon(status),
+                            ),
+                          );
+                        }),
+                    ],
                   ),
                 );
               },
@@ -237,7 +471,7 @@ class _DetailedAttendancePageState extends State<DetailedAttendancePage> {
           ),
           SizedBox(height: 10),
           Text(
-            'لا يوجد سجل حضور بعد',
+            'لا يوجد سجل حضور مطابق',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 15.5,
@@ -247,7 +481,7 @@ class _DetailedAttendancePageState extends State<DetailedAttendancePage> {
           ),
           SizedBox(height: 6),
           Text(
-            'عند تسجيل الحضور سيظهر هنا مباشرة.',
+            'جرّبي تغيير البحث أو الفلاتر أو أضيفي سجل حضور جديد.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 13.5,

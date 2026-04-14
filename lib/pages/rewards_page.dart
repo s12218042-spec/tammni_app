@@ -16,7 +16,121 @@ class _RewardsPageState extends State<RewardsPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   Future<void> refreshPage() async {
+    if (!mounted) return;
     setState(() {});
+  }
+
+  Timestamp? _resolveTimestamp(Map<String, dynamic> data) {
+    final candidates = [
+      data['time'],
+      data['createdAt'],
+      data['updatedAt'],
+      data['timestamp'],
+      data['eventAt'],
+    ];
+
+    for (final value in candidates) {
+      if (value is Timestamp) return value;
+    }
+
+    return null;
+  }
+
+  String _resolveChildName(Map<String, dynamic> data) {
+    final candidates = [
+      data['childName'],
+      data['name'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return 'طفل غير محدد';
+  }
+
+  String _resolveGroup(Map<String, dynamic> data) {
+    final candidates = [
+      data['group'],
+      data['className'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null) {
+        return value.toString().trim();
+      }
+    }
+
+    return '';
+  }
+
+  String _resolveTitle(Map<String, dynamic> data) {
+    final candidates = [
+      data['title'],
+      data['rewardTitle'],
+      data['name'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return 'تعزيز';
+  }
+
+  String _resolveType(Map<String, dynamic> data) {
+    final candidates = [
+      data['type'],
+      data['rewardType'],
+      data['category'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return 'تشجيع';
+  }
+
+  String _resolveNote(Map<String, dynamic> data) {
+    final candidates = [
+      data['note'],
+      data['message'],
+      data['description'],
+      data['details'],
+      data['body'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return '';
+  }
+
+  String _resolveCreatedByName(Map<String, dynamic> data) {
+    final candidates = [
+      data['createdByName'],
+      data['senderName'],
+      data['byName'],
+      data['teacherName'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return '';
   }
 
   String _formatDate(dynamic time) {
@@ -121,21 +235,48 @@ class _RewardsPageState extends State<RewardsPage> {
                   );
                 }
 
+                final items = docs.map((doc) {
+                  final data = doc.data() as Map<String, dynamic>;
+
+                  return {
+                    'childName': _resolveChildName(data),
+                    'group': _resolveGroup(data),
+                    'title': _resolveTitle(data),
+                    'type': _resolveType(data),
+                    'note': _resolveNote(data),
+                    'createdByName': _resolveCreatedByName(data),
+                    'displayTime': _resolveTimestamp(data),
+                  };
+                }).toList();
+
+                items.sort((a, b) {
+                  final aTime = a['displayTime'] as Timestamp?;
+                  final bTime = b['displayTime'] as Timestamp?;
+
+                  if (aTime == null && bTime == null) return 0;
+                  if (aTime == null) return 1;
+                  if (bTime == null) return -1;
+
+                  return bTime.compareTo(aTime);
+                });
+
                 return RefreshIndicator(
                   onRefresh: refreshPage,
                   child: ListView.separated(
                     physics: const AlwaysScrollableScrollPhysics(),
-                    itemCount: docs.length,
+                    itemCount: items.length,
                     separatorBuilder: (_, __) => const SizedBox(height: 12),
                     itemBuilder: (context, index) {
-                      final data = docs[index].data() as Map<String, dynamic>;
+                      final item = items[index];
 
-                      final childName = data['childName'] ?? 'طفل غير محدد';
-                      final group = data['group'] ?? '';
-                      final title = data['title'] ?? 'تعزيز';
-                      final type = data['type'] ?? 'تشجيع';
-                      final note = data['note'] ?? '';
-                      final time = data['time'];
+                      final childName = (item['childName'] ?? '').toString();
+                      final group = (item['group'] ?? '').toString();
+                      final title = (item['title'] ?? '').toString();
+                      final type = (item['type'] ?? '').toString();
+                      final note = (item['note'] ?? '').toString();
+                      final createdByName =
+                          (item['createdByName'] ?? '').toString();
+                      final displayTime = item['displayTime'];
 
                       return _RewardCard(
                         childName: childName,
@@ -143,7 +284,8 @@ class _RewardsPageState extends State<RewardsPage> {
                         title: title,
                         type: type,
                         note: note,
-                        dateText: _formatDate(time),
+                        dateText: _formatDate(displayTime),
+                        createdByName: createdByName,
                         rewardColor: _rewardColor(type),
                         rewardIcon: _rewardIcon(type),
                       );
@@ -251,6 +393,7 @@ class _RewardCard extends StatelessWidget {
   final String type;
   final String note;
   final String dateText;
+  final String createdByName;
   final Color rewardColor;
   final IconData rewardIcon;
 
@@ -261,6 +404,7 @@ class _RewardCard extends StatelessWidget {
     required this.type,
     required this.note,
     required this.dateText,
+    required this.createdByName,
     required this.rewardColor,
     required this.rewardIcon,
   });
@@ -353,6 +497,13 @@ class _RewardCard extends StatelessWidget {
             title: 'التاريخ',
             value: dateText,
           ),
+          if (createdByName.trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _InfoTile(
+              title: 'أضيف بواسطة',
+              value: createdByName,
+            ),
+          ],
           if (note.trim().isNotEmpty) ...[
             const SizedBox(height: 10),
             _InfoTile(

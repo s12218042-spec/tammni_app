@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../models/child_model.dart';
@@ -14,8 +15,52 @@ class TeacherReportsPage extends StatefulWidget {
 
 class _TeacherReportsPageState extends State<TeacherReportsPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+
+  Future<List<String>> fetchAssignedGroups() async {
+    final currentUser = _auth.currentUser;
+    if (currentUser == null) return [];
+
+    final userDoc =
+        await _firestore.collection('users').doc(currentUser.uid).get();
+
+    if (!userDoc.exists) return [];
+
+    final data = userDoc.data() ?? {};
+    final professionalInfo =
+        (data['professionalInfo'] is Map<String, dynamic>)
+            ? data['professionalInfo'] as Map<String, dynamic>
+            : <String, dynamic>{};
+
+    final rawGroups = professionalInfo['assignedGroups'] ?? data['assignedGroups'];
+
+    if (rawGroups is List) {
+      return rawGroups
+          .map((e) => e.toString().trim())
+          .where((e) => e.isNotEmpty)
+          .toSet()
+          .toList()
+        ..sort();
+    }
+
+    return [];
+  }
 
   Future<Map<String, dynamic>> loadReportData() async {
+    final assignedGroups = await fetchAssignedGroups();
+
+    if (assignedGroups.isEmpty) {
+      return {
+        'childrenCount': 0,
+        'groupsCount': 0,
+        'gradesCount': 0,
+        'assignmentsCount': 0,
+        'rewardsCount': 0,
+        'attendanceCount': 0,
+        'groups': <String>[],
+      };
+    }
+
     final childrenSnapshot = await _firestore
         .collection('children')
         .where('section', isEqualTo: 'Kindergarten')
@@ -42,10 +87,13 @@ class _TeacherReportsPageState extends State<TeacherReportsPage> {
         .where('section', isEqualTo: 'Kindergarten')
         .get();
 
-     final children = childrenSnapshot.docs.map((doc) {
-  final data = doc.data();
-  return ChildModel.fromMap(data, docId: doc.id);
-}).toList();
+    final children = childrenSnapshot.docs
+        .map((doc) {
+          final data = doc.data();
+          return ChildModel.fromMap(data, docId: doc.id);
+        })
+        .where((child) => assignedGroups.contains(child.group.trim()))
+        .toList();
 
     final groups = children
         .map((child) => child.group.trim())
@@ -54,13 +102,37 @@ class _TeacherReportsPageState extends State<TeacherReportsPage> {
         .toList()
       ..sort();
 
+    final gradesCount = gradesSnapshot.docs.where((doc) {
+      final data = doc.data();
+      final group = (data['group'] ?? '').toString().trim();
+      return assignedGroups.contains(group);
+    }).length;
+
+    final assignmentsCount = assignmentsSnapshot.docs.where((doc) {
+      final data = doc.data();
+      final group = (data['group'] ?? '').toString().trim();
+      return assignedGroups.contains(group);
+    }).length;
+
+    final rewardsCount = rewardsSnapshot.docs.where((doc) {
+      final data = doc.data();
+      final group = (data['group'] ?? '').toString().trim();
+      return assignedGroups.contains(group);
+    }).length;
+
+    final attendanceCount = attendanceSnapshot.docs.where((doc) {
+      final data = doc.data();
+      final group = (data['group'] ?? '').toString().trim();
+      return assignedGroups.contains(group);
+    }).length;
+
     return {
       'childrenCount': children.length,
       'groupsCount': groups.length,
-      'gradesCount': gradesSnapshot.docs.length,
-      'assignmentsCount': assignmentsSnapshot.docs.length,
-      'rewardsCount': rewardsSnapshot.docs.length,
-      'attendanceCount': attendanceSnapshot.docs.length,
+      'gradesCount': gradesCount,
+      'assignmentsCount': assignmentsCount,
+      'rewardsCount': rewardsCount,
+      'attendanceCount': attendanceCount,
       'groups': groups,
     };
   }
@@ -151,7 +223,7 @@ class _TeacherReportsPageState extends State<TeacherReportsPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'ملخص تقارير الروضة',
+            'ملخص تقارير المعلمة',
             style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.w800,
@@ -160,7 +232,7 @@ class _TeacherReportsPageState extends State<TeacherReportsPage> {
           ),
           SizedBox(height: 8),
           Text(
-            'يمكنكِ من هنا رؤية نظرة عامة سريعة عن الأطفال والمجموعات والحضور والتقييمات والواجبات.',
+            'يمكنكِ من هنا رؤية نظرة عامة سريعة عن أطفالكِ، مجموعاتكِ، الحضور، التقييمات، الواجبات، والتعزيزات المرتبطة بكِ فقط.',
             style: TextStyle(
               fontSize: 14,
               color: AppColors.textLight,
@@ -243,7 +315,7 @@ class _TeacherReportsPageState extends State<TeacherReportsPage> {
               ),
             ),
             child: const Text(
-              'لا توجد مجموعات حالياً.',
+              'لا توجد مجموعات مرتبطة بهذه المعلمة حالياً.',
               style: TextStyle(
                 fontSize: 14,
                 color: AppColors.textLight,

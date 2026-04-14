@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
+import '../utils/password_validation_utils.dart';
 import '../widgets/app_page_scaffold.dart';
 
 class ForceChangePasswordPage extends StatefulWidget {
@@ -31,96 +32,11 @@ class _ForceChangePasswordPageState extends State<ForceChangePasswordPage> {
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
 
-  static const Set<String> _weakPasswords = {
-    '123456',
-    '1234567',
-    '12345678',
-    '123456789',
-    '111111',
-    '11111111',
-    '000000',
-    '00000000',
-    'password',
-    'password123',
-    'qwerty',
-    'qwerty123',
-    'abcdef',
-    'abc123',
-  };
-
   @override
   void dispose() {
     _passwordCtrl.dispose();
     _confirmPasswordCtrl.dispose();
     super.dispose();
-  }
-
-  bool _allCharactersSame(String text) {
-    if (text.isEmpty) return false;
-    return text.split('').every((char) => char == text[0]);
-  }
-
-  bool _isOnlyNumbers(String text) {
-    return RegExp(r'^\d+$').hasMatch(text);
-  }
-
-  bool _isOnlyLetters(String text) {
-    return RegExp(r'^[a-zA-Z]+$').hasMatch(text);
-  }
-
-  String? _validatePassword(String? value) {
-    final text = value?.trim() ?? '';
-    final lowerText = text.toLowerCase();
-    final lowerUsername = widget.username.trim().toLowerCase();
-    final tempPassword = widget.temporaryPassword.trim();
-
-    if (text.isEmpty) {
-      return 'كلمة المرور الجديدة مطلوبة';
-    }
-
-    if (text.length < 6) {
-      return 'يجب أن تكون كلمة المرور 6 أحرف على الأقل';
-    }
-
-    if (tempPassword.isNotEmpty && text == tempPassword) {
-      return 'يجب اختيار كلمة مرور جديدة مختلفة عن كلمة المرور المؤقتة';
-    }
-
-    if (lowerText == lowerUsername && lowerUsername.isNotEmpty) {
-      return 'لا يمكن أن تكون كلمة المرور مطابقة لاسم المستخدم';
-    }
-
-    if (_weakPasswords.contains(lowerText)) {
-      return 'كلمة المرور ضعيفة جدًا، اختاري كلمة أقوى';
-    }
-
-    if (_allCharactersSame(text)) {
-      return 'كلمة المرور ضعيفة جدًا، لا تستخدمي نفس الحرف أو الرقم مكررًا';
-    }
-
-    if (_isOnlyNumbers(text) && text.length < 8) {
-      return 'كلمة المرور الضعيفة جدًا لا تُقبل، استخدمي حروفًا وأرقامًا';
-    }
-
-    if (_isOnlyLetters(text) && text.length < 8) {
-      return 'كلمة المرور الضعيفة جدًا لا تُقبل، استخدمي حروفًا وأرقامًا';
-    }
-
-    return null;
-  }
-
-  String? _validateConfirmPassword(String? value) {
-    final text = value?.trim() ?? '';
-
-    if (text.isEmpty) {
-      return 'تأكيد كلمة المرور مطلوب';
-    }
-
-    if (text != _passwordCtrl.text.trim()) {
-      return 'كلمتا المرور غير متطابقتين';
-    }
-
-    return null;
   }
 
   String _roleLabel(String role) {
@@ -290,7 +206,12 @@ class _ForceChangePasswordPageState extends State<ForceChangePasswordPage> {
                     TextFormField(
                       controller: _passwordCtrl,
                       obscureText: _obscurePassword,
-                      validator: _validatePassword,
+                      validator: (value) =>
+                          PasswordValidationUtils.validateNewPassword(
+                        value: value,
+                        username: widget.username,
+                        temporaryPassword: widget.temporaryPassword,
+                      ),
                       textAlign: TextAlign.right,
                       decoration: InputDecoration(
                         labelText: 'كلمة المرور الجديدة',
@@ -320,7 +241,11 @@ class _ForceChangePasswordPageState extends State<ForceChangePasswordPage> {
                     TextFormField(
                       controller: _confirmPasswordCtrl,
                       obscureText: _obscureConfirmPassword,
-                      validator: _validateConfirmPassword,
+                      validator: (value) =>
+                          PasswordValidationUtils.validateConfirmPassword(
+                        confirmPassword: value,
+                        password: _passwordCtrl.text,
+                      ),
                       textAlign: TextAlign.right,
                       decoration: InputDecoration(
                         labelText: 'تأكيد كلمة المرور الجديدة',

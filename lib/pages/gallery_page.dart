@@ -1,7 +1,4 @@
-import 'dart:io';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../models/child_model.dart';
@@ -100,6 +97,11 @@ class _GalleryPageState extends State<GalleryPage> {
     return null;
   }
 
+  bool _isUsableRemoteUrl(String value) {
+    final trimmed = value.trim().toLowerCase();
+    return trimmed.startsWith('http://') || trimmed.startsWith('https://');
+  }
+
   String _resolveMediaUrl(Map<String, dynamic> data) {
     final directUrl = (data['mediaUrl'] ?? '').toString().trim();
     if (_isUsableRemoteUrl(directUrl)) return directUrl;
@@ -119,32 +121,8 @@ class _GalleryPageState extends State<GalleryPage> {
     final path = (data['mediaPath'] ?? '').toString().trim();
 
     if (path.startsWith('blob:')) return '';
+    if (_isUsableRemoteUrl(path)) return '';
     return path;
-  }
-
-  bool _isUsableRemoteUrl(String value) {
-    final trimmed = value.trim().toLowerCase();
-    return trimmed.startsWith('http://') || trimmed.startsWith('https://');
-  }
-
-  bool _isLikelyLocalPath(String value) {
-    final source = value.trim().toLowerCase();
-
-    if (source.isEmpty) return false;
-    if (source.startsWith('blob:')) return false;
-    if (source.startsWith('http://') || source.startsWith('https://')) {
-      return false;
-    }
-
-    if (source.startsWith('file://') ||
-        source.startsWith('/storage/') ||
-        source.startsWith('/data/') ||
-        source.startsWith('c:\\') ||
-        source.startsWith('d:\\')) {
-      return true;
-    }
-
-    return !kIsWeb;
   }
 
   String _resolveMediaType(Map<String, dynamic> data) {
@@ -188,7 +166,7 @@ class _GalleryPageState extends State<GalleryPage> {
       final mediaType = _resolveMediaType(data);
       final displayTime = _resolveTimestamp(data);
 
-      final resolvedSource = mediaUrl.isNotEmpty ? mediaUrl : mediaPath;
+      final resolvedSource = mediaUrl.isNotEmpty ? mediaUrl : '';
 
       return {
         'id': doc.id,
@@ -325,8 +303,6 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 
   Widget buildMediaTile(Map<String, dynamic> item) {
-    final mediaPath = item['mediaPath']?.toString() ?? '';
-    final mediaUrl = item['mediaUrl']?.toString() ?? '';
     final resolvedSource = item['resolvedSource']?.toString() ?? '';
     final mediaType = item['mediaType']?.toString() ?? '';
     final note = item['note']?.toString() ?? '';
@@ -334,7 +310,6 @@ class _GalleryPageState extends State<GalleryPage> {
     final time = item['displayTime'] as Timestamp?;
 
     final isVideo = mediaType == 'video';
-    final isNetwork = _isUsableRemoteUrl(resolvedSource);
 
     return GestureDetector(
       onTap: () {
@@ -385,9 +360,6 @@ class _GalleryPageState extends State<GalleryPage> {
               Positioned.fill(
                 child: buildMediaContent(
                   mediaSource: resolvedSource,
-                  localFallbackPath: mediaPath,
-                  remoteUrl: mediaUrl,
-                  isNetwork: isNetwork,
                   isVideo: isVideo,
                 ),
               ),
@@ -489,9 +461,6 @@ class _GalleryPageState extends State<GalleryPage> {
 
   Widget buildMediaContent({
     required String mediaSource,
-    required String localFallbackPath,
-    required String remoteUrl,
-    required bool isNetwork,
     required bool isVideo,
   }) {
     if (isVideo) {
@@ -507,78 +476,55 @@ class _GalleryPageState extends State<GalleryPage> {
       );
     }
 
-    if (remoteUrl.trim().isNotEmpty) {
-      return Image.network(
-        remoteUrl.trim(),
-        fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) {
-          return buildBrokenMedia();
-        },
-        loadingBuilder: (context, child, progress) {
-          if (progress == null) return child;
-          return Container(
-            color: AppColors.primary.withOpacity(0.06),
-            child: const Center(
-              child: CircularProgressIndicator(),
-            ),
-          );
-        },
+    if (!_isUsableRemoteUrl(mediaSource)) {
+      return buildBrokenMedia(
+        message: 'تعذر عرض الصورة لأن الرابط غير صالح',
       );
     }
 
-    if (isNetwork) {
-      return Image.network(
-        mediaSource,
-        fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) {
-          return buildBrokenMedia();
-        },
-      );
-    }
-
-    if (kIsWeb) {
-      return Container(
-        color: AppColors.primary.withOpacity(0.06),
-        child: const Center(
-          child: Padding(
-            padding: EdgeInsets.all(12),
-            child: Text(
-              'تعذر عرض هذا الملف',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: AppColors.textLight,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    if (!_isLikelyLocalPath(localFallbackPath)) {
-      return buildBrokenMedia();
-    }
-
-    final file = File(localFallbackPath);
-    if (!file.existsSync()) {
-      return buildBrokenMedia();
-    }
-
-    return Image.file(
-      file,
+    return Image.network(
+      mediaSource,
       fit: BoxFit.cover,
-      errorBuilder: (_, __, ___) => buildBrokenMedia(),
+      errorBuilder: (_, __, ___) {
+        return buildBrokenMedia();
+      },
+      loadingBuilder: (context, child, progress) {
+        if (progress == null) return child;
+        return Container(
+          color: AppColors.primary.withOpacity(0.06),
+          child: const Center(
+            child: CircularProgressIndicator(),
+          ),
+        );
+      },
     );
   }
 
-  Widget buildBrokenMedia() {
+  Widget buildBrokenMedia({String message = 'تعذر عرض الوسائط'}) {
     return Container(
       color: AppColors.primary.withOpacity(0.06),
-      child: const Center(
-        child: Icon(
-          Icons.broken_image_rounded,
-          size: 36,
-          color: AppColors.textLight,
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: const [
+              Icon(
+                Icons.broken_image_rounded,
+                size: 36,
+                color: AppColors.textLight,
+              ),
+              SizedBox(height: 8),
+              Text(
+                'تعذر عرض الوسائط',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: AppColors.textLight,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -897,23 +843,7 @@ class GalleryPreviewPage extends StatelessWidget {
   }
 
   Widget buildImagePreview() {
-    if (isNetwork) {
-      return InteractiveViewer(
-        child: Image.network(
-          mediaPath,
-          fit: BoxFit.contain,
-          errorBuilder: (_, __, ___) {
-            return const Icon(
-              Icons.broken_image_rounded,
-              color: Colors.white54,
-              size: 60,
-            );
-          },
-        ),
-      );
-    }
-
-    if (kIsWeb) {
+    if (!isNetwork) {
       return const Padding(
         padding: EdgeInsets.all(24),
         child: Text(
@@ -928,19 +858,25 @@ class GalleryPreviewPage extends StatelessWidget {
       );
     }
 
-    final file = File(mediaPath);
-    if (!file.existsSync()) {
-      return const Icon(
-        Icons.broken_image_rounded,
-        color: Colors.white54,
-        size: 60,
-      );
-    }
-
     return InteractiveViewer(
-      child: Image.file(
-        file,
+      child: Image.network(
+        mediaPath,
         fit: BoxFit.contain,
+        errorBuilder: (_, __, ___) {
+          return const Icon(
+            Icons.broken_image_rounded,
+            color: Colors.white54,
+            size: 60,
+          );
+        },
+        loadingBuilder: (context, child, progress) {
+          if (progress == null) return child;
+          return const Center(
+            child: CircularProgressIndicator(
+              color: Colors.white,
+            ),
+          );
+        },
       ),
     );
   }

@@ -498,6 +498,16 @@ class _ParentRegistrationRequestPageState
     });
   }
 
+  void _resetVerificationState() {
+    setState(() {
+      emailVerificationSent = false;
+      emailVerified = false;
+      verificationMethod = '';
+      verificationEmail = '';
+      authUid = '';
+    });
+  }
+
   Future<void> sendEmailVerificationLink() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -532,7 +542,8 @@ class _ParentRegistrationRequestPageState
       }
 
       final currentUser = _auth.currentUser;
-      if (currentUser != null && currentUser.email != cleanEmail) {
+      if (currentUser != null &&
+          (currentUser.email ?? '').trim().toLowerCase() != cleanEmail) {
         await _auth.signOut();
       }
 
@@ -567,11 +578,16 @@ class _ParentRegistrationRequestPageState
       }
 
       if (authUser == null) {
-        throw Exception('تعذر إنشاء حساب التحقق بالبريد');
-      }
+  throw Exception('تعذر إنشاء حساب التحقق بالبريد');
+}
 
-      await authUser.sendEmailVerification();
-      await authUser.reload();
+final actionCodeSettings = ActionCodeSettings(
+  url: 'https://daycare-app-220c0.web.app/auth_action.html',
+  handleCodeInApp: false,
+);
+
+await authUser.sendEmailVerification(actionCodeSettings);
+await authUser.reload();
 
       final refreshedUser = _auth.currentUser;
 
@@ -667,8 +683,36 @@ class _ParentRegistrationRequestPageState
       return;
     }
 
-    if (authUid.trim().isEmpty) {
-      _showSnack('تعذر تحديد حساب التحقق. أعيدي إرسال رابط التحقق');
+    final currentUser = _auth.currentUser;
+    if (currentUser == null) {
+      _showSnack('لا يوجد حساب تحقق نشط. أعيدي إرسال رابط التحقق');
+      return;
+    }
+
+    await currentUser.reload();
+    final refreshedUser = _auth.currentUser;
+
+    final verifiedUser = refreshedUser;
+    final cleanEmail = emailCtrl.text.trim().toLowerCase();
+    final cleanUsername = normalizeUsername(usernameCtrl.text);
+
+    if (verifiedUser == null) {
+      _showSnack('تعذر التحقق من حساب البريد الحالي');
+      return;
+    }
+
+    if (!(verifiedUser.emailVerified)) {
+      _showSnack('البريد الحالي غير موثّق بعد');
+      return;
+    }
+
+    if ((verifiedUser.email ?? '').trim().toLowerCase() != cleanEmail) {
+      _showSnack('البريد المتحقق منه لا يطابق البريد المكتوب في النموذج');
+      return;
+    }
+
+    if (verifiedUser.uid.trim().isEmpty) {
+      _showSnack('تعذر تحديد uid للحساب الحالي');
       return;
     }
 
@@ -677,14 +721,11 @@ class _ParentRegistrationRequestPageState
     });
 
     try {
-      usernameCtrl.text = normalizeUsername(usernameCtrl.text);
-      emailCtrl.text = emailCtrl.text.trim().toLowerCase();
+      usernameCtrl.text = cleanUsername;
+      emailCtrl.text = cleanEmail;
       phoneCtrl.text = phoneCtrl.text.trim();
       alternatePhoneCtrl.text = alternatePhoneCtrl.text.trim();
       nationalIdCtrl.text = nationalIdCtrl.text.trim();
-
-      final cleanUsername = usernameCtrl.text;
-      final cleanEmail = emailCtrl.text;
 
       final usernameTaken = await _usernameExistsAnywhere(cleanUsername);
       if (usernameTaken) {
@@ -707,14 +748,26 @@ class _ParentRegistrationRequestPageState
         }
       }
 
+      final requestAuthUid = verifiedUser.uid.trim();
+      final fullName = fullNameCtrl.text.trim();
+      final mainPhone = phoneCtrl.text.trim();
+
       final requestData = <String, dynamic>{
         'requestType': 'parent_registration',
         'status': 'pending',
-        'authAccountCreated': true,
+
+        // حقول علوية مهمة للربط والقواعد
+        'authUid': requestAuthUid,
         'authPreCreated': true,
-        'authUid': authUid.trim(),
+        'authAccountCreated': true,
         'emailVerified': true,
-        'verificationMethod': verificationMethod,
+        'verificationMethod': 'email_link',
+
+        'email': cleanEmail,
+        'username': cleanUsername,
+        'fullName': fullName,
+        'phone': mainPhone,
+
         'approvalMode': '',
         'activationMethod': '',
         'linkedParentUid': '',
@@ -722,11 +775,17 @@ class _ParentRegistrationRequestPageState
         'linkedParentName': '',
         'processedToUserDoc': false,
         'processedChildrenCount': 0,
+
+        // توثيق المُنشئ
+        'createdByUid': requestAuthUid,
+        'createdByName': fullName.isEmpty ? 'ولي أمر' : fullName,
+        'createdByRole': 'parent',
+
         'parentInfo': {
-          'fullName': fullNameCtrl.text.trim(),
+          'fullName': fullName,
           'username': cleanUsername,
           'email': cleanEmail,
-          'phone': phoneCtrl.text.trim(),
+          'phone': mainPhone,
           'alternatePhone': alternatePhoneCtrl.text.trim(),
           'identityNumber': nationalIdCtrl.text.trim(),
           'gender': selectedGender,
@@ -746,20 +805,17 @@ class _ParentRegistrationRequestPageState
           'emergencyContactPhone': emergencyPhoneCtrl.text.trim(),
           'notes': notesCtrl.text.trim(),
         },
+
         'childrenInfo': children.map((child) => child.toMap()).toList(),
+
         'reviewNote': '',
         'reviewedByUid': '',
         'reviewedByName': '',
         'reviewedAt': null,
+
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       };
-      debugPrint('currentUser uid: ${_auth.currentUser?.uid}');
-debugPrint('currentUser email: ${_auth.currentUser?.email}');
-debugPrint('currentUser verified: ${_auth.currentUser?.emailVerified}');
-debugPrint('authUid in request: ${authUid.trim()}');
-debugPrint('email in request: ${emailCtrl.text.trim().toLowerCase()}');
-debugPrint('requestData: $requestData');
 
       await _firestore.collection('registration_requests').add(requestData);
 
@@ -777,20 +833,16 @@ debugPrint('requestData: $requestData');
 
       Navigator.pop(context, true);
     } on FirebaseException catch (e) {
-  debugPrint('Firestore error code: ${e.code}');
-  debugPrint('Firestore error message: ${e.message}');
-  _showSnack('خطأ Firestore: ${e.code} - ${e.message}');
-} catch (e, st) {
-  debugPrint('General error: $e');
-  debugPrint('$st');
-  _showSnack(e.toString().replaceFirst('Exception: ', ''));
-} finally {
-  if (mounted) {
-    setState(() {
-      isSubmitting = false;
-    });
-  }
-}
+      _showSnack('خطأ Firestore: ${e.code} - ${e.message}');
+    } catch (e) {
+      _showSnack(e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) {
+        setState(() {
+          isSubmitting = false;
+        });
+      }
+    }
   }
 
   void _showSnack(String message) {
@@ -940,13 +992,7 @@ debugPrint('requestData: $requestData');
             validator: (value) => _validateUsername(value ?? ''),
             onChanged: (_) {
               if (emailVerificationSent || emailVerified) {
-                setState(() {
-                  emailVerificationSent = false;
-                  emailVerified = false;
-                  verificationMethod = '';
-                  verificationEmail = '';
-                  authUid = '';
-                });
+                _resetVerificationState();
               }
             },
           ),
@@ -974,13 +1020,7 @@ debugPrint('requestData: $requestData');
             },
             onChanged: (_) {
               if (emailVerificationSent || emailVerified) {
-                setState(() {
-                  emailVerificationSent = false;
-                  emailVerified = false;
-                  verificationMethod = '';
-                  verificationEmail = '';
-                  authUid = '';
-                });
+                _resetVerificationState();
               }
             },
           ),

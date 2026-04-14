@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 import 'add_grade_page.dart';
+import 'bulk_grade_entry_page.dart';
 
 class GradesPage extends StatefulWidget {
   const GradesPage({super.key});
@@ -29,12 +30,38 @@ class _GradesPageState extends State<GradesPage> {
     return total.toString();
   }
 
+  Timestamp? _extractTimestamp(Map<String, dynamic> data) {
+    final dynamic primary = data['time'];
+    final dynamic fallback = data['createdAt'];
+
+    if (primary is Timestamp) return primary;
+    if (fallback is Timestamp) return fallback;
+
+    return null;
+  }
+
   String _formatDate(dynamic time) {
     if (time is Timestamp) {
       final date = time.toDate();
       return '${date.year}/${date.month}/${date.day}';
     }
     return 'غير محدد';
+  }
+
+  String _extractRecordedBy(Map<String, dynamic> data) {
+    final candidates = [
+      data['createdByName'],
+      data['recordedByName'],
+      data['teacherName'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return '';
   }
 
   Color _gradeTypeColor(String type) {
@@ -59,6 +86,22 @@ class _GradesPageState extends State<GradesPage> {
     return AppPageScaffold(
       title: 'التقييمات والدرجات',
       actions: [
+        IconButton(
+          tooltip: 'إدخال درجات جماعي',
+          onPressed: () async {
+            final res = await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const BulkGradeEntryPage(),
+              ),
+            );
+
+            if (res == true) {
+              setState(() {});
+            }
+          },
+          icon: const Icon(Icons.playlist_add_check_circle_outlined),
+        ),
         IconButton(
           tooltip: 'إضافة تقييم',
           onPressed: () async {
@@ -88,73 +131,98 @@ class _GradesPageState extends State<GradesPage> {
                   .orderBy('time', descending: true)
                   .snapshots(),
               builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return StreamBuilder<QuerySnapshot>(
+                    stream: _firestore
+                        .collection('grades')
+                        .where('section', isEqualTo: 'Kindergarten')
+                        .orderBy('createdAt', descending: true)
+                        .snapshots(),
+                    builder: (context, fallbackSnapshot) {
+                      if (fallbackSnapshot.connectionState ==
+                          ConnectionState.waiting) {
+                        return const Center(
+                          child: CircularProgressIndicator(),
+                        );
+                      }
+
+                      if (fallbackSnapshot.hasError) {
+                        return Center(
+                          child: Text(
+                            'حدث خطأ أثناء تحميل التقييمات',
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        );
+                      }
+
+                      final docs = fallbackSnapshot.data?.docs ?? [];
+                      return _buildGradesList(docs);
+                    },
+                  );
+                }
+
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(
                     child: CircularProgressIndicator(),
                   );
                 }
 
-                if (snapshot.hasError) {
-                  return Center(
-                    child: Text(
-                      'حدث خطأ أثناء تحميل التقييمات',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                  );
-                }
-
                 final docs = snapshot.data?.docs ?? [];
-
-                if (docs.isEmpty) {
-                  return RefreshIndicator(
-                    onRefresh: refreshPage,
-                    child: ListView(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      children: [
-                        const SizedBox(height: 60),
-                        _buildEmptyState(),
-                      ],
-                    ),
-                  );
-                }
-
-                return RefreshIndicator(
-                  onRefresh: refreshPage,
-                  child: ListView.separated(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    itemCount: docs.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 12),
-                    itemBuilder: (context, index) {
-                      final data =
-                          docs[index].data() as Map<String, dynamic>;
-
-                      final childName = data['childName'] ?? 'طفل غير محدد';
-                      final group = data['group'] ?? '';
-                      final subject = data['subject'] ?? 'مادة غير محددة';
-                      final type = data['type'] ?? 'تقييم';
-                      final grade = data['grade'];
-                      final total = data['total'];
-                      final note = data['note'] ?? '';
-                      final time = data['time'];
-
-                      return _GradeCard(
-                        childName: childName,
-                        group: group,
-                        subject: subject,
-                        type: type,
-                        gradeText: _formatGrade(grade),
-                        totalText: _formatTotal(total),
-                        note: note,
-                        dateText: _formatDate(time),
-                        typeColor: _gradeTypeColor(type),
-                      );
-                    },
-                  ),
-                );
+                return _buildGradesList(docs);
               },
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildGradesList(List<QueryDocumentSnapshot> docs) {
+    if (docs.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: refreshPage,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            const SizedBox(height: 60),
+            _buildEmptyState(),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: refreshPage,
+      child: ListView.separated(
+        physics: const AlwaysScrollableScrollPhysics(),
+        itemCount: docs.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 12),
+        itemBuilder: (context, index) {
+          final data = docs[index].data() as Map<String, dynamic>;
+
+          final childName = data['childName'] ?? 'طفل غير محدد';
+          final group = data['group'] ?? '';
+          final subject = data['subject'] ?? 'مادة غير محددة';
+          final type = data['type'] ?? 'تقييم';
+          final grade = data['grade'];
+          final total = data['total'];
+          final note = data['note'] ?? '';
+          final time = _extractTimestamp(data);
+          final recordedBy = _extractRecordedBy(data);
+
+          return _GradeCard(
+            childName: childName.toString(),
+            group: group.toString(),
+            subject: subject.toString(),
+            type: type.toString(),
+            gradeText: _formatGrade(grade),
+            totalText: _formatTotal(total),
+            note: note.toString(),
+            dateText: _formatDate(time),
+            recordedBy: recordedBy,
+            typeColor: _gradeTypeColor(type.toString()),
+          );
+        },
       ),
     );
   }
@@ -190,7 +258,7 @@ class _GradesPageState extends State<GradesPage> {
           ),
           SizedBox(height: 8),
           Text(
-            'يمكنكِ من هنا متابعة كل التقييمات والدرجات المضافة للأطفال.',
+            'يمكنكِ من هنا متابعة كل التقييمات والدرجات المضافة للأطفال، سواء الفردية أو الجماعية.',
             style: TextStyle(
               fontSize: 14,
               color: AppColors.textLight,
@@ -254,6 +322,7 @@ class _GradeCard extends StatelessWidget {
   final String totalText;
   final String note;
   final String dateText;
+  final String recordedBy;
   final Color typeColor;
 
   const _GradeCard({
@@ -265,6 +334,7 @@ class _GradeCard extends StatelessWidget {
     required this.totalText,
     required this.note,
     required this.dateText,
+    required this.recordedBy,
     required this.typeColor,
   });
 
@@ -369,6 +439,13 @@ class _GradeCard extends StatelessWidget {
             title: 'التاريخ',
             value: dateText,
           ),
+          if (recordedBy.trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _InfoTile(
+              title: 'تم الإدخال بواسطة',
+              value: recordedBy,
+            ),
+          ],
           if (note.trim().isNotEmpty) ...[
             const SizedBox(height: 10),
             _InfoTile(

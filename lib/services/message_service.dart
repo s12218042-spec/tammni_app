@@ -22,12 +22,17 @@ class MessageService {
           .map((doc) => MessageModel.fromMap(doc.id, doc.data()))
           .where((message) {
         final hasCurrentUser =
-            message.senderId == currentUserId || message.receiverId == currentUserId;
+            message.senderId == currentUserId ||
+            message.receiverId == currentUserId;
 
         final hasTargetUser =
-            message.senderId == targetUserId || message.receiverId == targetUserId;
+            message.senderId == targetUserId ||
+            message.receiverId == targetUserId;
 
-        return hasCurrentUser && hasTargetUser;
+        final hiddenForCurrentUser =
+            message.deletedForUserIds.contains(currentUserId);
+
+        return hasCurrentUser && hasTargetUser && !hiddenForCurrentUser;
       }).toList();
 
       messages.sort((a, b) => a.sentAt.compareTo(b.sentAt));
@@ -44,6 +49,7 @@ class MessageService {
         .map((snapshot) {
       final allMessages = snapshot.docs
           .map((doc) => MessageModel.fromMap(doc.id, doc.data()))
+          .where((message) => !message.deletedForUserIds.contains(currentUserId))
           .toList();
 
       allMessages.sort((a, b) => b.sentAt.compareTo(a.sentAt));
@@ -51,8 +57,9 @@ class MessageService {
       final Map<String, MessageModel> latestByChat = {};
 
       for (final message in allMessages) {
-        final otherUserId =
-            message.senderId == currentUserId ? message.receiverId : message.senderId;
+        final otherUserId = message.senderId == currentUserId
+            ? message.receiverId
+            : message.senderId;
 
         final key = '${message.childId}_$otherUserId';
 
@@ -72,7 +79,19 @@ class MessageService {
         .where('receiverId', isEqualTo: currentUserId)
         .where('isRead', isEqualTo: false)
         .snapshots()
-        .map((snapshot) => snapshot.docs.length);
+        .map((snapshot) {
+      final visibleUnread = snapshot.docs.where((doc) {
+        final data = doc.data();
+        final deletedForUserIds =
+            (data['deletedForUserIds'] as List<dynamic>? ?? [])
+                .map((e) => e.toString())
+                .toList();
+
+        return !deletedForUserIds.contains(currentUserId);
+      }).length;
+
+      return visibleUnread;
+    });
   }
 
   Future<void> sendMessage({
@@ -85,6 +104,10 @@ class MessageService {
     required String receiverName,
     required String receiverRole,
     required String text,
+    String? replyToMessageId,
+    String? replyToText,
+    String? replyToSenderId,
+    String? replyToSenderName,
   }) async {
     final cleanText = text.trim();
     if (cleanText.isEmpty) return;
@@ -106,6 +129,15 @@ class MessageService {
         receiverId,
         childId,
       ],
+      'reactions': <String, String>{},
+      'deletedForUserIds': <String>[],
+      'isDeletedForEveryone': false,
+      'deletedForEveryoneAt': null,
+      'deletedForEveryoneBy': '',
+      'replyToMessageId': replyToMessageId,
+      'replyToText': replyToText,
+      'replyToSenderId': replyToSenderId,
+      'replyToSenderName': replyToSenderName,
     });
   }
 
@@ -125,14 +157,128 @@ class MessageService {
       final receiverId = data['receiverId'] ?? '';
       final senderId = data['senderId'] ?? '';
       final isRead = data['isRead'] ?? false;
+      final deletedForUserIds =
+          (data['deletedForUserIds'] as List<dynamic>? ?? [])
+              .map((e) => e.toString())
+              .toList();
 
       return receiverId == currentUserId &&
           senderId == targetUserId &&
-          isRead == false;
+          isRead == false &&
+          !deletedForUserIds.contains(currentUserId);
     }).toList();
 
     for (final doc in docsToUpdate) {
       await doc.reference.update({'isRead': true});
     }
+  }
+
+  Future<void> toggleMessageReaction({
+    required String messageId,
+    required String userId,
+    required String emoji,
+  }) async {
+    final docRef = _messagesRef.doc(messageId);
+
+    await _firestore.runTransaction((transaction) async {
+      final snapshot = await transaction.get(docRef);
+
+      if (!snapshot.exists) return;
+
+      final data = snapshot.data() ?? {};
+
+      final isDeletedForEveryone = data['isDeletedForEveryone'] == true;
+      final deletedForUserIds =
+          (data['deletedForUserIds'] as List<dynamic>? ?? [])
+              .map((e) => e.toString())
+              .toList();
+
+      if (isDeletedForEveryone || deletedForUserIds.contains(userId)) {
+        return;
+      }
+
+      final rawReactions = data['reactions'];
+      final Map<String, String> currentReactions =
+          rawReactions is Map<String, dynamic>
+              ? rawReactions.map(
+                  (key, value) => MapEntry(key, value.toString()),
+                )
+              : rawReactions is Map
+                  ? rawReactions.map(
+                      (key, value) =>
+                          MapEntry(key.toString(), value.toString()),
+                    )
+                  : <String, String>{};
+
+      final currentEmoji = currentReactions[userId];
+
+      if (currentEmoji == emoji) {
+        currentReactions.remove(userId);
+      } else {
+        currentReactions[userId] = emoji;
+      }
+
+      transaction.update(docRef, {
+        'reactions': currentReactions,
+      });
+    });
+  }
+
+  Future<void> deleteMessageForMe({
+    required String messageId,
+    required String userId,
+  }) async {
+    final docRef = _messagesRef.doc(messageId);
+
+    await _firestore.runTransaction((transaction) async {
+      final snapshot = await transaction.get(docRef);
+
+      if (!snapshot.exists) return;
+
+      final data = snapshot.data() ?? {};
+
+      final deletedForUserIds =
+          (data['deletedForUserIds'] as List<dynamic>? ?? [])
+              .map((e) => e.toString())
+              .toSet();
+
+      deletedForUserIds.add(userId);
+
+      transaction.update(docRef, {
+        'deletedForUserIds': deletedForUserIds.toList(),
+      });
+    });
+  }
+
+  Future<void> deleteMessageForEveryone({
+    required String messageId,
+    required String currentUserId,
+  }) async {
+    final docRef = _messagesRef.doc(messageId);
+
+    await _firestore.runTransaction((transaction) async {
+      final snapshot = await transaction.get(docRef);
+
+      if (!snapshot.exists) return;
+
+      final data = snapshot.data() ?? {};
+
+      final senderId = (data['senderId'] ?? '').toString();
+      if (senderId != currentUserId) {
+        return;
+      }
+
+      transaction.update(docRef, {
+        'text': 'تم حذف هذه الرسالة',
+        'isDeletedForEveryone': true,
+        'deletedForEveryoneAt': Timestamp.now(),
+        'deletedForEveryoneBy': currentUserId,
+        'reactions': <String, String>{},
+        'replyToMessageId': null,
+        'replyToText': null,
+        'replyToSenderId': null,
+        'replyToSenderName': null,
+      });
+    });
   }
 }

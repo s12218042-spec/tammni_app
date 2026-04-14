@@ -7,23 +7,26 @@ import '../services/auth_service.dart';
 import '../services/message_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
+import 'account_history_page.dart';
+import 'account_settings_page.dart';
 import 'add_child_request_page.dart';
 import 'child_profile_page.dart';
 import 'parent_chats_page.dart';
+import 'parent_complaints_page.dart';
 import 'parent_invoice_page.dart';
 import 'parent_notifications_page.dart';
 import 'parent_updates_page.dart';
 import 'weekly_report_page.dart';
 import 'welcome_page.dart';
-import 'account_settings_page.dart';
 import '../services/account_settings_service.dart';
-import 'account_history_page.dart';
-import 'parent_complaints_page.dart';
 
 class ParentHomePage extends StatefulWidget {
   final String parentUsername;
 
-  const ParentHomePage({super.key, required this.parentUsername});
+  const ParentHomePage({
+    super.key,
+    required this.parentUsername,
+  });
 
   @override
   State<ParentHomePage> createState() => _ParentHomePageState();
@@ -32,7 +35,8 @@ class ParentHomePage extends StatefulWidget {
 class _ParentHomePageState extends State<ParentHomePage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final MessageService _messageService = MessageService();
-  final AccountSettingsService _accountSettingsService = AccountSettingsService();
+  final AccountSettingsService _accountSettingsService =
+      AccountSettingsService();
 
   int selectedIndex = 0;
   bool isArabic = true;
@@ -215,7 +219,9 @@ class _ParentHomePageState extends State<ParentHomePage> {
 
     await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => ParentChatsPage(children: children)),
+      MaterialPageRoute(
+        builder: (_) => ParentChatsPage(children: children),
+      ),
     );
 
     if (!mounted) return;
@@ -331,7 +337,8 @@ class _ParentHomePageState extends State<ParentHomePage> {
   }
 
   Widget _buildDashboardTab(List<ChildModel> children) {
-    final nurseryChildren = children.where((c) => c.section == 'Nursery').length;
+    final nurseryChildren =
+        children.where((c) => c.section == 'Nursery').length;
     final kgChildren =
         children.where((c) => c.section == 'Kindergarten').length;
 
@@ -481,7 +488,9 @@ class _ParentHomePageState extends State<ParentHomePage> {
                       updatesFuture: fetchLastUpdates(child.id),
                       onOpenProfile: () => _openChildProfile(child),
                       onOpenUpdates: () => _openUpdates(child),
-                      onOpenWeeklyReport: () => _openWeeklyReport(child),
+                      onOpenWeeklyReport: child.section == 'Kindergarten'
+                          ? () => _openWeeklyReport(child)
+                          : null,
                     ),
                   ),
                 ),
@@ -597,7 +606,9 @@ class _ParentHomePageState extends State<ParentHomePage> {
                   radius: 28,
                   backgroundColor: AppColors.primary.withOpacity(0.10),
                   child: Text(
-                    displayName.trim().isNotEmpty ? displayName.trim()[0] : 'و',
+                    displayName.trim().isNotEmpty
+                        ? displayName.trim()[0]
+                        : 'و',
                     style: const TextStyle(
                       color: AppColors.primary,
                       fontWeight: FontWeight.bold,
@@ -613,12 +624,18 @@ class _ParentHomePageState extends State<ParentHomePage> {
                 trailing: CircleAvatar(
                   radius: 18,
                   backgroundColor: AppColors.primary.withOpacity(0.12),
-                  child: const Icon(Icons.edit, size: 18, color: AppColors.primary),
+                  child: const Icon(
+                    Icons.edit,
+                    size: 18,
+                    color: AppColors.primary,
+                  ),
                 ),
                 onTap: () async {
                   await Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (_) => const AccountSettingsPage()),
+                    MaterialPageRoute(
+                      builder: (_) => const AccountSettingsPage(),
+                    ),
                   );
                   if (!mounted) return;
                   setState(() {});
@@ -648,11 +665,14 @@ class _ParentHomePageState extends State<ParentHomePage> {
                   ),
                 ),
                 title: const Text('تعديل الملف الشخصي'),
-                subtitle: const Text('تعديل الاسم، كلمة المرور، وإدارة الحساب'),
+                subtitle:
+                    const Text('تعديل الاسم، كلمة المرور، وإدارة الحساب'),
                 onTap: () async {
                   await Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (_) => const AccountSettingsPage()),
+                    MaterialPageRoute(
+                      builder: (_) => const AccountSettingsPage(),
+                    ),
                   );
                   if (!mounted) return;
                   setState(() {});
@@ -662,7 +682,10 @@ class _ParentHomePageState extends State<ParentHomePage> {
               SwitchListTile(
                 secondary: CircleAvatar(
                   backgroundColor: Colors.blue.withOpacity(0.12),
-                  child: const Icon(Icons.language_rounded, color: Colors.blue),
+                  child: const Icon(
+                    Icons.language_rounded,
+                    color: Colors.blue,
+                  ),
                 ),
                 title: const Text('لغة التطبيق'),
                 subtitle: Text(isArabic ? 'العربية' : 'English'),
@@ -677,7 +700,10 @@ class _ParentHomePageState extends State<ParentHomePage> {
               SwitchListTile(
                 secondary: CircleAvatar(
                   backgroundColor: Colors.purple.withOpacity(0.12),
-                  child: const Icon(Icons.palette_outlined, color: Colors.purple),
+                  child: const Icon(
+                    Icons.palette_outlined,
+                    color: Colors.purple,
+                  ),
                 ),
                 title: const Text('الوضع الليلي'),
                 value: isDarkMode,
@@ -1073,12 +1099,18 @@ class _MiniStatItem extends StatelessWidget {
         const SizedBox(height: 8),
         Text(
           value,
-          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 18,
+          ),
         ),
         const SizedBox(height: 4),
         Text(
           title,
-          style: const TextStyle(color: AppColors.textLight, fontSize: 12),
+          style: const TextStyle(
+            color: AppColors.textLight,
+            fontSize: 12,
+          ),
           textAlign: TextAlign.center,
         ),
       ],
@@ -1233,8 +1265,10 @@ class _ChildPreviewCard extends StatelessWidget {
             Column(
               children: [
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 7,
+                  ),
                   decoration: BoxDecoration(
                     color: sectionBadgeColor.withOpacity(0.15),
                     borderRadius: BorderRadius.circular(14),
@@ -1270,7 +1304,7 @@ class _ChildFollowUpCard extends StatelessWidget {
   final Future<List<Map<String, dynamic>>> updatesFuture;
   final VoidCallback onOpenProfile;
   final VoidCallback onOpenUpdates;
-  final VoidCallback onOpenWeeklyReport;
+  final VoidCallback? onOpenWeeklyReport;
 
   const _ChildFollowUpCard({
     required this.childModel,
@@ -1362,10 +1396,9 @@ class _ChildFollowUpCard extends StatelessWidget {
               alignment: Alignment.centerRight,
               child: Text(
                 'آخر التحديثات',
-                style: Theme.of(context)
-                    .textTheme
-                    .titleMedium
-                    ?.copyWith(fontWeight: FontWeight.bold),
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
               ),
             ),
             const SizedBox(height: 8),
@@ -1473,21 +1506,23 @@ class _ChildFollowUpCard extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: onOpenWeeklyReport,
-                icon: const Icon(Icons.description_outlined),
-                label: const Text('التقرير الأسبوعي'),
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size(double.infinity, 50),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
+            if (onOpenWeeklyReport != null) ...[
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: onOpenWeeklyReport,
+                  icon: const Icon(Icons.description_outlined),
+                  label: const Text('التقرير الأسبوعي'),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 50),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
                   ),
                 ),
               ),
-            ),
+            ],
           ],
         ),
       ),

@@ -1,11 +1,11 @@
-import 'dart:io';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../models/child_model.dart';
+import '../services/gallery_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 
@@ -25,6 +25,7 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final ImagePicker _picker = ImagePicker();
+  final GalleryService _galleryService = GalleryService();
 
   final TextEditingController detailsCtrl = TextEditingController();
   final TextEditingController actionCtrl = TextEditingController();
@@ -40,7 +41,7 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
   bool isSaving = false;
 
   List<String> witnesses = [];
-  File? selectedImage;
+  XFile? selectedImage;
 
   final List<String> placeOptions = const [
     'الصف',
@@ -112,7 +113,10 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
 
     return {
       'uid': currentUser.uid,
-      'name': (data['displayName'] ?? data['name'] ?? data['username'] ?? 'مستخدم')
+      'name': (data['displayName'] ??
+              data['name'] ??
+              data['username'] ??
+              'مستخدم')
           .toString(),
       'role': (data['role'] ?? '').toString(),
     };
@@ -149,15 +153,22 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
   }
 
   Future<void> pickImage() async {
-    final XFile? picked = await _picker.pickImage(
-      source: ImageSource.camera,
-      imageQuality: 75,
-    );
+    try {
+      final XFile? picked = await _picker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 75,
+      );
 
-    if (picked != null) {
-      setState(() {
-        selectedImage = File(picked.path);
-      });
+      if (picked != null) {
+        setState(() {
+          selectedImage = picked;
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذر التقاط الصورة: $e')),
+      );
     }
   }
 
@@ -173,10 +184,54 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
     });
   }
 
+  Future<Map<String, dynamic>> _uploadIncidentImageIfNeeded() async {
+    if (selectedImage == null) {
+      return {
+        'hasImage': false,
+        'imagePath': '',
+        'imageUrl': null,
+        'imageType': null,
+        'storageProvider': '',
+        'bucket': '',
+        'mimeType': '',
+        'sizeBytes': 0,
+      };
+    }
+
+    final uploaded = await _galleryService.uploadChildMediaDetailed(
+      childId: widget.child.id,
+      file: selectedImage!,
+      mediaType: 'image',
+    );
+
+    if (uploaded == null) {
+      throw Exception('فشل رفع صورة الحادث');
+    }
+
+    return {
+      'hasImage': true,
+      'imagePath': uploaded.path,
+      'imageUrl': uploaded.signedUrl,
+      'imageType': 'image',
+      'storageProvider': uploaded.storageProvider,
+      'bucket': uploaded.bucket,
+      'mimeType': uploaded.mimeType,
+      'sizeBytes': uploaded.sizeBytes,
+    };
+  }
+
   Future<void> saveIncident() async {
     if (detailsCtrl.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('اكتبي التفاصيل أولاً')),
+      );
+      return;
+    }
+
+    if (incidentPlace == 'مكان آخر' &&
+        otherLocationCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('حددي المكان بالتفصيل')),
       );
       return;
     }
@@ -189,16 +244,19 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
     try {
       final userInfo = await fetchCurrentUserInfo();
       final parentInfo = await fetchParentLinkInfo();
+      final imageData = await _uploadIncidentImageIfNeeded();
 
       await _firestore.collection('incident_reports').add({
         'childId': widget.child.id,
         'childName': widget.child.name,
         'parentUid': parentInfo['parentUid'],
         'parentUsername': parentInfo['parentUsername'],
+        'parentName': widget.child.parentName,
         'section': widget.child.section,
         'group': widget.child.group,
 
         'title': 'تقرير حادث',
+        'type': 'incident_report',
         'incidentType': incidentType,
         'priority': priority,
         'autoRisk': autoRisk,
@@ -206,20 +264,18 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
         'incidentPlace': finalIncidentPlace,
 
         'details': detailsCtrl.text.trim(),
+        'note': detailsCtrl.text.trim(),
         'actionTaken': actionCtrl.text.trim(),
         'witnesses': witnesses,
 
         'parentNotified': parentNotified,
 
-        'hasImage': selectedImage != null,
-        'imagePath': selectedImage?.path,
-        'imageUrl': null,
-        'imageType': selectedImage != null ? 'image' : null,
+        ...imageData,
 
         'createdAt': now,
         'time': FieldValue.serverTimestamp(),
         'eventAt': now,
-        'updatedAt': now,
+        'updatedAt': FieldValue.serverTimestamp(),
         'reviewedAt': null,
 
         'createdByUid': userInfo['uid'],
@@ -278,6 +334,7 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
             ),
           ),
           const SizedBox(height: 16),
+
           _card(
             'مكان الحادث',
             Icons.location_on_outlined,
@@ -285,6 +342,9 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
               children: [
                 DropdownButtonFormField<String>(
                   value: incidentPlace,
+                  decoration: const InputDecoration(
+                    hintText: 'اختاري مكان الحادث',
+                  ),
                   items: placeOptions
                       .map(
                         (e) => DropdownMenuItem<String>(
@@ -311,6 +371,7 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
               ],
             ),
           ),
+
           _card(
             'صورة الحادث',
             Icons.camera_alt_outlined,
@@ -319,12 +380,45 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
                 if (selectedImage != null)
                   ClipRRect(
                     borderRadius: BorderRadius.circular(12),
-                    child: Image.file(
-                      selectedImage!,
-                      height: 150,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                    ),
+                    child: kIsWeb
+                        ? Image.network(
+                            selectedImage!.path,
+                            height: 150,
+                            width: double.infinity,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) {
+                              return Container(
+                                height: 150,
+                                width: double.infinity,
+                                color: Colors.grey.shade200,
+                                alignment: Alignment.center,
+                                child: const Icon(
+                                  Icons.broken_image_outlined,
+                                  size: 36,
+                                  color: AppColors.textLight,
+                                ),
+                              );
+                            },
+                          )
+                        : Image.network(
+                            selectedImage!.path,
+                            height: 150,
+                            width: double.infinity,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) {
+                              return Container(
+                                height: 150,
+                                width: double.infinity,
+                                color: Colors.grey.shade200,
+                                alignment: Alignment.center,
+                                child: const Icon(
+                                  Icons.image_outlined,
+                                  size: 36,
+                                  color: AppColors.textLight,
+                                ),
+                              );
+                            },
+                          ),
                   ),
                 const SizedBox(height: 10),
                 Row(
@@ -357,6 +451,26 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
               ],
             ),
           ),
+
+          _card(
+            'نوع الحادث',
+            Icons.report_problem_outlined,
+            child: DropdownButtonFormField<String>(
+              value: incidentType,
+              items: const [
+                DropdownMenuItem(value: 'سقوط بسيط', child: Text('سقوط بسيط')),
+                DropdownMenuItem(value: 'اصطدام', child: Text('اصطدام')),
+                DropdownMenuItem(value: 'جرح', child: Text('جرح')),
+                DropdownMenuItem(value: 'وعكة صحية', child: Text('وعكة صحية')),
+                DropdownMenuItem(value: 'حادث آخر', child: Text('حادث آخر')),
+              ],
+              onChanged: (v) {
+                if (v == null) return;
+                setState(() => incidentType = v);
+              },
+            ),
+          ),
+
           _card(
             'ماذا حدث؟',
             Icons.description_outlined,
@@ -369,6 +483,7 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
               ),
             ),
           ),
+
           _card(
             'الإجراء المتخذ',
             Icons.medical_services_outlined,
@@ -380,6 +495,7 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
               ),
             ),
           ),
+
           _card(
             'شهود الحادث',
             Icons.groups_outlined,
@@ -422,12 +538,31 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
               ],
             ),
           ),
+
           SwitchListTile(
             value: parentNotified,
             onChanged: (v) => setState(() => parentNotified = v),
             title: const Text('إشعار ولي الأمر'),
             subtitle: const Text('حددي إن كان تم إشعار ولي الأمر بخصوص الحادث'),
           ),
+
+          _card(
+            'أولوية التقرير',
+            Icons.priority_high_outlined,
+            child: DropdownButtonFormField<String>(
+              value: priority,
+              items: const [
+                DropdownMenuItem(value: 'normal', child: Text('عادي')),
+                DropdownMenuItem(value: 'important', child: Text('مهم')),
+                DropdownMenuItem(value: 'urgent', child: Text('عاجل')),
+              ],
+              onChanged: (v) {
+                if (v == null) return;
+                setState(() => priority = v);
+              },
+            ),
+          ),
+
           _card(
             'حالة التقرير',
             Icons.flag_outlined,
@@ -444,6 +579,7 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
               },
             ),
           ),
+
           const SizedBox(height: 20),
           ElevatedButton.icon(
             onPressed: isSaving ? null : saveIncident,

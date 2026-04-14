@@ -70,21 +70,37 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
       };
     }
 
-    final userDoc =
-        await _firestore.collection('users').doc(currentUser.uid).get();
-    final data = userDoc.data() ?? {};
+    try {
+      final userDoc =
+          await _firestore.collection('users').doc(currentUser.uid).get();
 
-    return {
-      'uid': currentUser.uid,
-      'name': (data['displayName'] ?? data['name'] ?? data['username'] ?? 'مستخدم')
-          .toString(),
-      'role': (data['role'] ?? '').toString(),
-    };
+      final data = userDoc.data() ?? <String, dynamic>{};
+
+      return {
+        'uid': currentUser.uid,
+        'name': (data['displayName'] ??
+                data['name'] ??
+                data['username'] ??
+                'مستخدم')
+            .toString()
+            .trim(),
+        'role': (data['role'] ?? '').toString().trim(),
+      };
+    } catch (_) {
+      return {
+        'uid': currentUser.uid,
+        'name': currentUser.displayName?.trim().isNotEmpty == true
+            ? currentUser.displayName!.trim()
+            : 'مستخدم',
+        'role': '',
+      };
+    }
   }
 
   Future<Map<String, String>> fetchParentLinkInfo() async {
-    String parentUid = '';
+    String parentUid = widget.child.parentUid.trim();
     String parentUsername = widget.child.parentUsername.trim().toLowerCase();
+    String parentName = widget.child.parentName.trim();
 
     try {
       final childDoc =
@@ -93,22 +109,31 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
       if (childDoc.exists) {
         final data = childDoc.data() ?? <String, dynamic>{};
 
-        parentUid = (data['parentUid'] ?? '').toString().trim();
-
+        final docParentUid = (data['parentUid'] ?? '').toString().trim();
         final docParentUsername =
             (data['parentUsername'] ?? '').toString().trim().toLowerCase();
+        final docParentName = (data['parentName'] ?? '').toString().trim();
+
+        if (docParentUid.isNotEmpty) {
+          parentUid = docParentUid;
+        }
 
         if (docParentUsername.isNotEmpty) {
           parentUsername = docParentUsername;
         }
+
+        if (docParentName.isNotEmpty) {
+          parentName = docParentName;
+        }
       }
     } catch (_) {
-      // fallback
+      // fallback على بيانات child الحالية
     }
 
     return {
       'parentUid': parentUid,
       'parentUsername': parentUsername,
+      'parentName': parentName,
     };
   }
 
@@ -155,6 +180,7 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
 
   String getStatusLabel() {
     final joinedSymptoms = selectedSymptoms.join(' ');
+
     final hasRiskWords = mealStatus.contains('استفراغ') ||
         mealStatus.contains('حساسية') ||
         healthStatus.contains('يحتاج متابعة') ||
@@ -205,10 +231,13 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
 
   String buildSuggestedNote() {
     final extra = _noteCtrl.text.trim();
+
     final symptomsText = selectedSymptoms.isEmpty
         ? ''
         : ' الأعراض الملحوظة: ${selectedSymptoms.join('، ')}.';
+
     final moodText = ' الحالة العامة: $childMood.';
+
     final quantityText = _quantityCtrl.text.trim().isNotEmpty
         ? ' الكمية: ${_quantityCtrl.text.trim()}.'
         : ' مستوى الكمية: $quantityLevel.';
@@ -287,36 +316,57 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
     try {
       final userInfo = await fetchCurrentUserInfo();
       final parentInfo = await fetchParentLinkInfo();
+      final now = Timestamp.now();
 
       await _firestore.collection('updates').add({
         'childId': widget.child.id,
         'childName': widget.child.name,
         'parentUid': parentInfo['parentUid'],
         'parentUsername': parentInfo['parentUsername'],
+        'parentName': parentInfo['parentName'],
         'section': widget.child.section,
         'group': widget.child.group,
         'type': selectedType,
+        'updateType': selectedType,
+        'category': selectedType,
         'title': 'تحديث رعاية سريع',
         'note': finalNote,
-        'createdAt': Timestamp.now(),
+        'message': finalNote,
+        'description': finalNote,
+        'createdAt': now,
         'time': FieldValue.serverTimestamp(),
-        'eventAt': Timestamp.now(),
+        'eventAt': now,
+        'updatedAt': now,
         'byRole': userInfo['role'],
         'createdByUid': userInfo['uid'],
         'createdByName': userInfo['name'],
         'createdByRole': userInfo['role'],
         'hasMedia': false,
-        'mediaType': null,
-        'mediaPath': null,
-        'mediaUrl': null,
-        'storageProvider': null,
-        'bucket': null,
-        'mimeType': null,
-        'sizeBytes': null,
+        'mediaType': '',
+        'mediaPath': '',
+        'mediaUrl': '',
+        'storageProvider': '',
+        'bucket': '',
+        'mimeType': '',
+        'sizeBytes': 0,
         'quickCareStatus': getStatusLabel(),
         'childMood': childMood,
         'quantityLevel': quantityLevel,
+        'quantityText': _quantityCtrl.text.trim(),
+        'durationText': _durationCtrl.text.trim(),
+        'temperatureText': _tempCtrl.text.trim(),
         'symptoms': selectedSymptoms,
+        'mealStatus': selectedType == 'وجبة' ? mealStatus : '',
+        'sleepStatus': selectedType == 'نوم' ? sleepStatus : '',
+        'diaperStatus': selectedType == 'حفاض' ? diaperStatus : '',
+        'healthStatus': selectedType == 'صحة' ? healthStatus : '',
+        'activityStatus': selectedType == 'نشاط' ? activityStatus : '',
+        'noteMood': selectedType == 'ملاحظة' ? noteMood : '',
+        'importance': getStatusLabel() == 'خطر'
+            ? 'urgent'
+            : getStatusLabel() == 'يحتاج متابعة'
+                ? 'important'
+                : 'normal',
         'notifyParent': false,
       });
 
@@ -488,7 +538,12 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
       child: Column(
         children: [
           _ChoiceWrap(
-            values: const ['نام جيدًا', 'نام بصعوبة', 'استيقظ أكثر من مرة', 'لم ينم'],
+            values: const [
+              'نام جيدًا',
+              'نام بصعوبة',
+              'استيقظ أكثر من مرة',
+              'لم ينم'
+            ],
             selectedValue: sleepStatus,
             onSelected: (value) {
               setState(() {
@@ -608,12 +663,15 @@ class _QuickCareUpdatePageState extends State<QuickCareUpdatePage> {
               ),
               _QuickTextChip(
                 label: 'إبلاغ ولي الأمر',
-                onTap: () =>
-                    applyQuickTemplate('تمت ملاحظة الحالة وإبلاغ ولي الأمر للمتابعة.'),
+                onTap: () => applyQuickTemplate(
+                  'تمت ملاحظة الحالة وإبلاغ ولي الأمر للمتابعة.',
+                ),
               ),
               _QuickTextChip(
                 label: 'يحتاج راحة',
-                onTap: () => applyQuickTemplate('يحتاج إلى الراحة والمتابعة خلال اليوم.'),
+                onTap: () => applyQuickTemplate(
+                  'يحتاج إلى الراحة والمتابعة خلال اليوم.',
+                ),
               ),
             ],
           ),

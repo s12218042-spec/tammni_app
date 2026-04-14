@@ -13,12 +13,28 @@ class ParentNurseryLogPage extends StatelessWidget {
     required this.child,
   });
 
+  String _firstNonEmpty(List<dynamic> values) {
+    for (final value in values) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+    return '';
+  }
+
+  Timestamp? _firstTimestamp(List<dynamic> values) {
+    for (final value in values) {
+      if (value is Timestamp) return value;
+    }
+    return null;
+  }
+
   String formatDateTime(dynamic time) {
     if (time is Timestamp) {
       final date = time.toDate();
       final hour = date.hour.toString().padLeft(2, '0');
       final minute = date.minute.toString().padLeft(2, '0');
-      return '${date.year}/${date.month}/${date.day} - $hour:$minute';
+      return '${date.year}/${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')} - $hour:$minute';
     }
     return 'غير محدد';
   }
@@ -30,7 +46,7 @@ class ParentNurseryLogPage extends StatelessWidget {
       case 'exit':
         return 'خروج موثّق';
       default:
-        return 'حدث';
+        return value.trim().isEmpty ? 'حدث' : value;
     }
   }
 
@@ -56,71 +72,66 @@ class ParentNurseryLogPage extends StatelessWidget {
     }
   }
 
+  String roleLabel(String value) {
+    final role = value.trim().toLowerCase();
+
+    if (role == 'admin') return 'الإدارة';
+    if (role == 'teacher') return 'المعلمة';
+    if (role == 'nursery_staff' ||
+        role == 'nursery staff' ||
+        role == 'nursery') {
+      return 'موظفة الحضانة';
+    }
+    if (role == 'parent') return 'وليّ الأمر';
+
+    return value.trim().isEmpty ? '' : value;
+  }
+
   String _resolveEventType(Map<String, dynamic> data) {
-    final candidates = [
+    return _firstNonEmpty([
       data['eventType'],
       data['type'],
       data['action'],
-    ];
-
-    for (final value in candidates) {
-      if (value != null && value.toString().trim().isNotEmpty) {
-        return value.toString().trim();
-      }
-    }
-
-    return '';
+    ]);
   }
 
   String _resolveNote(Map<String, dynamic> data) {
-    final candidates = [
+    return _firstNonEmpty([
       data['note'],
       data['message'],
       data['body'],
       data['description'],
       data['details'],
-    ];
-
-    for (final value in candidates) {
-      if (value != null && value.toString().trim().isNotEmpty) {
-        return value.toString().trim();
-      }
-    }
-
-    return '';
+    ]);
   }
 
   String _resolveCreatedByName(Map<String, dynamic> data) {
-    final candidates = [
+    return _firstNonEmpty([
       data['createdByName'],
       data['byName'],
       data['staffName'],
       data['adminName'],
       data['senderName'],
-    ];
+    ]);
+  }
 
-    for (final value in candidates) {
-      if (value != null && value.toString().trim().isNotEmpty) {
-        return value.toString().trim();
-      }
-    }
-
-    return '';
+  String _resolveCreatedByRole(Map<String, dynamic> data) {
+    return _firstNonEmpty([
+      data['createdByRole'],
+      data['byRole'],
+      data['senderRole'],
+      data['role'],
+    ]);
   }
 
   Timestamp? _resolveTimestamp(Map<String, dynamic> data) {
-    final candidates = [
+    return _firstTimestamp([
       data['time'],
       data['createdAt'],
       data['timestamp'],
       data['updatedAt'],
-    ];
-
-    for (final value in candidates) {
-      if (value is Timestamp) return value;
-    }
-
-    return null;
+      data['eventAt'],
+    ]);
   }
 
   Future<List<Map<String, dynamic>>> fetchLogs() async {
@@ -138,6 +149,7 @@ class ParentNurseryLogPage extends StatelessWidget {
         'eventType': _resolveEventType(data),
         'note': _resolveNote(data),
         'createdByName': _resolveCreatedByName(data),
+        'createdByRole': _resolveCreatedByRole(data),
         'displayTime': _resolveTimestamp(data),
       };
     }).toList();
@@ -205,13 +217,20 @@ class ParentNurseryLogPage extends StatelessWidget {
                     final eventType = (data['eventType'] ?? '').toString();
                     final note = (data['note'] ?? '').toString();
                     final createdByName = (data['createdByName'] ?? '').toString();
+                    final createdByRole = (data['createdByRole'] ?? '').toString();
                     final time = data['displayTime'];
+
+                    final createdByText = [
+                      if (createdByName.trim().isNotEmpty) createdByName.trim(),
+                      if (roleLabel(createdByRole).trim().isNotEmpty)
+                        roleLabel(createdByRole).trim(),
+                    ].join(' - ');
 
                     return _NurseryLogCard(
                       eventText: eventLabel(eventType),
                       timeText: formatDateTime(time),
                       note: note,
-                      createdByName: createdByName,
+                      createdByText: createdByText,
                       color: eventColor(eventType),
                       icon: eventIcon(eventType),
                     );
@@ -315,7 +334,7 @@ class _NurseryLogCard extends StatelessWidget {
   final String eventText;
   final String timeText;
   final String note;
-  final String createdByName;
+  final String createdByText;
   final Color color;
   final IconData icon;
 
@@ -323,7 +342,7 @@ class _NurseryLogCard extends StatelessWidget {
     required this.eventText,
     required this.timeText,
     required this.note,
-    required this.createdByName,
+    required this.createdByText,
     required this.color,
     required this.icon,
   });
@@ -381,11 +400,11 @@ class _NurseryLogCard extends StatelessWidget {
             title: 'الوقت',
             value: timeText,
           ),
-          if (createdByName.trim().isNotEmpty) ...[
+          if (createdByText.trim().isNotEmpty) ...[
             const SizedBox(height: 10),
             _InfoTile(
               title: 'سُجّل بواسطة',
-              value: createdByName,
+              value: createdByText,
             ),
           ],
           if (note.trim().isNotEmpty) ...[

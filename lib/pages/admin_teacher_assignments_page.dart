@@ -16,7 +16,7 @@ class _AdminTeacherAssignmentsPageState
     extends State<AdminTeacherAssignmentsPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  String selectedSection = 'all';
+  final Set<String> selectedSections = {};
 
   String sectionLabel(String value) {
     switch (value) {
@@ -24,8 +24,6 @@ class _AdminTeacherAssignmentsPageState
         return 'الحضانة';
       case 'Kindergarten':
         return 'الروضة';
-      case 'all':
-        return 'كل الأقسام';
       default:
         return value;
     }
@@ -37,14 +35,30 @@ class _AdminTeacherAssignmentsPageState
     return AppColors.primary;
   }
 
+  void toggleSectionFilter(String value) {
+    setState(() {
+      if (selectedSections.contains(value)) {
+        selectedSections.remove(value);
+      } else {
+        selectedSections.add(value);
+      }
+    });
+  }
+
+  void clearFilters() {
+    setState(() {
+      selectedSections.clear();
+    });
+  }
+
   List<Map<String, dynamic>> filterTeachers(
     List<Map<String, dynamic>> teachers,
   ) {
-    if (selectedSection == 'all') return teachers;
+    if (selectedSections.isEmpty) return teachers;
 
     return teachers.where((teacher) {
       final section = (teacher['section'] ?? '').toString().trim();
-      return section == selectedSection;
+      return selectedSections.contains(section);
     }).toList();
   }
 
@@ -92,8 +106,9 @@ class _AdminTeacherAssignmentsPageState
       }).toList();
     }
 
-    final currentAssignedGroups =
-        ((teacher['assignedGroups'] ?? []) as List).map((e) => e.toString()).toList();
+    final currentAssignedGroups = ((teacher['assignedGroups'] ?? []) as List)
+        .map((e) => e.toString())
+        .toList();
 
     final selectedGroups = <String>{...currentAssignedGroups};
 
@@ -196,8 +211,40 @@ class _AdminTeacherAssignmentsPageState
     setState(() {});
   }
 
+  Widget buildSectionFilterChip({
+    required String label,
+    required String value,
+  }) {
+    final isSelected = selectedSections.contains(value);
+    final color = sectionColor(value);
+
+    return FilterChip(
+      label: Text(
+        label,
+        style: TextStyle(
+          color: isSelected ? Colors.white : AppColors.textDark,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      selected: isSelected,
+      onSelected: (_) => toggleSectionFilter(value),
+      selectedColor: color,
+      checkmarkColor: Colors.white,
+      backgroundColor: Colors.white,
+      side: BorderSide(
+        color: isSelected ? color : AppColors.border,
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+      ),
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final hasCustomFilters = selectedSections.isNotEmpty;
+
     return AppPageScaffold(
       title: 'تعيين المعلمات',
       child: FutureBuilder<List<dynamic>>(
@@ -225,10 +272,10 @@ class _AdminTeacherAssignmentsPageState
             );
           }
 
-          final teachers =
-              (snapshot.data?[0] as List<dynamic>? ?? []).cast<Map<String, dynamic>>();
-          final classes =
-              (snapshot.data?[1] as List<dynamic>? ?? []).cast<Map<String, dynamic>>();
+          final teachers = (snapshot.data?[0] as List<dynamic>? ?? [])
+              .cast<Map<String, dynamic>>();
+          final classes = (snapshot.data?[1] as List<dynamic>? ?? [])
+              .cast<Map<String, dynamic>>();
 
           final filteredTeachers = filterTeachers(teachers);
 
@@ -237,33 +284,44 @@ class _AdminTeacherAssignmentsPageState
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(14),
-                  child: DropdownButtonFormField<String>(
-                    value: selectedSection,
-                    decoration: InputDecoration(
-                      labelText: 'فلترة حسب القسم',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'فلترة حسب القسم',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.textDark,
+                        ),
                       ),
-                    ),
-                    items: const [
-                      DropdownMenuItem(
-                        value: 'all',
-                        child: Text('كل الأقسام'),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          buildSectionFilterChip(
+                            label: 'الحضانة',
+                            value: 'Nursery',
+                          ),
+                          buildSectionFilterChip(
+                            label: 'الروضة',
+                            value: 'Kindergarten',
+                          ),
+                        ],
                       ),
-                      DropdownMenuItem(
-                        value: 'Nursery',
-                        child: Text('الحضانة'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'Kindergarten',
-                        child: Text('الروضة'),
-                      ),
+                      if (hasCustomFilters) ...[
+                        const SizedBox(height: 12),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton.icon(
+                            onPressed: clearFilters,
+                            icon: const Icon(Icons.restart_alt_rounded),
+                            label: const Text('إعادة تعيين الفلاتر'),
+                          ),
+                        ),
+                      ],
                     ],
-                    onChanged: (value) {
-                      setState(() {
-                        selectedSection = value ?? 'all';
-                      });
-                    },
                   ),
                 ),
               ),
@@ -294,10 +352,12 @@ class _AdminTeacherAssignmentsPageState
                                 ),
                               ),
                               const SizedBox(height: 4),
-                              const Text(
-                                'عند إضافة حسابات للمعلمات ستظهر هنا.',
+                              Text(
+                                selectedSections.isEmpty
+                                    ? 'عند إضافة حسابات للمعلمات ستظهر هنا.'
+                                    : 'لا توجد معلمات مطابقات للفلاتر الحالية.',
                                 textAlign: TextAlign.center,
-                                style: TextStyle(color: Colors.black54),
+                                style: const TextStyle(color: Colors.black54),
                               ),
                             ],
                           ),

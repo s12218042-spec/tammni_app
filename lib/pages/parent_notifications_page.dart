@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 
-class ParentNotificationsPage extends StatelessWidget {
+class ParentNotificationsPage extends StatefulWidget {
   final String parentUsername;
 
   const ParentNotificationsPage({
@@ -13,15 +13,47 @@ class ParentNotificationsPage extends StatelessWidget {
     required this.parentUsername,
   });
 
+  @override
+  State<ParentNotificationsPage> createState() =>
+      _ParentNotificationsPageState();
+}
+
+class _ParentNotificationsPageState extends State<ParentNotificationsPage> {
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  String _cleanParentUsername() => widget.parentUsername.trim().toLowerCase();
+
+  String _firstNonEmpty(List<dynamic> values) {
+    for (final value in values) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+    return '';
+  }
+
+  Timestamp? _firstTimestamp(List<dynamic> values) {
+    for (final value in values) {
+      if (value is Timestamp) return value;
+    }
+    return null;
+  }
+
+  bool _firstBool(List<dynamic> values, {bool fallback = false}) {
+    for (final value in values) {
+      if (value is bool) return value;
+    }
+    return fallback;
+  }
+
   Future<List<Map<String, dynamic>>> _fetchNotifications() async {
-    final firestore = FirebaseFirestore.instance;
     final currentUid = FirebaseAuth.instance.currentUser?.uid;
-    final cleanParentUsername = parentUsername.trim().toLowerCase();
+    final cleanParentUsername = _cleanParentUsername();
 
     final List<QueryDocumentSnapshot<Map<String, dynamic>>> allDocs = [];
 
     if (currentUid != null) {
-      final byUidSnapshot = await firestore
+      final byUidSnapshot = await _firestore
           .collection('notifications')
           .where('parentUid', isEqualTo: currentUid)
           .get();
@@ -29,7 +61,7 @@ class ParentNotificationsPage extends StatelessWidget {
       allDocs.addAll(byUidSnapshot.docs);
     }
 
-    final byUsernameSnapshot = await firestore
+    final byUsernameSnapshot = await _firestore
         .collection('notifications')
         .where('parentUsername', isEqualTo: cleanParentUsername)
         .get();
@@ -46,33 +78,67 @@ class ParentNotificationsPage extends StatelessWidget {
     final items = uniqueDocs.map((doc) {
       final data = doc.data();
 
-      final Timestamp? time =
-          data['time'] is Timestamp ? data['time'] as Timestamp : null;
-
-      final Timestamp? createdAt =
-          data['createdAt'] is Timestamp ? data['createdAt'] as Timestamp : null;
+      final time = _firstTimestamp([
+        data['time'],
+        data['createdAt'],
+        data['timestamp'],
+        data['updatedAt'],
+        data['eventAt'],
+      ]);
 
       return {
         'id': doc.id,
-        'title': (data['title'] ?? '').toString(),
-        'body': (data['body'] ?? data['message'] ?? '').toString(),
-        'childName': (data['childName'] ?? '').toString(),
-        'type': (data['type'] ?? '').toString(),
-        'isRead': data['isRead'] == true,
+        'title': _firstNonEmpty([
+          data['title'],
+          data['subject'],
+          data['notificationTitle'],
+        ]),
+        'body': _firstNonEmpty([
+          data['body'],
+          data['message'],
+          data['text'],
+          data['description'],
+          data['details'],
+        ]),
+        'childName': _firstNonEmpty([
+          data['childName'],
+          data['name'],
+        ]),
+        'type': _firstNonEmpty([
+          data['type'],
+          data['notificationType'],
+          data['category'],
+        ]),
+        'isRead': _firstBool([
+          data['isRead'],
+          data['read'],
+          data['seen'],
+        ]),
         'time': time,
-        'createdAt': createdAt,
-        'createdByName': (data['createdByName'] ?? '').toString(),
-        'createdByRole': (data['createdByRole'] ?? data['byRole'] ?? '')
-            .toString(),
-        'priority': (data['priority'] ?? '').toString(),
+        'createdByName': _firstNonEmpty([
+          data['createdByName'],
+          data['senderName'],
+          data['byName'],
+          data['staffName'],
+          data['adminName'],
+        ]),
+        'createdByRole': _firstNonEmpty([
+          data['createdByRole'],
+          data['byRole'],
+          data['senderRole'],
+          data['role'],
+        ]),
+        'priority': _firstNonEmpty([
+          data['priority'],
+          data['importance'],
+          data['level'],
+        ]),
       };
     }).toList();
 
     items.sort((a, b) {
-      final Timestamp? aTime =
-          (a['time'] as Timestamp?) ?? (a['createdAt'] as Timestamp?);
-      final Timestamp? bTime =
-          (b['time'] as Timestamp?) ?? (b['createdAt'] as Timestamp?);
+      final aTime = a['time'] as Timestamp?;
+      final bTime = b['time'] as Timestamp?;
 
       if (aTime == null && bTime == null) return 0;
       if (aTime == null) return 1;
@@ -163,10 +229,7 @@ class ParentNotificationsPage extends StatelessWidget {
                 final createdByRole = (data['createdByRole'] ?? '').toString();
                 final priority = (data['priority'] ?? '').toString();
                 final isRead = data['isRead'] == true;
-
-                final Timestamp? rawTime =
-                    (data['time'] as Timestamp?) ??
-                    (data['createdAt'] as Timestamp?);
+                final rawTime = data['time'] as Timestamp?;
 
                 final color = _typeColor(type);
 
@@ -196,15 +259,32 @@ class ParentNotificationsPage extends StatelessWidget {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                title.isEmpty ? _defaultTitle(type) : title,
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 15,
-                                  color: isRead
-                                      ? AppColors.textLight
-                                      : AppColors.textDark,
-                                ),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      title.isEmpty
+                                          ? _defaultTitle(type)
+                                          : title,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 15,
+                                        color: isRead
+                                            ? AppColors.textLight
+                                            : AppColors.textDark,
+                                      ),
+                                    ),
+                                  ),
+                                  if (!isRead)
+                                    Container(
+                                      width: 9,
+                                      height: 9,
+                                      decoration: const BoxDecoration(
+                                        color: AppColors.primary,
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                ],
                               ),
                               if (childName.isNotEmpty) ...[
                                 const SizedBox(height: 6),
@@ -306,7 +386,9 @@ class ParentNotificationsPage extends StatelessWidget {
     final role = createdByRole.trim().toLowerCase();
 
     String roleLabel;
-    if (role == 'nursery' || role == 'nursery_staff') {
+    if (role == 'nursery' ||
+        role == 'nursery_staff' ||
+        role == 'nursery staff') {
       roleLabel = 'موظفة الحضانة';
     } else if (role == 'teacher') {
       roleLabel = 'المعلمة';
@@ -334,7 +416,7 @@ class ParentNotificationsPage extends StatelessWidget {
   }
 
   static IconData _iconForType(String type) {
-    switch (type) {
+    switch (type.trim().toLowerCase()) {
       case 'entry':
         return Icons.login_outlined;
       case 'exit':
@@ -349,13 +431,15 @@ class ParentNotificationsPage extends StatelessWidget {
         return Icons.campaign_outlined;
       case 'nursery_notification':
         return Icons.notifications_active_outlined;
+      case 'custom':
+        return Icons.mark_email_unread_outlined;
       default:
         return Icons.notifications_none_rounded;
     }
   }
 
   static Color _typeColor(String type) {
-    switch (type) {
+    switch (type.trim().toLowerCase()) {
       case 'entry':
         return Colors.green;
       case 'exit':
@@ -370,13 +454,15 @@ class ParentNotificationsPage extends StatelessWidget {
         return AppColors.secondary;
       case 'update_notification':
         return AppColors.primary;
+      case 'custom':
+        return Colors.teal;
       default:
         return AppColors.primary;
     }
   }
 
   static String _typeLabel(String type) {
-    switch (type) {
+    switch (type.trim().toLowerCase()) {
       case 'entry':
         return 'دخول موثّق';
       case 'exit':
@@ -394,12 +480,12 @@ class ParentNotificationsPage extends StatelessWidget {
       case 'update_notification':
         return 'تحديث';
       default:
-        return type.isEmpty ? 'إشعار' : type;
+        return type.trim().isEmpty ? 'إشعار' : type;
     }
   }
 
   static String _defaultTitle(String type) {
-    switch (type) {
+    switch (type.trim().toLowerCase()) {
       case 'entry':
         return 'تم توثيق دخول الطفل';
       case 'exit':
@@ -414,28 +500,34 @@ class ParentNotificationsPage extends StatelessWidget {
         return 'تحديث جديد';
       case 'nursery_notification':
         return 'إشعار جديد';
+      case 'custom':
+        return 'إشعار خاص';
       default:
         return 'إشعار جديد';
     }
   }
 
   static String _priorityLabel(String value) {
-    switch (value) {
+    switch (value.trim().toLowerCase()) {
       case 'urgent':
         return 'عاجل';
       case 'important':
         return 'مهم';
-      default:
+      case 'normal':
         return 'عادي';
+      default:
+        return value.trim().isEmpty ? 'عادي' : value;
     }
   }
 
   static Color _priorityColor(String value) {
-    switch (value) {
+    switch (value.trim().toLowerCase()) {
       case 'urgent':
         return Colors.redAccent;
       case 'important':
         return Colors.orange;
+      case 'normal':
+        return AppColors.primary;
       default:
         return AppColors.primary;
     }

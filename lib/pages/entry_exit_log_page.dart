@@ -22,6 +22,7 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final TextEditingController _noteCtrl = TextEditingController();
+  final TextEditingController _searchCtrl = TextEditingController();
 
   bool isSaving = false;
   bool isLoadingCurrentState = true;
@@ -30,6 +31,9 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
   String currentUserRole = '';
 
   String selectedEventType = 'entry';
+  String selectedFilter = 'all'; // all / today / entry / exit
+  String searchText = '';
+
   String? currentStatus; // inside / outside / unknown
   String? lastEventType;
   Timestamp? lastEventTime;
@@ -49,6 +53,7 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
   @override
   void dispose() {
     _noteCtrl.dispose();
+    _searchCtrl.dispose();
     super.dispose();
   }
 
@@ -58,6 +63,7 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
   }
 
   Future<void> loadCurrentUserRole() async {
+    if (!mounted) return;
     setState(() {
       isLoadingRole = true;
     });
@@ -102,6 +108,7 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
   }
 
   Future<void> loadCurrentState() async {
+    if (!mounted) return;
     setState(() {
       isLoadingCurrentState = true;
     });
@@ -139,9 +146,6 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
         nextEventType = 'exit';
       } else if (tempLastEventType == 'exit') {
         status = 'outside';
-        nextEventType = 'entry';
-      } else {
-        status = 'unknown';
         nextEventType = 'entry';
       }
 
@@ -210,9 +214,7 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
           parentUsername = docParentUsername;
         }
       }
-    } catch (_) {
-      // fallback على بيانات widget.child
-    }
+    } catch (_) {}
 
     return {
       'parentUid': parentUid,
@@ -264,8 +266,8 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
           SnackBar(
             content: Text(
               selectedEventType == 'entry'
-                  ? 'الطفل مسجل كـ دخول بالفعل، لا يمكن تكرار نفس الحدث'
-                  : 'الطفل مسجل كـ خروج بالفعل، لا يمكن تكرار نفس الحدث',
+                  ? 'الطفل مسجل كدخول بالفعل، لا يمكن تكرار نفس الحدث'
+                  : 'الطفل مسجل كخروج بالفعل، لا يمكن تكرار نفس الحدث',
             ),
           ),
         );
@@ -288,7 +290,7 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
         'group': widget.child.group,
         'eventType': selectedEventType,
         'note': _noteCtrl.text.trim(),
-        'createdAt': Timestamp.now(),
+        'createdAt': FieldValue.serverTimestamp(),
         'time': FieldValue.serverTimestamp(),
         'createdByUid': userInfo['uid'],
         'createdByName': userInfo['name'],
@@ -337,7 +339,12 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
   String formatDateTime(dynamic time) {
     if (time is Timestamp) {
       final date = time.toDate();
-      return '${date.year}/${date.month}/${date.day} - ${date.hour}:${date.minute.toString().padLeft(2, '0')}';
+      final hour = date.hour > 12
+          ? date.hour - 12
+          : (date.hour == 0 ? 12 : date.hour);
+      final minute = date.minute.toString().padLeft(2, '0');
+      final period = date.hour >= 12 ? 'م' : 'ص';
+      return '${date.year}/${date.month}/${date.day} - $hour:$minute $period';
     }
     return 'غير محدد';
   }
@@ -418,6 +425,68 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
         : Icons.logout_rounded;
   }
 
+  List<QueryDocumentSnapshot> applyFilters(List<QueryDocumentSnapshot> docs) {
+    final now = DateTime.now();
+
+    return docs.where((doc) {
+      final data = doc.data() as Map<String, dynamic>;
+      final eventType = (data['eventType'] ?? '').toString().trim();
+      final note = (data['note'] ?? '').toString().toLowerCase().trim();
+      final createdByName =
+          (data['createdByName'] ?? '').toString().toLowerCase().trim();
+      final time = extractTimestamp(data);
+
+      final matchesSearch = searchText.trim().isEmpty ||
+          note.contains(searchText.trim().toLowerCase()) ||
+          createdByName.contains(searchText.trim().toLowerCase());
+
+      bool matchesFilter = true;
+
+      if (selectedFilter == 'entry') {
+        matchesFilter = eventType == 'entry';
+      } else if (selectedFilter == 'exit') {
+        matchesFilter = eventType == 'exit';
+      } else if (selectedFilter == 'today') {
+        if (time == null) {
+          matchesFilter = false;
+        } else {
+          final date = time.toDate();
+          matchesFilter = date.year == now.year &&
+              date.month == now.month &&
+              date.day == now.day;
+        }
+      }
+
+      return matchesSearch && matchesFilter;
+    }).toList();
+  }
+
+  Widget buildFilterChip({
+    required String label,
+    required String value,
+  }) {
+    final selected = selectedFilter == value;
+
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      onSelected: (_) {
+        setState(() {
+          selectedFilter = value;
+        });
+      },
+      selectedColor: AppColors.primary.withOpacity(0.16),
+      labelStyle: TextStyle(
+        color: selected ? AppColors.primary : AppColors.textDark,
+        fontWeight: FontWeight.w700,
+      ),
+      side: BorderSide(
+        color: selected ? AppColors.primary : AppColors.border,
+      ),
+      backgroundColor: Colors.white,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return AppPageScaffold(
@@ -437,6 +506,8 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
             const SizedBox(height: 16),
             if (isAdminUser) _buildFormCard(),
           ],
+          const SizedBox(height: 16),
+          _buildFiltersCard(),
           const SizedBox(height: 16),
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
@@ -481,6 +552,7 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
                   return {
                     'data': data,
                     'sortTime': extractTimestamp(data),
+                    'doc': doc,
                   };
                 }).toList();
 
@@ -495,14 +567,29 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
                   return bTime.compareTo(aTime);
                 });
 
+                final filteredDocs = applyFilters(
+                  items.map((e) => e['doc'] as QueryDocumentSnapshot).toList(),
+                );
+
+                if (filteredDocs.isEmpty) {
+                  return ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      const SizedBox(height: 40),
+                      _buildNoFilterResultsState(),
+                    ],
+                  );
+                }
+
                 return RefreshIndicator(
                   onRefresh: loadCurrentState,
                   child: ListView.separated(
                     physics: const AlwaysScrollableScrollPhysics(),
-                    itemCount: items.length,
+                    itemCount: filteredDocs.length,
                     separatorBuilder: (_, __) => const SizedBox(height: 12),
                     itemBuilder: (context, index) {
-                      final data = items[index]['data'] as Map<String, dynamic>;
+                      final data =
+                          filteredDocs[index].data() as Map<String, dynamic>;
                       final eventType = (data['eventType'] ?? '').toString();
                       final note = (data['note'] ?? '').toString();
                       final createdByName =
@@ -778,6 +865,68 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
     );
   }
 
+  Widget _buildFiltersCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(
+          color: AppColors.border.withOpacity(0.8),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 14,
+            offset: const Offset(0, 7),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          TextField(
+            controller: _searchCtrl,
+            onChanged: (value) {
+              setState(() {
+                searchText = value;
+              });
+            },
+            decoration: InputDecoration(
+              hintText: 'ابحثي بالملاحظة أو باسم من سجّل الحدث',
+              prefixIcon: const Icon(Icons.search_rounded),
+              suffixIcon: searchText.isEmpty
+                  ? null
+                  : IconButton(
+                      onPressed: () {
+                        _searchCtrl.clear();
+                        setState(() {
+                          searchText = '';
+                        });
+                      },
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerRight,
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                buildFilterChip(label: 'الكل', value: 'all'),
+                buildFilterChip(label: 'اليوم', value: 'today'),
+                buildFilterChip(label: 'الدخول', value: 'entry'),
+                buildFilterChip(label: 'الخروج', value: 'exit'),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildEmptyState() {
     return Container(
       padding: const EdgeInsets.all(20),
@@ -808,6 +957,48 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
           SizedBox(height: 6),
           Text(
             'عند تسجيل أول حدث إداري سيظهر هنا مباشرة.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 13.5,
+              color: AppColors.textLight,
+              height: 1.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNoFilterResultsState() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(
+          color: AppColors.border.withOpacity(0.8),
+        ),
+      ),
+      child: const Column(
+        children: [
+          Icon(
+            Icons.filter_alt_off_rounded,
+            size: 40,
+            color: AppColors.textLight,
+          ),
+          SizedBox(height: 10),
+          Text(
+            'لا توجد نتائج مطابقة',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 15.5,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textDark,
+            ),
+          ),
+          SizedBox(height: 6),
+          Text(
+            'جرّبي تغيير الفلاتر أو البحث بكلمات أخرى.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 13.5,

@@ -30,10 +30,14 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
   final TextEditingController _personNameController = TextEditingController();
   final TextEditingController _relationController = TextEditingController();
   final TextEditingController _noteController = TextEditingController();
+  final TextEditingController _logSearchController = TextEditingController();
 
   String _handoffType = 'delivery';
   bool _isSaving = false;
   Map<String, dynamic>? _lastLog;
+
+  String _logSearchText = '';
+  final Set<String> _selectedLogTypes = {};
 
   final List<String> _relationSuggestions = [
     'الأب',
@@ -87,10 +91,7 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
     final child = widget.child;
 
     if (child is Map<String, dynamic>) {
-      return (child['name'] ??
-              child['childName'] ??
-              child['fullName'] ??
-              'الطفل')
+      return (child['name'] ?? child['childName'] ?? child['fullName'] ?? 'الطفل')
           .toString();
     }
 
@@ -118,6 +119,7 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
     _personNameController.dispose();
     _relationController.dispose();
     _noteController.dispose();
+    _logSearchController.dispose();
     super.dispose();
   }
 
@@ -142,9 +144,7 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
         parentUsername =
             (data['parentUsername'] ?? '').toString().trim().toLowerCase();
       }
-    } catch (_) {
-      // ignore and fallback
-    }
+    } catch (_) {}
 
     if (parentUsername.isEmpty) {
       final child = widget.child;
@@ -529,6 +529,7 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
         validator: validator,
         maxLines: maxLines,
         keyboardType: keyboardType,
+        onChanged: (_) => setState(() {}),
         decoration: InputDecoration(
           labelText: label,
           hintText: hint,
@@ -693,8 +694,27 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
     );
   }
 
-  Widget _buildTodayLogs(
-      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+  void _toggleLogType(String value) {
+    setState(() {
+      if (_selectedLogTypes.contains(value)) {
+        _selectedLogTypes.remove(value);
+      } else {
+        _selectedLogTypes.add(value);
+      }
+    });
+  }
+
+  void _clearLogFilters() {
+    setState(() {
+      _selectedLogTypes.clear();
+      _logSearchText = '';
+      _logSearchController.clear();
+    });
+  }
+
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _filterTodayLogs(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
     final now = DateTime.now();
 
     final todayLogs = docs.where((doc) {
@@ -712,6 +732,59 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
           date.month == now.month &&
           date.day == now.day;
     }).toList();
+
+    return todayLogs.where((doc) {
+      final data = doc.data();
+      final type = (data['handoffType'] ?? '').toString().trim();
+      final person = (data['personName'] ?? '').toString().toLowerCase();
+      final relation = (data['relation'] ?? '').toString().toLowerCase();
+      final note = (data['note'] ?? '').toString().toLowerCase();
+
+      final matchesType =
+          _selectedLogTypes.isEmpty || _selectedLogTypes.contains(type);
+
+      final q = _logSearchText.trim().toLowerCase();
+      final matchesSearch = q.isEmpty ||
+          person.contains(q) ||
+          relation.contains(q) ||
+          note.contains(q) ||
+          _handoffTypeLabel(type).toLowerCase().contains(q);
+
+      return matchesType && matchesSearch;
+    }).toList();
+  }
+
+  Widget _buildLogFilterChip({
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+    required Color color,
+  }) {
+    return FilterChip(
+      label: Text(
+        label,
+        style: TextStyle(
+          color: selected ? Colors.white : color,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      selected: selected,
+      onSelected: (_) => onTap(),
+      selectedColor: color,
+      checkmarkColor: Colors.white,
+      backgroundColor: color.withOpacity(0.08),
+      side: BorderSide(color: color.withOpacity(0.22)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+    );
+  }
+
+  Widget _buildTodayLogs(
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+    final filteredLogs = _filterTodayLogs(docs);
+    final hasCustomFilters =
+        _logSearchText.trim().isNotEmpty || _selectedLogTypes.isNotEmpty;
 
     return _buildSectionCard(
       child: Column(
@@ -731,7 +804,77 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
             ],
           ),
           const SizedBox(height: 12),
-          if (todayLogs.isEmpty)
+          TextField(
+            controller: _logSearchController,
+            onChanged: (value) {
+              setState(() {
+                _logSearchText = value;
+              });
+            },
+            decoration: InputDecoration(
+              hintText: 'ابحث داخل سجل اليوم بالشخص أو القرابة أو الملاحظة',
+              prefixIcon: const Icon(Icons.search_rounded),
+              suffixIcon: _logSearchText.trim().isEmpty
+                  ? null
+                  : IconButton(
+                      onPressed: () {
+                        setState(() {
+                          _logSearchText = '';
+                          _logSearchController.clear();
+                        });
+                      },
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+              filled: true,
+              fillColor: Colors.grey.shade50,
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: Colors.grey.shade300),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: Colors.grey.shade300),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: Colors.blue),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _buildLogFilterChip(
+                label: 'تسليم',
+                selected: _selectedLogTypes.contains('delivery'),
+                onTap: () => _toggleLogType('delivery'),
+                color: Colors.teal,
+              ),
+              _buildLogFilterChip(
+                label: 'استلام',
+                selected: _selectedLogTypes.contains('pickup'),
+                onTap: () => _toggleLogType('pickup'),
+                color: Colors.deepOrange,
+              ),
+            ],
+          ),
+          if (hasCustomFilters) ...[
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: _clearLogFilters,
+                icon: const Icon(Icons.restart_alt_rounded),
+                label: const Text('إعادة تعيين الفلاتر'),
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          if (filteredLogs.isEmpty)
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(14),
@@ -740,12 +883,14 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
                 borderRadius: BorderRadius.circular(14),
               ),
               child: Text(
-                'لا يوجد سجل تسليم/استلام اليوم بعد.',
+                docs.isEmpty
+                    ? 'لا يوجد سجل تسليم/استلام اليوم بعد.'
+                    : 'لا توجد نتائج مطابقة للفلاتر داخل سجل اليوم.',
                 style: TextStyle(color: Colors.grey.shade700),
               ),
             )
           else
-            ...todayLogs.take(4).map((doc) {
+            ...filteredLogs.take(10).map((doc) {
               final data = doc.data();
               final type = (data['handoffType'] ?? '').toString();
               final person = (data['personName'] ?? '').toString();

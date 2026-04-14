@@ -14,8 +14,8 @@ class AdminUpdatesFeedPage extends StatefulWidget {
 class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  String selectedSection = 'all';
-  String selectedType = 'all';
+  final Set<String> selectedSections = {};
+  final Set<String> selectedTypes = {};
   String searchText = '';
 
   final List<String> nurseryTypes = [
@@ -37,27 +37,34 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
   ];
 
   List<String> get availableTypes {
-    if (selectedSection == 'Nursery') {
-      return ['all', ...nurseryTypes];
+    if (selectedSections.isEmpty) {
+      return [
+        'meal',
+        'sleep',
+        'health',
+        'activity',
+        'attendance',
+        'homework',
+        'grade',
+        'entry',
+        'exit',
+        'note',
+      ];
     }
 
-    if (selectedSection == 'Kindergarten') {
-      return ['all', ...kindergartenTypes];
+    final types = <String>{};
+
+    if (selectedSections.contains('Nursery')) {
+      types.addAll(nurseryTypes);
     }
 
-    return [
-      'all',
-      'meal',
-      'sleep',
-      'health',
-      'activity',
-      'attendance',
-      'homework',
-      'grade',
-      'entry',
-      'exit',
-      'note',
-    ];
+    if (selectedSections.contains('Kindergarten')) {
+      types.addAll(kindergartenTypes);
+    }
+
+    final result = types.toList();
+    result.sort();
+    return result;
   }
 
   String sectionLabel(String value) {
@@ -66,8 +73,6 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
         return 'الحضانة';
       case 'Kindergarten':
         return 'الروضة';
-      case 'all':
-        return 'كل الأقسام';
       default:
         return value;
     }
@@ -75,8 +80,6 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
 
   String typeLabel(String value) {
     switch (value) {
-      case 'all':
-        return 'كل الأنواع';
       case 'meal':
         return 'وجبة';
       case 'sleep':
@@ -156,6 +159,12 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
     }
   }
 
+  Color sectionColor(String section) {
+    if (section == 'Nursery') return const Color(0xFFEFA7C8);
+    if (section == 'Kindergarten') return const Color(0xFF7BB6FF);
+    return AppColors.primary;
+  }
+
   DateTime extractDate(Map<String, dynamic> data) {
     final value = data['time'] ?? data['createdAt'];
 
@@ -180,6 +189,36 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
     return '$year/$month/$day - $hour:$minute $period';
   }
 
+  void toggleSectionFilter(String value) {
+    setState(() {
+      if (selectedSections.contains(value)) {
+        selectedSections.remove(value);
+      } else {
+        selectedSections.add(value);
+      }
+
+      selectedTypes.removeWhere((type) => !availableTypes.contains(type));
+    });
+  }
+
+  void toggleTypeFilter(String value) {
+    setState(() {
+      if (selectedTypes.contains(value)) {
+        selectedTypes.remove(value);
+      } else {
+        selectedTypes.add(value);
+      }
+    });
+  }
+
+  void clearFilters() {
+    setState(() {
+      selectedSections.clear();
+      selectedTypes.clear();
+      searchText = '';
+    });
+  }
+
   List<QueryDocumentSnapshot<Map<String, dynamic>>> applyFilters(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
@@ -199,9 +238,9 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
           .toString();
 
       final matchesSection =
-          selectedSection == 'all' || section == selectedSection;
+          selectedSections.isEmpty || selectedSections.contains(section);
 
-      final matchesType = selectedType == 'all' || type == selectedType;
+      final matchesType = selectedTypes.isEmpty || selectedTypes.contains(type);
 
       final query = searchText.trim().toLowerCase();
       final matchesSearch = query.isEmpty ||
@@ -214,20 +253,77 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
     }).toList();
   }
 
-  void onSectionChanged(String? value) {
-    final newSection = value ?? 'all';
+  Widget buildSectionChip({
+    required String label,
+    required String value,
+  }) {
+    final isSelected = selectedSections.contains(value);
+    final color = sectionColor(value);
 
-    setState(() {
-      selectedSection = newSection;
+    return FilterChip(
+      label: Text(
+        label,
+        style: TextStyle(
+          color: isSelected ? Colors.white : AppColors.textDark,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      selected: isSelected,
+      onSelected: (_) => toggleSectionFilter(value),
+      selectedColor: color,
+      checkmarkColor: Colors.white,
+      backgroundColor: Colors.white,
+      side: BorderSide(
+        color: isSelected ? color : AppColors.border,
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+      ),
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    );
+  }
 
-      if (!availableTypes.contains(selectedType)) {
-        selectedType = 'all';
-      }
-    });
+  Widget buildTypeChip({
+    required String value,
+  }) {
+    final isSelected = selectedTypes.contains(value);
+    final color = typeColor(value);
+
+    return FilterChip(
+      label: Text(
+        typeLabel(value),
+        style: TextStyle(
+          color: isSelected ? Colors.white : AppColors.textDark,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      avatar: Icon(
+        typeIcon(value),
+        size: 16,
+        color: isSelected ? Colors.white : color,
+      ),
+      selected: isSelected,
+      onSelected: (_) => toggleTypeFilter(value),
+      selectedColor: color,
+      checkmarkColor: Colors.white,
+      backgroundColor: Colors.white,
+      side: BorderSide(
+        color: isSelected ? color : AppColors.border,
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+      ),
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final hasCustomFilters =
+        selectedSections.isNotEmpty ||
+        selectedTypes.isNotEmpty ||
+        searchText.trim().isNotEmpty;
+
     return AppPageScaffold(
       title: 'سجل التحديثات الإداري',
       child: Column(
@@ -236,12 +332,23 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
             child: Padding(
               padding: const EdgeInsets.all(14),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   TextField(
                     textAlign: TextAlign.right,
                     decoration: InputDecoration(
                       hintText: 'ابحثي باسم الطفل أو المنشئ أو المجموعة',
                       prefixIcon: const Icon(Icons.search_rounded),
+                      suffixIcon: searchText.trim().isEmpty
+                          ? null
+                          : IconButton(
+                              onPressed: () {
+                                setState(() {
+                                  searchText = '';
+                                });
+                              },
+                              icon: const Icon(Icons.close_rounded),
+                            ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(16),
                       ),
@@ -252,60 +359,67 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
                       });
                     },
                   ),
-                  const SizedBox(height: 12),
-                  Row(
+                  const SizedBox(height: 14),
+                  const Text(
+                    'القسم',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textDark,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
                     children: [
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          value: selectedSection,
-                          decoration: InputDecoration(
-                            labelText: 'القسم',
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                          ),
-                          items: const [
-                            DropdownMenuItem(
-                              value: 'all',
-                              child: Text('كل الأقسام'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'Nursery',
-                              child: Text('الحضانة'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'Kindergarten',
-                              child: Text('الروضة'),
-                            ),
-                          ],
-                          onChanged: onSectionChanged,
-                        ),
+                      buildSectionChip(
+                        label: 'الحضانة',
+                        value: 'Nursery',
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          value: selectedType,
-                          decoration: InputDecoration(
-                            labelText: 'نوع التحديث',
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                          ),
-                          items: availableTypes.map((type) {
-                            return DropdownMenuItem(
-                              value: type,
-                              child: Text(typeLabel(type)),
-                            );
-                          }).toList(),
-                          onChanged: (value) {
-                            setState(() {
-                              selectedType = value ?? 'all';
-                            });
-                          },
-                        ),
+                      buildSectionChip(
+                        label: 'الروضة',
+                        value: 'Kindergarten',
                       ),
                     ],
                   ),
+                  const SizedBox(height: 14),
+                  const Text(
+                    'نوع التحديث',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textDark,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  if (availableTypes.isEmpty)
+                    const Text(
+                      'لا توجد أنواع متاحة للفلاتر المختارة حاليًا.',
+                      style: TextStyle(
+                        color: AppColors.textLight,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    )
+                  else
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: availableTypes.map((type) {
+                        return buildTypeChip(value: type);
+                      }).toList(),
+                    ),
+                  if (hasCustomFilters) ...[
+                    const SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        onPressed: clearFilters,
+                        icon: const Icon(Icons.restart_alt_rounded),
+                        label: const Text('إعادة تعيين الفلاتر'),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -360,10 +474,12 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
                             ),
                           ),
                           const SizedBox(height: 4),
-                          const Text(
-                            'جرّبي تغيير الفلاتر أو البحث بكلمات أخرى.',
+                          Text(
+                            hasCustomFilters
+                                ? 'جرّبي تغيير الفلاتر أو البحث بكلمات أخرى.'
+                                : 'لا توجد تحديثات حالياً.',
                             textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.black54),
+                            style: const TextStyle(color: Colors.black54),
                           ),
                         ],
                       ),

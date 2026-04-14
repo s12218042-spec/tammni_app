@@ -78,6 +78,43 @@ class _WeeklyReportPageState extends State<WeeklyReportPage> {
     return '$y/$m/$d';
   }
 
+  DateTime _startOfToday() {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day);
+  }
+
+  DateTime _startOfWeekWindow() {
+    return _startOfToday().subtract(const Duration(days: 6));
+  }
+
+  DateTime _endOfToday() {
+    final today = _startOfToday();
+    return today.add(const Duration(days: 1)).subtract(const Duration(milliseconds: 1));
+  }
+
+  bool _isWithinWeeklyWindow(DateTime date) {
+    final start = _startOfWeekWindow();
+    final end = _endOfToday();
+    return !date.isBefore(start) && !date.isAfter(end);
+  }
+
+  DateTime? _parseDateKey(String dateKey) {
+    final parts = dateKey.split('-');
+    if (parts.length != 3) return null;
+
+    final year = int.tryParse(parts[0]);
+    final month = int.tryParse(parts[1]);
+    final day = int.tryParse(parts[2]);
+
+    if (year == null || month == null || day == null) return null;
+
+    try {
+      return DateTime(year, month, day);
+    } catch (_) {
+      return null;
+    }
+  }
+
   String _resolveNote(Map<String, dynamic> data) {
     final candidates = [
       data['note'],
@@ -116,6 +153,7 @@ class _WeeklyReportPageState extends State<WeeklyReportPage> {
     final candidates = [
       data['time'],
       data['createdAt'],
+      data['eventAt'],
       data['timestamp'],
       data['updatedAt'],
     ];
@@ -127,30 +165,30 @@ class _WeeklyReportPageState extends State<WeeklyReportPage> {
     return null;
   }
 
+  DateTime? _extractBirthDate(dynamic raw) {
+    if (raw is Timestamp) return raw.toDate();
+    if (raw is DateTime) return raw;
+    return null;
+  }
+
   Future<Map<String, dynamic>?> fetchChildDetails() async {
     final doc = await _firestore.collection('children').doc(widget.child.id).get();
 
     if (!doc.exists) return null;
 
     final data = doc.data()!;
+
     return {
       'name': data['name'] ?? widget.child.name,
       'section': data['section'] ?? widget.child.section,
       'group': data['group'] ?? widget.child.group,
-      'birthDate': data['birthDate'] ??
-          (widget.child.birthDate != null
-              ? Timestamp.fromDate(widget.child.birthDate!)
-              : null),
+      'birthDate': data['birthDate'],
       'isActive': data['isActive'] ?? true,
       'status': data['status'] ?? 'active',
     };
   }
 
   Future<List<Map<String, dynamic>>> fetchWeeklyUpdates() async {
-    final now = DateTime.now();
-    final startDate =
-        DateTime(now.year, now.month, now.day).subtract(const Duration(days: 6));
-
     final snapshot = await _firestore
         .collection('updates')
         .where('childId', isEqualTo: widget.child.id)
@@ -160,20 +198,27 @@ class _WeeklyReportPageState extends State<WeeklyReportPage> {
       final data = doc.data();
       final displayTime = _resolveTimestamp(data);
 
+      final mediaUrl = (data['mediaUrl'] ?? '').toString().trim();
+      final mediaPath = (data['mediaPath'] ?? '').toString().trim();
+      final mediaUrls = data['mediaUrls'];
+
+      final hasMedia = data['hasMedia'] == true ||
+          mediaUrl.isNotEmpty ||
+          mediaPath.isNotEmpty ||
+          (mediaUrls is List && mediaUrls.isNotEmpty);
+
       return {
         'id': doc.id,
         'type': _resolveType(data),
         'note': _resolveNote(data),
         'displayTime': displayTime,
-        'hasMedia': data['hasMedia'] == true ||
-            (data['mediaUrl'] ?? '').toString().trim().isNotEmpty ||
-            (data['mediaPath'] ?? '').toString().trim().isNotEmpty,
+        'hasMedia': hasMedia,
         'mediaType': (data['mediaType'] ?? '').toString(),
       };
     }).where((item) {
       final ts = item['displayTime'] as Timestamp?;
       if (ts == null) return false;
-      return !ts.toDate().isBefore(startDate);
+      return _isWithinWeeklyWindow(ts.toDate());
     }).toList();
 
     items.sort((a, b) {
@@ -191,10 +236,6 @@ class _WeeklyReportPageState extends State<WeeklyReportPage> {
   }
 
   Future<int> fetchWeeklyAttendanceCount() async {
-    final now = DateTime.now();
-    final start =
-        DateTime(now.year, now.month, now.day).subtract(const Duration(days: 6));
-
     final snapshot = await _firestore
         .collection('attendance')
         .where('childId', isEqualTo: widget.child.id)
@@ -204,21 +245,29 @@ class _WeeklyReportPageState extends State<WeeklyReportPage> {
 
     for (final doc in snapshot.docs) {
       final data = doc.data();
-      final dateKey = (data['dateKey'] ?? '').toString();
       final present = data['present'] == true;
 
-      if (!present || dateKey.isEmpty) continue;
+      if (!present) continue;
 
-      final parts = dateKey.split('-');
-      if (parts.length != 3) continue;
+      DateTime? recordDate;
 
-      final date = DateTime(
-        int.tryParse(parts[0]) ?? 0,
-        int.tryParse(parts[1]) ?? 0,
-        int.tryParse(parts[2]) ?? 0,
-      );
+      if (data['updatedAt'] is Timestamp) {
+        recordDate = (data['updatedAt'] as Timestamp).toDate();
+      } else if (data['time'] is Timestamp) {
+        recordDate = (data['time'] as Timestamp).toDate();
+      } else {
+        final dateKey = (data['dateKey'] ?? '').toString();
+        if (dateKey.isNotEmpty) {
+          recordDate = _parseDateKey(dateKey);
+        }
+      }
 
-      if (!date.isBefore(start)) {
+      if (recordDate == null) continue;
+
+      final normalizedDate =
+          DateTime(recordDate.year, recordDate.month, recordDate.day);
+
+      if (_isWithinWeeklyWindow(normalizedDate)) {
         count++;
       }
     }
@@ -227,7 +276,9 @@ class _WeeklyReportPageState extends State<WeeklyReportPage> {
   }
 
   int countByTypes(List<Map<String, dynamic>> updates, List<String> types) {
-    return updates.where((u) => types.contains((u['type'] ?? '').toString())).length;
+    return updates
+        .where((u) => types.contains((u['type'] ?? '').toString()))
+        .length;
   }
 
   int countMediaItems(List<Map<String, dynamic>> updates) {
@@ -273,10 +324,8 @@ class _WeeklyReportPageState extends State<WeeklyReportPage> {
                 (currentData?['section'] ?? child.section).toString();
             final currentGroup = (currentData?['group'] ?? child.group).toString();
 
-            final currentBirthRaw = currentData?['birthDate'];
-            final currentBirthDate = currentBirthRaw is Timestamp
-                ? currentBirthRaw.toDate()
-                : child.birthDate;
+            final currentBirthDate =
+                _extractBirthDate(currentData?['birthDate']) ?? child.birthDate;
 
             final isActive = currentData?['isActive'] ?? true;
             final status = (currentData?['status'] ?? 'active').toString();
@@ -591,6 +640,13 @@ class _WeeklyReportPageState extends State<WeeklyReportPage> {
                             ),
                           ),
                         ],
+                      ),
+                      const SizedBox(height: 10),
+                      _WideInfoCard(
+                        icon: Icons.camera_alt_outlined,
+                        color: AppColors.secondary,
+                        title: 'الوسائط',
+                        value: '$mediaCount مرفقات هذا الأسبوع',
                       ),
                     ],
                     const SizedBox(height: 18),

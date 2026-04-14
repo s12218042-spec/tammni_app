@@ -17,11 +17,12 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
   final editPhoneCtrl = TextEditingController();
   final editSectionCtrl = TextEditingController();
   final editNotesCtrl = TextEditingController();
+  final TextEditingController _searchCtrl = TextEditingController();
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  String selectedRoleFilter = 'all';
-  String selectedStatusFilter = 'all';
+  final Set<String> selectedRoleFilters = {};
+  final Set<String> selectedStatusFilters = {};
   String searchText = '';
 
   @override
@@ -31,6 +32,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
     editPhoneCtrl.dispose();
     editSectionCtrl.dispose();
     editNotesCtrl.dispose();
+    _searchCtrl.dispose();
     super.dispose();
   }
 
@@ -278,9 +280,8 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
     final parentInfo = _mapField(data, 'parentInfo');
     final personalInfo = _mapField(data, 'personalInfo');
 
-    final raw = parentInfo['birthDate'] ??
-        personalInfo['birthDate'] ??
-        data['birthDate'];
+    final raw =
+        parentInfo['birthDate'] ?? personalInfo['birthDate'] ?? data['birthDate'];
 
     return formatAnyDate(raw);
   }
@@ -431,8 +432,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
     final professionalInfo = _mapField(data, 'professionalInfo');
     final adminNotes = _mapField(data, 'adminNotes');
 
-    final raw =
-        professionalInfo['permissions'] ?? adminNotes['extraPermissions'];
+    final raw = professionalInfo['permissions'] ?? adminNotes['extraPermissions'];
 
     if (raw is List) {
       return raw
@@ -557,6 +557,35 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
         .snapshots();
   }
 
+  void toggleRoleFilter(String value) {
+    setState(() {
+      if (selectedRoleFilters.contains(value)) {
+        selectedRoleFilters.remove(value);
+      } else {
+        selectedRoleFilters.add(value);
+      }
+    });
+  }
+
+  void toggleStatusFilter(String value) {
+    setState(() {
+      if (selectedStatusFilters.contains(value)) {
+        selectedStatusFilters.remove(value);
+      } else {
+        selectedStatusFilters.add(value);
+      }
+    });
+  }
+
+  void clearAllFilters() {
+    setState(() {
+      selectedRoleFilters.clear();
+      selectedStatusFilters.clear();
+      searchText = '';
+      _searchCtrl.clear();
+    });
+  }
+
   List<QueryDocumentSnapshot<Map<String, dynamic>>> applyFilters(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
@@ -573,13 +602,11 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
       final phone = extractPhone(data).toLowerCase();
       final statusLabelText = accountStatusLabel(data).toLowerCase();
 
-      final normalizedFilter = normalizeRole(selectedRoleFilter);
       final matchesRole =
-          normalizedFilter == 'all' || userRole == normalizedFilter;
+          selectedRoleFilters.isEmpty || selectedRoleFilters.contains(userRole);
 
-      final statusFilter = selectedStatusFilter.trim().toLowerCase();
-      final matchesStatus =
-          statusFilter == 'all' || statusLabelText == statusFilter;
+      final matchesStatus = selectedStatusFilters.isEmpty ||
+          selectedStatusFilters.contains(statusLabelText);
 
       final query = searchText.trim().toLowerCase();
       final matchesSearch = query.isEmpty ||
@@ -591,6 +618,37 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
 
       return matchesRole && matchesStatus && matchesSearch;
     }).toList();
+  }
+
+  Widget buildFilterChip({
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+    Color? selectedColor,
+  }) {
+    final activeColor = selectedColor ?? AppColors.secondary;
+
+    return FilterChip(
+      label: Text(
+        label,
+        style: TextStyle(
+          color: selected ? Colors.white : AppColors.textDark,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      selected: selected,
+      onSelected: (_) => onTap(),
+      selectedColor: activeColor,
+      checkmarkColor: Colors.white,
+      backgroundColor: Colors.white,
+      side: BorderSide(
+        color: selected ? activeColor : AppColors.primary.withOpacity(0.14),
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+      ),
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    );
   }
 
   Future<void> _logAccountAction({
@@ -813,8 +871,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                       ),
                       _DetailItem(
                         label: 'سبب التعطيل',
-                        value:
-                            _fieldAsString(userData['deactivationReason']),
+                        value: _fieldAsString(userData['deactivationReason']),
                       ),
                     ],
                   ),
@@ -835,8 +892,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                       ),
                       _DetailItem(
                         label: 'الحالة الاجتماعية',
-                        value:
-                            maritalStatusLabel(extractMaritalStatus(userData)),
+                        value: maritalStatusLabel(extractMaritalStatus(userData)),
                       ),
                       _DetailItem(
                         label: 'رقم الجوال',
@@ -1023,6 +1079,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
 
     bool isSaving = false;
     final originalRole = normalizeRole((userData['role'] ?? '').toString());
+    final emailText = (userData['email'] ?? '').toString();
 
     await showDialog(
       context: context,
@@ -1055,11 +1112,9 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    TextField(
+                    TextFormField(
+                      initialValue: emailText,
                       enabled: false,
-                      controller: TextEditingController(
-                        text: (userData['email'] ?? '').toString(),
-                      ),
                       decoration: const InputDecoration(
                         labelText: 'الإيميل',
                         prefixIcon: Icon(Icons.email_outlined),
@@ -1120,8 +1175,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                   onPressed: isSaving
                       ? null
                       : () async {
-                          final newDisplayName =
-                              editDisplayNameCtrl.text.trim();
+                          final newDisplayName = editDisplayNameCtrl.text.trim();
                           final newUsername =
                               editUsernameCtrl.text.trim().toLowerCase();
                           final newPhone = editPhoneCtrl.text.trim();
@@ -1415,6 +1469,173 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
     }
   }
 
+  Widget buildFiltersCard() {
+    final hasCustomFilters = selectedRoleFilters.isNotEmpty ||
+        selectedStatusFilters.isNotEmpty ||
+        searchText.trim().isNotEmpty;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: _searchCtrl,
+              textAlign: TextAlign.right,
+              decoration: InputDecoration(
+                hintText:
+                    'ابحثي بالاسم أو اسم المستخدم أو الإيميل أو الجوال أو القسم',
+                prefixIcon: const Icon(Icons.search_rounded),
+                suffixIcon: searchText.trim().isEmpty
+                    ? null
+                    : IconButton(
+                        onPressed: () {
+                          _searchCtrl.clear();
+                          setState(() {
+                            searchText = '';
+                          });
+                        },
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+              onChanged: (value) {
+                setState(() {
+                  searchText = value;
+                });
+              },
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              'الدور',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: AppColors.textDark,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                buildFilterChip(
+                  label: 'أولياء الأمور',
+                  selected: selectedRoleFilters.contains('parent'),
+                  onTap: () => toggleRoleFilter('parent'),
+                  selectedColor: Colors.teal,
+                ),
+                buildFilterChip(
+                  label: 'المعلمات',
+                  selected: selectedRoleFilters.contains('teacher'),
+                  onTap: () => toggleRoleFilter('teacher'),
+                  selectedColor: Colors.indigo,
+                ),
+                buildFilterChip(
+                  label: 'موظفات الحضانة',
+                  selected: selectedRoleFilters.contains('nursery_staff'),
+                  onTap: () => toggleRoleFilter('nursery_staff'),
+                  selectedColor: Colors.orange,
+                ),
+                buildFilterChip(
+                  label: 'الإدارة',
+                  selected: selectedRoleFilters.contains('admin'),
+                  onTap: () => toggleRoleFilter('admin'),
+                  selectedColor: Colors.redAccent,
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              'حالة الحساب',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: AppColors.textDark,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                buildFilterChip(
+                  label: 'نشط',
+                  selected: selectedStatusFilters.contains('نشط'.toLowerCase()),
+                  onTap: () => toggleStatusFilter('نشط'.toLowerCase()),
+                  selectedColor: Colors.green,
+                ),
+                buildFilterChip(
+                  label: 'غير نشط',
+                  selected:
+                      selectedStatusFilters.contains('غير نشط'.toLowerCase()),
+                  onTap: () => toggleStatusFilter('غير نشط'.toLowerCase()),
+                  selectedColor: Colors.grey,
+                ),
+                buildFilterChip(
+                  label: 'معطّل مؤقتًا',
+                  selected: selectedStatusFilters
+                      .contains('معطّل مؤقتًا'.toLowerCase()),
+                  onTap: () => toggleStatusFilter('معطّل مؤقتًا'.toLowerCase()),
+                  selectedColor: Colors.orange,
+                ),
+                buildFilterChip(
+                  label: 'طلب حذف قيد المراجعة',
+                  selected: selectedStatusFilters
+                      .contains('طلب حذف قيد المراجعة'.toLowerCase()),
+                  onTap: () =>
+                      toggleStatusFilter('طلب حذف قيد المراجعة'.toLowerCase()),
+                  selectedColor: Colors.amber.shade800,
+                ),
+                buildFilterChip(
+                  label: 'حذف مقبول',
+                  selected:
+                      selectedStatusFilters.contains('حذف مقبول'.toLowerCase()),
+                  onTap: () => toggleStatusFilter('حذف مقبول'.toLowerCase()),
+                  selectedColor: Colors.redAccent,
+                ),
+                buildFilterChip(
+                  label: 'موقوف',
+                  selected: selectedStatusFilters.contains('موقوف'.toLowerCase()),
+                  onTap: () => toggleStatusFilter('موقوف'.toLowerCase()),
+                  selectedColor: Colors.deepOrange,
+                ),
+                buildFilterChip(
+                  label: 'مؤرشف',
+                  selected:
+                      selectedStatusFilters.contains('مؤرشف'.toLowerCase()),
+                  onTap: () => toggleStatusFilter('مؤرشف'.toLowerCase()),
+                  selectedColor: Colors.blueGrey,
+                ),
+                buildFilterChip(
+                  label: 'قيد المراجعة',
+                  selected: selectedStatusFilters
+                      .contains('قيد المراجعة'.toLowerCase()),
+                  onTap: () => toggleStatusFilter('قيد المراجعة'.toLowerCase()),
+                  selectedColor: Colors.amber.shade700,
+                ),
+              ],
+            ),
+            if (hasCustomFilters) ...[
+              const SizedBox(height: 14),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: clearAllFilters,
+                  icon: const Icon(Icons.restart_alt_rounded),
+                  label: const Text('إعادة تعيين الفلاتر'),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return AppPageScaffold(
@@ -1470,121 +1691,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                 ),
               ),
               const SizedBox(height: 16),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Column(
-                    children: [
-                      TextField(
-                        textAlign: TextAlign.right,
-                        decoration: InputDecoration(
-                          hintText:
-                              'ابحثي بالاسم أو اسم المستخدم أو الإيميل أو الجوال أو القسم',
-                          prefixIcon: const Icon(Icons.search_rounded),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                        ),
-                        onChanged: (value) {
-                          setState(() {
-                            searchText = value;
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        value: selectedRoleFilter,
-                        decoration: InputDecoration(
-                          labelText: 'فلترة حسب الدور',
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                        ),
-                        items: const [
-                          DropdownMenuItem(
-                            value: 'all',
-                            child: Text('كل المستخدمين'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'parent',
-                            child: Text('أولياء الأمور'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'teacher',
-                            child: Text('المعلمات'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'nursery_staff',
-                            child: Text('موظفات الحضانة'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'admin',
-                            child: Text('الإدارة'),
-                          ),
-                        ],
-                        onChanged: (value) {
-                          setState(() {
-                            selectedRoleFilter = value ?? 'all';
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        value: selectedStatusFilter,
-                        decoration: InputDecoration(
-                          labelText: 'فلترة حسب حالة الحساب',
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                        ),
-                        items: const [
-                          DropdownMenuItem(
-                            value: 'all',
-                            child: Text('كل الحالات'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'نشط',
-                            child: Text('نشط'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'غير نشط',
-                            child: Text('غير نشط'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'معطّل مؤقتًا',
-                            child: Text('معطّل مؤقتًا'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'طلب حذف قيد المراجعة',
-                            child: Text('طلب حذف قيد المراجعة'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'حذف مقبول',
-                            child: Text('حذف مقبول'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'موقوف',
-                            child: Text('موقوف'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'مؤرشف',
-                            child: Text('مؤرشف'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'قيد المراجعة',
-                            child: Text('قيد المراجعة'),
-                          ),
-                        ],
-                        onChanged: (value) {
-                          setState(() {
-                            selectedStatusFilter = value ?? 'all';
-                          });
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+              buildFiltersCard(),
               const SizedBox(height: 20),
               if (filteredDocs.isEmpty)
                 Card(

@@ -15,22 +15,30 @@ class ParentIncidentReportsPage extends StatelessWidget {
 
   String _formatDate(Timestamp? ts) {
     if (ts == null) return '-';
+
     final d = ts.toDate();
     final hour = d.hour.toString().padLeft(2, '0');
     final minute = d.minute.toString().padLeft(2, '0');
-    return '${d.year}/${d.month}/${d.day} - $hour:$minute';
+
+    return '${d.year}/${d.month.toString().padLeft(2, '0')}/${d.day.toString().padLeft(2, '0')} - $hour:$minute';
   }
 
   Color _priorityColor(String priority) {
     switch (priority.trim().toLowerCase()) {
       case 'high':
       case 'urgent':
+      case 'عالية':
+      case 'عاجل':
         return Colors.red;
       case 'medium':
       case 'important':
+      case 'متوسطة':
+      case 'مهم':
         return Colors.orange;
       case 'low':
       case 'normal':
+      case 'منخفضة':
+      case 'عادي':
         return Colors.green;
       default:
         return Colors.redAccent;
@@ -41,12 +49,18 @@ class ParentIncidentReportsPage extends StatelessWidget {
     switch (priority.trim().toLowerCase()) {
       case 'high':
       case 'urgent':
+      case 'عالية':
+      case 'عاجل':
         return 'عالية';
       case 'medium':
       case 'important':
+      case 'متوسطة':
+      case 'مهم':
         return 'متوسطة';
       case 'low':
       case 'normal':
+      case 'منخفضة':
+      case 'عادي':
         return 'منخفضة';
       default:
         return priority.trim().isEmpty ? 'غير محددة' : priority;
@@ -65,6 +79,14 @@ class ParentIncidentReportsPage extends StatelessWidget {
         return 'حادث';
       case 'incident':
         return 'بلاغ';
+      case 'سقوط بسيط':
+        return 'سقوط بسيط';
+      case 'إصابة':
+        return 'إصابة';
+      case 'حادث':
+        return 'حادث';
+      case 'ملاحظة':
+        return 'ملاحظة';
       default:
         return type.trim().isEmpty ? 'بلاغ' : type;
     }
@@ -89,106 +111,69 @@ class ParentIncidentReportsPage extends StatelessWidget {
     return role.trim().isEmpty ? '' : role;
   }
 
+  String _firstNonEmpty(List<dynamic> values) {
+    for (final value in values) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+    return '';
+  }
+
   String _resolveIncidentType(Map<String, dynamic> data) {
-    final candidates = [
+    return _firstNonEmpty([
       data['incidentType'],
       data['type'],
       data['reportType'],
-    ];
-
-    for (final value in candidates) {
-      if (value != null && value.toString().trim().isNotEmpty) {
-        return value.toString().trim();
-      }
-    }
-
-    return '';
+      data['title'],
+    ]);
   }
 
   String _resolvePriority(Map<String, dynamic> data) {
-    final candidates = [
+    return _firstNonEmpty([
       data['priority'],
       data['severity'],
       data['level'],
-    ];
-
-    for (final value in candidates) {
-      if (value != null && value.toString().trim().isNotEmpty) {
-        return value.toString().trim();
-      }
-    }
-
-    return '';
+      data['autoRisk'],
+    ]);
   }
 
   String _resolveDetails(Map<String, dynamic> data) {
-    final candidates = [
+    return _firstNonEmpty([
       data['details'],
       data['note'],
       data['message'],
       data['body'],
       data['description'],
-    ];
-
-    for (final value in candidates) {
-      if (value != null && value.toString().trim().isNotEmpty) {
-        return value.toString().trim();
-      }
-    }
-
-    return '';
+    ]);
   }
 
   String _resolveActionTaken(Map<String, dynamic> data) {
-    final candidates = [
+    return _firstNonEmpty([
       data['actionTaken'],
       data['action'],
       data['response'],
       data['actionNote'],
-    ];
-
-    for (final value in candidates) {
-      if (value != null && value.toString().trim().isNotEmpty) {
-        return value.toString().trim();
-      }
-    }
-
-    return '';
+    ]);
   }
 
   String _resolveCreatedByName(Map<String, dynamic> data) {
-    final candidates = [
+    return _firstNonEmpty([
       data['createdByName'],
       data['byName'],
       data['staffName'],
       data['adminName'],
       data['senderName'],
-    ];
-
-    for (final value in candidates) {
-      if (value != null && value.toString().trim().isNotEmpty) {
-        return value.toString().trim();
-      }
-    }
-
-    return '';
+    ]);
   }
 
   String _resolveCreatedByRole(Map<String, dynamic> data) {
-    final candidates = [
+    return _firstNonEmpty([
       data['createdByRole'],
       data['byRole'],
       data['senderRole'],
       data['role'],
-    ];
-
-    for (final value in candidates) {
-      if (value != null && value.toString().trim().isNotEmpty) {
-        return value.toString().trim();
-      }
-    }
-
-    return '';
+    ]);
   }
 
   bool _resolveParentNotified(Map<String, dynamic> data) {
@@ -207,6 +192,7 @@ class ParentIncidentReportsPage extends StatelessWidget {
 
   Timestamp? _resolveTimestamp(Map<String, dynamic> data) {
     final candidates = [
+      data['eventAt'],
       data['createdAt'],
       data['time'],
       data['timestamp'],
@@ -267,6 +253,9 @@ class ParentIncidentReportsPage extends StatelessWidget {
             decoration: BoxDecoration(
               color: Colors.red.withOpacity(0.08),
               borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: Colors.red.withOpacity(0.14),
+              ),
             ),
             child: Row(
               children: [
@@ -308,7 +297,9 @@ class ParentIncidentReportsPage extends StatelessWidget {
                 }
 
                 if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
+                  return const Center(
+                    child: CircularProgressIndicator(),
+                  );
                 }
 
                 final docs = snapshot.data ?? [];
@@ -350,13 +341,16 @@ class ParentIncidentReportsPage extends StatelessWidget {
                     final details = (data['details'] ?? '').toString();
                     final actionTaken = (data['actionTaken'] ?? '').toString();
                     final parentNotified = data['parentNotified'] == true;
-                    final createdByName = (data['createdByName'] ?? '').toString();
-                    final createdByRole = (data['createdByRole'] ?? '').toString();
+                    final createdByName =
+                        (data['createdByName'] ?? '').toString();
+                    final createdByRole =
+                        (data['createdByRole'] ?? '').toString();
                     final createdAt = data['displayTime'] as Timestamp?;
                     final priorityColor = _priorityColor(priority);
 
                     final senderText = [
-                      if (createdByName.trim().isNotEmpty) createdByName.trim(),
+                      if (createdByName.trim().isNotEmpty)
+                        createdByName.trim(),
                       if (_roleLabel(createdByRole).trim().isNotEmpty)
                         _roleLabel(createdByRole).trim(),
                     ].join(' - ');
@@ -489,8 +483,8 @@ class ParentIncidentReportsPage extends StatelessWidget {
                                       vertical: 7,
                                     ),
                                     decoration: BoxDecoration(
-                                      color: AppColors.primary
-                                          .withOpacity(0.10),
+                                      color:
+                                          AppColors.primary.withOpacity(0.10),
                                       borderRadius: BorderRadius.circular(12),
                                     ),
                                     child: Text(

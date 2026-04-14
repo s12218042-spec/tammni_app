@@ -21,6 +21,165 @@ class AuthService {
 
   User? get currentUser => _auth.currentUser;
 
+  Future<UserCredential> _signInWithPossibleEmails({
+    required String username,
+    required String primaryEmail,
+    required String password,
+  }) async {
+    final cleanUsername = username.trim().toLowerCase();
+    final cleanPrimaryEmail = primaryEmail.trim().toLowerCase();
+
+    String? pendingEmail;
+
+    try {
+      final lookupDoc =
+          await _firestore.collection('login_usernames').doc(cleanUsername).get();
+
+      final lookupData = lookupDoc.data() ?? <String, dynamic>{};
+      pendingEmail =
+          (lookupData['pendingEmail'] ?? '').toString().trim().toLowerCase();
+    } catch (_) {
+      pendingEmail = null;
+    }
+
+    final emailsToTry = <String>[];
+
+    if (cleanPrimaryEmail.isNotEmpty) {
+      emailsToTry.add(cleanPrimaryEmail);
+    }
+
+    if (pendingEmail != null &&
+        pendingEmail.isNotEmpty &&
+        pendingEmail != cleanPrimaryEmail) {
+      emailsToTry.add(pendingEmail);
+    }
+
+    FirebaseAuthException? lastAuthError;
+
+    for (final email in emailsToTry) {
+      try {
+        print('LOGIN AUTH TRY: email = $email');
+
+        return await _auth.signInWithEmailAndPassword(
+          email: email,
+          password: password,
+        );
+      } on FirebaseAuthException catch (e) {
+        print('LOGIN AUTH FAILED for $email: ${e.code}');
+
+        lastAuthError = e;
+
+        final canTryNext =
+            e.code == 'wrong-password' ||
+            e.code == 'invalid-credential' ||
+            e.code == 'user-not-found' ||
+            e.code == 'invalid-email';
+
+        if (!canTryNext) {
+          rethrow;
+        }
+      }
+    }
+
+    throw lastAuthError ??
+        FirebaseAuthException(
+          code: 'login-failed',
+          message: 'تعذر تسجيل الدخول',
+        );
+  }
+
+  Future<void> _syncPendingEmailIfNeeded({
+  required User authUser,
+  required String username,
+  required Map<String, dynamic> userData,
+  required Map<String, dynamic> lookupData,
+}) async {
+  final cleanUsername = username.trim().toLowerCase();
+
+  final userPendingEmail =
+      (userData['pendingEmail'] ?? '').toString().trim().toLowerCase();
+
+  final lookupPendingEmail =
+      (lookupData['pendingEmail'] ?? '').toString().trim().toLowerCase();
+
+  final authEmail = (authUser.email ?? '').trim().toLowerCase();
+
+  print('EMAIL SYNC: authEmail = $authEmail');
+  print('EMAIL SYNC: userPendingEmail = $userPendingEmail');
+  print('EMAIL SYNC: lookupPendingEmail = $lookupPendingEmail');
+
+  if (authEmail.isEmpty) {
+    print('EMAIL SYNC: auth email is empty');
+    return;
+  }
+
+  final shouldSync =
+      (userPendingEmail.isNotEmpty && authEmail == userPendingEmail) ||
+      (lookupPendingEmail.isNotEmpty && authEmail == lookupPendingEmail);
+
+  if (!shouldSync) {
+    print('EMAIL SYNC: no sync needed');
+    return;
+  }
+
+  try {
+    final userRef = _firestore.collection('users').doc(authUser.uid);
+    final loginRef = _firestore.collection('login_usernames').doc(cleanUsername);
+
+    print('EMAIL SYNC: preparing batch');
+
+    final batch = _firestore.batch();
+
+    batch.set(userRef, {
+      'email': authEmail,
+      'pendingEmail': FieldValue.delete(),
+      'emailChangeRequestedAt': FieldValue.delete(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    print('EMAIL SYNC: user doc added to batch');
+
+    if (cleanUsername.isNotEmpty) {
+      batch.set(loginRef, {
+        'email': authEmail,
+        'pendingEmail': FieldValue.delete(),
+        'emailChangeRequestedAt': FieldValue.delete(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+
+    print('EMAIL SYNC: login_usernames doc added to batch');
+    print('EMAIL SYNC: committing batch...');
+
+    await batch.commit();
+
+    print('EMAIL SYNC: batch committed');
+
+    await _firestore.collection('account_activity_logs').add({
+      'targetUid': authUser.uid,
+      'action': 'email_changed',
+      'title': 'تم تغيير البريد الإلكتروني',
+      'message': 'تم اعتماد البريد الإلكتروني الجديد بنجاح: $authEmail',
+      'status': 'success',
+      'actorUid': authUser.uid,
+      'actorName': (userData['displayName'] ??
+              userData['name'] ??
+              userData['username'] ??
+              '')
+          .toString(),
+      'actorRole': (userData['role'] ?? '').toString(),
+      'createdAt': FieldValue.serverTimestamp(),
+      'newEmail': authEmail,
+    });
+
+    print('EMAIL SYNC: success');
+  } catch (e, st) {
+    print('EMAIL SYNC ERROR: $e');
+    print(st);
+    rethrow;
+  }
+}
+
   Future<LoginResult> login({
     required String username,
     required String password,
@@ -59,7 +218,7 @@ class AuthService {
         );
       }
 
-      final lookupData = lookupDoc.data() ?? {};
+      final lookupData = lookupDoc.data() ?? <String, dynamic>{};
       final email = (lookupData['email'] ?? '').toString().trim().toLowerCase();
       final lookupUid = (lookupData['uid'] ?? '').toString().trim();
       final isActive = (lookupData['isActive'] ?? true) == true;
@@ -82,10 +241,11 @@ class AuthService {
         );
       }
 
-      print('LOGIN STEP 6: signInWithEmailAndPassword');
+      print('LOGIN STEP 6: sign in with possible emails');
 
-      final result = await _auth.signInWithEmailAndPassword(
-        email: email,
+      final result = await _signInWithPossibleEmails(
+        username: cleanUsername,
+        primaryEmail: email,
         password: cleanPassword,
       );
 
@@ -121,18 +281,13 @@ class AuthService {
         );
       }
 
-      final userData = userDoc.data() ?? {};
+      var userData = userDoc.data() ?? <String, dynamic>{};
       final storedUsername =
           (userData['username'] ?? '').toString().trim().toLowerCase();
       final userIsActive = (userData['isActive'] ?? true) == true;
 
-      final mustChangePassword = userData['mustChangePassword'] == true;
-      final isFirstLogin = userData['isFirstLogin'] == true;
-
       print('LOGIN STEP 10: storedUsername = $storedUsername');
       print('LOGIN STEP 11: userIsActive = $userIsActive');
-      print('LOGIN STEP 12: mustChangePassword = $mustChangePassword');
-      print('LOGIN STEP 13: isFirstLogin = $isFirstLogin');
 
       if (storedUsername.isNotEmpty && storedUsername != cleanUsername) {
         throw FirebaseAuthException(
@@ -148,13 +303,37 @@ class AuthService {
         );
       }
 
-      print('LOGIN STEP 14: updating lastLoginAt');
+      print('LOGIN STEP 12: syncing pending email if needed');
+
+      try {
+  await _syncPendingEmailIfNeeded(
+    authUser: authUser,
+    username: cleanUsername,
+    userData: userData,
+    lookupData: lookupData,
+  );
+} catch (e, st) {
+  print('EMAIL SYNC FAILED BUT LOGIN WILL CONTINUE: $e');
+  print(st);
+}
+
+      final refreshedUserDoc =
+          await _firestore.collection('users').doc(authUid).get();
+      userData = refreshedUserDoc.data() ?? <String, dynamic>{};
+
+      final mustChangePassword = userData['mustChangePassword'] == true;
+      final isFirstLogin = userData['isFirstLogin'] == true;
+
+      print('LOGIN STEP 13: mustChangePassword = $mustChangePassword');
+      print('LOGIN STEP 14: isFirstLogin = $isFirstLogin');
+
+      print('LOGIN STEP 15: updating lastLoginAt');
 
       await _firestore.collection('users').doc(authUid).update({
         'lastLoginAt': FieldValue.serverTimestamp(),
       });
 
-      print('LOGIN STEP 15: success');
+      print('LOGIN STEP 16: success');
 
       return LoginResult(
         user: authUser,
@@ -162,7 +341,21 @@ class AuthService {
         mustChangePassword: mustChangePassword,
         isFirstLogin: isFirstLogin,
       );
-    } on FirebaseAuthException {
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'wrong-password' || e.code == 'invalid-credential') {
+        throw FirebaseAuthException(
+          code: e.code,
+          message: 'كلمة المرور غير صحيحة',
+        );
+      }
+
+      if (e.code == 'user-not-found') {
+        throw FirebaseAuthException(
+          code: e.code,
+          message: 'اسم المستخدم أو البريد المرتبط بالحساب غير موجود',
+        );
+      }
+
       rethrow;
     } catch (e, st) {
       print('LOGIN UNKNOWN ERROR: $e');

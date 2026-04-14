@@ -13,16 +13,102 @@ class ParentRewardsPage extends StatelessWidget {
     required this.child,
   });
 
-  String _formatDate(dynamic time) {
-    if (time is Timestamp) {
-      final date = time.toDate();
+  String _resolveTitle(Map<String, dynamic> data) {
+    final candidates = [
+      data['title'],
+      data['name'],
+      data['label'],
+      data['rewardTitle'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return 'تعزيز';
+  }
+
+  String _resolveType(Map<String, dynamic> data) {
+    final candidates = [
+      data['type'],
+      data['rewardType'],
+      data['category'],
+      data['kind'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return 'تشجيع';
+  }
+
+  String _resolveNote(Map<String, dynamic> data) {
+    final candidates = [
+      data['note'],
+      data['message'],
+      data['body'],
+      data['description'],
+      data['details'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return '';
+  }
+
+  String _resolveCreatedByName(Map<String, dynamic> data) {
+    final candidates = [
+      data['createdByName'],
+      data['byName'],
+      data['teacherName'],
+      data['staffName'],
+      data['senderName'],
+    ];
+
+    for (final value in candidates) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return '';
+  }
+
+  Timestamp? _resolveTimestamp(Map<String, dynamic> data) {
+    final candidates = [
+      data['time'],
+      data['createdAt'],
+      data['timestamp'],
+      data['updatedAt'],
+      data['eventAt'],
+    ];
+
+    for (final value in candidates) {
+      if (value is Timestamp) return value;
+    }
+
+    return null;
+  }
+
+  String _formatDate(dynamic raw) {
+    if (raw is Timestamp) {
+      final date = raw.toDate();
       return '${date.year}/${date.month}/${date.day}';
     }
     return 'غير محدد';
   }
 
   Color _rewardColor(String type) {
-    switch (type) {
+    switch (type.trim()) {
       case 'نجمة':
         return Colors.amber;
       case 'شارة':
@@ -37,7 +123,7 @@ class ParentRewardsPage extends StatelessWidget {
   }
 
   IconData _rewardIcon(String type) {
-    switch (type) {
+    switch (type.trim()) {
       case 'نجمة':
         return Icons.star_rounded;
       case 'شارة':
@@ -51,10 +137,42 @@ class ParentRewardsPage extends StatelessWidget {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
+  Future<List<Map<String, dynamic>>> fetchRewards() async {
     final firestore = FirebaseFirestore.instance;
 
+    final snapshot = await firestore
+        .collection('rewards')
+        .where('childId', isEqualTo: child.id)
+        .get();
+
+    final items = snapshot.docs.map((doc) {
+      final data = doc.data();
+
+      return {
+        'title': _resolveTitle(data),
+        'type': _resolveType(data),
+        'note': _resolveNote(data),
+        'createdByName': _resolveCreatedByName(data),
+        'displayTime': _resolveTimestamp(data),
+      };
+    }).toList();
+
+    items.sort((a, b) {
+      final aTime = a['displayTime'] as Timestamp?;
+      final bTime = b['displayTime'] as Timestamp?;
+
+      if (aTime == null && bTime == null) return 0;
+      if (aTime == null) return 1;
+      if (bTime == null) return -1;
+
+      return bTime.compareTo(aTime);
+    });
+
+    return items;
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return AppPageScaffold(
       title: 'تعزيزات الطفل',
       child: Column(
@@ -62,12 +180,8 @@ class ParentRewardsPage extends StatelessWidget {
           _buildHeader(),
           const SizedBox(height: 16),
           Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: firestore
-                  .collection('rewards')
-                  .where('childId', isEqualTo: child.id)
-                  .orderBy('time', descending: true)
-                  .snapshots(),
+            child: FutureBuilder<List<Map<String, dynamic>>>(
+              future: fetchRewards(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(
@@ -84,7 +198,7 @@ class ParentRewardsPage extends StatelessWidget {
                   );
                 }
 
-                final docs = snapshot.data?.docs ?? [];
+                final docs = snapshot.data ?? [];
 
                 if (docs.isEmpty) {
                   return ListView(
@@ -101,13 +215,14 @@ class ParentRewardsPage extends StatelessWidget {
                   itemCount: docs.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 12),
                   itemBuilder: (context, index) {
-                    final data = docs[index].data() as Map<String, dynamic>;
+                    final data = docs[index];
 
-                    final title = data['title'] ?? 'تعزيز';
-                    final type = data['type'] ?? 'تشجيع';
-                    final note = data['note'] ?? '';
-                    final time = data['time'];
-                    final createdByName = data['createdByName'] ?? '';
+                    final title = (data['title'] ?? 'تعزيز').toString();
+                    final type = (data['type'] ?? 'تشجيع').toString();
+                    final note = (data['note'] ?? '').toString();
+                    final createdByName =
+                        (data['createdByName'] ?? '').toString();
+                    final time = data['displayTime'];
 
                     return _RewardCard(
                       title: title,
@@ -302,7 +417,7 @@ class _RewardCard extends StatelessWidget {
             title: 'التاريخ',
             value: dateText,
           ),
-          if (createdByName.toString().trim().isNotEmpty) ...[
+          if (createdByName.trim().isNotEmpty) ...[
             const SizedBox(height: 10),
             _InfoTile(
               title: 'أضيف بواسطة',

@@ -91,6 +91,11 @@ class _AdminHomePageState extends State<AdminHomePage> {
     .limit(100)
     .get();
 
+    final complaintsSnapshot = await _firestore
+    .collection('complaints')
+    .limit(200)
+    .get();
+
     final users = usersSnapshot.docs.map((e) => e.data()).toList();
     final children = childrenSnapshot.docs.map((e) => e.data()).toList();
     final classes = classesSnapshot.docs.map((e) => e.data()).toList();
@@ -100,6 +105,9 @@ class _AdminHomePageState extends State<AdminHomePage> {
         .map((e) => e.data())
         .toList();
     final deletionRequests = deletionRequestsSnapshot.docs
+    .map((e) => e.data())
+    .toList();
+    final complaints = complaintsSnapshot.docs
     .map((e) => e.data())
     .toList();
 
@@ -156,9 +164,16 @@ class _AdminHomePageState extends State<AdminHomePage> {
     int pendingAddChildRequests = 0;
     int approvedAddChildRequests = 0;
     int rejectedAddChildRequests = 0;
+
     int pendingDeletionRequests = 0;
     int approvedDeletionRequests = 0;
     int rejectedDeletionRequests = 0;
+
+    int totalComplaints = 0;
+    int pendingComplaints = 0;
+    int inReviewComplaints = 0;
+    int resolvedComplaints = 0;
+    int rejectedComplaints = 0;
 
     for (final request in addChildRequests) {
       final status = (request['status'] ?? 'pending').toString().trim();
@@ -173,6 +188,15 @@ class _AdminHomePageState extends State<AdminHomePage> {
       if (status == 'approved') approvedDeletionRequests++;
       if (status == 'rejected') rejectedDeletionRequests++;
     }
+    for (final complaint in complaints) {
+      totalComplaints++;
+      final status = (complaint['status'] ?? 'pending').toString().trim();
+
+      if (status == 'pending') pendingComplaints++;
+      if (status == 'in_review') inReviewComplaints++;
+      if (status == 'resolved') resolvedComplaints++;
+      if (status == 'rejected') rejectedComplaints++;
+     }
     final alerts = <_AdminAlertItem>[];
 
     if (classes.isEmpty) {
@@ -242,9 +266,22 @@ class _AdminHomePageState extends State<AdminHomePage> {
       title:
           'يوجد $pendingDeletionRequests طلب/طلبات حذف حساب بانتظار المراجعة',
       subtitle:
-          'راجعي طلبات حذف الحسابات وحددي الموافقة أو الرفض.',
+          'راجع طلبات حذف الحسابات وحدد الموافقة أو الرفض.',
       icon: Icons.delete_forever_outlined,
       color: Colors.redAccent,
+    ),
+  );
+}
+if (pendingComplaints > 0 || inReviewComplaints > 0) {
+  final openComplaints = pendingComplaints + inReviewComplaints;
+
+  alerts.add(
+    _AdminAlertItem(
+      title: 'يوجد $openComplaints شكوى/شكاوى تحتاج متابعة',
+      subtitle:
+          'راجع شكاوى أولياء الأمور المفتوحة وحدد حالتها أو أضف ردًا إداريًا.',
+      icon: Icons.report_problem_outlined,
+      color: Colors.deepPurple,
     ),
   );
 }
@@ -254,7 +291,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
         const _AdminAlertItem(
           title: 'لا يوجد مستخدمون في النظام',
           subtitle:
-              'ابدئي بإضافة حسابات الأدمن والمعلمات والموظفات، ومراجعة طلبات أولياء الأمور.',
+              'ابدأ بإضافة حسابات الأدمن والمعلمات والموظفات، ومراجعة طلبات أولياء الأمور.',
           icon: Icons.person_add_alt_1_rounded,
           color: Colors.redAccent,
         ),
@@ -292,6 +329,11 @@ class _AdminHomePageState extends State<AdminHomePage> {
       pendingDeletionRequests: pendingDeletionRequests,
       approvedDeletionRequests: approvedDeletionRequests,
       rejectedDeletionRequests: rejectedDeletionRequests,
+      totalComplaints: totalComplaints,
+      pendingComplaints: pendingComplaints,
+      inReviewComplaints: inReviewComplaints,
+      resolvedComplaints: resolvedComplaints,
+      rejectedComplaints: rejectedComplaints,
       alerts: alerts,
       recentActivities: recentActivities.take(20).toList(),
     );
@@ -584,6 +626,13 @@ class _AdminHomePageState extends State<AdminHomePage> {
                 subtitle:
                     'معلقة ${data.pendingDeletionRequests} • مقبولة ${data.approvedDeletionRequests}',
                 icon: Icons.delete_forever_outlined,
+              ),
+              _DashboardStatCard(
+                title: 'شكاوى أولياء الأمور',
+                value: '${data.totalComplaints}',
+                subtitle:
+                'مفتوحة ${data.pendingComplaints + data.inReviewComplaints} • محلولة ${data.resolvedComplaints}',
+                icon: Icons.report_problem_outlined,
               ),
               _DashboardStatCard(
                 title: 'الصفوف / المجموعات',
@@ -1416,15 +1465,25 @@ class _AdminDashboardData {
   final int staffCount;
   final int teachersCount;
   final int adminsCount;
+
   final int pendingRequests;
   final int approvedRequests;
   final int rejectedRequests;
+
   final int pendingAddChildRequests;
   final int approvedAddChildRequests;
   final int rejectedAddChildRequests;
+
   final int pendingDeletionRequests;
   final int approvedDeletionRequests;
   final int rejectedDeletionRequests;
+
+  final int totalComplaints;
+  final int pendingComplaints;
+  final int inReviewComplaints;
+  final int resolvedComplaints;
+  final int rejectedComplaints;
+
   final List<_AdminAlertItem> alerts;
   final List<_AdminActivityItem> recentActivities;
 
@@ -1449,6 +1508,11 @@ class _AdminDashboardData {
     required this.pendingDeletionRequests,
     required this.approvedDeletionRequests,
     required this.rejectedDeletionRequests,
+    required this.totalComplaints,
+    required this.pendingComplaints,
+    required this.inReviewComplaints,
+    required this.resolvedComplaints,
+    required this.rejectedComplaints,
     required this.alerts,
     required this.recentActivities,
   });

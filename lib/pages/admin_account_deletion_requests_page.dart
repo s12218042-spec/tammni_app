@@ -16,7 +16,7 @@ class _AdminAccountDeletionRequestsPageState
     extends State<AdminAccountDeletionRequestsPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  String selectedStatusFilter = 'all';
+  final Set<String> selectedStatusFilters = {};
   String searchText = '';
 
   String normalizeRole(String value) {
@@ -63,6 +63,8 @@ class _AdminAccountDeletionRequestsPageState
         return 'مقبول';
       case 'rejected':
         return 'مرفوض';
+      case 'cancelled':
+        return 'تم سحب الطلب';
       default:
         return value.isEmpty ? 'غير محدد' : value;
     }
@@ -76,6 +78,8 @@ class _AdminAccountDeletionRequestsPageState
         return Colors.green;
       case 'rejected':
         return Colors.redAccent;
+      case 'cancelled':
+        return Colors.blueGrey;
       default:
         return Colors.grey;
     }
@@ -94,6 +98,23 @@ class _AdminAccountDeletionRequestsPageState
         .collection('account_deletion_requests')
         .orderBy('requestedAt', descending: true)
         .snapshots();
+  }
+
+  void toggleStatusFilter(String value) {
+    setState(() {
+      if (selectedStatusFilters.contains(value)) {
+        selectedStatusFilters.remove(value);
+      } else {
+        selectedStatusFilters.add(value);
+      }
+    });
+  }
+
+  void clearAllFilters() {
+    setState(() {
+      selectedStatusFilters.clear();
+      searchText = '';
+    });
   }
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> applyFilters(
@@ -117,11 +138,41 @@ class _AdminAccountDeletionRequestsPageState
           email.contains(query) ||
           role.contains(query);
 
-      final matchesStatus =
-          selectedStatusFilter == 'all' || status == selectedStatusFilter;
+      final matchesStatus = selectedStatusFilters.isEmpty ||
+          selectedStatusFilters.contains(status);
 
       return matchesSearch && matchesStatus;
     }).toList();
+  }
+
+  Widget buildFilterChip({
+    required String label,
+    required String value,
+    required Color color,
+  }) {
+    final isSelected = selectedStatusFilters.contains(value);
+
+    return FilterChip(
+      label: Text(
+        label,
+        style: TextStyle(
+          color: isSelected ? Colors.white : AppColors.textDark,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      selected: isSelected,
+      onSelected: (_) => toggleStatusFilter(value),
+      selectedColor: color,
+      checkmarkColor: Colors.white,
+      backgroundColor: Colors.white,
+      side: BorderSide(
+        color: isSelected ? color : AppColors.primary.withOpacity(0.14),
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+      ),
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    );
   }
 
   Future<Map<String, String>> _getCurrentAdminInfo() async {
@@ -471,6 +522,10 @@ class _AdminAccountDeletionRequestsPageState
                         value: formatDate(data['processedAt']),
                       ),
                       _RequestDetailItem(
+                        label: 'تاريخ سحب الطلب',
+                        value: formatDate(data['cancelledAt']),
+                      ),
+                      _RequestDetailItem(
                         label: 'عولج بواسطة',
                         value: (data['processedByName'] ?? '').toString(),
                       ),
@@ -497,6 +552,9 @@ class _AdminAccountDeletionRequestsPageState
 
   @override
   Widget build(BuildContext context) {
+    final hasCustomFilters =
+        selectedStatusFilters.isNotEmpty || searchText.trim().isNotEmpty;
+
     return AppPageScaffold(
       title: 'طلبات حذف الحسابات',
       child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -535,12 +593,23 @@ class _AdminAccountDeletionRequestsPageState
                 child: Padding(
                   padding: const EdgeInsets.all(14),
                   child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       TextField(
                         textAlign: TextAlign.right,
                         decoration: InputDecoration(
                           hintText: 'ابحثي بالاسم أو اسم المستخدم أو الإيميل',
                           prefixIcon: const Icon(Icons.search_rounded),
+                          suffixIcon: searchText.trim().isEmpty
+                              ? null
+                              : IconButton(
+                                  onPressed: () {
+                                    setState(() {
+                                      searchText = '';
+                                    });
+                                  },
+                                  icon: const Icon(Icons.close_rounded),
+                                ),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(16),
                           ),
@@ -551,39 +620,53 @@ class _AdminAccountDeletionRequestsPageState
                           });
                         },
                       ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        value: selectedStatusFilter,
-                        decoration: InputDecoration(
-                          labelText: 'فلترة حسب حالة الطلب',
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
+                      const SizedBox(height: 14),
+                      const Text(
+                        'حالة الطلب',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.textDark,
                         ),
-                        items: const [
-                          DropdownMenuItem(
-                            value: 'all',
-                            child: Text('كل الطلبات'),
-                          ),
-                          DropdownMenuItem(
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          buildFilterChip(
+                            label: 'قيد المراجعة',
                             value: 'pending',
-                            child: Text('قيد المراجعة'),
+                            color: Colors.amber.shade700,
                           ),
-                          DropdownMenuItem(
+                          buildFilterChip(
+                            label: 'مقبول',
                             value: 'approved',
-                            child: Text('مقبول'),
+                            color: Colors.green,
                           ),
-                          DropdownMenuItem(
+                          buildFilterChip(
+                            label: 'مرفوض',
                             value: 'rejected',
-                            child: Text('مرفوض'),
+                            color: Colors.redAccent,
+                          ),
+                          buildFilterChip(
+                            label: 'تم سحب الطلب',
+                            value: 'cancelled',
+                            color: Colors.blueGrey,
                           ),
                         ],
-                        onChanged: (value) {
-                          setState(() {
-                            selectedStatusFilter = value ?? 'all';
-                          });
-                        },
                       ),
+                      if (hasCustomFilters) ...[
+                        const SizedBox(height: 14),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton.icon(
+                            onPressed: clearAllFilters,
+                            icon: const Icon(Icons.restart_alt_rounded),
+                            label: const Text('إعادة تعيين الفلاتر'),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),

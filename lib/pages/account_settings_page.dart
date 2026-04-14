@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
@@ -19,6 +21,7 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
 
   final _nameFormKey = GlobalKey<FormState>();
   final _passwordFormKey = GlobalKey<FormState>();
+  final _emailFormKey = GlobalKey<FormState>();
 
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _currentPasswordController =
@@ -27,63 +30,279 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
   final TextEditingController _confirmPasswordController =
       TextEditingController();
 
+  final TextEditingController _newEmailController = TextEditingController();
+  final TextEditingController _emailPasswordController =
+      TextEditingController();
+
   bool _isLoading = true;
   bool _isSavingName = false;
   bool _isChangingPassword = false;
+  bool _isChangingEmail = false;
   bool _isDeactivating = false;
   bool _isRequestingDeletion = false;
+  bool _isCancellingDeletionRequest = false;
+  bool _isCancellingPendingEmailChange = false;
 
   bool _obscureCurrentPassword = true;
   bool _obscureNewPassword = true;
   bool _obscureConfirmPassword = true;
+  bool _obscureEmailPassword = true;
+
+  bool _isAutoCheckingEmail = false;
+  bool _emailVerificationTimedOut = false;
+  bool _isCheckingEmailNow = false;
+  bool _isRedirectingAfterEmailLoss = false;
+
+  Timer? _emailVerificationTimer;
+  int _remainingEmailVerificationSeconds = 0;
 
   AccountSettingsData? _userData;
   AccountDeletionRequestData? _deletionRequestData;
 
+  static const int _emailCheckIntervalSeconds = 3;
+  static const int _emailCheckTotalSeconds = 120;
+
   @override
   void initState() {
     super.initState();
-    _loadUserData();
+    _initializePage();
   }
 
   @override
   void dispose() {
+    _stopEmailVerificationWatcher();
     _nameController.dispose();
     _currentPasswordController.dispose();
     _newPasswordController.dispose();
     _confirmPasswordController.dispose();
+    _newEmailController.dispose();
+    _emailPasswordController.dispose();
     super.dispose();
   }
 
-  Future<void> _loadUserData() async {
-    setState(() {
-      _isLoading = true;
-    });
+  Future<void> _initializePage() async {
+  await _loadUserData();
 
-    try {
-      final data = await _service.getCurrentUserData();
-      final deletionRequest = await _service.getLatestDeletionRequest();
+  try {
+    final result = await _service.refreshEmailAfterVerificationIfNeeded();
+    if (result == EmailRefreshStatus.success) {
+      await _loadUserData();
+    }
+  } catch (_) {}
 
-      _nameController.text = data.name;
+  await _restoreEmailWatcherIfNeeded();
+}
 
-      if (!mounted) return;
+  String _formatCountdown(int totalSeconds) {
+    final minutes = (totalSeconds ~/ 60).toString().padLeft(2, '0');
+    final seconds = (totalSeconds % 60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
+  }
+
+  void _stopEmailVerificationWatcher({bool keepTimeoutState = false}) {
+    _emailVerificationTimer?.cancel();
+    _emailVerificationTimer = null;
+    _isCheckingEmailNow = false;
+
+    if (mounted) {
       setState(() {
-        _userData = data;
-        _deletionRequestData = deletionRequest;
-      });
-    } on FirebaseAuthException catch (e) {
-  _showSnack(e.message ?? 'حدث خطأ أثناء تحميل بيانات الحساب');
-} on FirebaseException catch (e) {
-  _showSnack(e.message ?? 'حدث خطأ في قراءة بيانات Firestore');
-} catch (e) {
-  _showSnack('حدث خطأ أثناء تحميل بيانات الحساب: $e');
-} finally {
-      if (!mounted) return;
-      setState(() {
-        _isLoading = false;
+        _isAutoCheckingEmail = false;
+        _remainingEmailVerificationSeconds = 0;
+        if (!keepTimeoutState) {
+          _emailVerificationTimedOut = false;
+        }
       });
     }
   }
+
+  Future<void> _handleSessionEndedAfterEmailVerification() async {
+    if (_isRedirectingAfterEmailLoss) return;
+    _isRedirectingAfterEmailLoss = true;
+
+    _stopEmailVerificationWatcher();
+
+    _showSnack(
+      'تم تحديث البريد بنجاح، لكن الجلسة الحالية انتهت. سيتم تحويلك الآن لتسجيل الدخول من جديد.',
+    );
+
+    await Future.delayed(const Duration(seconds: 2));
+
+    if (!mounted) return;
+
+    try {
+      await FirebaseAuth.instance.signOut();
+    } catch (_) {}
+
+    if (!mounted) return;
+
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (_) => const WelcomePage()),
+      (route) => false,
+    );
+  }
+
+  Future<void> _restoreEmailWatcherIfNeeded() async {
+    if (!mounted) return;
+
+    final data = _userData;
+    if (data == null) return;
+    if (!data.hasPendingEmailChange) return;
+
+    final requestedAt = data.emailChangeRequestedAt;
+    if (requestedAt == null) return;
+
+    final elapsed = DateTime.now().difference(requestedAt).inSeconds;
+    final remaining = _emailCheckTotalSeconds - elapsed;
+
+    if (remaining <= 0) {
+      setState(() {
+        _emailVerificationTimedOut = true;
+        _isAutoCheckingEmail = false;
+        _remainingEmailVerificationSeconds = 0;
+      });
+      return;
+    }
+
+    if (_isAutoCheckingEmail) return;
+
+    await _startEmailVerificationWatcher(
+      initialRemainingSeconds: remaining,
+    );
+  }
+
+  Future<void> _startEmailVerificationWatcher({
+    int initialRemainingSeconds = _emailCheckTotalSeconds,
+  }) async {
+    _emailVerificationTimer?.cancel();
+
+    if (!mounted) return;
+
+    setState(() {
+      _isAutoCheckingEmail = true;
+      _emailVerificationTimedOut = false;
+      _remainingEmailVerificationSeconds = initialRemainingSeconds;
+      _isCheckingEmailNow = false;
+    });
+
+    _emailVerificationTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (timer) async {
+        if (!mounted) {
+          _stopEmailVerificationWatcher();
+          return;
+        }
+
+        if (_remainingEmailVerificationSeconds <= 0) {
+          _stopEmailVerificationWatcher(keepTimeoutState: true);
+          if (mounted) {
+            setState(() {
+              _emailVerificationTimedOut = true;
+            });
+          }
+          return;
+        }
+
+        setState(() {
+          _remainingEmailVerificationSeconds--;
+        });
+
+        if (_remainingEmailVerificationSeconds % _emailCheckIntervalSeconds !=
+            0) {
+          return;
+        }
+
+        if (_isCheckingEmailNow) return;
+        _isCheckingEmailNow = true;
+
+        try {
+          final result = await _service.refreshEmailAfterVerificationIfNeeded();
+
+          if (!mounted) return;
+
+          if (result == EmailRefreshStatus.success) {
+            _stopEmailVerificationWatcher();
+            await _loadUserData();
+            _showSnack('تم تحديث البريد الإلكتروني بنجاح');
+            return;
+          }
+
+          if (result == EmailRefreshStatus.noCurrentUser) {
+            await _handleSessionEndedAfterEmailVerification();
+            return;
+          }
+
+          if (_remainingEmailVerificationSeconds <= 0) {
+            _stopEmailVerificationWatcher(keepTimeoutState: true);
+            if (mounted) {
+              setState(() {
+                _emailVerificationTimedOut = true;
+              });
+            }
+          }
+        } on FirebaseAuthException catch (e) {
+          if (!mounted) return;
+
+          if (e.code == 'no-current-user') {
+            await _handleSessionEndedAfterEmailVerification();
+            return;
+          }
+
+          if (_remainingEmailVerificationSeconds <= 0) {
+            _stopEmailVerificationWatcher(keepTimeoutState: true);
+            setState(() {
+              _emailVerificationTimedOut = true;
+            });
+          }
+        } catch (_) {
+          if (!mounted) return;
+
+          if (_remainingEmailVerificationSeconds <= 0) {
+            _stopEmailVerificationWatcher(keepTimeoutState: true);
+            setState(() {
+              _emailVerificationTimedOut = true;
+            });
+          }
+        } finally {
+          _isCheckingEmailNow = false;
+        }
+      },
+    );
+  }
+
+  Future<void> _loadUserData() async {
+  if (mounted) {
+    setState(() {
+      _isLoading = true;
+    });
+  }
+
+  try {
+    final data = await _service.getCurrentUserData();
+    final deletionRequest = await _service.getLatestDeletionRequest();
+
+    _nameController.text = data.name;
+
+    if (!mounted) return;
+    setState(() {
+      _userData = data;
+      _deletionRequestData = deletionRequest;
+    });
+  } on FirebaseAuthException catch (e) {
+    if (e.code != 'no-current-user') {
+      _showSnack(e.message ?? 'حدث خطأ أثناء تحميل بيانات الحساب');
+    }
+  } on FirebaseException catch (e) {
+    _showSnack(e.message ?? 'حدث خطأ في قراءة بيانات Firestore');
+  } catch (e) {
+    _showSnack('حدث خطأ أثناء تحميل بيانات الحساب: $e');
+  } finally {
+    if (!mounted) return;
+    setState(() {
+      _isLoading = false;
+    });
+  }
+}
 
   Future<void> _saveName() async {
     if (!_nameFormKey.currentState!.validate()) return;
@@ -139,6 +358,68 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
       if (!mounted) return;
       setState(() {
         _isChangingPassword = false;
+      });
+    }
+  }
+
+  Future<void> _requestEmailChange() async {
+    if (!_emailFormKey.currentState!.validate()) return;
+
+    FocusScope.of(context).unfocus();
+
+    setState(() {
+      _isChangingEmail = true;
+    });
+
+    try {
+      await _service.requestEmailChange(
+        newEmail: _newEmailController.text,
+        currentPassword: _emailPasswordController.text,
+      );
+
+      _newEmailController.clear();
+      _emailPasswordController.clear();
+
+      await _loadUserData();
+      await _startEmailVerificationWatcher();
+
+      _showSnack(
+        'تم إرسال رابط التحقق إلى البريد الجديد، وبدأ الفحص التلقائي لمدة دقيقتين.',
+      );
+    } on FirebaseAuthException catch (e) {
+      _showSnack(e.message ?? 'تعذر بدء تغيير البريد الإلكتروني');
+    } catch (_) {
+      _showSnack('تعذر بدء تغيير البريد الإلكتروني');
+    } finally {
+      if (!mounted) return;
+      setState(() {
+        _isChangingEmail = false;
+      });
+    }
+  }
+
+  Future<void> _clearPendingEmailChange() async {
+    if (_isCancellingPendingEmailChange) return;
+
+    setState(() {
+      _isCancellingPendingEmailChange = true;
+    });
+
+    try {
+      _stopEmailVerificationWatcher();
+      await _service.clearPendingEmailChange();
+      _newEmailController.clear();
+      _emailPasswordController.clear();
+      await _loadUserData();
+      _showSnack('تم إلغاء طلب تغيير البريد الإلكتروني');
+    } on FirebaseAuthException catch (e) {
+      _showSnack(e.message ?? 'تعذر إلغاء الطلب');
+    } catch (_) {
+      _showSnack('تعذر إلغاء الطلب');
+    } finally {
+      if (!mounted) return;
+      setState(() {
+        _isCancellingPendingEmailChange = false;
       });
     }
   }
@@ -227,60 +508,128 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
   }
 
   Future<void> _requestPermanentDeletion() async {
-    final isAdmin = _userData?.role == 'admin';
+  final isAdmin = _userData?.role == 'admin';
 
-    if (isAdmin) {
-      _showSnack('لا يمكن للأدمن طلب حذف حسابه بنفسه');
-      return;
-    }
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (_) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          title: const Text('طلب حذف دائم'),
-          content: const Text(
-            'هل أنتِ متأكدة أنكِ تريدين إرسال طلب حذف دائم للحساب؟ سيتم إرسال الطلب للإدارة للمراجعة، ولن يتم حذف الحساب مباشرة.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('إلغاء'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.danger,
-              ),
-              child: const Text('إرسال الطلب'),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    if (confirmed != true) return;
-
-    setState(() {
-      _isRequestingDeletion = true;
-    });
-
-    try {
-      await _service.requestPermanentDeletion();
-      _showSnack('تم إرسال طلب الحذف الدائم للإدارة بنجاح');
-      await _loadUserData();
-    } on FirebaseAuthException catch (e) {
-      _showSnack(e.message ?? 'تعذر إرسال طلب الحذف الدائم');
-    } catch (_) {
-      _showSnack('تعذر إرسال طلب الحذف الدائم');
-    } finally {
-      if (!mounted) return;
-      setState(() {
-        _isRequestingDeletion = false;
-      });
-    }
+  if (isAdmin) {
+    _showSnack('لا يمكن للأدمن طلب حذف حسابه بنفسه');
+    return;
   }
+
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (_) => Directionality(
+      textDirection: TextDirection.rtl,
+      child: AlertDialog(
+        title: const Text('طلب حذف دائم'),
+        content: const Text(
+          'هل أنتِ متأكدة أنكِ تريدين إرسال طلب حذف دائم للحساب؟ سيتم إرسال الطلب للإدارة للمراجعة، ولن يتم حذف الحساب مباشرة.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('إلغاء'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+            ),
+            child: const Text('إرسال الطلب'),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  if (confirmed != true) return;
+
+  setState(() {
+    _isRequestingDeletion = true;
+  });
+
+  try {
+    await _service.requestPermanentDeletion();
+    await _loadUserData();
+
+    if (!mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+messenger.hideCurrentSnackBar();
+messenger.removeCurrentSnackBar();
+
+messenger.showSnackBar(
+  SnackBar(
+    duration: const Duration(seconds: 3),
+    behavior: SnackBarBehavior.floating,
+    content: Row(
+      children: [
+        const Expanded(
+          child: Text(
+            'تم إرسال طلب الحذف الدائم للإدارة',
+            textAlign: TextAlign.center,
+          ),
+        ),
+        TextButton(
+          onPressed: () async {
+            messenger.hideCurrentSnackBar();
+
+            await _cancelPermanentDeletionRequest();
+
+            if (!mounted) return;
+            await _loadUserData();
+          },
+          child: const Text('تراجع'),
+        ),
+      ],
+    ),
+  ),
+);
+  } on FirebaseAuthException catch (e) {
+    _showSnack(e.message ?? 'تعذر إرسال طلب الحذف الدائم');
+  } catch (_) {
+    _showSnack('تعذر إرسال طلب الحذف الدائم');
+  } finally {
+    if (!mounted) return;
+    setState(() {
+      _isRequestingDeletion = false;
+    });
+  }
+}
+
+  Future<void> _cancelPermanentDeletionRequest() async {
+  final request = _deletionRequestData;
+
+  if (request == null || !request.isPending) {
+    _showSnack('لا يوجد طلب حذف قيد المراجعة للتراجع عنه');
+    return;
+  }
+
+  setState(() {
+    _isCancellingDeletionRequest = true;
+  });
+
+  try {
+    await _service.cancelPendingDeletionRequest();
+
+    if (!mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.removeCurrentSnackBar();
+
+    await _loadUserData();
+    _showSnack('تم سحب طلب الحذف بنجاح');
+  } on FirebaseAuthException catch (e) {
+    _showSnack(e.message ?? 'تعذر سحب طلب الحذف');
+  } catch (_) {
+    _showSnack('تعذر سحب طلب الحذف');
+  } finally {
+    if (!mounted) return;
+    setState(() {
+      _isCancellingDeletionRequest = false;
+    });
+  }
+}
 
   String _formatDate(DateTime date) {
     return '${date.year}/${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')} - ${date.hour}:${date.minute.toString().padLeft(2, '0')}';
@@ -309,11 +658,9 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
                     children: [
                       _AccountHeaderCard(userData: _userData!),
                       const SizedBox(height: 18),
-
                       const _SectionLabel(title: 'معلومات الحساب'),
                       const SizedBox(height: 8),
                       _buildAccountInfoCard(),
-
                       const SizedBox(height: 18),
                       const _SectionLabel(title: 'سجل الحساب'),
                       const SizedBox(height: 8),
@@ -341,24 +688,24 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
                           },
                         ),
                       ),
-
                       const SizedBox(height: 18),
                       const _SectionLabel(title: 'تعديل الاسم'),
                       const SizedBox(height: 8),
                       _buildNameEditCard(),
-
+                      const SizedBox(height: 18),
+                      const _SectionLabel(title: 'تغيير البريد الإلكتروني'),
+                      const SizedBox(height: 8),
+                      _buildEmailCard(),
                       const SizedBox(height: 18),
                       const _SectionLabel(title: 'تغيير كلمة المرور'),
                       const SizedBox(height: 8),
                       _buildPasswordCard(),
-
                       const SizedBox(height: 18),
                       const _SectionLabel(title: 'إدارة الحساب'),
                       const SizedBox(height: 8),
                       _buildAccountStatusCard(),
                       const SizedBox(height: 10),
                       _buildAccountActionsCard(),
-
                       const SizedBox(height: 12),
                     ],
                   ),
@@ -391,6 +738,14 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
               label: 'البريد الإلكتروني',
               value: data.email.isEmpty ? 'غير محدد' : data.email,
             ),
+            if (data.hasPendingEmailChange) ...[
+              const SizedBox(height: 12),
+              _InfoRow(
+                icon: Icons.mark_email_unread_outlined,
+                label: 'بريد جديد بانتظار التحقق',
+                value: data.pendingEmail,
+              ),
+            ],
             const SizedBox(height: 12),
             _InfoRow(
               icon: Icons.badge_outlined,
@@ -457,6 +812,213 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmailCard() {
+    final data = _userData!;
+    final hasPending = data.hasPendingEmailChange;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.background,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Text(
+                hasPending
+                    ? 'يوجد طلب تغيير بريد معلق إلى: ${data.pendingEmail}\nافتحي رابط التحقق المرسل إلى البريد الجديد، وسيتم فحص التغيير تلقائيًا لمدة دقيقتين أو حتى اكتمال المزامنة.'
+                    : 'سيتم إرسال رابط تحقق إلى البريد الجديد، ولن يتغير البريد الحالي قبل تأكيد الرابط من البريد الجديد.',
+                style: const TextStyle(
+                  color: AppColors.textLight,
+                  height: 1.5,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Form(
+              key: _emailFormKey,
+              child: Column(
+                children: [
+                  TextFormField(
+                    initialValue: data.email,
+                    enabled: false,
+                    decoration: const InputDecoration(
+                      labelText: 'البريد الحالي',
+                      prefixIcon: Icon(Icons.email_outlined),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _newEmailController,
+                    keyboardType: TextInputType.emailAddress,
+                    validator: _service.validateEmail,
+                    decoration: const InputDecoration(
+                      labelText: 'البريد الإلكتروني الجديد',
+                      hintText: 'example@email.com',
+                      prefixIcon: Icon(Icons.mark_email_read_outlined),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _emailPasswordController,
+                    obscureText: _obscureEmailPassword,
+                    validator: (value) {
+                      if ((value ?? '').trim().isEmpty) {
+                        return 'كلمة المرور الحالية مطلوبة';
+                      }
+                      return null;
+                    },
+                    decoration: InputDecoration(
+                      labelText: 'كلمة المرور الحالية للتأكيد',
+                      prefixIcon: const Icon(Icons.lock_outline_rounded),
+                      suffixIcon: IconButton(
+                        onPressed: () {
+                          setState(() {
+                            _obscureEmailPassword = !_obscureEmailPassword;
+                          });
+                        },
+                        icon: Icon(
+                          _obscureEmailPassword
+                              ? Icons.visibility_off_outlined
+                              : Icons.visibility_outlined,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: (_isChangingEmail ||
+                              _isAutoCheckingEmail ||
+                              _isCancellingPendingEmailChange)
+                          ? null
+                          : _requestEmailChange,
+                      icon: _isChangingEmail
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.3,
+                                color: Colors.white,
+                              ),
+                            )
+                          : _isAutoCheckingEmail
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.3,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(Icons.mark_email_read_outlined),
+                      label: Text(
+                        _isChangingEmail
+                            ? 'جاري إرسال الرابط...'
+                            : _isAutoCheckingEmail
+                                ? 'جاري التحقق تلقائيًا...'
+                                : 'إرسال رابط التحقق',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (hasPending) ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.background,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: _emailVerificationTimedOut
+                        ? AppColors.danger.withOpacity(0.5)
+                        : AppColors.primary.withOpacity(0.25),
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    if (_isAutoCheckingEmail) ...[
+                      const Text(
+                        'الوقت المتبقي لإتمام التحقق التلقائي',
+                        style: TextStyle(
+                          color: AppColors.textLight,
+                          fontWeight: FontWeight.w700,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _formatCountdown(_remainingEmailVerificationSeconds),
+                        style: const TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.primary,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ] else if (_emailVerificationTimedOut) ...[
+                      const Text(
+                        'انتهت مهلة الفحص التلقائي. إذا كنتِ أكملتِ التحقق لكن انقطعت الجلسة، سجّلي الدخول من جديد لإكمال المزامنة. وإلا أعيدي طلب تغيير البريد.',
+                        style: TextStyle(
+                          color: AppColors.danger,
+                          fontWeight: FontWeight.w700,
+                          height: 1.5,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ] else ...[
+                      const Text(
+                        'الطلب ما زال معلقًا بانتظار التحقق من البريد الجديد.',
+                        style: TextStyle(
+                          color: AppColors.textLight,
+                          fontWeight: FontWeight.w700,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _isCancellingPendingEmailChange
+                      ? null
+                      : _clearPendingEmailChange,
+                  icon: _isCancellingPendingEmailChange
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2.3),
+                        )
+                      : const Icon(Icons.close_rounded),
+                  label: Text(
+                    _isCancellingPendingEmailChange
+                        ? 'جاري إلغاء الطلب...'
+                        : 'إلغاء الطلب المعلق',
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.danger,
+                    side: const BorderSide(color: AppColors.danger),
+                  ),
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );
@@ -615,7 +1177,7 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
       icon = Icons.hourglass_top_rounded;
       title = 'طلب حذف قيد المراجعة';
       message =
-          'تم إرسال طلب حذف دائم للحساب وهو الآن بانتظار مراجعة الإدارة.';
+          'تم إرسال طلب حذف دائم للحساب وهو الآن بانتظار مراجعة الإدارة. يمكنك سحب الطلب ما دام لم تتم معالجته بعد.';
     } else if (request?.isApproved == true) {
       bgColor = AppColors.danger.withOpacity(0.08);
       textColor = AppColors.danger;
@@ -809,6 +1371,35 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
                 ),
               ),
             ],
+            if (!isAdmin && hasPendingDeletion) ...[
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _isCancellingDeletionRequest
+                      ? null
+                      : _cancelPermanentDeletionRequest,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange,
+                  ),
+                  icon: _isCancellingDeletionRequest
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.3,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.undo_rounded),
+                  label: Text(
+                    _isCancellingDeletionRequest
+                        ? 'جاري سحب الطلب...'
+                        : 'سحب طلب الحذف',
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -824,7 +1415,8 @@ class _AccountHeaderCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final trimmedName = userData.name.trim();
-    final firstLetter = trimmedName.isNotEmpty ? trimmedName.substring(0, 1) : '؟';
+    final firstLetter =
+        trimmedName.isNotEmpty ? trimmedName.substring(0, 1) : '؟';
 
     return Card(
       child: Padding(

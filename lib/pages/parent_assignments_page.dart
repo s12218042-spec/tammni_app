@@ -13,12 +13,65 @@ class ParentAssignmentsPage extends StatelessWidget {
     required this.child,
   });
 
-  String _formatDate(dynamic time) {
-    if (time is Timestamp) {
-      final date = time.toDate();
+  String _safeText(dynamic value, {String fallback = ''}) {
+    if (value == null) return fallback;
+    final text = value.toString().trim();
+    return text.isEmpty ? fallback : text;
+  }
+
+  Timestamp? _resolveTimestamp(Map<String, dynamic> data) {
+    final candidates = [
+      data['dueDate'],
+      data['time'],
+      data['createdAt'],
+      data['updatedAt'],
+    ];
+
+    for (final value in candidates) {
+      if (value is Timestamp) return value;
+    }
+
+    return null;
+  }
+
+  String _formatDate(dynamic raw) {
+    if (raw is Timestamp) {
+      final date = raw.toDate();
       return '${date.year}/${date.month}/${date.day}';
     }
     return 'غير محدد';
+  }
+
+  String _resolveDescription(Map<String, dynamic> data) {
+    final candidates = [
+      data['description'],
+      data['message'],
+      data['details'],
+      data['body'],
+      data['note'],
+    ];
+
+    for (final value in candidates) {
+      final text = _safeText(value);
+      if (text.isNotEmpty) return text;
+    }
+
+    return '';
+  }
+
+  String _resolveStatus(Map<String, dynamic> data) {
+    final raw = _safeText(data['status'], fallback: 'نشط');
+
+    switch (raw) {
+      case 'active':
+        return 'نشط';
+      case 'closed':
+        return 'مغلق';
+      case 'completed':
+        return 'مكتمل';
+      default:
+        return raw;
+    }
   }
 
   Color _statusColor(String status) {
@@ -45,12 +98,11 @@ class ParentAssignmentsPage extends StatelessWidget {
           _buildHeader(),
           const SizedBox(height: 16),
           Expanded(
-            child: StreamBuilder<QuerySnapshot>(
+            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: firestore
                   .collection('assignments')
                   .where('group', isEqualTo: child.group)
                   .where('section', isEqualTo: child.section)
-                  .orderBy('time', descending: true)
                   .snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
@@ -68,7 +120,19 @@ class ParentAssignmentsPage extends StatelessWidget {
                   );
                 }
 
-                final docs = snapshot.data?.docs ?? [];
+                final rawDocs = snapshot.data?.docs ?? [];
+
+                final docs = [...rawDocs]
+                  ..sort((a, b) {
+                    final aTime = _resolveTimestamp(a.data());
+                    final bTime = _resolveTimestamp(b.data());
+
+                    if (aTime == null && bTime == null) return 0;
+                    if (aTime == null) return 1;
+                    if (bTime == null) return -1;
+
+                    return bTime.compareTo(aTime);
+                  });
 
                 if (docs.isEmpty) {
                   return ListView(
@@ -85,16 +149,22 @@ class ParentAssignmentsPage extends StatelessWidget {
                   itemCount: docs.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 12),
                   itemBuilder: (context, index) {
-                    final data = docs[index].data() as Map<String, dynamic>;
+                    final data = docs[index].data();
 
-                    final title = data['title'] ?? 'واجب بدون عنوان';
-                    final description = data['description'] ?? '';
-                    final subject = data['subject'] ?? 'مادة غير محددة';
-                    final group = data['group'] ?? '';
-                    final dueDate = data['dueDate'];
-                    final status = data['status'] ?? 'نشط';
-                    final note = data['note'] ?? '';
-                    final createdByName = data['createdByName'] ?? '';
+                    final title = _safeText(
+                      data['title'],
+                      fallback: 'واجب بدون عنوان',
+                    );
+                    final description = _resolveDescription(data);
+                    final subject = _safeText(
+                      data['subject'],
+                      fallback: 'مادة غير محددة',
+                    );
+                    final group = _safeText(data['group']);
+                    final dueDate = _resolveTimestamp(data);
+                    final status = _resolveStatus(data);
+                    final note = _safeText(data['note']);
+                    final createdByName = _safeText(data['createdByName']);
 
                     return _AssignmentCard(
                       title: title,
@@ -148,7 +218,7 @@ class ParentAssignmentsPage extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            child.group.isEmpty
+            child.group.trim().isEmpty
                 ? 'متابعة واجبات الطفل الحالية.'
                 : 'المجموعة: ${child.group}',
             style: const TextStyle(
@@ -315,7 +385,14 @@ class _AssignmentCard extends StatelessWidget {
               ),
             ],
           ),
-          if (createdByName.toString().trim().isNotEmpty) ...[
+          if (group.trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _InfoTile(
+              title: 'المجموعة',
+              value: group,
+            ),
+          ],
+          if (createdByName.trim().isNotEmpty) ...[
             const SizedBox(height: 10),
             _InfoTile(
               title: 'أضيف بواسطة',
