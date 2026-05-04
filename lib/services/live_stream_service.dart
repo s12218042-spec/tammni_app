@@ -162,32 +162,6 @@ class LiveStreamService {
     };
   }
 
-  Future<int> _countWaitingRequestsBefore({
-    required String requestId,
-    required Timestamp requestedAt,
-  }) async {
-    final snapshot = await _firestore
-        .collection('live_stream_requests')
-        .where('status', whereIn: ['pending', 'queued'])
-        .orderBy('requestedAt', descending: false)
-        .get();
-
-    int position = 1;
-
-    for (final doc in snapshot.docs) {
-      if (doc.id == requestId) return position;
-
-      final data = doc.data();
-      final ts = data['requestedAt'];
-
-      if (ts is Timestamp && ts.compareTo(requestedAt) <= 0) {
-        position++;
-      }
-    }
-
-    return position;
-  }
-
   Future<LiveStreamRequestResult> requestLiveStreamForChild({
   required String childId,
   required String childName,
