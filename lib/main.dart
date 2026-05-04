@@ -34,6 +34,7 @@ Future<void> main() async {
 
   await NotificationService.instance.init();
   await NotificationService.instance.handleInitialMessage();
+  await NotificationService.instance.clearAppBadgeAndDeliveredNotifications();
 
   runApp(const MyApp());
 }

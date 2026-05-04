@@ -1,22 +1,18 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 
 import '../models/child_model.dart';
 import '../services/account_settings_service.dart';
 import '../services/auth_service.dart';
-import '../services/gallery_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 import 'account_history_page.dart';
 import 'account_settings_page.dart';
 import 'add_update_page.dart';
-import 'camera_checkin_page.dart';
 import 'child_handoff_log_page.dart';
 import 'incident_report_page.dart';
 import 'nursery_care_log_page.dart';
 import 'nursery_chats_page.dart';
-import 'quick_care_update_page.dart';
 import 'send_parent_notification_page.dart';
 import 'start_live_stream_page.dart';
 import 'welcome_page.dart';
@@ -30,7 +26,6 @@ class NurseryStaffHomePage extends StatefulWidget {
 
 class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final GalleryService _galleryService = GalleryService();
   final AccountSettingsService _accountSettingsService =
       AccountSettingsService();
 
@@ -39,7 +34,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
   bool isDarkMode = false;
 
   String searchQuery = '';
-  String selectedStatusFilter = 'all'; // all / needUpdate / updatedToday
+  String selectedStatusFilter = 'all';
 
   String get _pageTitle {
     switch (selectedIndex) {
@@ -61,6 +56,37 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
     return role == 'nursery' ||
         role == 'nursery_staff' ||
         role == 'nursery staff';
+  }
+
+  String _normalizeRole(String value) {
+    final role = value.trim().toLowerCase();
+
+    if (role == 'nursery' ||
+        role == 'nursery staff' ||
+        role == 'nursery_staff') {
+      return 'nursery_staff';
+    }
+
+    if (role == 'admin') return 'admin';
+    if (role == 'parent') return 'parent';
+
+    return role;
+  }
+
+  Timestamp? _resolveTimestamp(Map<String, dynamic> data) {
+    final values = [
+      data['time'],
+      data['eventAt'],
+      data['createdAt'],
+      data['timestamp'],
+      data['updatedAt'],
+    ];
+
+    for (final value in values) {
+      if (value is Timestamp) return value;
+    }
+
+    return null;
   }
 
   Future<List<ChildModel>> fetchNurseryChildren() async {
@@ -265,15 +291,10 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
     for (final doc in updatesSnapshot.docs) {
       final data = doc.data();
       final childId = (data['childId'] ?? '').toString();
+
       if (!childIds.contains(childId)) continue;
 
-      final Timestamp? ts = data['time'] is Timestamp
-          ? data['time'] as Timestamp
-          : data['createdAt'] is Timestamp
-              ? data['createdAt'] as Timestamp
-              : data['eventAt'] is Timestamp
-                  ? data['eventAt'] as Timestamp
-                  : null;
+      final ts = _resolveTimestamp(data);
 
       if (ts == null) continue;
       if (ts.toDate().isBefore(startOfDay)) continue;
@@ -317,18 +338,13 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
 
       if (!childIds.contains(childId)) continue;
 
-      final Timestamp? ts = data['time'] is Timestamp
-          ? data['time'] as Timestamp
-          : data['createdAt'] is Timestamp
-              ? data['createdAt'] as Timestamp
-              : data['eventAt'] is Timestamp
-                  ? data['eventAt'] as Timestamp
-                  : null;
+      final ts = _resolveTimestamp(data);
 
       if (ts == null) continue;
       if (ts.toDate().isBefore(startOfDay)) continue;
 
       final old = latestUpdateByChild[childId];
+
       if (old == null) {
         latestUpdateByChild[childId] = {
           'type': (data['type'] ?? 'تحديث').toString(),
@@ -337,6 +353,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
         };
       } else {
         final oldTs = old['time'] as Timestamp?;
+
         if (oldTs == null || ts.compareTo(oldTs) > 0) {
           latestUpdateByChild[childId] = {
             'type': (data['type'] ?? 'تحديث').toString(),
@@ -354,6 +371,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
     List<ChildModel> children,
   ) async {
     final latestUpdateByChild = await fetchTodayUpdatesSummary(children);
+
     return children
         .where((child) => !latestUpdateByChild.containsKey(child.id))
         .toList();
@@ -372,14 +390,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
 
     for (final doc in updatesSnapshot.docs) {
       final data = doc.data();
-
-      final Timestamp? ts = data['time'] is Timestamp
-          ? data['time'] as Timestamp
-          : data['createdAt'] is Timestamp
-              ? data['createdAt'] as Timestamp
-              : data['eventAt'] is Timestamp
-                  ? data['eventAt'] as Timestamp
-                  : null;
+      final ts = _resolveTimestamp(data);
 
       if (ts == null) continue;
       if (ts.toDate().isBefore(startOfDay)) continue;
@@ -466,9 +477,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
       try {
         final snapshot = await query.limit(limit).get();
         allDocs.addAll(snapshot.docs);
-      } catch (_) {
-        // بعض الحقول قد لا تكون موجودة أو تحتاج index، لذلك نترك fallback العام يعمل.
-      }
+      } catch (_) {}
     }
 
     if (currentUid.isNotEmpty) {
@@ -680,7 +689,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
       MaterialPageRoute(
         builder: (_) => AddUpdatePage(
           child: child,
-          byRole: 'nursery',
+          byRole: 'nursery_staff',
         ),
       ),
     );
@@ -688,104 +697,6 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
     if (res == true && mounted) {
       setState(() {});
     }
-  }
-
-  Future<void> openCameraCheckin(ChildModel child) async {
-    final res = await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const CameraCheckinPage()),
-    );
-
-    if (res is! Map) return;
-
-    final path = res['path'] as String?;
-    final type = res['type'] as String?;
-    final description = (res['description'] ?? '').toString().trim();
-    final file = res['file'] as XFile?;
-
-    if (path == null || type == null) return;
-
-    try {
-      final fileToUpload = file ?? XFile(path);
-
-      final uploaded = await _galleryService.uploadChildMediaDetailed(
-        childId: child.id,
-        file: fileToUpload,
-        mediaType: type,
-      );
-
-      if (uploaded == null) {
-        throw Exception('فشل رفع الوسائط إلى Supabase');
-      }
-
-      final userInfo = await fetchCurrentUserInfo();
-      final parentInfo = await fetchParentLinkInfo(child);
-
-      final now = Timestamp.now();
-
-      await _firestore.collection('updates').add({
-        'childId': child.id,
-        'childName': child.name,
-        'parentUid': parentInfo['parentUid'],
-        'parentUsername': parentInfo['parentUsername'],
-        'section': child.section,
-        'group': child.group,
-        'type': 'كاميرا',
-        'note': description.isNotEmpty
-            ? description
-            : (type == 'image' ? 'صورة للطفل' : 'فيديو قصير للطفل'),
-        'message': description.isNotEmpty
-            ? description
-            : (type == 'image' ? 'صورة للطفل' : 'فيديو قصير للطفل'),
-        'description': description.isNotEmpty
-            ? description
-            : (type == 'image' ? 'صورة للطفل' : 'فيديو قصير للطفل'),
-        'title': 'تحديث كاميرا',
-        'createdAt': now,
-        'time': FieldValue.serverTimestamp(),
-        'eventAt': now,
-        'updatedAt': now,
-        'byRole': userInfo['role'],
-        'createdByUid': userInfo['uid'],
-        'createdByName': userInfo['name'],
-        'createdByRole': userInfo['role'],
-        'mediaPath': uploaded.path,
-        'mediaType': type,
-        'mediaUrl': uploaded.signedUrl,
-        'storageProvider': uploaded.storageProvider,
-        'bucket': uploaded.bucket,
-        'mimeType': uploaded.mimeType,
-        'sizeBytes': uploaded.sizeBytes,
-        'hasMedia': true,
-        'importance': 'normal',
-        'tags': ['كاميرا'],
-        'mood': '',
-        'energy': '',
-        'locationLabel': '',
-        'notifyParent': false,
-      });
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم إرسال التحديث بالكاميرا')),
-      );
-      setState(() {});
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('حدث خطأ أثناء حفظ التحديث بالكاميرا: $e')),
-      );
-    }
-  }
-
-  Future<void> openQuickCareUpdate(ChildModel child) async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => QuickCareUpdatePage(child: child)),
-    );
-
-    if (!mounted) return;
-    setState(() {});
   }
 
   Future<void> openCareLog(ChildModel child) async {
@@ -888,47 +799,18 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
               data['username'] ??
               'مستخدم')
           .toString(),
-      'role': (data['role'] ?? '').toString(),
-    };
-  }
-
-  Future<Map<String, String>> fetchParentLinkInfo(ChildModel child) async {
-    String parentUid = child.parentUid.trim();
-    String parentUsername = child.parentUsername.trim().toLowerCase();
-
-    try {
-      final childDoc =
-          await _firestore.collection('children').doc(child.id).get();
-
-      if (childDoc.exists) {
-        final data = childDoc.data() ?? <String, dynamic>{};
-
-        final docParentUid = (data['parentUid'] ?? '').toString().trim();
-        final docParentUsername =
-            (data['parentUsername'] ?? '').toString().trim().toLowerCase();
-
-        if (docParentUid.isNotEmpty) {
-          parentUid = docParentUid;
-        }
-
-        if (docParentUsername.isNotEmpty) {
-          parentUsername = docParentUsername;
-        }
-      }
-    } catch (_) {
-      // fallback
-    }
-
-    return {
-      'parentUid': parentUid,
-      'parentUsername': parentUsername,
+      'role': _normalizeRole((data['role'] ?? '').toString()),
     };
   }
 
   String formatTime(Timestamp? ts) {
     if (ts == null) return 'غير محدد';
+
     final d = ts.toDate();
-    return '${d.year}/${d.month}/${d.day} - ${d.hour}:${d.minute.toString().padLeft(2, '0')}';
+    final hour = d.hour.toString().padLeft(2, '0');
+    final minute = d.minute.toString().padLeft(2, '0');
+
+    return '${d.year}/${d.month}/${d.day} - $hour:$minute';
   }
 
   List<ChildModel> applyChildrenFilters(
@@ -943,6 +825,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
       final hasUpdateToday = latestUpdateByChild.containsKey(child.id);
 
       bool matchesStatus = true;
+
       if (selectedStatusFilter == 'needUpdate') {
         matchesStatus = !hasUpdateToday;
       } else if (selectedStatusFilter == 'updatedToday') {
@@ -1051,8 +934,6 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
         children: [
           _buildWelcomeHeader(),
           const SizedBox(height: 16),
-          _buildInfoNotice(),
-          const SizedBox(height: 16),
           _buildStatsSection(stats),
           const SizedBox(height: 16),
           _buildAlertsSection(childrenNeedingUpdate),
@@ -1100,9 +981,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
                   latestUpdateType: (latestUpdate?['type'] ?? '').toString(),
                   latestUpdateTime: latestUpdate?['time'] as Timestamp?,
                   latestUpdateNote: (latestUpdate?['note'] ?? '').toString(),
-                  onCamera: () => openCameraCheckin(child),
                   onAddUpdate: () => openAddUpdate(child),
-                  onQuickCare: () => openQuickCareUpdate(child),
                   onCareLog: () => openCareLog(child),
                   onHandoffLog: () => openChildHandoffLog(child),
                   onIncidentReport: () => openIncidentReport(child),
@@ -1177,6 +1056,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
                       builder: (_) => const AccountSettingsPage(),
                     ),
                   );
+
                   if (!mounted) return;
                   setState(() {});
                 },
@@ -1214,6 +1094,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
                       builder: (_) => const AccountSettingsPage(),
                     ),
                   );
+
                   if (!mounted) return;
                   setState(() {});
                 },
@@ -1299,22 +1180,6 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
                       builder: (_) => const AccountHistoryPage(),
                     ),
                   );
-                },
-              ),
-              const Divider(height: 1),
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: AppColors.primary.withOpacity(0.12),
-                  child: const Icon(
-                    Icons.flash_on_rounded,
-                    color: AppColors.primary,
-                  ),
-                ),
-                title: const Text('رعاية سريعة'),
-                subtitle: const Text('اختيار طفل وإضافة رعاية سريعة'),
-                onTap: () async {
-                  final child = await pickChild(nurseryChildren);
-                  if (child != null) openQuickCareUpdate(child);
                 },
               ),
             ],
@@ -1490,7 +1355,9 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
                                 ),
                               ]
                             : [
-                                _buildNotificationActionButton(nurseryChildren),
+                                _buildNotificationActionButton(
+                                  nurseryChildren,
+                                ),
                               ],
                     child: _buildBody(
                       nurseryChildren: nurseryChildren,
@@ -1554,49 +1421,12 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: AppColors.primary.withOpacity(0.08)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'أهلاً بكِ',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.textDark,
-                ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'تابعي أطفال الحضانة من خلال الرعاية اليومية، الصور، الملاحظات السريعة، الحوادث، والتواصل مع الأهل.',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: AppColors.textLight,
-                  height: 1.5,
-                ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInfoNotice() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: const Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(Icons.info_outline_rounded, color: AppColors.secondary),
-          SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              'ملاحظة: تسجيل دخول وخروج أطفال الحضانة لم يعد من صلاحيات موظفات الحضانة، وأصبح من مسؤولية الإدارة فقط. دور موظفة الحضانة هنا يركز على الرعاية والتحديثات والمتابعة اليومية.',
-              style: TextStyle(color: AppColors.textDark, height: 1.5),
+      child: Text(
+        'أهلاً بكِ',
+        style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: AppColors.textDark,
             ),
-          ),
-        ],
       ),
     );
   }
@@ -1675,7 +1505,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
             return Padding(
               padding: const EdgeInsets.only(bottom: 6),
               child: Text(
-                '${child.name} يحتاج متابعة أو تحديث اليوم',
+                '${child.name} يحتاج تحديث اليوم',
                 style: const TextStyle(fontWeight: FontWeight.w600),
               ),
             );
@@ -1688,34 +1518,11 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
   Widget _buildQuickActions(List<ChildModel> children) {
     final actions = [
       _QuickActionItem(
-        icon: Icons.wifi_tethering_rounded,
-        label: 'بث مباشر',
-        onTap: () async {
-          await Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => const StartLiveStreamPage(),
-            ),
-          );
-
-          if (!mounted) return;
-          setState(() {});
-        },
-      ),
-      _QuickActionItem(
-        icon: Icons.flash_on_rounded,
-        label: 'رعاية سريعة',
+        icon: Icons.note_add_outlined,
+        label: 'إضافة تحديث',
         onTap: () async {
           final child = await pickChild(children);
-          if (child != null) openQuickCareUpdate(child);
-        },
-      ),
-      _QuickActionItem(
-        icon: Icons.camera_alt_outlined,
-        label: 'كاميرا',
-        onTap: () async {
-          final child = await pickChild(children);
-          if (child != null) openCameraCheckin(child);
+          if (child != null) openAddUpdate(child);
         },
       ),
       _QuickActionItem(
@@ -1747,6 +1554,21 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
         label: 'إرسال إشعار',
         onTap: () => openSendNotification(children),
       ),
+      _QuickActionItem(
+        icon: Icons.wifi_tethering_rounded,
+        label: 'بث مباشر',
+        onTap: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const StartLiveStreamPage(),
+            ),
+          );
+
+          if (!mounted) return;
+          setState(() {});
+        },
+      ),
     ];
 
     return Card(
@@ -1756,7 +1578,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'إجراءات سريعة',
+              'الإجراءات',
               style: TextStyle(
                 fontWeight: FontWeight.w800,
                 fontSize: 16,
@@ -1776,6 +1598,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
               ),
               itemBuilder: (context, index) {
                 final item = actions[index];
+
                 return _QuickActionCard(
                   icon: item.icon,
                   label: item.label,
@@ -1879,15 +1702,6 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
               color: AppColors.textDark,
             ),
           ),
-          const SizedBox(height: 6),
-          const Text(
-            'أحدث التحديثات والرعاية والوسائط الخاصة بأطفال الحضانة.',
-            style: TextStyle(
-              fontSize: 13.5,
-              color: AppColors.textLight,
-              height: 1.4,
-            ),
-          ),
           const SizedBox(height: 14),
           if (activities.isEmpty)
             Container(
@@ -1968,9 +1782,7 @@ class _NurseryChildDashboardCard extends StatelessWidget {
   final String latestUpdateType;
   final Timestamp? latestUpdateTime;
   final String latestUpdateNote;
-  final VoidCallback onCamera;
   final VoidCallback onAddUpdate;
-  final VoidCallback onQuickCare;
   final VoidCallback onCareLog;
   final VoidCallback onHandoffLog;
   final VoidCallback onIncidentReport;
@@ -1984,9 +1796,7 @@ class _NurseryChildDashboardCard extends StatelessWidget {
     required this.latestUpdateType,
     required this.latestUpdateTime,
     required this.latestUpdateNote,
-    required this.onCamera,
     required this.onAddUpdate,
-    required this.onQuickCare,
     required this.onCareLog,
     required this.onHandoffLog,
     required this.onIncidentReport,
@@ -1994,6 +1804,7 @@ class _NurseryChildDashboardCard extends StatelessWidget {
 
   String _formatUpdateTime(Timestamp? ts) {
     if (ts == null) return 'غير محدد';
+
     final d = ts.toDate();
     return '${d.hour}:${d.minute.toString().padLeft(2, '0')}';
   }
@@ -2098,24 +1909,13 @@ class _NurseryChildDashboardCard extends StatelessWidget {
                     ),
             ),
             const SizedBox(height: 14),
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: onAddUpdate,
-                    icon: const Icon(Icons.note_add_outlined),
-                    label: const Text('تحديث'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: onCamera,
-                    icon: const Icon(Icons.photo_camera_outlined),
-                    label: const Text('كاميرا'),
-                  ),
-                ),
-              ],
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: onAddUpdate,
+                icon: const Icon(Icons.note_add_outlined),
+                label: const Text('إضافة تحديث'),
+              ),
             ),
             const SizedBox(height: 10),
             GridView.count(
@@ -2126,11 +1926,6 @@ class _NurseryChildDashboardCard extends StatelessWidget {
               crossAxisSpacing: 10,
               childAspectRatio: 2.4,
               children: [
-                _ChildActionMiniCard(
-                  icon: Icons.flash_on_rounded,
-                  label: 'رعاية سريعة',
-                  onTap: onQuickCare,
-                ),
                 _ChildActionMiniCard(
                   icon: Icons.menu_book_outlined,
                   label: 'سجل الرعاية',
@@ -2186,6 +1981,7 @@ class _NurseryNotificationsPageState extends State<_NurseryNotificationsPage> {
     setState(() {
       _future = widget.fetchRecentNotifications();
     });
+
     await _future;
   }
 
@@ -2194,6 +1990,7 @@ class _NurseryNotificationsPageState extends State<_NurseryNotificationsPage> {
       final d = raw.toDate();
       return '${d.year}/${d.month}/${d.day} - ${d.hour}:${d.minute.toString().padLeft(2, '0')}';
     }
+
     return 'غير محدد';
   }
 
@@ -2259,32 +2056,17 @@ class _NurseryNotificationsPageState extends State<_NurseryNotificationsPage> {
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
               children: [
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      children: [
-                        const _InfoPanel(
-                          icon: Icons.notifications_active_outlined,
-                          title: 'إشعارات موظفة الحضانة',
-                          message:
-                              'من هنا يمكنك إرسال إشعار جديد للأهل ومراجعة الإشعارات الواردة والمرسلة.',
-                        ),
-                        const SizedBox(height: 14),
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton.icon(
-                            onPressed: () async {
-                              await widget.onSendPressed();
-                              if (!mounted) return;
-                              await _refresh();
-                            },
-                            icon: const Icon(Icons.add_alert_outlined),
-                            label: const Text('إرسال إشعار جديد'),
-                          ),
-                        ),
-                      ],
-                    ),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () async {
+                      await widget.onSendPressed();
+
+                      if (!mounted) return;
+                      await _refresh();
+                    },
+                    icon: const Icon(Icons.add_alert_outlined),
+                    label: const Text('إرسال إشعار جديد'),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -2331,6 +2113,7 @@ class _NurseryNotificationsPageState extends State<_NurseryNotificationsPage> {
                         onTap: () async {
                           if (!isRead && id.trim().isNotEmpty) {
                             await widget.markAsRead(id);
+
                             if (!mounted) return;
                             await _refresh();
                           }
@@ -2550,65 +2333,6 @@ class _ChildActionMiniCard extends StatelessWidget {
       style: OutlinedButton.styleFrom(
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(14),
-        ),
-      ),
-    );
-  }
-}
-
-class _InfoPanel extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String message;
-
-  const _InfoPanel({
-    required this.icon,
-    required this.title,
-    required this.message,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: AppColors.primary.withOpacity(0.05),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.primary.withOpacity(0.12)),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            CircleAvatar(
-              backgroundColor: AppColors.primary.withOpacity(0.12),
-              child: Icon(icon, color: AppColors.primary),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14.5,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    message,
-                    style: const TextStyle(
-                      color: Colors.black54,
-                      height: 1.4,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
         ),
       ),
     );

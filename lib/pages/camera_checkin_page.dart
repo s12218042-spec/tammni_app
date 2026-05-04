@@ -1,5 +1,5 @@
-import 'dart:async';
-import 'package:flutter/foundation.dart';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -20,9 +20,9 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
   XFile? picked;
   Uint8List? imageBytes;
 
-  String mediaType = 'image'; // image / video
+  String mediaType = 'image';
   bool isBusy = false;
-  int selectedTimer = 0; // 0 / 3 / 5
+  int selectedTimer = 0;
   CameraDevice selectedCamera = CameraDevice.rear;
 
   @override
@@ -31,15 +31,35 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
     super.dispose();
   }
 
+  void _showSnack(String message) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
   Future<void> _waitForTimer() async {
     if (selectedTimer > 0) {
       await Future.delayed(Duration(seconds: selectedTimer));
     }
   }
 
+  void _setMediaType(String type) {
+    if (mediaType == type) return;
+
+    setState(() {
+      mediaType = type;
+      picked = null;
+      imageBytes = null;
+      descriptionCtrl.clear();
+    });
+  }
+
   Future<void> takePhoto() async {
     try {
       if (!mounted) return;
+
       setState(() {
         isBusy = true;
       });
@@ -64,6 +84,7 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
       final bytes = await x.readAsBytes();
 
       if (!mounted) return;
+
       setState(() {
         picked = x;
         imageBytes = bytes;
@@ -72,19 +93,19 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
       });
     } catch (e) {
       if (!mounted) return;
+
       setState(() {
         isBusy = false;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('حدث خطأ أثناء التقاط الصورة: $e')),
-      );
+      _showSnack('حدث خطأ أثناء التقاط الصورة: $e');
     }
   }
 
   Future<void> pickFromGallery() async {
     try {
       if (!mounted) return;
+
       setState(() {
         isBusy = true;
       });
@@ -106,6 +127,7 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
       final bytes = await x.readAsBytes();
 
       if (!mounted) return;
+
       setState(() {
         picked = x;
         imageBytes = bytes;
@@ -114,19 +136,19 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
       });
     } catch (e) {
       if (!mounted) return;
+
       setState(() {
         isBusy = false;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('حدث خطأ أثناء اختيار الصورة: $e')),
-      );
+      _showSnack('حدث خطأ أثناء اختيار الصورة: $e');
     }
   }
 
   Future<void> takeVideo() async {
     try {
       if (!mounted) return;
+
       setState(() {
         isBusy = true;
       });
@@ -156,13 +178,12 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
       });
     } catch (e) {
       if (!mounted) return;
+
       setState(() {
         isBusy = false;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('حدث خطأ أثناء تسجيل الفيديو: $e')),
-      );
+      _showSnack('حدث خطأ أثناء تسجيل الفيديو: $e');
     }
   }
 
@@ -175,22 +196,16 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
   }
 
   void sendBack() {
-    if (picked == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('صوّري صورة أو فيديو أولًا')),
-      );
+    final selected = picked;
+
+    if (selected == null) {
+      _showSnack('صوّري صورة أو فيديو أولًا');
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('تم تجهيز الميديا بنجاح وإرسالها للصفحة السابقة'),
-      ),
-    );
-
     Navigator.pop(context, {
-      'path': picked!.path,
-      'file': picked,
+      'path': selected.path,
+      'file': selected,
       'type': mediaType,
       'description': descriptionCtrl.text.trim(),
     });
@@ -209,7 +224,7 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
     return '$selectedTimer ثواني';
   }
 
-  Widget buildTopInfoCard() {
+  Widget buildHeaderCard() {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(18),
@@ -227,27 +242,13 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
           color: AppColors.primary.withOpacity(0.08),
         ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: const [
-          Text(
-            'التقاط صورة أو فيديو للتحديث',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w800,
-              color: AppColors.textDark,
-            ),
-          ),
-          SizedBox(height: 8),
-          Text(
-            'هذه الصفحة مخصصة لإرسال ميديا كتحديث لوليّ الأمر، وليست لتسجيل الحضور. يمكنك التقاط صورة، تسجيل فيديو قصير، أو اختيار صورة جاهزة من الجهاز.',
-            style: TextStyle(
-              fontSize: 14,
-              color: AppColors.textLight,
-              height: 1.5,
-            ),
-          ),
-        ],
+      child: const Text(
+        'التقاط ميديا للتحديث',
+        style: TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.w800,
+          color: AppColors.textDark,
+        ),
       ),
     );
   }
@@ -264,13 +265,7 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
         children: [
           Expanded(
             child: GestureDetector(
-              onTap: isBusy
-                  ? null
-                  : () {
-                      setState(() {
-                        mediaType = 'image';
-                      });
-                    },
+              onTap: isBusy ? null : () => _setMediaType('image'),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 220),
                 padding: const EdgeInsets.symmetric(vertical: 14),
@@ -281,7 +276,7 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
                   borderRadius: BorderRadius.circular(14),
                 ),
                 child: Text(
-                  '📷 صورة',
+                  'صورة',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 15,
@@ -296,13 +291,7 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
           ),
           Expanded(
             child: GestureDetector(
-              onTap: isBusy
-                  ? null
-                  : () {
-                      setState(() {
-                        mediaType = 'video';
-                      });
-                    },
+              onTap: isBusy ? null : () => _setMediaType('video'),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 220),
                 padding: const EdgeInsets.symmetric(vertical: 14),
@@ -313,7 +302,7 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
                   borderRadius: BorderRadius.circular(14),
                 ),
                 child: Text(
-                  '🎥 فيديو',
+                  'فيديو',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 15,
@@ -350,7 +339,7 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'خيارات سريعة',
+            'الإعدادات',
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w800,
@@ -365,7 +354,7 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
               _OptionChip(
                 label: 'المؤقت: ${_timerLabel()}',
                 icon: Icons.timer_outlined,
-                isSelected: false,
+                isSelected: selectedTimer > 0,
               ),
               _OptionChip(
                 label: 'الكاميرا: ${_cameraLabel()}',
@@ -466,23 +455,6 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: AppColors.background,
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: const Text(
-              'ملاحظة: تم تفعيل المؤقت وتبديل الكاميرا بشكل آمن. أما الفلاش فلا يمكن التحكم به مباشرة من هذه الصفحة باستخدام الحزمة الحالية فقط.',
-              style: TextStyle(
-                fontSize: 12.8,
-                color: AppColors.textLight,
-                height: 1.5,
-              ),
-            ),
-          ),
         ],
       ),
     );
@@ -498,12 +470,12 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
           borderRadius: BorderRadius.circular(22),
           border: Border.all(color: AppColors.border.withOpacity(0.8)),
         ),
-        child: Column(
-          children: const [
+        child: const Column(
+          children: [
             CircularProgressIndicator(),
             SizedBox(height: 14),
             Text(
-              'جاري تجهيز الميديا...',
+              'جاري التجهيز...',
               style: TextStyle(
                 fontSize: 14,
                 color: AppColors.textLight,
@@ -544,38 +516,15 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
           if (picked == null)
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 34, horizontal: 16),
+              height: 190,
               decoration: BoxDecoration(
                 color: AppColors.background,
                 borderRadius: BorderRadius.circular(18),
               ),
-              child: Column(
-                children: const [
-                  Icon(
-                    Icons.photo_camera_outlined,
-                    size: 58,
-                    color: AppColors.primary,
-                  ),
-                  SizedBox(height: 10),
-                  Text(
-                    'لا توجد معاينة بعد',
-                    style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textDark,
-                    ),
-                  ),
-                  SizedBox(height: 6),
-                  Text(
-                    'التقط صورة أو فيديو أو اختَر صورة من الجهاز لتظهر هنا مباشرة',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 13.5,
-                      color: AppColors.textLight,
-                      height: 1.5,
-                    ),
-                  ),
-                ],
+              child: const Icon(
+                Icons.photo_camera_outlined,
+                size: 58,
+                color: AppColors.primary,
               ),
             )
           else if (mediaType == 'image' && imageBytes != null)
@@ -591,40 +540,15 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
           else
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 34, horizontal: 16),
+              height: 190,
               decoration: BoxDecoration(
                 color: AppColors.background,
                 borderRadius: BorderRadius.circular(18),
               ),
-              child: Column(
-                children: [
-                  const Icon(
-                    Icons.videocam_rounded,
-                    size: 58,
-                    color: AppColors.secondary,
-                  ),
-                  const SizedBox(height: 10),
-                  const Text(
-                    'تم تسجيل فيديو بنجاح',
-                    style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textDark,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    kIsWeb
-                        ? 'معاينة الفيديو المحلية الكاملة على الويب قد تكون محدودة، لكن الفيديو تم تجهيزه للإرسال.'
-                        : 'الفيديو جاهز للإرسال مع التحديث.',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 13.5,
-                      color: AppColors.textLight,
-                      height: 1.5,
-                    ),
-                  ),
-                ],
+              child: const Icon(
+                Icons.videocam_rounded,
+                size: 58,
+                color: AppColors.secondary,
               ),
             ),
           if (picked != null) ...[
@@ -636,36 +560,13 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
                 color: AppColors.background,
                 borderRadius: BorderRadius.circular(14),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'تفاصيل الملف',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.textDark,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'النوع: ${mediaType == 'image' ? 'صورة' : 'فيديو'}',
-                    style: const TextStyle(
-                      fontSize: 13.5,
-                      color: AppColors.textLight,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'المصدر: ${mediaType == 'image' ? 'صورة مرفوعة أو ملتقطة' : 'فيديو مسجّل'}',
-                    style: const TextStyle(
-                      fontSize: 13.5,
-                      color: AppColors.textLight,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
+              child: Text(
+                'النوع: ${mediaType == 'image' ? 'صورة' : 'فيديو'}',
+                style: const TextStyle(
+                  fontSize: 13.5,
+                  color: AppColors.textLight,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ],
@@ -689,48 +590,27 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'وصف الميديا',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-              color: AppColors.textDark,
+      child: TextField(
+        controller: descriptionCtrl,
+        maxLines: 3,
+        decoration: InputDecoration(
+          labelText: 'وصف الميديا',
+          hintText: 'اكتبي وصفًا قصيرًا',
+          filled: true,
+          fillColor: AppColors.background,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide(
+              color: AppColors.border.withOpacity(0.8),
             ),
           ),
-          const SizedBox(height: 8),
-          const Text(
-            'أضيفي وصفًا قصيرًا ليظهر مع التحديث للأهل.',
-            style: TextStyle(
-              fontSize: 13.5,
-              color: AppColors.textLight,
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide(
+              color: AppColors.border.withOpacity(0.8),
             ),
           ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: descriptionCtrl,
-            maxLines: 3,
-            decoration: InputDecoration(
-              hintText: 'مثال: نشاط فني جميل، لحظة لعب، أو مشاركة من يوم الطفل...',
-              filled: true,
-              fillColor: AppColors.background,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(
-                  color: AppColors.border.withOpacity(0.8),
-                ),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(
-                  color: AppColors.border.withOpacity(0.8),
-                ),
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -772,7 +652,7 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
                     ? null
                     : pickFromGallery,
                 icon: const Icon(Icons.photo_library_outlined),
-                label: const Text('اختيار من المعرض'),
+                label: const Text('من المعرض'),
                 style: OutlinedButton.styleFrom(
                   minimumSize: const Size(double.infinity, 54),
                   shape: RoundedRectangleBorder(
@@ -799,7 +679,7 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
                           }
                         },
                   icon: const Icon(Icons.refresh_rounded),
-                  label: const Text('إعادة الالتقاط'),
+                  label: const Text('إعادة'),
                   style: OutlinedButton.styleFrom(
                     minimumSize: const Size(double.infinity, 52),
                     shape: RoundedRectangleBorder(
@@ -829,8 +709,8 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
             width: double.infinity,
             child: ElevatedButton.icon(
               onPressed: isBusy ? null : sendBack,
-              icon: const Icon(Icons.save_outlined),
-              label: const Text('حفظ وإرسال'),
+              icon: const Icon(Icons.check_rounded),
+              label: const Text('اعتماد الميديا'),
               style: ElevatedButton.styleFrom(
                 minimumSize: const Size(double.infinity, 54),
                 shape: RoundedRectangleBorder(
@@ -850,7 +730,7 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
       title: 'الكاميرا',
       child: ListView(
         children: [
-          buildTopInfoCard(),
+          buildHeaderCard(),
           const SizedBox(height: 16),
           buildModeSelector(),
           const SizedBox(height: 16),

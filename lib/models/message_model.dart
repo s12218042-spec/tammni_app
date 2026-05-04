@@ -10,7 +10,18 @@ class MessageModel {
   final String receiverId;
   final String receiverName;
   final String receiverRole;
+
+  final String messageType; // text / audio
   final String text;
+
+  final String audioPath;
+  final String audioUrl;
+  final int audioDurationSeconds;
+  final String audioMimeType;
+  final int audioSizeBytes;
+  final String audioBucket;
+  final String audioStorageProvider;
+
   final Timestamp sentAt;
   final bool isRead;
   final List<dynamic> participants;
@@ -37,7 +48,15 @@ class MessageModel {
     required this.receiverId,
     required this.receiverName,
     required this.receiverRole,
+    required this.messageType,
     required this.text,
+    required this.audioPath,
+    required this.audioUrl,
+    required this.audioDurationSeconds,
+    required this.audioMimeType,
+    required this.audioSizeBytes,
+    required this.audioBucket,
+    required this.audioStorageProvider,
     required this.sentAt,
     required this.isRead,
     required this.participants,
@@ -52,6 +71,20 @@ class MessageModel {
     required this.replyToSenderName,
   });
 
+  bool get isAudioMessage => messageType == 'audio';
+
+  bool get isTextMessage => messageType == 'text' || messageType.trim().isEmpty;
+
+  bool get hasAudio {
+    return audioPath.trim().isNotEmpty || audioUrl.trim().isNotEmpty;
+  }
+
+  String get displayText {
+    if (isDeletedForEveryone) return 'تم حذف هذه الرسالة';
+    if (isAudioMessage) return 'رسالة صوتية';
+    return text;
+  }
+
   factory MessageModel.fromMap(String id, Map<String, dynamic> data) {
     final rawReactions = data['reactions'];
 
@@ -65,6 +98,17 @@ class MessageModel {
       );
     }
 
+    final rawMessageType = (data['messageType'] ?? '').toString().trim();
+
+    final audioPath = (data['audioPath'] ?? '').toString();
+    final audioUrl = (data['audioUrl'] ?? '').toString();
+
+    final resolvedMessageType = rawMessageType.isNotEmpty
+        ? rawMessageType
+        : (audioPath.trim().isNotEmpty || audioUrl.trim().isNotEmpty)
+            ? 'audio'
+            : 'text';
+
     return MessageModel(
       id: id,
       childId: (data['childId'] ?? '').toString(),
@@ -75,10 +119,20 @@ class MessageModel {
       receiverId: (data['receiverId'] ?? '').toString(),
       receiverName: (data['receiverName'] ?? '').toString(),
       receiverRole: (data['receiverRole'] ?? '').toString(),
+      messageType: resolvedMessageType,
       text: (data['text'] ?? '').toString(),
+      audioPath: audioPath,
+      audioUrl: audioUrl,
+      audioDurationSeconds: _intFromDynamic(data['audioDurationSeconds']),
+      audioMimeType: (data['audioMimeType'] ?? '').toString(),
+      audioSizeBytes: _intFromDynamic(data['audioSizeBytes']),
+      audioBucket: (data['audioBucket'] ?? '').toString(),
+      audioStorageProvider: (data['audioStorageProvider'] ?? '').toString(),
       sentAt: data['sentAt'] is Timestamp
           ? data['sentAt'] as Timestamp
-          : Timestamp.now(),
+          : data['createdAt'] is Timestamp
+              ? data['createdAt'] as Timestamp
+              : Timestamp.now(),
       isRead: data['isRead'] == true,
       participants: data['participants'] is List
           ? List<dynamic>.from(data['participants'])
@@ -99,6 +153,18 @@ class MessageModel {
     );
   }
 
+  static int _intFromDynamic(dynamic value) {
+    if (value is int) return value;
+    if (value is double) return value.round();
+    if (value is num) return value.toInt();
+
+    if (value is String) {
+      return int.tryParse(value.trim()) ?? 0;
+    }
+
+    return 0;
+  }
+
   Map<String, dynamic> toMap() {
     return {
       'childId': childId,
@@ -109,7 +175,15 @@ class MessageModel {
       'receiverId': receiverId,
       'receiverName': receiverName,
       'receiverRole': receiverRole,
+      'messageType': messageType,
       'text': text,
+      'audioPath': audioPath,
+      'audioUrl': audioUrl,
+      'audioDurationSeconds': audioDurationSeconds,
+      'audioMimeType': audioMimeType,
+      'audioSizeBytes': audioSizeBytes,
+      'audioBucket': audioBucket,
+      'audioStorageProvider': audioStorageProvider,
       'sentAt': sentAt,
       'isRead': isRead,
       'participants': participants,

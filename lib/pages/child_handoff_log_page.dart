@@ -46,7 +46,7 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
 
   String _selectedRelationOption = '';
 
-  final List<String> _relationSuggestions = [
+  final List<String> _relationSuggestions = const [
     'الأب',
     'الأم',
     'الأخ',
@@ -176,13 +176,14 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
   String _normalizeRole(String value) {
     final role = value.trim().toLowerCase();
 
-    if (role == 'nursery' || role == 'nursery staff') {
+    if (role == 'nursery' ||
+        role == 'nursery staff' ||
+        role == 'nursery_staff') {
       return 'nursery_staff';
     }
 
     if (role == 'admin') return 'admin';
     if (role == 'parent') return 'parent';
-    if (role == 'nursery_staff') return 'nursery_staff';
 
     return role.isEmpty ? 'nursery_staff' : role;
   }
@@ -202,14 +203,30 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
     return _dateFromDynamic(data['time']) ??
         _dateFromDynamic(data['eventAt']) ??
         _dateFromDynamic(data['createdAt']) ??
-        _dateFromDynamic(data['updatedAt']);
+        _dateFromDynamic(data['updatedAt']) ??
+        _dateFromDynamic(data['timestamp']);
   }
 
   bool _isToday(DateTime date) {
     final now = DateTime.now();
+
     return date.year == now.year &&
         date.month == now.month &&
         date.day == now.day;
+  }
+
+  int _compareLogDocs(
+    QueryDocumentSnapshot<Map<String, dynamic>> a,
+    QueryDocumentSnapshot<Map<String, dynamic>> b,
+  ) {
+    final aDate = _logDate(a.data());
+    final bDate = _logDate(b.data());
+
+    if (aDate == null && bDate == null) return 0;
+    if (aDate == null) return 1;
+    if (bDate == null) return -1;
+
+    return bDate.compareTo(aDate);
   }
 
   void _showSnack(
@@ -349,22 +366,43 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
       final snap = await _firestore
           .collection('child_handoffs')
           .where('childId', isEqualTo: _safeChildId)
-          .orderBy('time', descending: true)
-          .limit(1)
           .get();
 
-      if (snap.docs.isNotEmpty && mounted) {
-        final doc = snap.docs.first;
-        final last = doc.data();
+      if (snap.docs.isEmpty) return;
 
-        setState(() {
-          _lastLogId = doc.id;
-          _lastLog = last;
-          _handoffType =
-              last['handoffType'] == 'delivery' ? 'pickup' : 'delivery';
-        });
-      }
+      final docs = snap.docs.toList()..sort(_compareLogDocs);
+      final doc = docs.first;
+      final last = doc.data();
+
+      if (!mounted) return;
+
+      setState(() {
+        _lastLogId = doc.id;
+        _lastLog = last;
+        _handoffType = last['handoffType'] == 'delivery' ? 'pickup' : 'delivery';
+      });
     } catch (_) {}
+  }
+
+  void _syncLastLogFromDocs(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    if (docs.isEmpty) return;
+
+    final sortedDocs = docs.toList()..sort(_compareLogDocs);
+    final firstDoc = sortedDocs.first;
+    final firstData = firstDoc.data();
+
+    if (_lastLogId == firstDoc.id) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+
+      setState(() {
+        _lastLogId = firstDoc.id;
+        _lastLog = firstData;
+      });
+    });
   }
 
   String _handoffTypeLabel(String type) {
@@ -507,7 +545,8 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
     required Map<String, String> userInfo,
   }) {
     final parentUid = (parentInfo['parentUid'] ?? '').trim();
-    final parentUsername = (parentInfo['parentUsername'] ?? '').trim().toLowerCase();
+    final parentUsername =
+        (parentInfo['parentUsername'] ?? '').trim().toLowerCase();
     final parentName = (parentInfo['parentName'] ?? '').trim();
 
     final personName = _personNameController.text.trim();
@@ -548,7 +587,8 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
     required bool isUpdate,
   }) {
     final parentUid = (parentInfo['parentUid'] ?? '').trim();
-    final parentUsername = (parentInfo['parentUsername'] ?? '').trim().toLowerCase();
+    final parentUsername =
+        (parentInfo['parentUsername'] ?? '').trim().toLowerCase();
     final parentName = (parentInfo['parentName'] ?? '').trim();
 
     final personName = _personNameController.text.trim();
@@ -558,8 +598,10 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
     return {
       'uid': parentUid,
       'targetUid': parentUid,
+      'targetUsername': parentUsername,
       'targetRole': 'parent',
       'receiverUid': parentUid,
+      'receiverUsername': parentUsername,
       'receiverRole': 'parent',
       'parentUid': parentUid,
       'parentUsername': parentUsername,
@@ -1170,7 +1212,8 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
       final date = _logDate(data);
       if (date == null) return false;
       return _isToday(date);
-    }).toList();
+    }).toList()
+      ..sort(_compareLogDocs);
 
     return todayLogs.where((doc) {
       final data = doc.data();
@@ -1184,6 +1227,7 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
           _selectedLogTypes.isEmpty || _selectedLogTypes.contains(type);
 
       final q = _logSearchText.trim().toLowerCase();
+
       final matchesSearch = q.isEmpty ||
           person.contains(q) ||
           relation.contains(q) ||
@@ -1224,12 +1268,14 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
   Widget _buildTodayLogs(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
-    final allTodayLogs = docs.where((doc) {
+    final sortedDocs = docs.toList()..sort(_compareLogDocs);
+
+    final allTodayLogs = sortedDocs.where((doc) {
       final date = _logDate(doc.data());
       return date != null && _isToday(date);
     }).toList();
 
-    final filteredLogs = _filterTodayLogs(docs);
+    final filteredLogs = _filterTodayLogs(sortedDocs);
     final hasCustomFilters =
         _logSearchText.trim().isNotEmpty || _selectedLogTypes.isNotEmpty;
 
@@ -1330,9 +1376,11 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
                 borderRadius: BorderRadius.circular(14),
               ),
               child: Text(
-                allTodayLogs.isEmpty
-                    ? 'لا يوجد سجل تسليم/استلام اليوم بعد.'
-                    : 'لا توجد نتائج مطابقة للفلاتر.',
+                sortedDocs.isEmpty
+                    ? 'لا يوجد أي سجل محفوظ لهذا الطفل بعد.'
+                    : allTodayLogs.isEmpty
+                        ? 'لا توجد سجلات تسليم/استلام بتاريخ اليوم.'
+                        : 'لا توجد نتائج مطابقة للفلاتر.',
                 style: TextStyle(color: Colors.grey.shade700),
               ),
             )
@@ -1581,7 +1629,6 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
         : _firestore
             .collection('child_handoffs')
             .where('childId', isEqualTo: _safeChildId)
-            .orderBy('time', descending: true)
             .snapshots();
 
     return Scaffold(
@@ -1602,23 +1649,10 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
           : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: logsStream,
               builder: (context, snapshot) {
-                final docs = snapshot.data?.docs ?? [];
+                final docs = (snapshot.data?.docs ?? []).toList()
+                  ..sort(_compareLogDocs);
 
-                if (docs.isNotEmpty) {
-                  final firstDoc = docs.first;
-                  final firstData = firstDoc.data();
-
-                  if (_lastLogId != firstDoc.id) {
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (!mounted) return;
-
-                      setState(() {
-                        _lastLogId = firstDoc.id;
-                        _lastLog = firstData;
-                      });
-                    });
-                  }
-                }
+                _syncLastLogFromDocs(docs);
 
                 return SafeArea(
                   child: Form(

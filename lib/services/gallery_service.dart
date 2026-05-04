@@ -7,6 +7,7 @@ class GalleryUploadResult {
   final String bucket;
   final String path;
   final String signedUrl;
+  final DateTime signedUrlExpiresAt;
   final String mediaType;
   final String mimeType;
   final int sizeBytes;
@@ -16,6 +17,7 @@ class GalleryUploadResult {
     required this.bucket,
     required this.path,
     required this.signedUrl,
+    required this.signedUrlExpiresAt,
     required this.mediaType,
     required this.mimeType,
     required this.sizeBytes,
@@ -27,38 +29,37 @@ class GalleryUploadResult {
       'bucket': bucket,
       'mediaPath': path,
       'mediaUrl': signedUrl,
+      'mediaUrlExpiresAt': signedUrlExpiresAt.toIso8601String(),
       'mediaType': mediaType,
       'mimeType': mimeType,
       'sizeBytes': sizeBytes,
+      'isSignedUrl': true,
     };
   }
 }
 
 class GalleryService {
+  static const int defaultSignedUrlSeconds = 3600;
+
   Future<String?> uploadChildMedia({
     required String childId,
     required String localPath,
-    required String mediaType, // image / video
+    required String mediaType,
   }) async {
     try {
-      final extension = _extractExtensionFromPath(
-        localPath,
-        mediaType: mediaType,
-      );
-
       final folder = mediaType == 'video' ? 'videos' : 'images';
-      final fileName = '${DateTime.now().millisecondsSinceEpoch}.$extension';
-
       final xFile = XFile(localPath);
 
       final result = await MediaStorageService.instance.uploadImageOrVideo(
         file: xFile,
         folder: 'children_media/$childId/$folder',
-        fileNameWithoutExtension: fileName.replaceFirst('.$extension', ''),
+        fileNameWithoutExtension:
+            DateTime.now().millisecondsSinceEpoch.toString(),
       );
 
       final signedUrl = await MediaStorageService.instance.createSignedUrl(
         path: result.path,
+        expiresInSeconds: defaultSignedUrlSeconds,
       );
 
       return signedUrl;
@@ -71,24 +72,26 @@ class GalleryService {
   Future<GalleryUploadResult?> uploadChildMediaDetailed({
     required String childId,
     required XFile file,
-    required String mediaType, // image / video
+    required String mediaType,
   }) async {
     try {
-      final folder = mediaType == 'video' ? 'videos' : 'images';
-      final extension = _extractExtensionFromFile(
-        file,
-        mediaType: mediaType,
-      );
-      final fileName = '${DateTime.now().millisecondsSinceEpoch}.$extension';
+      final cleanMediaType = _normalizeMediaType(mediaType);
+      final folder = cleanMediaType == 'video' ? 'videos' : 'images';
 
       final uploaded = await MediaStorageService.instance.uploadImageOrVideo(
         file: file,
         folder: 'children_media/$childId/$folder',
-        fileNameWithoutExtension: fileName.replaceFirst('.$extension', ''),
+        fileNameWithoutExtension:
+            DateTime.now().millisecondsSinceEpoch.toString(),
       );
 
       final signedUrl = await MediaStorageService.instance.createSignedUrl(
         path: uploaded.path,
+        expiresInSeconds: defaultSignedUrlSeconds,
+      );
+
+      final expiresAt = DateTime.now().add(
+        const Duration(seconds: defaultSignedUrlSeconds),
       );
 
       return GalleryUploadResult(
@@ -96,7 +99,8 @@ class GalleryService {
         bucket: uploaded.bucket,
         path: uploaded.path,
         signedUrl: signedUrl,
-        mediaType: mediaType,
+        signedUrlExpiresAt: expiresAt,
+        mediaType: cleanMediaType,
         mimeType: uploaded.mimeType,
         sizeBytes: uploaded.sizeBytes,
       );
@@ -106,50 +110,108 @@ class GalleryService {
     }
   }
 
-  String _extractExtensionFromPath(
-    String path, {
-    required String mediaType,
-  }) {
-    final clean = path.trim().toLowerCase();
+  Future<String?> createFreshSignedUrl({
+    required String mediaPath,
+    int expiresInSeconds = defaultSignedUrlSeconds,
+  }) async {
+    try {
+      final cleanPath = mediaPath.trim();
 
-    if (clean.endsWith('.jpeg')) return 'jpeg';
-    if (clean.endsWith('.jpg')) return 'jpg';
-    if (clean.endsWith('.png')) return 'png';
-    if (clean.endsWith('.webp')) return 'webp';
-    if (clean.endsWith('.gif')) return 'gif';
+      if (cleanPath.isEmpty) return null;
 
-    if (clean.endsWith('.mp4')) return 'mp4';
-    if (clean.endsWith('.mov')) return 'mov';
-    if (clean.endsWith('.webm')) return 'webm';
-    if (clean.endsWith('.m4v')) return 'm4v';
-    if (clean.endsWith('.avi')) return 'avi';
-    if (clean.endsWith('.mkv')) return 'mkv';
-
-    return mediaType == 'video' ? 'mp4' : 'jpg';
+      return await MediaStorageService.instance.createSignedUrl(
+        path: cleanPath,
+        expiresInSeconds: expiresInSeconds,
+      );
+    } catch (e) {
+      print('Create fresh signed URL error: $e');
+      return null;
+    }
   }
 
-  String _extractExtensionFromFile(
-    XFile file, {
-    required String mediaType,
-  }) {
-    final name = file.name.trim().toLowerCase();
+  Future<String?> resolveFreshMediaUrl({
+    required Map<String, dynamic> mediaData,
+    int expiresInSeconds = defaultSignedUrlSeconds,
+  }) async {
+    final storageProvider =
+        (mediaData['storageProvider'] ?? '').toString().trim().toLowerCase();
 
-    if (name.endsWith('.jpeg')) return 'jpeg';
-    if (name.endsWith('.jpg')) return 'jpg';
-    if (name.endsWith('.png')) return 'png';
-    if (name.endsWith('.webp')) return 'webp';
-    if (name.endsWith('.gif')) return 'gif';
+    final mediaPath = _firstNonEmpty([
+      mediaData['mediaPath'],
+      mediaData['path'],
+      mediaData['imagePath'],
+      mediaData['videoPath'],
+    ]);
 
-    if (name.endsWith('.mp4')) return 'mp4';
-    if (name.endsWith('.mov')) return 'mov';
-    if (name.endsWith('.webm')) return 'webm';
-    if (name.endsWith('.m4v')) return 'm4v';
-    if (name.endsWith('.avi')) return 'avi';
-    if (name.endsWith('.mkv')) return 'mkv';
+    final publicUrl = _firstNonEmpty([
+      mediaData['publicUrl'],
+      mediaData['mediaPublicUrl'],
+    ]);
 
-    return _extractExtensionFromPath(
-      file.path,
-      mediaType: mediaType,
+    final oldUrl = _firstNonEmpty([
+      mediaData['mediaUrl'],
+      mediaData['imageUrl'],
+      mediaData['videoUrl'],
+      mediaData['url'],
+    ]);
+
+    if (storageProvider == 'supabase' && mediaPath.isNotEmpty) {
+      return createFreshSignedUrl(
+        mediaPath: mediaPath,
+        expiresInSeconds: expiresInSeconds,
+      );
+    }
+
+    if (mediaPath.isNotEmpty && oldUrl.contains('supabase')) {
+      return createFreshSignedUrl(
+        mediaPath: mediaPath,
+        expiresInSeconds: expiresInSeconds,
+      );
+    }
+
+    if (publicUrl.isNotEmpty) {
+      return publicUrl;
+    }
+
+    if (oldUrl.isNotEmpty) {
+      return oldUrl;
+    }
+
+    return null;
+  }
+
+  Future<String?> resolveFreshMediaUrlFromFields({
+    String? storageProvider,
+    String? mediaPath,
+    String? oldMediaUrl,
+    String? publicUrl,
+    int expiresInSeconds = defaultSignedUrlSeconds,
+  }) async {
+    return resolveFreshMediaUrl(
+      mediaData: {
+        'storageProvider': storageProvider ?? '',
+        'mediaPath': mediaPath ?? '',
+        'mediaUrl': oldMediaUrl ?? '',
+        'publicUrl': publicUrl ?? '',
+      },
+      expiresInSeconds: expiresInSeconds,
     );
+  }
+
+  String _normalizeMediaType(String value) {
+    final clean = value.trim().toLowerCase();
+
+    if (clean == 'video') return 'video';
+    return 'image';
+  }
+
+  String _firstNonEmpty(List<dynamic> values) {
+    for (final value in values) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return '';
   }
 }

@@ -10,7 +10,23 @@ import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 
 class StartLiveStreamPage extends StatefulWidget {
-  const StartLiveStreamPage({super.key});
+  final String? liveStreamRequestId;
+  final String? requestedChildId;
+  final String? requestedChildName;
+  final String? requestedParentUid;
+  final String? requestedParentUsername;
+
+  const StartLiveStreamPage({
+    super.key,
+    this.liveStreamRequestId,
+    this.requestedChildId,
+    this.requestedChildName,
+    this.requestedParentUid,
+    this.requestedParentUsername,
+  });
+
+  bool get isRequestBasedStream =>
+      liveStreamRequestId != null && liveStreamRequestId!.trim().isNotEmpty;
 
   @override
   State<StartLiveStreamPage> createState() => _StartLiveStreamPageState();
@@ -23,9 +39,7 @@ class _StartLiveStreamPageState extends State<StartLiveStreamPage> {
   final LiveStreamService _liveStreamService = LiveStreamService();
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
 
-  final TextEditingController _titleController = TextEditingController(
-    text: 'بث مباشر من الحضانة',
-  );
+  late final TextEditingController _titleController;
 
   bool _isInitializing = true;
   bool _isStarting = false;
@@ -39,6 +53,13 @@ class _StartLiveStreamPageState extends State<StartLiveStreamPage> {
   @override
   void initState() {
     super.initState();
+
+    _titleController = TextEditingController(
+      text: widget.isRequestBasedStream
+          ? 'بث مباشر للطفل ${widget.requestedChildName ?? ''}'
+          : 'بث مباشر من الحضانة',
+    );
+
     _initializeCamera();
   }
 
@@ -189,9 +210,11 @@ class _StartLiveStreamPageState extends State<StartLiveStreamPage> {
           textDirection: TextDirection.rtl,
           child: AlertDialog(
             title: const Text('بدء بث مباشر؟'),
-            content: const Text(
-              'سيتم بدء بث مباشر وإرسال إشعار لأولياء الأمور حسب إعدادات خدمة البث. تأكدي أن الكاميرا تظهر بشكل صحيح قبل البدء.',
-              style: TextStyle(height: 1.5),
+            content: Text(
+              widget.isRequestBasedStream
+                  ? 'سيتم بدء بث مباشر خاص بولي أمر الطفل ${widget.requestedChildName ?? ''}. تأكدي أن الكاميرا تظهر بشكل صحيح قبل البدء.'
+                  : 'سيتم بدء بث مباشر وإرسال إشعار لأولياء الأمور حسب إعدادات خدمة البث. تأكدي أن الكاميرا تظهر بشكل صحيح قبل البدء.',
+              style: const TextStyle(height: 1.5),
             ),
             actions: [
               TextButton(
@@ -275,8 +298,14 @@ class _StartLiveStreamPageState extends State<StartLiveStreamPage> {
         startedByPhotoUrl: userData['photoUrl'].toString(),
         section: section,
         group: userData['group'].toString(),
-        allowedViewersType: 'all',
+        allowedViewersType:
+            widget.isRequestBasedStream ? 'specific_parent' : 'all',
         notifyParents: true,
+        liveStreamRequestId: widget.liveStreamRequestId ?? '',
+        requestedChildId: widget.requestedChildId ?? '',
+        requestedChildName: widget.requestedChildName ?? '',
+        requestedParentUid: widget.requestedParentUid ?? '',
+        requestedParentUsername: widget.requestedParentUsername ?? '',
       );
 
       if (!mounted) return;
@@ -288,9 +317,28 @@ class _StartLiveStreamPageState extends State<StartLiveStreamPage> {
         _errorMessage = null;
       });
 
+      if (widget.isRequestBasedStream) {
+        await _firestore
+            .collection('live_stream_requests')
+            .doc(widget.liveStreamRequestId)
+            .set({
+          'status': 'live',
+          'liveStreamId': roomId,
+          'roomId': roomId,
+          'startedAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+
+      if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('تم بدء البث المباشر بنجاح'),
+        SnackBar(
+          content: Text(
+            widget.isRequestBasedStream
+                ? 'تم بدء البث الخاص بنجاح'
+                : 'تم بدء البث المباشر بنجاح',
+          ),
         ),
       );
     } catch (e) {
@@ -363,6 +411,19 @@ class _StartLiveStreamPageState extends State<StartLiveStreamPage> {
         _isEnding = false;
       });
 
+      if (widget.isRequestBasedStream) {
+        await _firestore
+            .collection('live_stream_requests')
+            .doc(widget.liveStreamRequestId)
+            .set({
+          'status': 'completed',
+          'completedAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+
+      if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('تم إنهاء البث المباشر'),
@@ -414,6 +475,47 @@ class _StartLiveStreamPageState extends State<StartLiveStreamPage> {
     }
 
     return false;
+  }
+
+  Widget _buildRequestInfoCard() {
+    if (!widget.isRequestBasedStream) return const SizedBox.shrink();
+
+    final childName = (widget.requestedChildName ?? '').trim();
+    final parentUsername = (widget.requestedParentUsername ?? '').trim();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withOpacity(0.07),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.primary.withOpacity(0.18)),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            backgroundColor: AppColors.primary.withOpacity(0.12),
+            child: const Icon(
+              Icons.person_pin_circle_outlined,
+              color: AppColors.primary,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              childName.isEmpty
+                  ? 'هذا بث مباشر خاص بناءً على طلب ولي أمر.'
+                  : 'هذا بث مباشر خاص للطفل $childName${parentUsername.isEmpty ? '' : ' - ولي الأمر: $parentUsername'}',
+              style: const TextStyle(
+                color: AppColors.textDark,
+                fontWeight: FontWeight.w700,
+                height: 1.4,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildPreviewCard() {
@@ -548,7 +650,9 @@ class _StartLiveStreamPageState extends State<StartLiveStreamPage> {
             : 'الكاميرا غير جاهزة';
 
     final subtitle = _isLive
-        ? 'الأهل يستطيعون مشاهدة البث من إشعار البث أو صفحة المشاهدة.'
+        ? widget.isRequestBasedStream
+            ? 'ولي الأمر المحدد يستطيع مشاهدة هذا البث الخاص من الإشعار أو صفحة المشاهدة.'
+            : 'الأهل يستطيعون مشاهدة البث من إشعار البث أو صفحة المشاهدة.'
         : _hasCameraPreview
             ? 'يمكنك بدء البث بعد التأكد من العنوان والمعاينة.'
             : 'أعيدي محاولة تشغيل الكاميرا أو راجعي الصلاحيات.';
@@ -679,7 +783,11 @@ class _StartLiveStreamPageState extends State<StartLiveStreamPage> {
               )
             : const Icon(Icons.wifi_tethering_rounded),
         label: Text(
-          _isStarting ? 'جارٍ بدء البث...' : 'بدء البث المباشر',
+          _isStarting
+              ? 'جارٍ بدء البث...'
+              : widget.isRequestBasedStream
+                  ? 'بدء البث الخاص'
+                  : 'بدء البث المباشر',
         ),
         style: FilledButton.styleFrom(
           minimumSize: const Size(double.infinity, 54),
@@ -740,18 +848,20 @@ class _StartLiveStreamPageState extends State<StartLiveStreamPage> {
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: AppColors.border),
       ),
-      child: const Row(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
+          const Icon(
             Icons.info_outline_rounded,
             color: AppColors.secondary,
           ),
-          SizedBox(width: 10),
+          const SizedBox(width: 10),
           Expanded(
             child: Text(
-              'هذه نسخة بث مباشر مجانية وتجريبية. عند بدء البث يتم إنشاء غرفة نشطة، وعند الإنهاء يتم تحديث حالتها حتى لا تبقى ظاهرة للأهل كبث نشط.',
-              style: TextStyle(
+              widget.isRequestBasedStream
+                  ? 'هذا البث خاص بطلب ولي أمر محدد، وسيتم ربطه بالطلب والطفل حتى لا يصبح بثًا عامًا لكل الأهل.'
+                  : 'هذه نسخة بث مباشر مجانية وتجريبية. عند بدء البث يتم إنشاء غرفة نشطة، وعند الإنهاء يتم تحديث حالتها حتى لا تبقى ظاهرة للأهل كبث نشط.',
+              style: const TextStyle(
                 color: AppColors.textDark,
                 height: 1.5,
                 fontWeight: FontWeight.w600,
@@ -770,7 +880,7 @@ class _StartLiveStreamPageState extends State<StartLiveStreamPage> {
       child: Directionality(
         textDirection: TextDirection.rtl,
         child: AppPageScaffold(
-          title: 'البث المباشر',
+          title: widget.isRequestBasedStream ? 'بث خاص للطفل' : 'البث المباشر',
           actions: [
             if (!_isLive)
               IconButton(
@@ -785,6 +895,9 @@ class _StartLiveStreamPageState extends State<StartLiveStreamPage> {
                 )
               : ListView(
                   children: [
+                    _buildRequestInfoCard(),
+                    if (widget.isRequestBasedStream)
+                      const SizedBox(height: 14),
                     _buildPreviewCard(),
                     const SizedBox(height: 18),
                     _buildStatusCard(),

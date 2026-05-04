@@ -3,7 +3,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../models/child_model.dart';
+import '../services/account_settings_service.dart';
 import '../services/auth_service.dart';
+import '../services/live_stream_service.dart';
 import '../services/message_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
@@ -11,14 +13,13 @@ import 'account_history_page.dart';
 import 'account_settings_page.dart';
 import 'add_child_request_page.dart';
 import 'child_profile_page.dart';
+import 'live_stream_viewer_page.dart';
 import 'parent_chats_page.dart';
 import 'parent_complaints_page.dart';
 import 'parent_invoice_page.dart';
 import 'parent_notifications_page.dart';
 import 'parent_updates_page.dart';
 import 'welcome_page.dart';
-import 'live_stream_viewer_page.dart';
-import '../services/account_settings_service.dart';
 
 class ParentHomePage extends StatefulWidget {
   final String parentUsername;
@@ -35,8 +36,11 @@ class ParentHomePage extends StatefulWidget {
 class _ParentHomePageState extends State<ParentHomePage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final MessageService _messageService = MessageService();
+  final LiveStreamService _liveStreamService = LiveStreamService();
   final AccountSettingsService _accountSettingsService =
       AccountSettingsService();
+
+  final Set<String> _liveStreamRequestingChildIds = {};
 
   int selectedIndex = 0;
   bool isArabic = true;
@@ -124,6 +128,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
 
     final items = snapshot.docs.map((doc) {
       final data = doc.data();
+
       return {
         'type': data['type'] ?? '',
         'note': data['note'] ?? '',
@@ -253,32 +258,224 @@ class _ParentHomePageState extends State<ParentHomePage> {
     setState(() {});
   }
 
-Future<void> _openLiveStream(Map<String, dynamic> streamData) async {
-  final roomId = (streamData['roomId'] ?? '').toString();
-  final title = (streamData['title'] ?? 'بث مباشر من الحضانة').toString();
-  final startedByName = (streamData['startedByName'] ?? '').toString();
+  Future<void> _openLiveStream(Map<String, dynamic> streamData) async {
+    final roomId = (streamData['roomId'] ?? '').toString();
+    final title = (streamData['title'] ?? 'بث مباشر من الحضانة').toString();
+    final startedByName = (streamData['startedByName'] ?? '').toString();
 
-  if (roomId.trim().isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('بيانات البث غير مكتملة')),
+    if (roomId.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('بيانات البث غير مكتملة')),
+      );
+      return;
+    }
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LiveStreamViewerPage(
+          roomId: roomId,
+          title: title,
+          startedByName: startedByName,
+        ),
+      ),
     );
-    return;
+
+    if (!mounted) return;
+    setState(() {});
   }
 
-  await Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (_) => LiveStreamViewerPage(
-        roomId: roomId,
-        title: title,
-        startedByName: startedByName,
-      ),
-    ),
-  );
+  Future<void> _cancelLiveStreamRequest(String requestId) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
 
-  if (!mounted) return;
-  setState(() {});
-}
+    if (uid == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('يجب تسجيل الدخول أولًا')),
+      );
+      return;
+    }
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('إلغاء طلب البث'),
+          content: const Text(
+            'هل تريدين إلغاء طلب البث المباشر؟',
+            style: TextStyle(height: 1.5),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('تراجع'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('إلغاء الطلب'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      await _liveStreamService.cancelLiveStreamRequest(
+        requestId: requestId,
+        cancelledByUid: uid,
+        cancelledByRole: 'parent',
+      );
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم إلغاء طلب البث المباشر')),
+      );
+
+      setState(() {});
+    } catch (e) {
+      debugPrint('Cancel live stream request error: $e');
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            e.toString().contains('permission-denied')
+                ? 'لا توجد صلاحية لإلغاء هذا الطلب'
+                : 'حدث خطأ أثناء إلغاء الطلب',
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _requestLiveStreamForChild(ChildModel child) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final cleanUsername = widget.parentUsername.trim().toLowerCase();
+
+    if (uid == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('يجب تسجيل الدخول أولًا')),
+      );
+      return;
+    }
+
+    if (_liveStreamRequestingChildIds.contains(child.id)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('جاري إرسال الطلب، يرجى الانتظار')),
+      );
+      return;
+    }
+
+    setState(() {
+      _liveStreamRequestingChildIds.add(child.id);
+    });
+
+    try {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (_) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: const Text('طلب بث مباشر'),
+            content: Text(
+              'هل تريدين إرسال طلب بث مباشر لمشاهدة ${child.name}؟\n\n'
+              'سيتم إرسال الطلب للإدارة، ويمكنك إلغاؤه طالما لم يبدأ البث.',
+              style: const TextStyle(height: 1.5),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('إلغاء'),
+              ),
+              ElevatedButton.icon(
+                onPressed: () => Navigator.pop(context, true),
+                icon: const Icon(Icons.wifi_tethering_rounded),
+                label: const Text('إرسال الطلب'),
+              ),
+            ],
+          ),
+        ),
+      );
+
+      if (confirm != true) return;
+
+      final userDoc = await _firestore.collection('users').doc(uid).get();
+      final userData = userDoc.data() ?? <String, dynamic>{};
+
+      final parentName = (userData['displayName'] ??
+              userData['name'] ??
+              userData['fullName'] ??
+              userData['username'] ??
+              'ولي الأمر')
+          .toString()
+          .trim();
+
+      final result = await _liveStreamService.requestLiveStreamForChild(
+        childId: child.id,
+        childName: child.name,
+        parentUid: uid,
+        parentUsername: cleanUsername,
+        parentName: parentName,
+        section: child.section.trim().isEmpty ? 'Nursery' : child.section,
+        group: child.group,
+      );
+
+      if (!mounted) return;
+
+      String message;
+
+      if (result.status == 'queued') {
+        message =
+            'تم وضعك ضمن قائمة انتظار لحين انتهاء البث الجاري. رقمك في الانتظار: ${result.queuePosition}';
+      } else if (result.status == 'approved') {
+        message = 'تمت الموافقة على طلب البث، يرجى متابعة الإشعارات.';
+      } else if (result.status == 'active') {
+        message = 'يوجد بث مباشر نشط لهذا الطلب، يرجى متابعة الإشعارات.';
+      } else {
+        message = 'تم إرسال طلب البث المباشر للإدارة';
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+
+      setState(() {});
+    } catch (e) {
+      debugPrint('Parent request live stream error: $e');
+
+      if (!mounted) return;
+
+      final errorText = e.toString();
+
+      String message;
+
+      if (errorText.contains('permission-denied')) {
+        message =
+            'لا توجد صلاحية لإرسال طلب البث. تأكدي من Firestore Rules أو من عدم وجود استعلام عام على live_streams.';
+      } else if (errorText.contains('يوجد طلب بث مباشر نشط')) {
+        message = 'يوجد طلب بث مباشر نشط لهذا الطفل بالفعل';
+      } else {
+        message = errorText.replaceFirst(
+          'Exception: ',
+          'حدث خطأ أثناء إرسال طلب البث: ',
+        );
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _liveStreamRequestingChildIds.remove(child.id);
+        });
+      }
+    }
+  }
 
   Future<void> _openComplaints() async {
     await Navigator.push(
@@ -352,20 +549,20 @@ Future<void> _openLiveStream(Map<String, dynamic> streamData) async {
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         children: [
-  _WelcomeHeader(
-    parentUsername: widget.parentUsername.trim().toLowerCase(),
-  ),
-  const SizedBox(height: 16),
-
-  _ParentLiveStreamSection(
-    onOpenLiveStream: _openLiveStream,
-  ),
-
-  const SizedBox(height: 16),
-  _SummaryCard(
-    totalChildren: children.length,
-    nurseryCount: nurseryChildren,
-  ),
+          _WelcomeHeader(
+            parentUsername: widget.parentUsername.trim().toLowerCase(),
+          ),
+          const SizedBox(height: 16),
+          _ParentLiveStreamSection(
+            parentUid: currentUserId ?? '',
+            parentUsername: widget.parentUsername.trim().toLowerCase(),
+            onOpenLiveStream: _openLiveStream,
+          ),
+          const SizedBox(height: 16),
+          _SummaryCard(
+            totalChildren: children.length,
+            nurseryCount: nurseryChildren,
+          ),
           const SizedBox(height: 20),
           const _SectionTitle(
             title: 'إجراءات سريعة',
@@ -435,7 +632,13 @@ Future<void> _openLiveStream(Map<String, dynamic> streamData) async {
                       sectionBadgeColor: sectionColor(child.section),
                       ageText: childAgeText(child.birthDate),
                       letter: firstLetter(child.name),
+                      parentUid: currentUserId ?? '',
+                      isSendingLiveStreamRequest:
+                          _liveStreamRequestingChildIds.contains(child.id),
                       onOpenProfile: () => _openChildProfile(child),
+                      onRequestLiveStream: () =>
+                          _requestLiveStreamForChild(child),
+                      onCancelLiveStreamRequest: _cancelLiveStreamRequest,
                     ),
                   ),
                 ),
@@ -496,8 +699,14 @@ Future<void> _openLiveStream(Map<String, dynamic> streamData) async {
                       ageText: childAgeText(child.birthDate),
                       letter: firstLetter(child.name),
                       updatesFuture: fetchLastUpdates(child.id),
+                      parentUid: currentUserId ?? '',
+                      isSendingLiveStreamRequest:
+                          _liveStreamRequestingChildIds.contains(child.id),
                       onOpenProfile: () => _openChildProfile(child),
                       onOpenUpdates: () => _openUpdates(child),
+                      onRequestLiveStream: () =>
+                          _requestLiveStreamForChild(child),
+                      onCancelLiveStreamRequest: _cancelLiveStreamRequest,
                     ),
                   ),
                 ),
@@ -642,6 +851,7 @@ Future<void> _openLiveStream(Map<String, dynamic> streamData) async {
                       builder: (_) => const AccountSettingsPage(),
                     ),
                   );
+
                   if (!mounted) return;
                   setState(() {});
                 },
@@ -679,6 +889,7 @@ Future<void> _openLiveStream(Map<String, dynamic> streamData) async {
                       builder: (_) => const AccountSettingsPage(),
                     ),
                   );
+
                   if (!mounted) return;
                   setState(() {});
                 },
@@ -865,10 +1076,9 @@ Future<void> _openLiveStream(Map<String, dynamic> streamData) async {
         Center(
           child: Text(
             'إصدار النظام V1.0.0',
-            style: Theme.of(context)
-                .textTheme
-                .bodySmall
-                ?.copyWith(color: AppColors.textLight),
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AppColors.textLight,
+                ),
           ),
         ),
         const SizedBox(height: 12),
@@ -1133,10 +1343,9 @@ class _SectionTitle extends StatelessWidget {
         Expanded(
           child: Text(
             title,
-            style: Theme.of(context)
-                .textTheme
-                .titleLarge
-                ?.copyWith(fontWeight: FontWeight.bold),
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
           ),
         ),
       ],
@@ -1206,7 +1415,11 @@ class _ChildPreviewCard extends StatelessWidget {
   final Color sectionBadgeColor;
   final String ageText;
   final String letter;
+  final String parentUid;
+  final bool isSendingLiveStreamRequest;
   final VoidCallback onOpenProfile;
+  final VoidCallback onRequestLiveStream;
+  final Future<void> Function(String requestId) onCancelLiveStreamRequest;
 
   const _ChildPreviewCard({
     required this.childModel,
@@ -1214,7 +1427,11 @@ class _ChildPreviewCard extends StatelessWidget {
     required this.sectionBadgeColor,
     required this.ageText,
     required this.letter,
+    required this.parentUid,
+    required this.isSendingLiveStreamRequest,
     required this.onOpenProfile,
+    required this.onRequestLiveStream,
+    required this.onCancelLiveStreamRequest,
   });
 
   @override
@@ -1283,6 +1500,14 @@ class _ChildPreviewCard extends StatelessWidget {
                   onPressed: onOpenProfile,
                   child: const Text('فتح'),
                 ),
+                _LiveStreamRequestAction(
+                  parentUid: parentUid,
+                  childId: childModel.id,
+                  isSending: isSendingLiveStreamRequest,
+                  compact: true,
+                  onRequest: onRequestLiveStream,
+                  onCancel: onCancelLiveStreamRequest,
+                ),
               ],
             ),
           ],
@@ -1299,8 +1524,12 @@ class _ChildFollowUpCard extends StatelessWidget {
   final String ageText;
   final String letter;
   final Future<List<Map<String, dynamic>>> updatesFuture;
+  final String parentUid;
+  final bool isSendingLiveStreamRequest;
   final VoidCallback onOpenProfile;
   final VoidCallback onOpenUpdates;
+  final VoidCallback onRequestLiveStream;
+  final Future<void> Function(String requestId) onCancelLiveStreamRequest;
 
   const _ChildFollowUpCard({
     required this.childModel,
@@ -1309,8 +1538,12 @@ class _ChildFollowUpCard extends StatelessWidget {
     required this.ageText,
     required this.letter,
     required this.updatesFuture,
+    required this.parentUid,
+    required this.isSendingLiveStreamRequest,
     required this.onOpenProfile,
     required this.onOpenUpdates,
+    required this.onRequestLiveStream,
+    required this.onCancelLiveStreamRequest,
   });
 
   @override
@@ -1491,6 +1724,15 @@ class _ChildFollowUpCard extends StatelessWidget {
                 ),
               ],
             ),
+            const SizedBox(height: 10),
+            _LiveStreamRequestAction(
+              parentUid: parentUid,
+              childId: childModel.id,
+              isSending: isSendingLiveStreamRequest,
+              compact: false,
+              onRequest: onRequestLiveStream,
+              onCancel: onCancelLiveStreamRequest,
+            ),
           ],
         ),
       ),
@@ -1504,6 +1746,7 @@ class _ChildFollowUpCard extends StatelessWidget {
       final m = t.minute.toString().padLeft(2, '0');
       return '$h:$m';
     }
+
     return '--:--';
   }
 }
@@ -1614,24 +1857,242 @@ class _InfoMessageBox extends StatelessWidget {
     );
   }
 }
+
+class _LiveStreamRequestAction extends StatelessWidget {
+  final String parentUid;
+  final String childId;
+  final bool isSending;
+  final bool compact;
+  final VoidCallback onRequest;
+  final Future<void> Function(String requestId) onCancel;
+
+  const _LiveStreamRequestAction({
+    required this.parentUid,
+    required this.childId,
+    required this.isSending,
+    required this.compact,
+    required this.onRequest,
+    required this.onCancel,
+  });
+
+  bool _isOpenStatus(String status) {
+    final clean = status.trim().toLowerCase();
+    return clean == 'pending' ||
+        clean == 'queued' ||
+        clean == 'waiting' ||
+        clean == 'approved' ||
+        clean == 'active';
+  }
+
+  String _statusText(String status) {
+    switch (status.trim().toLowerCase()) {
+      case 'pending':
+        return 'طلبك قيد المراجعة';
+      case 'queued':
+      case 'waiting':
+        return 'طلبك ضمن الانتظار';
+      case 'approved':
+        return 'تمت الموافقة على الطلب';
+      case 'active':
+        return 'البث نشط الآن';
+      default:
+        return 'طلب بث قائم';
+    }
+  }
+
+  bool _canCancel(String status) {
+    final clean = status.trim().toLowerCase();
+    return clean == 'pending' || clean == 'queued' || clean == 'waiting';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cleanParentUid = parentUid.trim();
+    final cleanChildId = childId.trim();
+
+    if (cleanParentUid.isEmpty || cleanChildId.isEmpty) {
+      return _buildRequestButton();
+    }
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('live_stream_requests')
+          .where('parentUid', isEqualTo: cleanParentUid)
+          .where('childId', isEqualTo: cleanChildId)
+          .limit(20)
+          .snapshots(),
+      builder: (context, snapshot) {
+        final docs = snapshot.data?.docs ?? [];
+
+        QueryDocumentSnapshot<Map<String, dynamic>>? openDoc;
+
+        for (final doc in docs) {
+          final data = doc.data();
+          final status = (data['status'] ?? '').toString();
+
+          if (_isOpenStatus(status)) {
+            openDoc = doc;
+            break;
+          }
+        }
+
+        if (openDoc == null) {
+          return _buildRequestButton();
+        }
+
+        final data = openDoc.data();
+        final status = (data['status'] ?? 'pending').toString();
+        final canCancel = _canCancel(status);
+
+        if (compact) {
+          return Column(
+            children: [
+              Text(
+                _statusText(status),
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.orange,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+              ),
+              if (canCancel)
+                TextButton.icon(
+                  onPressed: () => onCancel(openDoc!.id),
+                  icon: const Icon(Icons.close_rounded, size: 17),
+                  label: const Text('إلغاء'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.redAccent,
+                  ),
+                ),
+            ],
+          );
+        }
+
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.orange.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.orange.withOpacity(0.25)),
+          ),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  const Icon(
+                    Icons.hourglass_top_rounded,
+                    color: Colors.orange,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _statusText(status),
+                      style: const TextStyle(
+                        color: Colors.orange,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (canCancel) ...[
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () => onCancel(openDoc!.id),
+                    icon: const Icon(Icons.close_rounded),
+                    label: const Text('إلغاء الطلب'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.redAccent,
+                      side: BorderSide(
+                        color: Colors.redAccent.withOpacity(0.35),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildRequestButton() {
+    if (compact) {
+      return TextButton.icon(
+        onPressed: isSending ? null : onRequest,
+        icon: isSending
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.wifi_tethering_rounded, size: 18),
+        label: Text(isSending ? 'جاري الإرسال' : 'طلب بث'),
+        style: TextButton.styleFrom(
+          foregroundColor: Colors.red,
+        ),
+      );
+    }
+
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: isSending ? null : onRequest,
+        icon: isSending
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.wifi_tethering_rounded),
+        label: Text(isSending ? 'جاري إرسال الطلب...' : 'طلب بث مباشر للطفل'),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: Colors.red,
+          side: BorderSide(color: Colors.red.withOpacity(0.35)),
+          minimumSize: const Size(double.infinity, 50),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _ParentLiveStreamSection extends StatelessWidget {
+  final String parentUid;
+  final String parentUsername;
   final Future<void> Function(Map<String, dynamic> streamData) onOpenLiveStream;
 
   const _ParentLiveStreamSection({
+    required this.parentUid,
+    required this.parentUsername,
     required this.onOpenLiveStream,
   });
 
   @override
   Widget build(BuildContext context) {
+    final cleanParentUid = parentUid.trim();
+
+    if (cleanParentUid.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
           .collection('live_streams')
           .where('status', isEqualTo: 'active')
-          .orderBy('startedAt', descending: true)
+          .where('targetParentUid', isEqualTo: cleanParentUid)
           .limit(1)
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
+          debugPrint('Parent live stream query error: ${snapshot.error}');
           return const SizedBox.shrink();
         }
 
@@ -1641,12 +2102,18 @@ class _ParentLiveStreamSection extends StatelessWidget {
           return const SizedBox.shrink();
         }
 
-        final data = docs.first.data();
+        final doc = docs.first;
+        final data = {
+          ...doc.data(),
+          'id': doc.id,
+          'streamId': doc.id,
+        };
 
         final title = (data['title'] ?? 'بث مباشر من الحضانة').toString();
         final startedByName = (data['startedByName'] ?? '').toString();
         final startedByRole = (data['startedByRole'] ?? '').toString();
         final photoUrl = (data['startedByPhotoUrl'] ?? '').toString();
+        final childName = (data['childName'] ?? '').toString().trim();
 
         return Card(
           elevation: 0,
@@ -1750,6 +2217,17 @@ class _ParentLiveStreamSection extends StatelessWidget {
                             fontSize: 14.5,
                           ),
                         ),
+                        if (childName.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'خاص بالطفل: $childName',
+                            style: const TextStyle(
+                              color: Colors.red,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 4),
                         Text(
                           startedByName.trim().isEmpty

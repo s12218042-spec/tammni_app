@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -18,6 +20,7 @@ class NotificationService {
   final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
   bool _initialized = false;
+  bool _lifecycleObserverAdded = false;
 
   static const String _channelId = 'tammni_high_importance_channel';
   static const String _channelName = 'إشعارات طمّني';
@@ -32,8 +35,40 @@ class NotificationService {
     await _setupForegroundPresentationOptions();
     await _setupForegroundHandler();
     await _setupTokenRefreshListener();
+    _setupAppLifecycleBadgeCleaner();
+
+    await clearAppBadgeAndDeliveredNotifications();
 
     _initialized = true;
+  }
+
+  void _setupAppLifecycleBadgeCleaner() {
+    if (_lifecycleObserverAdded) return;
+
+    WidgetsBinding.instance.addObserver(_NotificationLifecycleObserver());
+    _lifecycleObserverAdded = true;
+  }
+
+  Future<void> clearAppBadgeAndDeliveredNotifications() async {
+    if (kIsWeb) return;
+
+    try {
+      await _localNotifications.cancelAll();
+
+      await _localNotifications
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>()
+          ?.cancelAll();
+
+      await _localNotifications
+          .resolvePlatformSpecificImplementation<
+              IOSFlutterLocalNotificationsPlugin>()
+          ?.cancelAll();
+
+      debugPrint('تم مسح إشعارات التطبيق والعداد');
+    } catch (e) {
+      debugPrint('فشل مسح إشعارات التطبيق أو العداد: $e');
+    }
   }
 
   Future<void> _requestPermission() async {
@@ -65,8 +100,9 @@ class NotificationService {
 
     await _localNotifications.initialize(
       initSettings,
-      onDidReceiveNotificationResponse: (details) {
+      onDidReceiveNotificationResponse: (details) async {
         debugPrint('تم الضغط على إشعار محلي: ${details.payload}');
+        await clearAppBadgeAndDeliveredNotifications();
       },
     );
 
@@ -130,14 +166,16 @@ class NotificationService {
             presentAlert: true,
             presentBadge: true,
             presentSound: true,
+            badgeNumber: 0,
           ),
         ),
         payload: message.data.toString(),
       );
     });
 
-    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) async {
       debugPrint('تم فتح التطبيق من إشعار وهو بالخلفية: ${message.data}');
+      await clearAppBadgeAndDeliveredNotifications();
     });
   }
 
@@ -147,6 +185,8 @@ class NotificationService {
     if (initialMessage != null) {
       debugPrint('التطبيق فُتح من إشعار وهو مغلق: ${initialMessage.data}');
     }
+
+    await clearAppBadgeAndDeliveredNotifications();
   }
 
   Future<String?> getToken() async {
@@ -193,5 +233,16 @@ class NotificationService {
 
       debugPrint('تم تحديث FCM token للمستخدم الحالي');
     });
+  }
+}
+
+class _NotificationLifecycleObserver extends WidgetsBindingObserver {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(
+        NotificationService.instance.clearAppBadgeAndDeliveredNotifications(),
+      );
+    }
   }
 }

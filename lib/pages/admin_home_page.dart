@@ -16,7 +16,7 @@ import 'admin_updates_feed_page.dart';
 import 'manage_children_page.dart';
 import 'manage_users_page.dart';
 import 'welcome_page.dart';
-import 'start_live_stream_page.dart';
+import 'admin_live_stream_requests_page.dart';
 import '../services/account_settings_service.dart';
 
 class AdminHomePage extends StatefulWidget {
@@ -822,16 +822,31 @@ class _AdminHomePageState extends State<AdminHomePage> {
          icon: Icons.admin_panel_settings_rounded,
           ),
         const SizedBox(height: 12),
-
         _AdminActionCard(
-       icon: Icons.wifi_tethering_rounded,
-       title: 'بث مباشر',
-       subtitle: 'بدء بث مباشر للأهل من حساب الإدارة',
-       onTap: () async {
-       await Navigator.push(
+         icon: Icons.video_call_outlined,
+         title: 'طلبات البث المباشر',
+         subtitle: 'مراجعة طلبات أولياء الأمور ومتابعة قائمة الانتظار',
+         onTap: () async {
+         await Navigator.push(
+         context,
+         MaterialPageRoute(
+         builder: (_) => const AdminLiveStreamRequestsPage(),
+        ),
+    );
+
+    if (!mounted) return;
+    setState(() {});
+  },
+),
+        _AdminActionCard(
+  icon: Icons.video_call_rounded,
+  title: 'طلبات البث المباشر',
+  subtitle: 'مراجعة طلبات أولياء الأمور وبدء بث خاص لكل طفل',
+  onTap: () async {
+    await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => const StartLiveStreamPage(),
+        builder: (_) => const AdminLiveStreamRequestsPage(),
       ),
     );
 

@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../models/child_model.dart';
+import '../services/gallery_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 import 'video_preview_page.dart';
@@ -23,76 +24,70 @@ class _GalleryPageState extends State<GalleryPage> {
 
   String selectedFilter = 'all';
 
- String sectionLabel(String section) {
-  return 'حضانة';
-}
+  String sectionLabel(String section) {
+    return 'حضانة';
+  }
+
+  DateTime? _dateFromDynamic(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    if (value is String) return DateTime.tryParse(value);
+    return null;
+  }
+
+  DateTime? _resolveDateTime(Map<String, dynamic> data) {
+    final candidates = [
+      data['eventAt'],
+      data['time'],
+      data['createdAt'],
+      data['timestamp'],
+      data['updatedAt'],
+    ];
+
+    for (final value in candidates) {
+      final date = _dateFromDynamic(value);
+      if (date != null) return date;
+    }
+
+    return null;
+  }
+
+  String _firstNonEmpty(List<dynamic> values) {
+    for (final value in values) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return '';
+  }
 
   String _resolveNote(Map<String, dynamic> data) {
-    final candidates = [
+    return _firstNonEmpty([
       data['note'],
       data['message'],
       data['body'],
       data['description'],
       data['details'],
-    ];
-
-    for (final value in candidates) {
-      if (value != null && value.toString().trim().isNotEmpty) {
-        return value.toString().trim();
-      }
-    }
-
-    return '';
+    ]);
   }
 
   String _resolveType(Map<String, dynamic> data) {
-    final candidates = [
+    return _firstNonEmpty([
       data['type'],
       data['updateType'],
       data['category'],
       data['title'],
-    ];
-
-    for (final value in candidates) {
-      if (value != null && value.toString().trim().isNotEmpty) {
-        return value.toString().trim();
-      }
-    }
-
-    return '';
+    ]);
   }
 
   String _resolveByRole(Map<String, dynamic> data) {
-    final candidates = [
+    return _firstNonEmpty([
       data['byRole'],
       data['createdByRole'],
       data['senderRole'],
       data['role'],
-    ];
-
-    for (final value in candidates) {
-      if (value != null && value.toString().trim().isNotEmpty) {
-        return value.toString().trim();
-      }
-    }
-
-    return '';
-  }
-
-  Timestamp? _resolveTimestamp(Map<String, dynamic> data) {
-    final candidates = [
-      data['time'],
-      data['createdAt'],
-      data['timestamp'],
-      data['updatedAt'],
-      data['eventAt'],
-    ];
-
-    for (final value in candidates) {
-      if (value is Timestamp) return value;
-    }
-
-    return null;
+    ]);
   }
 
   bool _isUsableRemoteUrl(String value) {
@@ -101,7 +96,13 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 
   String _resolveMediaUrl(Map<String, dynamic> data) {
-    final directUrl = (data['mediaUrl'] ?? '').toString().trim();
+    final directUrl = _firstNonEmpty([
+      data['mediaUrl'],
+      data['imageUrl'],
+      data['videoUrl'],
+      data['url'],
+    ]);
+
     if (_isUsableRemoteUrl(directUrl)) return directUrl;
 
     final mediaUrls = data['mediaUrls'];
@@ -116,72 +117,102 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 
   String _resolveMediaPath(Map<String, dynamic> data) {
-    final path = (data['mediaPath'] ?? '').toString().trim();
+    final path = _firstNonEmpty([
+      data['mediaPath'],
+      data['path'],
+      data['imagePath'],
+      data['videoPath'],
+    ]);
 
     if (path.startsWith('blob:')) return '';
     if (_isUsableRemoteUrl(path)) return '';
+
     return path;
+  }
+
+  String _resolveStorageProvider(Map<String, dynamic> data) {
+    return _firstNonEmpty([
+      data['storageProvider'],
+      data['provider'],
+    ]);
+  }
+
+  String _resolvePublicUrl(Map<String, dynamic> data) {
+    return _firstNonEmpty([
+      data['publicUrl'],
+      data['mediaPublicUrl'],
+    ]);
   }
 
   String _resolveMediaType(Map<String, dynamic> data) {
     final mediaType = (data['mediaType'] ?? '').toString().trim().toLowerCase();
-    if (mediaType.isNotEmpty) return mediaType;
 
-    final resolvedUrl = _resolveMediaUrl(data).toLowerCase();
-    final resolvedPath = _resolveMediaPath(data).toLowerCase();
-    final source = resolvedUrl.isNotEmpty ? resolvedUrl : resolvedPath;
+    if (mediaType == 'image' || mediaType == 'video') {
+      return mediaType;
+    }
 
-    if (source.endsWith('.mp4') ||
+    final url = _resolveMediaUrl(data).toLowerCase();
+    final path = _resolveMediaPath(data).toLowerCase();
+    final mimeType = (data['mimeType'] ?? '').toString().trim().toLowerCase();
+    final source = '$url $path $mimeType';
+
+    if (source.contains('video') ||
+        source.endsWith('.mp4') ||
         source.endsWith('.mov') ||
         source.endsWith('.avi') ||
         source.endsWith('.mkv') ||
-        source.contains('video')) {
+        source.endsWith('.webm') ||
+        source.endsWith('.m4v')) {
       return 'video';
     }
 
-    if (source.endsWith('.jpg') ||
+    if (source.contains('image') ||
+        source.endsWith('.jpg') ||
         source.endsWith('.jpeg') ||
         source.endsWith('.png') ||
         source.endsWith('.webp') ||
-        source.contains('image')) {
+        source.endsWith('.gif')) {
       return 'image';
     }
 
     return '';
   }
 
-  Future<List<Map<String, dynamic>>> fetchMediaUpdates() async {
-    final snapshot = await _firestore
-        .collection('updates')
-        .where('childId', isEqualTo: widget.child.id)
-        .get();
-
-    final items = snapshot.docs.map((doc) {
+  List<Map<String, dynamic>> _prepareMediaUpdates(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final items = docs.map((doc) {
       final data = doc.data();
 
       final mediaUrl = _resolveMediaUrl(data);
       final mediaPath = _resolveMediaPath(data);
       final mediaType = _resolveMediaType(data);
-      final displayTime = _resolveTimestamp(data);
-
-      final resolvedSource = mediaUrl.isNotEmpty ? mediaUrl : '';
+      final displayDateTime = _resolveDateTime(data);
+      final publicUrl = _resolvePublicUrl(data);
+      final storageProvider = _resolveStorageProvider(data);
 
       return {
         'id': doc.id,
         'type': _resolveType(data),
         'note': _resolveNote(data),
-        'displayTime': displayTime,
+        'displayDateTime': displayDateTime,
         'mediaPath': mediaPath,
         'mediaUrl': mediaUrl,
-        'resolvedSource': resolvedSource,
+        'publicUrl': publicUrl,
+        'storageProvider': storageProvider,
         'mediaType': mediaType,
         'byRole': _resolveByRole(data),
       };
     }).where((item) {
-      final resolvedSource = (item['resolvedSource'] ?? '').toString().trim();
+      final mediaUrl = (item['mediaUrl'] ?? '').toString().trim();
+      final mediaPath = (item['mediaPath'] ?? '').toString().trim();
+      final publicUrl = (item['publicUrl'] ?? '').toString().trim();
       final mediaType = (item['mediaType'] ?? '').toString().trim();
 
-      if (resolvedSource.isEmpty || mediaType.isEmpty) {
+      final hasMediaSource =
+          mediaPath.isNotEmpty || mediaUrl.isNotEmpty || publicUrl.isNotEmpty;
+
+      if (!hasMediaSource || mediaType.isEmpty) {
         return false;
       }
 
@@ -197,8 +228,8 @@ class _GalleryPageState extends State<GalleryPage> {
     }).toList();
 
     items.sort((a, b) {
-      final aTime = a['displayTime'] as Timestamp?;
-      final bTime = b['displayTime'] as Timestamp?;
+      final aTime = a['displayDateTime'] as DateTime?;
+      final bTime = b['displayDateTime'] as DateTime?;
 
       if (aTime == null && bTime == null) return 0;
       if (aTime == null) return 1;
@@ -208,6 +239,13 @@ class _GalleryPageState extends State<GalleryPage> {
     });
 
     return items;
+  }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> _mediaUpdatesStream() {
+    return _firestore
+        .collection('updates')
+        .where('childId', isEqualTo: widget.child.id)
+        .snapshots();
   }
 
   String formatDateLabel(DateTime date) {
@@ -234,21 +272,22 @@ class _GalleryPageState extends State<GalleryPage> {
 
     if (difference == 0) {
       return 'اليوم، ${date.day} ${months[date.month]}';
-    } else if (difference == 1) {
-      return 'أمس، ${date.day} ${months[date.month]}';
-    } else {
-      return '${date.day} ${months[date.month]} ${date.year}';
     }
+
+    if (difference == 1) {
+      return 'أمس، ${date.day} ${months[date.month]}';
+    }
+
+    return '${date.day} ${months[date.month]} ${date.year}';
   }
 
-  String formatTime(Timestamp? timestamp) {
-    if (timestamp == null) return '';
-    final date = timestamp.toDate();
-    final hour = date.hour > 12
-        ? date.hour - 12
-        : (date.hour == 0 ? 12 : date.hour);
+  String formatTime(DateTime? date) {
+    if (date == null) return '';
+
+    final hour = date.hour > 12 ? date.hour - 12 : (date.hour == 0 ? 12 : date.hour);
     final minute = date.minute.toString().padLeft(2, '0');
     final period = date.hour >= 12 ? 'م' : 'ص';
+
     return '$hour:$minute $period';
   }
 
@@ -301,24 +340,30 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 
   Widget buildMediaTile(Map<String, dynamic> item) {
-    final resolvedSource = item['resolvedSource']?.toString() ?? '';
+    final mediaUrl = item['mediaUrl']?.toString() ?? '';
+    final mediaPath = item['mediaPath']?.toString() ?? '';
+    final publicUrl = item['publicUrl']?.toString() ?? '';
+    final storageProvider = item['storageProvider']?.toString() ?? '';
     final mediaType = item['mediaType']?.toString() ?? '';
     final note = item['note']?.toString() ?? '';
     final type = item['type']?.toString() ?? '';
-    final time = item['displayTime'] as Timestamp?;
+    final time = item['displayDateTime'] as DateTime?;
 
     final isVideo = mediaType == 'video';
 
     return GestureDetector(
       onTap: () {
-        if (resolvedSource.trim().isEmpty) return;
-
         if (isVideo) {
           Navigator.push(
             context,
             MaterialPageRoute(
               builder: (_) => VideoPreviewPage(
-                path: resolvedSource,
+                path: mediaUrl.isNotEmpty ? mediaUrl : mediaPath,
+                mediaPath: mediaPath,
+                mediaUrl: mediaUrl,
+                publicUrl: publicUrl,
+                storageProvider:
+                    storageProvider.isNotEmpty ? storageProvider : 'supabase',
                 title: widget.child.name,
               ),
             ),
@@ -330,8 +375,11 @@ class _GalleryPageState extends State<GalleryPage> {
           context,
           MaterialPageRoute(
             builder: (_) => GalleryPreviewPage(
-              mediaPath: resolvedSource,
-              mediaType: mediaType,
+              mediaPath: mediaPath,
+              mediaUrl: mediaUrl,
+              publicUrl: publicUrl,
+              storageProvider:
+                  storageProvider.isNotEmpty ? storageProvider : 'supabase',
               title: widget.child.name,
               subtitle: note.isNotEmpty ? note : type,
               timeText: formatTime(time),
@@ -357,7 +405,11 @@ class _GalleryPageState extends State<GalleryPage> {
             children: [
               Positioned.fill(
                 child: buildMediaContent(
-                  mediaSource: resolvedSource,
+                  mediaPath: mediaPath,
+                  mediaUrl: mediaUrl,
+                  publicUrl: publicUrl,
+                  storageProvider:
+                      storageProvider.isNotEmpty ? storageProvider : 'supabase',
                   isVideo: isVideo,
                 ),
               ),
@@ -382,8 +434,7 @@ class _GalleryPageState extends State<GalleryPage> {
                 right: 10,
                 top: 10,
                 child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
                     color: Colors.white.withOpacity(0.92),
                     borderRadius: BorderRadius.circular(14),
@@ -458,7 +509,10 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 
   Widget buildMediaContent({
-    required String mediaSource,
+    required String mediaPath,
+    required String mediaUrl,
+    required String publicUrl,
+    required String storageProvider,
     required bool isVideo,
   }) {
     if (isVideo) {
@@ -474,27 +528,12 @@ class _GalleryPageState extends State<GalleryPage> {
       );
     }
 
-    if (!_isUsableRemoteUrl(mediaSource)) {
-      return buildBrokenMedia(
-        message: 'تعذر عرض الصورة لأن الرابط غير صالح',
-      );
-    }
-
-    return Image.network(
-      mediaSource,
+    return FreshMediaImage(
+      mediaPath: mediaPath,
+      mediaUrl: mediaUrl,
+      publicUrl: publicUrl,
+      storageProvider: storageProvider,
       fit: BoxFit.cover,
-      errorBuilder: (_, __, ___) {
-        return buildBrokenMedia();
-      },
-      loadingBuilder: (context, child, progress) {
-        if (progress == null) return child;
-        return Container(
-          color: AppColors.primary.withOpacity(0.06),
-          child: const Center(
-            child: CircularProgressIndicator(),
-          ),
-        );
-      },
     );
   }
 
@@ -504,24 +543,13 @@ class _GalleryPageState extends State<GalleryPage> {
       child: Center(
         child: Padding(
           padding: const EdgeInsets.all(12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: const [
-              Icon(
-                Icons.broken_image_rounded,
-                size: 36,
-                color: AppColors.textLight,
-              ),
-              SizedBox(height: 8),
-              Text(
-                'تعذر عرض الوسائط',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: AppColors.textLight,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
+          child: Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: AppColors.textLight,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       ),
@@ -534,10 +562,9 @@ class _GalleryPageState extends State<GalleryPage> {
     final Map<String, List<Map<String, dynamic>>> grouped = {};
 
     for (final item in items) {
-      final timestamp = item['displayTime'] as Timestamp?;
-      if (timestamp == null) continue;
+      final date = item['displayDateTime'] as DateTime?;
+      if (date == null) continue;
 
-      final date = timestamp.toDate();
       final key = '${date.year}-${date.month}-${date.day}';
 
       grouped.putIfAbsent(key, () => []);
@@ -552,7 +579,7 @@ class _GalleryPageState extends State<GalleryPage> {
     final headerSubtitle = sectionLabel(widget.child.section);
 
     return AppPageScaffold(
-      title: 'معرض صور الطفل',
+      title: 'معرض الطفل',
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
       child: Column(
         children: [
@@ -619,8 +646,8 @@ class _GalleryPageState extends State<GalleryPage> {
           ),
           const SizedBox(height: 16),
           Expanded(
-            child: FutureBuilder<List<Map<String, dynamic>>>(
-              future: fetchMediaUpdates(),
+            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: _mediaUpdatesStream(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(
@@ -641,7 +668,8 @@ class _GalleryPageState extends State<GalleryPage> {
                   );
                 }
 
-                final items = snapshot.data ?? [];
+                final rawDocs = snapshot.data?.docs ?? [];
+                final items = _prepareMediaUpdates(rawDocs);
 
                 if (items.isEmpty) {
                   return Center(
@@ -669,16 +697,6 @@ class _GalleryPageState extends State<GalleryPage> {
                               color: AppColors.textDark,
                             ),
                           ),
-                          SizedBox(height: 8),
-                          Text(
-                            'عند إضافة صور أو فيديوهات للطفل ستظهر هنا',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: AppColors.textLight,
-                              height: 1.5,
-                            ),
-                          ),
                         ],
                       ),
                     ),
@@ -694,11 +712,8 @@ class _GalleryPageState extends State<GalleryPage> {
                   itemBuilder: (context, index) {
                     final key = sortedKeys[index];
                     final groupItems = grouped[key]!;
-                    final timestamp =
-                        groupItems.first['displayTime'] as Timestamp?;
-                    final title = timestamp == null
-                        ? key
-                        : formatDateLabel(timestamp.toDate());
+                    final date = groupItems.first['displayDateTime'] as DateTime?;
+                    final title = date == null ? key : formatDateLabel(date);
 
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -747,9 +762,109 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 }
 
+class FreshMediaImage extends StatefulWidget {
+  final String mediaPath;
+  final String mediaUrl;
+  final String publicUrl;
+  final String storageProvider;
+  final BoxFit fit;
+
+  const FreshMediaImage({
+    super.key,
+    required this.mediaPath,
+    required this.mediaUrl,
+    required this.publicUrl,
+    required this.storageProvider,
+    this.fit = BoxFit.cover,
+  });
+
+  @override
+  State<FreshMediaImage> createState() => _FreshMediaImageState();
+}
+
+class _FreshMediaImageState extends State<FreshMediaImage> {
+  final GalleryService _galleryService = GalleryService();
+
+  late Future<String?> _futureUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _futureUrl = _resolveUrl();
+  }
+
+  @override
+  void didUpdateWidget(covariant FreshMediaImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.mediaPath != widget.mediaPath ||
+        oldWidget.mediaUrl != widget.mediaUrl ||
+        oldWidget.publicUrl != widget.publicUrl ||
+        oldWidget.storageProvider != widget.storageProvider) {
+      _futureUrl = _resolveUrl();
+    }
+  }
+
+  Future<String?> _resolveUrl() {
+    return _galleryService.resolveFreshMediaUrlFromFields(
+      storageProvider: widget.storageProvider,
+      mediaPath: widget.mediaPath,
+      oldMediaUrl: widget.mediaUrl,
+      publicUrl: widget.publicUrl,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<String?>(
+      future: _futureUrl,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Container(
+            color: AppColors.primary.withOpacity(0.06),
+            child: const Center(
+              child: CircularProgressIndicator(),
+            ),
+          );
+        }
+
+        final url = snapshot.data ?? '';
+
+        if (url.trim().isEmpty) {
+          return const _BrokenMediaBox(
+            message: 'تعذر عرض الصورة',
+          );
+        }
+
+        return Image.network(
+          url,
+          fit: widget.fit,
+          errorBuilder: (_, __, ___) {
+            return const _BrokenMediaBox(
+              message: 'تعذر عرض الصورة',
+            );
+          },
+          loadingBuilder: (context, child, progress) {
+            if (progress == null) return child;
+
+            return Container(
+              color: AppColors.primary.withOpacity(0.06),
+              child: const Center(
+                child: CircularProgressIndicator(),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
 class GalleryPreviewPage extends StatelessWidget {
   final String mediaPath;
-  final String mediaType;
+  final String mediaUrl;
+  final String publicUrl;
+  final String storageProvider;
   final String title;
   final String subtitle;
   final String timeText;
@@ -757,15 +872,13 @@ class GalleryPreviewPage extends StatelessWidget {
   const GalleryPreviewPage({
     super.key,
     required this.mediaPath,
-    required this.mediaType,
+    required this.mediaUrl,
+    required this.publicUrl,
+    required this.storageProvider,
     required this.title,
     required this.subtitle,
     required this.timeText,
   });
-
-  bool get isVideo => mediaType == 'video';
-  bool get isNetwork =>
-      mediaPath.startsWith('http://') || mediaPath.startsWith('https://');
 
   @override
   Widget build(BuildContext context) {
@@ -789,7 +902,15 @@ class GalleryPreviewPage extends StatelessWidget {
           children: [
             Expanded(
               child: Center(
-                child: isVideo ? const SizedBox.shrink() : buildImagePreview(),
+                child: InteractiveViewer(
+                  child: FreshMediaImage(
+                    mediaPath: mediaPath,
+                    mediaUrl: mediaUrl,
+                    publicUrl: publicUrl,
+                    storageProvider: storageProvider,
+                    fit: BoxFit.contain,
+                  ),
+                ),
               ),
             ),
             Container(
@@ -833,42 +954,42 @@ class GalleryPreviewPage extends StatelessWidget {
       ),
     );
   }
+}
 
-  Widget buildImagePreview() {
-    if (!isNetwork) {
-      return const Padding(
-        padding: EdgeInsets.all(24),
-        child: Text(
-          'تعذر عرض هذه الصورة',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
+class _BrokenMediaBox extends StatelessWidget {
+  final String message;
+
+  const _BrokenMediaBox({
+    required this.message,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: AppColors.primary.withOpacity(0.06),
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.broken_image_rounded,
+                size: 36,
+                color: AppColors.textLight,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: AppColors.textLight,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
           ),
         ),
-      );
-    }
-
-    return InteractiveViewer(
-      child: Image.network(
-        mediaPath,
-        fit: BoxFit.contain,
-        errorBuilder: (_, __, ___) {
-          return const Icon(
-            Icons.broken_image_rounded,
-            color: Colors.white54,
-            size: 60,
-          );
-        },
-        loadingBuilder: (context, child, progress) {
-          if (progress == null) return child;
-          return const Center(
-            child: CircularProgressIndicator(
-              color: Colors.white,
-            ),
-          );
-        },
       ),
     );
   }

@@ -30,17 +30,14 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
 
   final TextEditingController detailsCtrl = TextEditingController();
   final TextEditingController actionCtrl = TextEditingController();
-  final TextEditingController witnessCtrl = TextEditingController();
   final TextEditingController otherLocationCtrl = TextEditingController();
 
   String incidentType = 'سقوط بسيط';
   String priority = 'important';
-  String status = 'new';
   String incidentPlace = 'الصف';
 
   bool isSaving = false;
 
-  List<String> witnesses = [];
   XFile? selectedImage;
   Uint8List? selectedImageBytes;
 
@@ -68,7 +65,6 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
   void dispose() {
     detailsCtrl.dispose();
     actionCtrl.dispose();
-    witnessCtrl.dispose();
     otherLocationCtrl.dispose();
     super.dispose();
   }
@@ -144,17 +140,6 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
     }
   }
 
-  String _statusLabel(String value) {
-    switch (value.trim().toLowerCase()) {
-      case 'review':
-        return 'قيد المراجعة';
-      case 'done':
-        return 'مكتمل';
-      case 'new':
-      default:
-        return 'جديد';
-    }
-  }
 
   void _showSnack(
     String message, {
@@ -269,19 +254,7 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
     });
   }
 
-  void addWitness() {
-    final value = witnessCtrl.text.trim();
 
-    if (value.isEmpty) return;
-
-    setState(() {
-      if (!witnesses.contains(value)) {
-        witnesses.add(value);
-      }
-
-      witnessCtrl.clear();
-    });
-  }
 
   Future<Map<String, dynamic>> _uploadIncidentImageIfNeeded() async {
     if (selectedImage == null) {
@@ -327,25 +300,23 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
     };
   }
 
-  String _buildIncidentSummary({
-    required String autoRisk,
-  }) {
-    final details = detailsCtrl.text.trim();
-    final action = actionCtrl.text.trim();
-    final witnessText = witnesses.isEmpty ? '' : witnesses.join('، ');
+ String _buildIncidentSummary({
+  required String autoRisk,
+}) {
+  final details = detailsCtrl.text.trim();
+  final action = actionCtrl.text.trim();
 
-    final parts = <String>[
-      'نوع الحادث: $incidentType',
-      'المكان: $finalIncidentPlace',
-      'درجة الخطورة: ${riskLabel(autoRisk)}',
-      'الأولوية: ${riskLabel(priority)}',
-      if (details.isNotEmpty) 'التفاصيل: $details',
-      if (action.isNotEmpty) 'الإجراء المتخذ: $action',
-      if (witnessText.isNotEmpty) 'الشهود: $witnessText',
-    ];
+  final parts = <String>[
+    'نوع الحادث: $incidentType',
+    'المكان: $finalIncidentPlace',
+    'درجة الخطورة: ${riskLabel(autoRisk)}',
+    'الأولوية: ${riskLabel(priority)}',
+    if (details.isNotEmpty) 'التفاصيل: $details',
+    if (action.isNotEmpty) 'الإجراء المتخذ: $action',
+  ];
 
-    return parts.join(' | ');
-  }
+  return parts.join(' | ');
+}
 
   bool _validateIncident() {
     final details = detailsCtrl.text.trim();
@@ -419,8 +390,8 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
         'priority': priority,
         'importance': priority,
         'autoRisk': autoRisk,
-        'status': status,
-        'statusLabel': _statusLabel(status),
+        'status': 'new',
+        'statusLabel': 'جديد',
         'incidentPlace': finalIncidentPlace,
         'locationLabel': finalIncidentPlace,
         'details': detailsCtrl.text.trim(),
@@ -428,7 +399,6 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
         'message': finalSummary,
         'description': finalSummary,
         'actionTaken': actionCtrl.text.trim(),
-        'witnesses': witnesses,
         'parentNotified': canNotifyParent,
         'notifyParent': canNotifyParent,
         ...imageData,
@@ -783,53 +753,7 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
               ),
             ),
           ),
-          _card(
-            'شهود الحادث',
-            Icons.groups_outlined,
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: witnessCtrl,
-                        decoration: _inputDecoration(
-                          hint: 'اسم الشاهد',
-                          icon: Icons.person_outline,
-                        ),
-                        onSubmitted: (_) => addWitness(),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    ElevatedButton(
-                      onPressed: addWitness,
-                      child: const Text('إضافة'),
-                    ),
-                  ],
-                ),
-                if (witnesses.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: witnesses.map((witness) {
-                        return Chip(
-                          label: Text(witness),
-                          onDeleted: () {
-                            setState(() {
-                              witnesses.remove(witness);
-                            });
-                          },
-                        );
-                      }).toList(),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
+         
           _card(
             'أولوية التقرير',
             Icons.priority_high_outlined,
@@ -852,28 +776,7 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
               },
             ),
           ),
-          _card(
-            'حالة التقرير',
-            Icons.flag_outlined,
-            child: DropdownButtonFormField<String>(
-              value: status,
-              decoration: _inputDecoration(
-                hint: 'اختاري حالة التقرير',
-              ),
-              items: const [
-                DropdownMenuItem(value: 'new', child: Text('جديد')),
-                DropdownMenuItem(value: 'review', child: Text('قيد المراجعة')),
-                DropdownMenuItem(value: 'done', child: Text('مكتمل')),
-              ],
-              onChanged: (value) {
-                if (value == null) return;
-
-                setState(() {
-                  status = value;
-                });
-              },
-            ),
-          ),
+         
           const SizedBox(height: 10),
           ElevatedButton.icon(
             onPressed: isSaving ? null : saveIncident,
@@ -889,7 +792,7 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
                 : const Icon(Icons.save_outlined),
             label: Text(isSaving ? 'جاري الحفظ...' : 'حفظ التقرير'),
             style: ElevatedButton.styleFrom(
-              minimumSize: const Size(double.infinity, 54),
+            minimumSize: const Size(0, 54),
             ),
           ),
         ],

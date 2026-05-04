@@ -2,9 +2,8 @@ import 'dart:ui';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/material.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 
 import '../services/auth_service.dart';
 import '../services/notification_service.dart';
@@ -14,7 +13,6 @@ import 'force_change_password_page.dart';
 import 'nursery_staff_home_page.dart';
 import 'parent_home_page.dart';
 import 'parent_registration_request_page.dart';
-
 
 class WelcomePage extends StatefulWidget {
   const WelcomePage({super.key});
@@ -33,7 +31,6 @@ class _WelcomePageState extends State<WelcomePage> {
   bool obscurePassword = true;
   bool isLoading = false;
   bool isCheckingUser = true;
-  bool isGoogleLoading = false;
 
   @override
   void initState() {
@@ -124,12 +121,12 @@ class _WelcomePageState extends State<WelcomePage> {
         final changed = await Navigator.push<bool>(
           context,
           MaterialPageRoute(
-           builder: (_) => ForceChangePasswordPage(
-  userRole: role,
-  username: username.isNotEmpty ? username : usernameCtrl.text.trim(),
-  temporaryPassword:
-      (userData['temporaryPasswordPlain'] ?? '').toString(),
-),
+            builder: (_) => ForceChangePasswordPage(
+              userRole: role,
+              username: username.isNotEmpty ? username : usernameCtrl.text.trim(),
+              temporaryPassword:
+                  (userData['temporaryPasswordPlain'] ?? '').toString(),
+            ),
           ),
         );
 
@@ -174,322 +171,178 @@ class _WelcomePageState extends State<WelcomePage> {
   }
 
   Future<void> onForgotPassword() async {
-  final usernameController = TextEditingController();
+    final usernameController = TextEditingController();
 
-  try {
-    final enteredUsername = await showDialog<String>(
-      context: context,
-      barrierDismissible: true,
-      builder: (context) {
-        final dialogFormKey = GlobalKey<FormState>();
+    try {
+      final enteredUsername = await showDialog<String>(
+        context: context,
+        barrierDismissible: true,
+        builder: (context) {
+          final dialogFormKey = GlobalKey<FormState>();
 
-        return Directionality(
-          textDirection: TextDirection.rtl,
-          child: AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(22),
-            ),
-            title: const Text(
-              'استعادة كلمة المرور',
-              textAlign: TextAlign.center,
-            ),
-            content: Form(
-              key: dialogFormKey,
-              child: TextFormField(
-                controller: usernameController,
-                textAlign: TextAlign.right,
-                decoration: InputDecoration(
-                  hintText: 'أدخل اسم المستخدم',
-                  prefixIcon: const Icon(Icons.person_outline_rounded),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
+          return Directionality(
+            textDirection: TextDirection.rtl,
+            child: AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(22),
+              ),
+              title: const Text(
+                'استعادة كلمة المرور',
+                textAlign: TextAlign.center,
+              ),
+              content: Form(
+                key: dialogFormKey,
+                child: TextFormField(
+                  controller: usernameController,
+                  textAlign: TextAlign.right,
+                  decoration: InputDecoration(
+                    hintText: 'أدخل اسم المستخدم',
+                    prefixIcon: const Icon(Icons.person_outline_rounded),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
                   ),
+                  validator: (value) {
+                    final username = value?.trim().toLowerCase() ?? '';
+                    if (username.isEmpty) {
+                      return 'الرجاء إدخال اسم المستخدم';
+                    }
+                    if (username.length < 3) {
+                      return 'اسم المستخدم غير صحيح';
+                    }
+                    return null;
+                  },
                 ),
-                validator: (value) {
-                  final username = value?.trim().toLowerCase() ?? '';
-                  if (username.isEmpty) {
-                    return 'الرجاء إدخال اسم المستخدم';
-                  }
-                  if (username.length < 3) {
-                    return 'اسم المستخدم غير صحيح';
-                  }
-                  return null;
-                },
               ),
+              actionsAlignment: MainAxisAlignment.spaceBetween,
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('إلغاء'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    if (dialogFormKey.currentState!.validate()) {
+                      Navigator.pop(
+                        context,
+                        usernameController.text.trim().toLowerCase(),
+                      );
+                    }
+                  },
+                  child: const Text('متابعة'),
+                ),
+              ],
             ),
-            actionsAlignment: MainAxisAlignment.spaceBetween,
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('إلغاء'),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  if (dialogFormKey.currentState!.validate()) {
-                    Navigator.pop(
-                      context,
-                      usernameController.text.trim().toLowerCase(),
-                    );
-                  }
-                },
-                child: const Text('متابعة'),
-              ),
-            ],
-          ),
-        );
-      },
-    );
+          );
+        },
+      );
 
-    if (enteredUsername == null || enteredUsername.isEmpty) return;
+      if (enteredUsername == null || enteredUsername.isEmpty) return;
 
-    final loginDoc = await FirebaseFirestore.instance
-        .collection('login_usernames')
-        .doc(enteredUsername)
-        .get();
+      final loginDoc = await FirebaseFirestore.instance
+          .collection('login_usernames')
+          .doc(enteredUsername)
+          .get();
 
-    if (!loginDoc.exists) {
-      _showSnack('اسم المستخدم غير موجود');
-      return;
-    }
-
-    final loginData = loginDoc.data() ?? {};
-    final email = (loginData['email'] ?? '').toString().trim().toLowerCase();
-    final isActive = loginData['isActive'] ?? true;
-
-    if (isActive != true) {
-      _showSnack('هذا الحساب غير نشط حاليًا');
-      return;
-    }
-
-    if (email.isEmpty) {
-      _showSnack('لا يوجد بريد إلكتروني مرتبط بهذا الحساب');
-      return;
-    }
-
-    final maskedEmail = _maskEmail(email);
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      barrierDismissible: true,
-      builder: (context) {
-        return Directionality(
-          textDirection: TextDirection.rtl,
-          child: AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(22),
-            ),
-            title: const Text(
-              'تأكيد الهوية',
-              textAlign: TextAlign.center,
-            ),
-            content: Text(
-              'سيتم إرسال رابط إعادة تعيين كلمة المرور إلى البريد التالي:\n$maskedEmail\n\nهل تريد المتابعة؟',
-              textAlign: TextAlign.center,
-              style: const TextStyle(height: 1.6),
-            ),
-            actionsAlignment: MainAxisAlignment.spaceBetween,
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('إلغاء'),
-              ),
-              ElevatedButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('إرسال الرابط'),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-
-    if (confirmed != true) return;
-
-    final actionCodeSettings = ActionCodeSettings(
-  url: 'https://daycare-app-220c0.web.app/auth_action.html',
-  handleCodeInApp: false,
-);
-
-    await FirebaseAuth.instance.sendPasswordResetEmail(
-      email: email,
-      actionCodeSettings: actionCodeSettings,
-    );
-
-    _showSnack('تم إرسال رابط إعادة تعيين كلمة المرور إلى بريدك الإلكتروني');
-  } on FirebaseAuthException catch (e) {
-    debugPrint('Forgot password FirebaseAuthException code: ${e.code}');
-    debugPrint('Forgot password FirebaseAuthException message: ${e.message}');
-
-    if (e.code == 'invalid-email') {
-      _showSnack('البريد الإلكتروني المرتبط بالحساب غير صالح');
-    } else if (e.code == 'user-not-found') {
-      _showSnack('لا يوجد حساب مصادقة مرتبط بهذا البريد');
-    } else if (e.code == 'invalid-continue-uri') {
-      _showSnack('رابط إعادة التعيين غير صالح');
-    } else if (e.code == 'unauthorized-continue-uri') {
-      _showSnack('رابط إعادة التعيين غير مصرح به في Firebase');
-    } else if (e.code == 'missing-continue-uri') {
-      _showSnack('رابط المتابعة مفقود');
-    } else if (e.code == 'argument-error') {
-      _showSnack('يوجد خطأ في إعدادات رابط إعادة التعيين');
-    } else {
-      _showSnack('تعذر إرسال رابط إعادة التعيين: ${e.code}');
-    }
-  } on FirebaseException catch (e) {
-    debugPrint('Forgot password FirebaseException code: ${e.code}');
-    debugPrint('Forgot password FirebaseException message: ${e.message}');
-    _showSnack('تعذر الوصول إلى بيانات الحساب');
-  } catch (e) {
-    debugPrint('Forgot password unexpected error: $e');
-    _showSnack('حدث خطأ أثناء استعادة كلمة المرور');
-  } finally {
-    usernameController.dispose();
-  }
-}
-  Future<void> onGoogleLogin() async {
-  if (!mounted) return;
-
-  setState(() {
-    isGoogleLoading = true;
-  });
-
-  GoogleSignIn? googleSignIn;
-
-  try {
-    UserCredential userCredential;
-
-    if (kIsWeb) {
-      final provider = GoogleAuthProvider();
-      userCredential = await FirebaseAuth.instance.signInWithPopup(provider);
-    } else {
-      googleSignIn = GoogleSignIn();
-      await googleSignIn.signOut();
-
-      final googleUser = await googleSignIn.signIn();
-
-      if (googleUser == null) {
+      if (!loginDoc.exists) {
+        _showSnack('اسم المستخدم غير موجود');
         return;
       }
 
-      final googleAuth = await googleUser.authentication;
-
-      final credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
-      );
-
-      userCredential =
-          await FirebaseAuth.instance.signInWithCredential(credential);
-    }
-
-    final firebaseUser = userCredential.user;
-
-    if (firebaseUser == null) {
-      _showSnack('فشل تسجيل الدخول باستخدام Google');
-      return;
-    }
-
-    final email = (firebaseUser.email ?? '').trim().toLowerCase();
-
-    if (email.isEmpty) {
-      await FirebaseAuth.instance.signOut();
-      if (!kIsWeb && googleSignIn != null) {
-        await googleSignIn.signOut();
-      }
-      _showSnack('تعذر الحصول على البريد الإلكتروني من حساب Google');
-      return;
-    }
-
-    // 1) هل هذا الحساب مربوط أصلًا كحساب نظام فعلي بنفس uid؟
-    final uidDoc = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(firebaseUser.uid)
-        .get();
-
-    if (uidDoc.exists) {
-      final data = uidDoc.data() ?? {};
-      final isActive = data['isActive'] ?? true;
+      final loginData = loginDoc.data() ?? {};
+      final email = (loginData['email'] ?? '').toString().trim().toLowerCase();
+      final isActive = loginData['isActive'] ?? true;
 
       if (isActive != true) {
-        await FirebaseAuth.instance.signOut();
-        if (!kIsWeb && googleSignIn != null) {
-          await googleSignIn.signOut();
-        }
         _showSnack('هذا الحساب غير نشط حاليًا');
         return;
       }
 
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(firebaseUser.uid)
-          .set({
-        'email': email,
-        'lastLoginAt': FieldValue.serverTimestamp(),
-        'loginProvider': 'google',
-      }, SetOptions(merge: true));
-
-      await NotificationService.instance.saveCurrentUserToken();
-      await _goToUserHome(firebaseUser);
-      return;
-    }
-
-    // 2) هل يوجد مستخدم في النظام بنفس البريد ولكن ليس مربوطًا بعد بـ Google؟
-    final existingByEmail = await FirebaseFirestore.instance
-        .collection('users')
-        .where('email', isEqualTo: email)
-        .limit(1)
-        .get();
-
-    if (existingByEmail.docs.isNotEmpty) {
-      await FirebaseAuth.instance.signOut();
-      if (!kIsWeb && googleSignIn != null) {
-        await googleSignIn.signOut();
+      if (email.isEmpty) {
+        _showSnack('لا يوجد بريد إلكتروني مرتبط بهذا الحساب');
+        return;
       }
 
-      _showSnack(
-        'هذا البريد مرتبط بحساب موجود، لكن Google غير مربوط بهذا الحساب بعد. سجّلي الدخول بالطريقة المعتادة أولًا، ثم اربطي حساب Google من داخل الإعدادات.',
+      final maskedEmail = _maskEmail(email);
+
+      final confirmed = await showDialog<bool>(
+        context: context,
+        barrierDismissible: true,
+        builder: (context) {
+          return Directionality(
+            textDirection: TextDirection.rtl,
+            child: AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(22),
+              ),
+              title: const Text(
+                'تأكيد الهوية',
+                textAlign: TextAlign.center,
+              ),
+              content: Text(
+                'سيتم إرسال رابط إعادة تعيين كلمة المرور إلى البريد التالي:\n$maskedEmail\n\nهل تريد المتابعة؟',
+                textAlign: TextAlign.center,
+                style: const TextStyle(height: 1.6),
+              ),
+              actionsAlignment: MainAxisAlignment.spaceBetween,
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('إلغاء'),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('إرسال الرابط'),
+                ),
+              ],
+            ),
+          );
+        },
       );
-      return;
+
+      if (confirmed != true) return;
+
+      final actionCodeSettings = ActionCodeSettings(
+        url: 'https://daycare-app-220c0.web.app/auth_action.html',
+        handleCodeInApp: false,
+      );
+
+      await FirebaseAuth.instance.sendPasswordResetEmail(
+        email: email,
+        actionCodeSettings: actionCodeSettings,
+      );
+
+      _showSnack('تم إرسال رابط إعادة تعيين كلمة المرور إلى بريدك الإلكتروني');
+    } on FirebaseAuthException catch (e) {
+      debugPrint('Forgot password FirebaseAuthException code: ${e.code}');
+      debugPrint('Forgot password FirebaseAuthException message: ${e.message}');
+
+      if (e.code == 'invalid-email') {
+        _showSnack('البريد الإلكتروني المرتبط بالحساب غير صالح');
+      } else if (e.code == 'user-not-found') {
+        _showSnack('لا يوجد حساب مصادقة مرتبط بهذا البريد');
+      } else if (e.code == 'invalid-continue-uri') {
+        _showSnack('رابط إعادة التعيين غير صالح');
+      } else if (e.code == 'unauthorized-continue-uri') {
+        _showSnack('رابط إعادة التعيين غير مصرح به في Firebase');
+      } else if (e.code == 'missing-continue-uri') {
+        _showSnack('رابط المتابعة مفقود');
+      } else if (e.code == 'argument-error') {
+        _showSnack('يوجد خطأ في إعدادات رابط إعادة التعيين');
+      } else {
+        _showSnack('تعذر إرسال رابط إعادة التعيين: ${e.code}');
+      }
+    } on FirebaseException catch (e) {
+      debugPrint('Forgot password FirebaseException code: ${e.code}');
+      debugPrint('Forgot password FirebaseException message: ${e.message}');
+      _showSnack('تعذر الوصول إلى بيانات الحساب');
+    } catch (e) {
+      debugPrint('Forgot password unexpected error: $e');
+      _showSnack('حدث خطأ أثناء استعادة كلمة المرور');
+    } finally {
+      usernameController.dispose();
     }
-
-    await FirebaseAuth.instance.signOut();
-    if (!kIsWeb && googleSignIn != null) {
-      await googleSignIn.signOut();
-    }
-
-    _showSnack(
-      'لا يمكن إنشاء حساب جديد مباشرة باستخدام Google. يمكن لولي الأمر تقديم طلب إنشاء حساب من هذه الشاشة.',
-    );
-  } on FirebaseAuthException catch (e) {
-    String message = 'تعذر تسجيل الدخول باستخدام Google';
-
-    if (e.code == 'account-exists-with-different-credential') {
-      message =
-          'هذا البريد مستخدم مسبقًا بطريقة تسجيل دخول مختلفة. سجّلي الدخول بالطريقة الأصلية ثم اربطي Google من داخل الحساب.';
-    } else if (e.code == 'invalid-credential') {
-      message = 'بيانات Google غير صالحة، حاولي مرة أخرى';
-    } else if (e.code == 'popup-closed-by-user') {
-      message = 'تم إغلاق نافذة تسجيل الدخول قبل إكمال العملية';
-    } else if (e.code == 'popup-blocked') {
-      message =
-          'المتصفح منع نافذة Google. اسمحي بالنوافذ المنبثقة ثم حاولي مرة أخرى';
-    } else if (e.code == 'user-disabled') {
-      message = 'تم تعطيل هذا الحساب';
-    } else if (e.code == 'operation-not-allowed') {
-      message =
-          'تسجيل الدخول عبر Google غير مفعّل حاليًا في Firebase Authentication';
-    }
-
-    _showSnack(message);
-  } catch (e) {
-    _showSnack('تعذر تسجيل الدخول باستخدام Google');
-  } finally {
-    if (!mounted) return;
-    setState(() {
-      isGoogleLoading = false;
-    });
   }
-}
 
   Future<void> _goToUserHome(User user) async {
     final doc = await FirebaseFirestore.instance
@@ -551,11 +404,11 @@ class _WelcomePageState extends State<WelcomePage> {
         context,
         MaterialPageRoute(
           builder: (_) => ForceChangePasswordPage(
-  userRole: normalizedRole,
-  username: username,
-  temporaryPassword:
-      (data['temporaryPasswordPlain'] ?? '').toString(),
-),
+            userRole: normalizedRole,
+            username: username,
+            temporaryPassword:
+                (data['temporaryPasswordPlain'] ?? '').toString(),
+          ),
         ),
       );
 
@@ -869,52 +722,6 @@ class _WelcomePageState extends State<WelcomePage> {
                                     ),
                             ),
                           ),
-                          const SizedBox(height: 16),
-                          GlassContainer(
-                            padding: EdgeInsets.zero,
-                            borderRadius: BorderRadius.circular(20),
-                            opacity: 0.22,
-                            blur: 13,
-                            child: Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(20),
-                                onTap: isGoogleLoading ? null : onGoogleLogin,
-                                child: Container(
-                                  height: 58,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                  ),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      const Icon(
-                                        Icons.login_rounded,
-                                        color: AppColors.primary,
-                                      ),
-                                      const SizedBox(width: 10),
-                                      isGoogleLoading
-                                          ? const SizedBox(
-                                              width: 20,
-                                              height: 20,
-                                              child: CircularProgressIndicator(
-                                                strokeWidth: 2.4,
-                                              ),
-                                            )
-                                          : const Text(
-                                              'المتابعة باستخدام Google',
-                                              style: TextStyle(
-                                                fontSize: 16,
-                                                fontWeight: FontWeight.w700,
-                                                color: AppColors.textDark,
-                                              ),
-                                            ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
                           const SizedBox(height: 18),
                           Center(
                             child: TextButton.icon(
@@ -931,7 +738,6 @@ class _WelcomePageState extends State<WelcomePage> {
                               ),
                             ),
                           ),
-  
                           const SizedBox(height: 24),
                         ],
                       ),

@@ -26,6 +26,7 @@ class MediaUploadResult {
       'storageProvider': storageProvider,
       'bucket': bucket,
       'path': path,
+      'mediaPath': path,
       'publicUrl': publicUrl,
       'mimeType': mimeType,
       'sizeBytes': sizeBytes,
@@ -47,18 +48,67 @@ class MediaStorageService {
     required String folder,
     required String fileNameWithoutExtension,
   }) async {
-    final normalizedFolder = folder.toLowerCase();
+    final normalizedFolder = folder.trim().toLowerCase();
+
     final isVideo = normalizedFolder.contains('/videos') ||
         normalizedFolder.endsWith('videos') ||
         normalizedFolder.contains('video');
 
     final extension = _extractExtension(
       file,
-      isVideo: isVideo,
+      fallbackExtension: isVideo ? '.mp4' : '.jpg',
     );
 
-    final fullPath = '$folder/$fileNameWithoutExtension$extension';
+    final cleanFolder = _cleanStorageSegment(folder);
+    final cleanFileName = _cleanFileNameWithoutExtension(
+      fileNameWithoutExtension,
+    );
+
+    final fullPath = '$cleanFolder/$cleanFileName$extension';
     final mimeType = _detectMimeType(extension);
+
+    final Uint8List bytes = await file.readAsBytes();
+    final int sizeBytes = bytes.length;
+
+    await _client.storage.from(bucketName).uploadBinary(
+          fullPath,
+          bytes,
+          fileOptions: FileOptions(
+            cacheControl: '3600',
+            upsert: false,
+            contentType: mimeType,
+          ),
+        );
+
+    return MediaUploadResult(
+      storageProvider: 'supabase',
+      bucket: bucketName,
+      path: fullPath,
+      publicUrl: null,
+      mimeType: mimeType,
+      sizeBytes: sizeBytes,
+    );
+  }
+
+  Future<MediaUploadResult> uploadAudio({
+    required XFile file,
+    required String folder,
+    required String fileNameWithoutExtension,
+  }) async {
+    final extension = _extractExtension(
+      file,
+      fallbackExtension: '.m4a',
+    );
+
+    final safeExtension = _isAudioExtension(extension) ? extension : '.m4a';
+
+    final cleanFolder = _cleanStorageSegment(folder);
+    final cleanFileName = _cleanFileNameWithoutExtension(
+      fileNameWithoutExtension,
+    );
+
+    final fullPath = '$cleanFolder/$cleanFileName$safeExtension';
+    final mimeType = _detectMimeType(safeExtension);
 
     final Uint8List bytes = await file.readAsBytes();
     final int sizeBytes = bytes.length;
@@ -87,18 +137,69 @@ class MediaStorageService {
     required String path,
     int expiresInSeconds = 3600,
   }) async {
+    final cleanPath = path.trim();
+
+    if (cleanPath.isEmpty) {
+      throw Exception('mediaPath فارغ ولا يمكن إنشاء رابط عرض');
+    }
+
     return _client.storage
         .from(bucketName)
-        .createSignedUrl(path, expiresInSeconds);
+        .createSignedUrl(cleanPath, expiresInSeconds);
+  }
+
+  Future<String?> tryCreateSignedUrl({
+    required String path,
+    int expiresInSeconds = 3600,
+  }) async {
+    try {
+      final cleanPath = path.trim();
+
+      if (cleanPath.isEmpty) return null;
+
+      return await createSignedUrl(
+        path: cleanPath,
+        expiresInSeconds: expiresInSeconds,
+      );
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> deleteFile(String path) async {
-    await _client.storage.from(bucketName).remove([path]);
+    final cleanPath = path.trim();
+
+    if (cleanPath.isEmpty) return;
+
+    await _client.storage.from(bucketName).remove([cleanPath]);
+  }
+
+  String _cleanStorageSegment(String value) {
+    return value
+        .trim()
+        .replaceAll('\\', '/')
+        .replaceAll(RegExp(r'/+'), '/')
+        .replaceAll(RegExp(r'^/+'), '')
+        .replaceAll(RegExp(r'/+$'), '');
+  }
+
+  String _cleanFileNameWithoutExtension(String value) {
+    final clean = value.trim();
+
+    if (clean.isEmpty) {
+      return DateTime.now().millisecondsSinceEpoch.toString();
+    }
+
+    final withoutExt = p.basenameWithoutExtension(clean);
+
+    return withoutExt
+        .replaceAll(RegExp(r'\s+'), '_')
+        .replaceAll(RegExp(r'[^a-zA-Z0-9_\-]'), '_');
   }
 
   String _extractExtension(
     XFile file, {
-    required bool isVideo,
+    required String fallbackExtension,
   }) {
     final fileName = file.name.trim().toLowerCase();
 
@@ -110,7 +211,22 @@ class MediaStorageService {
     final pathExt = p.extension(file.path).toLowerCase();
     if (pathExt.isNotEmpty) return pathExt;
 
-    return isVideo ? '.mp4' : '.jpg';
+    return fallbackExtension;
+  }
+
+  bool _isAudioExtension(String extension) {
+    switch (extension.toLowerCase()) {
+      case '.m4a':
+      case '.aac':
+      case '.mp3':
+      case '.wav':
+      case '.ogg':
+      case '.opus':
+      case '.webm':
+        return true;
+      default:
+        return false;
+    }
   }
 
   String _detectMimeType(String extension) {
@@ -136,6 +252,18 @@ class MediaStorageService {
         return 'video/x-msvideo';
       case '.mkv':
         return 'video/x-matroska';
+      case '.m4a':
+        return 'audio/mp4';
+      case '.aac':
+        return 'audio/aac';
+      case '.mp3':
+        return 'audio/mpeg';
+      case '.wav':
+        return 'audio/wav';
+      case '.ogg':
+        return 'audio/ogg';
+      case '.opus':
+        return 'audio/opus';
       default:
         return 'application/octet-stream';
     }

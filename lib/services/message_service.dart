@@ -93,6 +93,7 @@ class MessageService {
     required String receiverRole,
     required String text,
     required String messageId,
+    String messageType = 'text',
   }) async {
     if (senderId.trim().isEmpty || receiverId.trim().isEmpty) return;
     if (senderId == receiverId) return;
@@ -105,11 +106,14 @@ class MessageService {
     if (childName.trim().isNotEmpty && !childName.startsWith('محادثة مباشرة')) {
       title = 'رسالة جديدة بخصوص $childName';
     } else {
-      title = 'رسالة جديدة من ${senderName.trim().isEmpty ? _roleLabel(senderRole) : senderName.trim()}';
+      title =
+          'رسالة جديدة من ${senderName.trim().isEmpty ? _roleLabel(senderRole) : senderName.trim()}';
     }
 
+    final previewText = messageType == 'audio' ? 'رسالة صوتية' : _safePreview(text);
+
     final body =
-        '${senderName.trim().isEmpty ? _roleLabel(senderRole) : senderName.trim()}: ${_safePreview(text)}';
+        '${senderName.trim().isEmpty ? _roleLabel(senderRole) : senderName.trim()}: $previewText';
 
     await AppNotificationService.instance.createNotification(
       title: title,
@@ -128,6 +132,7 @@ class MessageService {
       createdByRole: normalizedSenderRole,
       extraData: {
         'messageId': messageId,
+        'messageType': messageType,
         'conversationChildId': childId,
         'senderId': senderId,
         'senderName': senderName,
@@ -308,6 +313,14 @@ class MessageService {
       'receiverName': receiverName,
       'receiverRole': normalizedReceiverRole,
       'text': cleanText,
+      'messageType': 'text',
+      'audioPath': '',
+      'audioUrl': '',
+      'audioDurationSeconds': 0,
+      'audioMimeType': '',
+      'audioSizeBytes': 0,
+      'audioBucket': '',
+      'audioStorageProvider': '',
       'sentAt': Timestamp.now(),
       'isRead': false,
       'participants': [
@@ -339,6 +352,89 @@ class MessageService {
       receiverRole: normalizedReceiverRole,
       text: cleanText,
       messageId: docRef.id,
+      messageType: 'text',
+    );
+  }
+
+  Future<void> sendAudioMessage({
+    required String childId,
+    required String childName,
+    required String senderId,
+    required String senderName,
+    required String senderRole,
+    required String receiverId,
+    required String receiverName,
+    required String receiverRole,
+    required String audioPath,
+    required String audioUrl,
+    required int audioDurationSeconds,
+    required String audioMimeType,
+    required int audioSizeBytes,
+    required String audioBucket,
+    required String audioStorageProvider,
+    String? replyToMessageId,
+    String? replyToText,
+    String? replyToSenderId,
+    String? replyToSenderName,
+  }) async {
+    final cleanAudioPath = audioPath.trim();
+
+    if (cleanAudioPath.isEmpty) return;
+    if (audioDurationSeconds <= 0) return;
+
+    final normalizedSenderRole = _normalizeRole(senderRole);
+    final normalizedReceiverRole = _normalizeRole(receiverRole);
+
+    final docRef = await _messagesRef.add({
+      'childId': childId,
+      'childName': childName,
+      'senderId': senderId,
+      'senderName': senderName,
+      'senderRole': normalizedSenderRole,
+      'receiverId': receiverId,
+      'receiverName': receiverName,
+      'receiverRole': normalizedReceiverRole,
+      'text': 'رسالة صوتية',
+      'messageType': 'audio',
+      'audioPath': cleanAudioPath,
+      'audioUrl': audioUrl.trim(),
+      'audioDurationSeconds': audioDurationSeconds,
+      'audioMimeType': audioMimeType.trim(),
+      'audioSizeBytes': audioSizeBytes,
+      'audioBucket': audioBucket.trim(),
+      'audioStorageProvider': audioStorageProvider.trim(),
+      'sentAt': Timestamp.now(),
+      'isRead': false,
+      'participants': [
+        senderId,
+        receiverId,
+        childId,
+      ],
+      'reactions': <String, String>{},
+      'deletedForUserIds': <String>[],
+      'isDeletedForEveryone': false,
+      'deletedForEveryoneAt': null,
+      'deletedForEveryoneBy': '',
+      'replyToMessageId': replyToMessageId,
+      'replyToText': replyToText,
+      'replyToSenderId': replyToSenderId,
+      'replyToSenderName': replyToSenderName,
+      'notificationCreated': true,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    await _createMessageNotification(
+      childId: childId,
+      childName: childName,
+      senderId: senderId,
+      senderName: senderName,
+      senderRole: normalizedSenderRole,
+      receiverId: receiverId,
+      receiverName: receiverName,
+      receiverRole: normalizedReceiverRole,
+      text: 'رسالة صوتية',
+      messageId: docRef.id,
+      messageType: 'audio',
     );
   }
 
@@ -435,7 +531,12 @@ class MessageService {
           shouldNotify = true;
           messageOwnerId = senderId;
           messageOwnerRole = (data['senderRole'] ?? '').toString();
-          messageText = (data['text'] ?? '').toString();
+
+          final messageType = (data['messageType'] ?? 'text').toString();
+          messageText = messageType == 'audio'
+              ? 'رسالة صوتية'
+              : (data['text'] ?? '').toString();
+
           childId = (data['childId'] ?? '').toString();
           childName = (data['childName'] ?? '').toString();
         }

@@ -1,10 +1,18 @@
+import 'dart:async';
+
+import 'package:audioplayers/audioplayers.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:record/record.dart';
 
 import '../models/child_model.dart';
 import '../models/message_model.dart';
+import '../services/media_storage_service.dart';
 import '../services/message_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
@@ -34,6 +42,19 @@ class _MessagesPageState extends State<MessagesPage> {
   final TextEditingController messageCtrl = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final FocusNode _messageFocusNode = FocusNode();
+  final ValueNotifier<bool> _canSendNotifier = ValueNotifier<bool>(false);
+
+  final AudioRecorder _audioRecorder = AudioRecorder();
+  final AudioPlayer _audioPlayer = AudioPlayer();
+
+  Stream<List<MessageModel>>? _messagesStream;
+  StreamSubscription<void>? _audioCompleteSubscription;
+StreamSubscription<Duration>? _audioPositionSubscription;
+StreamSubscription<Duration>? _audioDurationSubscription;
+Timer? _recordingTimer;
+
+Duration currentAudioPosition = Duration.zero;
+Duration currentAudioDuration = Duration.zero;
 
   static const List<String> topMessageReactions = [
     '👍',
@@ -71,6 +92,11 @@ class _MessagesPageState extends State<MessagesPage> {
   bool loadingIdentity = true;
   bool isSending = false;
 
+  bool isRecordingAudio = false;
+  bool isUploadingAudio = false;
+  int recordingSeconds = 0;
+  String? playingMessageId;
+
   MessageModel? replyingToMessage;
 
   bool get hasChildContext => widget.child != null;
@@ -94,76 +120,118 @@ class _MessagesPageState extends State<MessagesPage> {
     return 'محادثة مباشرة';
   }
 
-  String normalizeRole(String role) {
-  final clean = role.trim().toLowerCase();
-
-  if (clean == 'nursery' ||
-      clean == 'nursery staff' ||
-      clean == 'nursery_staff') {
-    return 'nursery_staff';
-  }
-
-  return clean;
-}
-
-IconData get targetIcon {
-  final role = normalizeRole(widget.targetRole);
-
-  if (role == 'nursery_staff') {
-    return Icons.child_care_outlined;
-  }
-
-  if (role == 'parent') return Icons.person_outline;
-  if (role == 'admin') return Icons.business_outlined;
-
-  return Icons.send_outlined;
-}
-
-  Color get targetColor {
-  final role = normalizeRole(widget.targetRole);
-
-  if (role == 'nursery_staff') {
-    return const Color(0xFFEFA7C8);
-  }
-
-  if (role == 'parent') return AppColors.secondary;
-  if (role == 'admin') return AppColors.secondary;
-
-  return AppColors.primary;
-}
-
   @override
   void initState() {
     super.initState();
+    messageCtrl.addListener(_handleMessageTextChanged);
+    _audioCompleteSubscription = _audioPlayer.onPlayerComplete.listen((_) {
+  if (!mounted) return;
+
+  setState(() {
+    playingMessageId = null;
+    currentAudioPosition = Duration.zero;
+    currentAudioDuration = Duration.zero;
+  });
+});
+
+_audioPositionSubscription = _audioPlayer.onPositionChanged.listen((position) {
+  if (!mounted || playingMessageId == null) return;
+
+  setState(() {
+    currentAudioPosition = position;
+  });
+});
+
+_audioDurationSubscription = _audioPlayer.onDurationChanged.listen((duration) {
+  if (!mounted || playingMessageId == null) return;
+
+  setState(() {
+    currentAudioDuration = duration;
+  });
+});
     loadCurrentUserIdentity();
   }
 
   @override
   void dispose() {
+    _recordingTimer?.cancel();
+    _audioCompleteSubscription?.cancel();
+    _audioPositionSubscription?.cancel();
+    _audioDurationSubscription?.cancel();
+    _audioPlayer.dispose();
+    _audioRecorder.dispose();
+    messageCtrl.removeListener(_handleMessageTextChanged);
     messageCtrl.dispose();
     _scrollController.dispose();
     _messageFocusNode.dispose();
+    _canSendNotifier.dispose();
     super.dispose();
   }
 
+  void _handleMessageTextChanged() {
+    final canSend = messageCtrl.text.trim().isNotEmpty;
+
+    if (_canSendNotifier.value != canSend) {
+      _canSendNotifier.value = canSend;
+    }
+  }
+
+  String normalizeRole(String role) {
+    final clean = role.trim().toLowerCase();
+
+    if (clean == 'nursery' ||
+        clean == 'nursery staff' ||
+        clean == 'nursery_staff') {
+      return 'nursery_staff';
+    }
+
+    return clean;
+  }
+
+  IconData get targetIcon {
+    final role = normalizeRole(widget.targetRole);
+
+    if (role == 'nursery_staff') {
+      return Icons.child_care_outlined;
+    }
+
+    if (role == 'parent') return Icons.person_outline;
+    if (role == 'admin') return Icons.business_outlined;
+
+    return Icons.send_outlined;
+  }
+
+  Color get targetColor {
+    final role = normalizeRole(widget.targetRole);
+
+    if (role == 'nursery_staff') {
+      return const Color(0xFFEFA7C8);
+    }
+
+    if (role == 'parent') return AppColors.secondary;
+    if (role == 'admin') return AppColors.secondary;
+
+    return AppColors.primary;
+  }
+
   String sectionLabel(String section) {
-  final clean = section.trim();
+    final clean = section.trim();
 
-  if (clean == 'Nursery') return 'حضانة';
-  if (clean == 'all') return 'كل الأقسام';
+    if (clean == 'Nursery') return 'حضانة';
+    if (clean == 'all') return 'كل الأقسام';
 
-  return clean.isEmpty ? 'حضانة' : clean;
-}
+    return clean.isEmpty ? 'حضانة' : clean;
+  }
 
- String roleLabel(String role) {
-  final clean = normalizeRole(role);
+  String roleLabel(String role) {
+    final clean = normalizeRole(role);
 
-  if (clean == 'nursery_staff') return 'موظفة حضانة';
-  if (clean == 'parent') return 'ولي أمر';
-  if (clean == 'admin') return 'الإدارة';
+    if (clean == 'nursery_staff') return 'موظفة حضانة';
+    if (clean == 'parent') return 'ولي أمر';
+    if (clean == 'admin') return 'الإدارة';
 
-  return role.trim().isEmpty ? 'مستخدم' : role;
-}
+    return role.trim().isEmpty ? 'مستخدم' : role;
+  }
 
   String headerSubtitle() {
     final targetRole = normalizeRole(widget.targetRole);
@@ -206,15 +274,25 @@ IconData get targetIcon {
 
       final data = doc.data() ?? {};
 
-      currentUserId = user.uid;
-      currentUserName =
+      final loadedUserId = user.uid;
+      final loadedUserName =
           (data['displayName'] ?? data['name'] ?? data['username'] ?? 'مستخدم')
               .toString();
-      currentUserRole = normalizeRole((data['role'] ?? '').toString());
+      final loadedUserRole = normalizeRole((data['role'] ?? '').toString());
+
+      currentUserId = loadedUserId;
+      currentUserName = loadedUserName;
+      currentUserRole = loadedUserRole;
+
+      _messagesStream = _messageService.getConversationMessages(
+        childId: conversationChildId,
+        currentUserId: loadedUserId,
+        targetUserId: widget.targetUserId,
+      );
 
       await _messageService.markConversationAsRead(
         childId: conversationChildId,
-        currentUserId: user.uid,
+        currentUserId: loadedUserId,
         targetUserId: widget.targetUserId,
       );
 
@@ -232,6 +310,20 @@ IconData get targetIcon {
     }
   }
 
+  void _showSnack(
+    String message, {
+    Color backgroundColor = Colors.black87,
+  }) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: backgroundColor,
+      ),
+    );
+  }
+
   String formatTime(Timestamp timestamp) {
     final date = timestamp.toDate();
 
@@ -245,6 +337,21 @@ IconData get targetIcon {
     return '$hour:$minute $period';
   }
 
+  String formatDurationSeconds(int seconds) {
+    final minutes = seconds ~/ 60;
+    final remainingSeconds = seconds % 60;
+
+    return '$minutes:${remainingSeconds.toString().padLeft(2, '0')}';
+  }
+
+  String formatDuration(Duration duration) {
+  final totalSeconds = duration.inSeconds < 0 ? 0 : duration.inSeconds;
+  final minutes = totalSeconds ~/ 60;
+  final seconds = totalSeconds % 60;
+
+  return '$minutes:${seconds.toString().padLeft(2, '0')}';
+}
+
   String safeMessagePreview(String text) {
     final clean = text.trim();
 
@@ -252,6 +359,11 @@ IconData get targetIcon {
     if (clean.length <= 45) return clean;
 
     return '${clean.substring(0, 45)}...';
+  }
+
+  String messagePreviewForReply(MessageModel message) {
+    if (message.isAudioMessage) return 'رسالة صوتية';
+    return safeMessagePreview(message.text);
   }
 
   Future<void> scrollToBottom({bool animated = true}) async {
@@ -272,6 +384,234 @@ IconData get targetIcon {
     }
   }
 
+  Future<String> _buildRecordingPath() async {
+    final fileName = 'voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+
+    if (kIsWeb) {
+      return fileName;
+    }
+
+    final dir = await getTemporaryDirectory();
+    return '${dir.path}/$fileName';
+  }
+
+  void _startRecordingTimer() {
+    _recordingTimer?.cancel();
+    recordingSeconds = 0;
+
+    _recordingTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() {
+        recordingSeconds++;
+      });
+    });
+  }
+
+  Future<void> startAudioRecording() async {
+    if (isRecordingAudio || isSending || isUploadingAudio) return;
+
+    try {
+      final hasPermission = await _audioRecorder.hasPermission();
+
+      if (!hasPermission) {
+        _showSnack(
+          'يجب السماح باستخدام الميكروفون لتسجيل رسالة صوتية',
+          backgroundColor: Colors.redAccent,
+        );
+        return;
+      }
+
+      final path = await _buildRecordingPath();
+
+      await _audioRecorder.start(
+        const RecordConfig(
+          encoder: AudioEncoder.aacLc,
+          bitRate: 64000,
+          sampleRate: 44100,
+        ),
+        path: path,
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        isRecordingAudio = true;
+        recordingSeconds = 0;
+      });
+
+      _startRecordingTimer();
+    } catch (e) {
+      _showSnack(
+        'تعذر بدء تسجيل الصوت: $e',
+        backgroundColor: Colors.redAccent,
+      );
+    }
+  }
+
+  Future<void> cancelAudioRecording() async {
+    try {
+      _recordingTimer?.cancel();
+
+      if (await _audioRecorder.isRecording()) {
+        await _audioRecorder.stop();
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        isRecordingAudio = false;
+        recordingSeconds = 0;
+      });
+    } catch (e) {
+      _showSnack(
+        'تعذر إلغاء التسجيل: $e',
+        backgroundColor: Colors.redAccent,
+      );
+    }
+  }
+
+  Future<void> stopAndSendAudioRecording() async {
+    if (!isRecordingAudio || currentUserId == null || currentUserRole.isEmpty) {
+      return;
+    }
+
+    _recordingTimer?.cancel();
+
+    setState(() {
+      isRecordingAudio = false;
+      isUploadingAudio = true;
+    });
+
+    try {
+      final path = await _audioRecorder.stop();
+
+      if (path == null || path.trim().isEmpty) {
+        throw Exception('لم يتم إنشاء ملف صوتي');
+      }
+
+      if (recordingSeconds < 1) {
+        throw Exception('التسجيل قصير جدًا');
+      }
+
+      final uploaded = await MediaStorageService.instance.uploadAudio(
+        file: XFile(path),
+        folder: 'messages_audio/$conversationChildId',
+        fileNameWithoutExtension:
+            'voice_${DateTime.now().millisecondsSinceEpoch}',
+      );
+
+      final signedUrl = await MediaStorageService.instance.createSignedUrl(
+        path: uploaded.path,
+      );
+
+      await _messageService.sendAudioMessage(
+        childId: conversationChildId,
+        childName: conversationChildName,
+        senderId: currentUserId!,
+        senderName: currentUserName,
+        senderRole: normalizeRole(currentUserRole),
+        receiverId: widget.targetUserId,
+        receiverName: widget.targetUserName,
+        receiverRole: normalizeRole(widget.targetRole),
+        audioPath: uploaded.path,
+        audioUrl: signedUrl,
+        audioDurationSeconds: recordingSeconds,
+        audioMimeType: uploaded.mimeType,
+        audioSizeBytes: uploaded.sizeBytes,
+        audioBucket: uploaded.bucket,
+        audioStorageProvider: uploaded.storageProvider,
+        replyToMessageId: replyingToMessage?.id,
+        replyToText: replyingToMessage == null
+            ? null
+            : messagePreviewForReply(replyingToMessage!),
+        replyToSenderId: replyingToMessage?.senderId,
+        replyToSenderName: replyingToMessage?.senderName,
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        replyingToMessage = null;
+        recordingSeconds = 0;
+      });
+
+      await scrollToBottom();
+    } catch (e) {
+      _showSnack(
+        'تعذر إرسال الرسالة الصوتية: $e',
+        backgroundColor: Colors.redAccent,
+      );
+    } finally {
+      if (!mounted) return;
+
+      setState(() {
+        isUploadingAudio = false;
+        recordingSeconds = 0;
+      });
+    }
+  }
+
+ Future<void> playAudioMessage(MessageModel message) async {
+  if (message.isDeletedForEveryone) return;
+
+  try {
+    if (playingMessageId == message.id) {
+      await _audioPlayer.stop();
+
+      if (!mounted) return;
+
+      setState(() {
+        playingMessageId = null;
+        currentAudioPosition = Duration.zero;
+        currentAudioDuration = Duration.zero;
+      });
+
+      return;
+    }
+
+    await _audioPlayer.stop();
+
+    String url = '';
+
+    if (message.audioPath.trim().isNotEmpty) {
+      url = await MediaStorageService.instance.createSignedUrl(
+        path: message.audioPath,
+      );
+    } else if (message.audioUrl.trim().isNotEmpty) {
+      url = message.audioUrl.trim();
+    }
+
+    if (url.trim().isEmpty) {
+      throw Exception('رابط الصوت غير متوفر');
+    }
+
+    if (!mounted) return;
+
+    setState(() {
+      playingMessageId = message.id;
+      currentAudioPosition = Duration.zero;
+      currentAudioDuration = message.audioDurationSeconds > 0
+          ? Duration(seconds: message.audioDurationSeconds)
+          : Duration.zero;
+    });
+
+    await _audioPlayer.play(UrlSource(url));
+  } catch (e) {
+    if (!mounted) return;
+
+    setState(() {
+      playingMessageId = null;
+      currentAudioPosition = Duration.zero;
+      currentAudioDuration = Duration.zero;
+    });
+
+    _showSnack(
+      'تعذر تشغيل الرسالة الصوتية: $e',
+      backgroundColor: Colors.redAccent,
+    );
+  }
+}
+
   Future<void> sendCurrentMessage() async {
     final text = messageCtrl.text.trim();
 
@@ -279,7 +619,7 @@ IconData get targetIcon {
       return;
     }
 
-    if (isSending) return;
+    if (isSending || isRecordingAudio || isUploadingAudio) return;
 
     setState(() {
       isSending = true;
@@ -287,22 +627,25 @@ IconData get targetIcon {
 
     try {
       await _messageService.sendMessage(
-     childId: conversationChildId,
-     childName: conversationChildName,
-     senderId: currentUserId!,
-     senderName: currentUserName,
-     senderRole: normalizeRole(currentUserRole),
-     receiverId: widget.targetUserId,
-     receiverName: widget.targetUserName,
-     receiverRole: normalizeRole(widget.targetRole),
-     text: text,
-     replyToMessageId: replyingToMessage?.id,
-     replyToText: replyingToMessage?.text,
-     replyToSenderId: replyingToMessage?.senderId,
-     replyToSenderName: replyingToMessage?.senderName,
-);
+        childId: conversationChildId,
+        childName: conversationChildName,
+        senderId: currentUserId!,
+        senderName: currentUserName,
+        senderRole: normalizeRole(currentUserRole),
+        receiverId: widget.targetUserId,
+        receiverName: widget.targetUserName,
+        receiverRole: normalizeRole(widget.targetRole),
+        text: text,
+        replyToMessageId: replyingToMessage?.id,
+        replyToText: replyingToMessage == null
+            ? null
+            : messagePreviewForReply(replyingToMessage!),
+        replyToSenderId: replyingToMessage?.senderId,
+        replyToSenderName: replyingToMessage?.senderName,
+      );
 
       messageCtrl.clear();
+      _canSendNotifier.value = false;
 
       if (!mounted) return;
 
@@ -378,6 +721,11 @@ IconData get targetIcon {
   }
 
   Future<void> copyMessageText(MessageModel message) async {
+    if (message.isAudioMessage) {
+      _showSnack('لا يمكن نسخ رسالة صوتية');
+      return;
+    }
+
     if (message.text.trim().isEmpty) return;
 
     await Clipboard.setData(
@@ -692,20 +1040,21 @@ IconData get targetIcon {
                     startReplyToMessage(message);
                   },
                 ),
-                ListTile(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(18),
+                if (!message.isAudioMessage)
+                  ListTile(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    leading: const Icon(Icons.copy_rounded),
+                    title: const Text(
+                      'نسخ',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    onTap: () async {
+                      Navigator.pop(context);
+                      await copyMessageText(message);
+                    },
                   ),
-                  leading: const Icon(Icons.copy_rounded),
-                  title: const Text(
-                    'نسخ',
-                    style: TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                  onTap: () async {
-                    Navigator.pop(context);
-                    await copyMessageText(message);
-                  },
-                ),
                 ListTile(
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(18),
@@ -885,7 +1234,162 @@ IconData get targetIcon {
     );
   }
 
+ Widget buildAudioMessageContent(MessageModel message, bool isMe) {
+  final isPlaying = playingMessageId == message.id;
+
+  final fallbackDuration = message.audioDurationSeconds > 0
+      ? Duration(seconds: message.audioDurationSeconds)
+      : Duration.zero;
+
+  final totalDuration = isPlaying && currentAudioDuration > Duration.zero
+      ? currentAudioDuration
+      : fallbackDuration;
+
+  final position = isPlaying ? currentAudioPosition : Duration.zero;
+
+  final totalMilliseconds = totalDuration.inMilliseconds;
+  final positionMilliseconds = position.inMilliseconds;
+
+  final progress = totalMilliseconds <= 0
+      ? 0.0
+      : (positionMilliseconds / totalMilliseconds).clamp(0.0, 1.0).toDouble();
+
+  final durationText = totalDuration > Duration.zero
+      ? formatDuration(totalDuration)
+      : '0:00';
+
+  final positionText = isPlaying ? formatDuration(position) : '0:00';
+
+  final bubbleColor = isMe ? AppColors.secondary : Colors.white;
+  final progressColor = isMe
+      ? Colors.white.withOpacity(0.18)
+      : AppColors.secondary.withOpacity(0.12);
+
+  final textColor = isMe ? Colors.white : AppColors.textDark;
+  final secondaryTextColor = isMe ? Colors.white70 : AppColors.textLight;
+
+  return Container(
+    margin: const EdgeInsets.only(bottom: 4),
+    constraints: const BoxConstraints(maxWidth: 300, minWidth: 210),
+    decoration: BoxDecoration(
+      color: bubbleColor,
+      borderRadius: BorderRadius.circular(18),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withOpacity(0.04),
+          blurRadius: 10,
+          offset: const Offset(0, 4),
+        ),
+      ],
+    ),
+    child: ClipRRect(
+      borderRadius: BorderRadius.circular(18),
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: FractionallySizedBox(
+                alignment: Alignment.centerRight,
+                widthFactor: progress,
+                child: Container(
+                  color: progressColor,
+                ),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+            child: Column(
+              crossAxisAlignment:
+                  isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+              children: [
+                buildReplyPreviewInsideBubble(message, isMe),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    InkWell(
+                      borderRadius: BorderRadius.circular(999),
+                      onTap: () => playAudioMessage(message),
+                      child: CircleAvatar(
+                        radius: 20,
+                        backgroundColor: isMe
+                            ? Colors.white.withOpacity(0.22)
+                            : AppColors.secondary.withOpacity(0.12),
+                        child: Icon(
+                          isPlaying
+                              ? Icons.pause_rounded
+                              : Icons.play_arrow_rounded,
+                          color: isMe ? Colors.white : AppColors.secondary,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: SizedBox(
+                        height: 28,
+                        child: CustomPaint(
+                          painter: _VoiceWavePainter(
+                            progress: progress,
+                            activeColor:
+                                isMe ? Colors.white : AppColors.secondary,
+                            inactiveColor: secondaryTextColor.withOpacity(0.45),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      isPlaying ? '$positionText / $durationText' : durationText,
+                      style: TextStyle(
+                        color: textColor,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 12.5,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 7),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      formatTime(message.sentAt),
+                      style: TextStyle(
+                        color: secondaryTextColor,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (isMe) ...[
+                      const SizedBox(width: 6),
+                      Text(
+                        message.isRead ? '✔✔' : '✔',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: message.isRead
+                              ? Colors.lightBlueAccent
+                              : Colors.white70,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
   Widget buildNormalMessageContent(MessageModel message, bool isMe) {
+    if (message.isAudioMessage) {
+      return buildAudioMessageContent(message, isMe);
+    }
+
     return Container(
       margin: const EdgeInsets.only(bottom: 4),
       constraints: const BoxConstraints(maxWidth: 290, minWidth: 120),
@@ -1081,7 +1585,7 @@ IconData get targetIcon {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  safeMessagePreview(replyingToMessage!.text),
+                  messagePreviewForReply(replyingToMessage!),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -1106,13 +1610,54 @@ IconData get targetIcon {
     );
   }
 
-  Widget buildInputArea() {
-    final isEmpty = messageCtrl.text.trim().isEmpty;
+  Widget buildRecordingBar() {
+    if (!isRecordingAudio && !isUploadingAudio) return const SizedBox.shrink();
 
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.red.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: Colors.red.withOpacity(0.20),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            isUploadingAudio ? Icons.cloud_upload_outlined : Icons.mic_rounded,
+            color: Colors.red,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              isUploadingAudio
+                  ? 'جاري إرسال الرسالة الصوتية...'
+                  : 'جاري التسجيل ${formatDurationSeconds(recordingSeconds)}',
+              style: const TextStyle(
+                color: Colors.red,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          if (isRecordingAudio)
+            TextButton.icon(
+              onPressed: cancelAudioRecording,
+              icon: const Icon(Icons.close_rounded),
+              label: const Text('إلغاء'),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget buildInputArea() {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         buildReplyBanner(),
+        buildRecordingBar(),
         Container(
           padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
           decoration: BoxDecoration(
@@ -1132,6 +1677,7 @@ IconData get targetIcon {
                 child: TextField(
                   controller: messageCtrl,
                   focusNode: _messageFocusNode,
+                  enabled: !isRecordingAudio && !isUploadingAudio,
                   minLines: 1,
                   maxLines: 4,
                   textInputAction: TextInputAction.newline,
@@ -1141,34 +1687,57 @@ IconData get targetIcon {
                         : 'اكتب ردك...',
                     border: InputBorder.none,
                   ),
-                  onChanged: (_) {
-                    setState(() {});
-                  },
                 ),
               ),
               const SizedBox(width: 8),
-              GestureDetector(
-                onTap: isSending || isEmpty ? null : sendCurrentMessage,
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: (isSending || isEmpty)
-                        ? AppColors.secondary.withOpacity(0.4)
-                        : AppColors.secondary,
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                  child: isSending
-                      ? const SizedBox(
-                          height: 22,
-                          width: 22,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.2,
-                            valueColor:
-                                AlwaysStoppedAnimation<Color>(Colors.white),
-                          ),
-                        )
-                      : const Icon(Icons.send_rounded, color: Colors.white),
-                ),
+              ValueListenableBuilder<bool>(
+                valueListenable: _canSendNotifier,
+                builder: (context, canSend, _) {
+                  final disabled = isSending || isUploadingAudio;
+
+                  IconData icon;
+                  VoidCallback? onTap;
+                  Color color;
+
+                  if (isRecordingAudio) {
+                    icon = Icons.send_rounded;
+                    color = Colors.red;
+                    onTap = disabled ? null : stopAndSendAudioRecording;
+                  } else if (canSend) {
+                    icon = Icons.send_rounded;
+                    color = AppColors.secondary;
+                    onTap = disabled ? null : sendCurrentMessage;
+                  } else {
+                    icon = Icons.mic_rounded;
+                    color = AppColors.secondary;
+                    onTap = disabled ? null : startAudioRecording;
+                  }
+
+                  return GestureDetector(
+                    onTap: onTap,
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: disabled ? color.withOpacity(0.4) : color,
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: isSending || isUploadingAudio
+                          ? const SizedBox(
+                              height: 22,
+                              width: 22,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.2,
+                                valueColor:
+                                    AlwaysStoppedAnimation<Color>(Colors.white),
+                              ),
+                            )
+                          : Icon(
+                              icon,
+                              color: Colors.white,
+                            ),
+                    ),
+                  );
+                },
               ),
             ],
           ),
@@ -1221,6 +1790,62 @@ IconData get targetIcon {
     );
   }
 
+  Widget buildMessagesList() {
+    final stream = _messagesStream;
+
+    if (stream == null) {
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
+    }
+
+    return StreamBuilder<List<MessageModel>>(
+      stream: stream,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
+          return const Center(
+            child: CircularProgressIndicator(),
+          );
+        }
+
+        if (snapshot.hasError) {
+          return Center(
+            child: Text(
+              'حدث خطأ أثناء تحميل الرسائل: ${snapshot.error}',
+              style: TextStyle(
+                color: Colors.red.shade700,
+                fontWeight: FontWeight.w700,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          );
+        }
+
+        final messages = snapshot.data ?? [];
+
+        if (messages.isNotEmpty) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            scrollToBottom(animated: false);
+          });
+        }
+
+        if (messages.isEmpty) {
+          return buildEmptyConversationBox();
+        }
+
+        return ListView.builder(
+          controller: _scrollController,
+          padding: const EdgeInsets.only(top: 4, bottom: 6),
+          itemCount: messages.length,
+          itemBuilder: (context, index) {
+            return buildMessageBubble(messages[index]);
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (loadingIdentity) {
@@ -1257,54 +1882,7 @@ IconData get targetIcon {
             buildHeaderCard(),
             const SizedBox(height: 14),
             Expanded(
-              child: StreamBuilder<List<MessageModel>>(
-                stream: _messageService.getConversationMessages(
-                  childId: conversationChildId,
-                  currentUserId: currentUserId!,
-                  targetUserId: widget.targetUserId,
-                ),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(
-                      child: CircularProgressIndicator(),
-                    );
-                  }
-
-                  if (snapshot.hasError) {
-                    return Center(
-                      child: Text(
-                        'حدث خطأ أثناء تحميل الرسائل: ${snapshot.error}',
-                        style: TextStyle(
-                          color: Colors.red.shade700,
-                          fontWeight: FontWeight.w700,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    );
-                  }
-
-                  final messages = snapshot.data ?? [];
-
-                  if (messages.isNotEmpty) {
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      scrollToBottom(animated: false);
-                    });
-                  }
-
-                  if (messages.isEmpty) {
-                    return buildEmptyConversationBox();
-                  }
-
-                  return ListView.builder(
-                    controller: _scrollController,
-                    padding: const EdgeInsets.only(top: 4, bottom: 6),
-                    itemCount: messages.length,
-                    itemBuilder: (context, index) {
-                      return buildMessageBubble(messages[index]);
-                    },
-                  );
-                },
-              ),
+              child: buildMessagesList(),
             ),
             const SizedBox(height: 8),
             buildInputArea(),
@@ -1312,5 +1890,66 @@ IconData get targetIcon {
         ),
       ),
     );
+  }
+}
+class _VoiceWavePainter extends CustomPainter {
+  final double progress;
+  final Color activeColor;
+  final Color inactiveColor;
+
+  const _VoiceWavePainter({
+    required this.progress,
+    required this.activeColor,
+    required this.inactiveColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final inactivePaint = Paint()
+      ..color = inactiveColor
+      ..strokeWidth = 3
+      ..strokeCap = StrokeCap.round;
+
+    final activePaint = Paint()
+      ..color = activeColor
+      ..strokeWidth = 3
+      ..strokeCap = StrokeCap.round;
+
+    const barsCount = 22;
+    final gap = size.width / barsCount;
+
+    for (int i = 0; i < barsCount; i++) {
+      final x = gap * i + gap / 2;
+
+      final pattern = i % 6;
+      final heightFactor = switch (pattern) {
+        0 => 0.35,
+        1 => 0.65,
+        2 => 0.95,
+        3 => 0.55,
+        4 => 0.80,
+        _ => 0.45,
+      };
+
+      final barHeight = size.height * heightFactor;
+      final startY = (size.height - barHeight) / 2;
+      final endY = startY + barHeight;
+
+      final barProgressPoint = i / barsCount;
+      final paint = barProgressPoint <= progress ? activePaint : inactivePaint;
+
+      canvas.drawLine(
+        Offset(x, startY),
+        Offset(x, endY),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _VoiceWavePainter oldDelegate) {
+    return oldDelegate.progress != progress ||
+        oldDelegate.activeColor != activeColor ||
+        oldDelegate.inactiveColor != inactiveColor;
   }
 }

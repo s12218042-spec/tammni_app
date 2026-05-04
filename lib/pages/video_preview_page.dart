@@ -1,9 +1,7 @@
-import 'dart:io';
-
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
+import '../services/gallery_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 
@@ -11,10 +9,19 @@ class VideoPreviewPage extends StatefulWidget {
   final String path;
   final String? title;
 
+  final String? mediaPath;
+  final String? mediaUrl;
+  final String? publicUrl;
+  final String? storageProvider;
+
   const VideoPreviewPage({
     super.key,
     required this.path,
     this.title,
+    this.mediaPath,
+    this.mediaUrl,
+    this.publicUrl,
+    this.storageProvider,
   });
 
   @override
@@ -22,11 +29,15 @@ class VideoPreviewPage extends StatefulWidget {
 }
 
 class _VideoPreviewPageState extends State<VideoPreviewPage> {
+  final GalleryService _galleryService = GalleryService();
+
   VideoPlayerController? _controller;
+
   bool _isLoading = true;
   bool _hasError = false;
   String _errorMessage = '';
   bool _showControls = true;
+
 
   @override
   void initState() {
@@ -40,38 +51,81 @@ class _VideoPreviewPageState extends State<VideoPreviewPage> {
     super.dispose();
   }
 
-  bool _isWebBlobPath(String value) {
+  bool _isNetworkUrl(String value) {
     final lower = value.trim().toLowerCase();
-    return lower.startsWith('blob:');
+
+    return lower.startsWith('http://') || lower.startsWith('https://');
   }
 
-  bool _isNetworkPath(String value) {
-    final lower = value.trim().toLowerCase();
-    return lower.startsWith('http://') ||
-        lower.startsWith('https://') ||
-        lower.startsWith('blob:');
+  bool _isBlobUrl(String value) {
+    return value.trim().toLowerCase().startsWith('blob:');
   }
 
-  bool _isFilePath(String value) {
-    final lower = value.trim().toLowerCase();
+  bool _looksLikeSupabaseStoragePath(String value) {
+    final clean = value.trim();
 
-    if (lower.startsWith('file://') ||
-        lower.startsWith('/storage/') ||
-        lower.startsWith('/data/') ||
-        lower.startsWith('c:\\') ||
-        lower.startsWith('d:\\')) {
-      return true;
+    if (clean.isEmpty) return false;
+    if (_isNetworkUrl(clean)) return false;
+    if (_isBlobUrl(clean)) return false;
+    if (clean.startsWith('file://')) return false;
+
+    return clean.contains('/') &&
+        (clean.contains('children_media') ||
+            clean.contains('videos') ||
+            clean.endsWith('.mp4') ||
+            clean.endsWith('.mov') ||
+            clean.endsWith('.webm') ||
+            clean.endsWith('.m4v'));
+  }
+
+  String _firstNonEmpty(List<String?> values) {
+    for (final value in values) {
+      if (value != null && value.trim().isNotEmpty) {
+        return value.trim();
+      }
     }
 
-    if (kIsWeb) {
-      return false;
+    return '';
+  }
+
+  Future<String?> _resolveVideoUrl() async {
+    final rawPath = widget.path.trim();
+
+    final explicitMediaPath = _firstNonEmpty([
+      widget.mediaPath,
+      _looksLikeSupabaseStoragePath(rawPath) ? rawPath : null,
+    ]);
+
+    final oldUrl = _firstNonEmpty([
+      widget.mediaUrl,
+      _isNetworkUrl(rawPath) ? rawPath : null,
+    ]);
+
+    final publicUrl = _firstNonEmpty([
+      widget.publicUrl,
+    ]);
+
+    final storageProvider = _firstNonEmpty([
+      widget.storageProvider,
+      explicitMediaPath.isNotEmpty ? 'supabase' : '',
+    ]);
+
+    final freshUrl = await _galleryService.resolveFreshMediaUrlFromFields(
+      storageProvider: storageProvider,
+      mediaPath: explicitMediaPath,
+      oldMediaUrl: oldUrl,
+      publicUrl: publicUrl,
+    );
+
+    if (freshUrl != null && freshUrl.trim().isNotEmpty) {
+      return freshUrl.trim();
     }
 
-    try {
-      return File(value).existsSync();
-    } catch (_) {
-      return false;
+    if (_isNetworkUrl(rawPath)) {
+      return rawPath;
     }
+
+    return null;
   }
 
   Future<void> _initializeVideo() async {
@@ -89,47 +143,52 @@ class _VideoPreviewPageState extends State<VideoPreviewPage> {
 
       final rawPath = widget.path.trim();
 
-      if (rawPath.isEmpty) {
-        throw Exception('رابط أو مسار الفيديو فارغ');
+      if (rawPath.isEmpty &&
+          (widget.mediaPath == null || widget.mediaPath!.trim().isEmpty) &&
+          (widget.mediaUrl == null || widget.mediaUrl!.trim().isEmpty)) {
+        throw Exception('لا يوجد مصدر فيديو صالح');
       }
 
-      VideoPlayerController controller;
-
-      if (_isNetworkPath(rawPath)) {
-        controller = VideoPlayerController.networkUrl(Uri.parse(rawPath));
-      } else if (_isFilePath(rawPath)) {
-        if (kIsWeb) {
-          throw Exception('معاينة الملف المحلي غير مدعومة على الويب');
-        }
-
-        String cleanPath = rawPath;
-        if (rawPath.startsWith('file://')) {
-          cleanPath = rawPath.replaceFirst('file://', '');
-        }
-
-        final file = File(cleanPath);
-
-        if (!file.existsSync()) {
-          throw Exception('ملف الفيديو غير موجود على هذا الجهاز');
-        }
-
-        controller = VideoPlayerController.file(file);
-      } else {
-        throw Exception('مصدر الفيديو غير صالح أو غير معروف');
+      if (_isBlobUrl(rawPath)) {
+        throw Exception(
+          'رابط blob مؤقت من المتصفح ولا يمكن استخدامه بعد مغادرة صفحة الالتقاط. يجب عرض الفيديو من mediaPath بعد رفعه إلى Supabase.',
+        );
       }
+
+      final videoUrl = await _resolveVideoUrl();
+
+      if (videoUrl == null || videoUrl.trim().isEmpty) {
+        throw Exception(
+          'تعذر إنشاء رابط تشغيل للفيديو. تأكدي من وجود mediaPath محفوظ في Firestore.',
+        );
+      }
+
+      if (!_isNetworkUrl(videoUrl)) {
+        throw Exception(
+          'مصدر الفيديو ليس رابط شبكة صالح. يجب استخدام mediaPath لتوليد رابط Supabase جديد.',
+        );
+      }
+
+    
+
+      final controller = VideoPlayerController.networkUrl(
+        Uri.parse(videoUrl),
+      );
 
       _controller = controller;
 
-      await _controller!.initialize();
-      await _controller!.setLooping(false);
-      await _controller!.setVolume(1.0);
+      await controller.initialize();
+      await controller.setLooping(false);
+      await controller.setVolume(1.0);
 
       if (!mounted) return;
+
       setState(() {
         _isLoading = false;
       });
     } catch (e) {
       if (!mounted) return;
+
       setState(() {
         _isLoading = false;
         _hasError = true;
@@ -185,8 +244,22 @@ class _VideoPreviewPageState extends State<VideoPreviewPage> {
   }
 
   Widget _buildErrorState() {
-    final isBlob = _isWebBlobPath(widget.path);
-    final isLikelyLocalPath = !_isNetworkPath(widget.path);
+    final rawPath = widget.path.trim();
+
+    String message = 'تعذر تحميل الفيديو.';
+
+    if (_isBlobUrl(rawPath)) {
+      message =
+          'هذا رابط مؤقت من المتصفح ولا يصلح للعرض لاحقًا. يجب فتح الفيديو من mediaPath بعد رفعه إلى Supabase.';
+    } else if (widget.mediaPath == null || widget.mediaPath!.trim().isEmpty) {
+      message =
+          'لا يوجد mediaPath محفوظ لهذا الفيديو، لذلك لا يمكن توليد رابط Supabase جديد.';
+    } else if (_errorMessage.contains('403') ||
+        _errorMessage.toLowerCase().contains('unauthorized') ||
+        _errorMessage.toLowerCase().contains('expired')) {
+      message =
+          'رابط الفيديو القديم انتهت صلاحيته. تمت محاولة توليد رابط جديد، لكن العملية فشلت.';
+    }
 
     return Card(
       child: Padding(
@@ -209,11 +282,7 @@ class _VideoPreviewPageState extends State<VideoPreviewPage> {
             ),
             const SizedBox(height: 10),
             Text(
-              isBlob
-                  ? 'تم التقاط الفيديو لكن المتصفح لم يتمكن من تشغيل رابط الـ blob داخل المعاينة الحالية. هذا لا يعني بالضرورة أن الرفع سيفشل، لكنه يعني أن المعاينة المحلية لم تعمل.'
-                  : isLikelyLocalPath
-                      ? 'هذا الفيديو يبدو أنه محفوظ كملف محلي على جهاز آخر، لذلك لا يمكن فتحه هنا. يجب رفعه إلى التخزين وحفظ رابط التحميل ليتمكن وليّ الأمر من مشاهدته.'
-                      : 'تعذر تحميل رابط الفيديو. تأكدي من صحة الرابط واتصال الإنترنت.',
+              message,
               textAlign: TextAlign.center,
               style: const TextStyle(
                 height: 1.6,

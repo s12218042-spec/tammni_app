@@ -1,8 +1,7 @@
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -11,7 +10,6 @@ import '../services/gallery_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 import 'camera_checkin_page.dart';
-import 'video_preview_page.dart';
 
 class AddUpdatePage extends StatefulWidget {
   final ChildModel child;
@@ -32,8 +30,8 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
   final TextEditingController extraCtrl = TextEditingController();
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final GalleryService _galleryService = GalleryService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
+  final GalleryService _galleryService = GalleryService();
 
   String type = 'ملاحظة';
   bool isLoading = false;
@@ -41,6 +39,20 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
   String? selectedMediaPath;
   String? selectedMediaType;
   XFile? selectedMediaFile;
+  Uint8List? selectedImageBytes;
+
+  String mealStatus = 'تناول الوجبة جيدًا';
+  String sleepStatus = 'نام جيدًا';
+  String diaperStatus = 'تم التبديل';
+  String healthStatus = 'حالته مستقرة';
+  String activityStatus = 'شارك بالنشاط';
+
+  String importance = 'عادي';
+  String selectedMood = '😊';
+  String selectedEnergy = 'متوسط';
+  String selectedLocation = 'داخل الحضانة';
+
+  final Set<String> selectedActivityDetails = {};
 
   final List<String> nurseryTypes = const [
     'وجبة',
@@ -51,57 +63,23 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
     'ملاحظة',
   ];
 
-  List<String> get types => nurseryTypes;
-
-  String mealStatus = 'تناول الوجبة جيدًا';
-  String sleepStatus = 'نام جيدًا';
-  String diaperStatus = 'تم التبديل';
-  String healthStatus = 'حالته مستقرة';
-  String activityStatus = 'شارك بالنشاط';
-  String noteStatus = 'ملاحظة عامة';
-
-  String importance = 'عادي';
-  String selectedMood = '😊';
-  String selectedEnergy = 'متوسط';
-  bool notifyParent = true;
-  bool saveAsDraftPreview = true;
-  DateTime selectedDateTime = DateTime.now();
-  bool useNowTime = true;
-  String selectedLocation = 'داخل الحضانة';
-  final List<String> selectedTags = [];
-
-  final List<String> nurseryTags = const [
-    'أكل',
-    'نوم',
-    'سلوك',
-    'صحة',
-    'نشاط',
-    'عناية',
-    'مهم',
+  final List<String> activityDetailsOptions = const [
+    'رسم',
+    'تلوين',
+    'لعب جماعي',
+    'قصة',
+    'موسيقى',
+    'تركيب مكعبات',
+    'نشاط حركي',
   ];
-
-  List<String> get availableTags => nurseryTags;
-
-  final List<String> nurseryLocations = const [
-    'داخل الحضانة',
-    'ساحة اللعب',
-    'غرفة النوم',
-    'منطقة الطعام',
-    'الحمام',
-    'مكان آخر',
-  ];
-
-  List<String> get availableLocations => nurseryLocations;
 
   @override
   void initState() {
     super.initState();
 
-    if (!types.contains(type)) {
-      type = types.first;
+    if (!nurseryTypes.contains(type)) {
+      type = nurseryTypes.first;
     }
-
-    _syncTagsWithType();
   }
 
   @override
@@ -114,7 +92,9 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
   String _normalizeRole(String value) {
     final role = value.trim().toLowerCase();
 
-    if (role == 'nursery' || role == 'nursery staff') {
+    if (role == 'nursery' ||
+        role == 'nursery staff' ||
+        role == 'nursery_staff') {
       return 'nursery_staff';
     }
 
@@ -199,6 +179,20 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
     }
   }
 
+  void _showSnack(
+    String message, {
+    Color backgroundColor = Colors.redAccent,
+  }) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: backgroundColor,
+      ),
+    );
+  }
+
   Future<Map<String, String>> fetchCurrentUserInfo() async {
     final currentUser = _auth.currentUser;
 
@@ -224,6 +218,7 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
                 data['name'] ??
                 data['fullName'] ??
                 data['username'] ??
+                currentUser.displayName ??
                 'مستخدم')
             .toString()
             .trim(),
@@ -257,21 +252,11 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
             (data['parentUsername'] ?? '').toString().trim().toLowerCase();
         final docParentName = (data['parentName'] ?? '').toString().trim();
 
-        if (docParentUid.isNotEmpty) {
-          parentUid = docParentUid;
-        }
-
-        if (docParentUsername.isNotEmpty) {
-          parentUsername = docParentUsername;
-        }
-
-        if (docParentName.isNotEmpty) {
-          parentName = docParentName;
-        }
+        if (docParentUid.isNotEmpty) parentUid = docParentUid;
+        if (docParentUsername.isNotEmpty) parentUsername = docParentUsername;
+        if (docParentName.isNotEmpty) parentName = docParentName;
       }
-    } catch (_) {
-      // fallback على بيانات child الحالية
-    }
+    } catch (_) {}
 
     return {
       'parentUid': parentUid,
@@ -288,19 +273,37 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
       ),
     );
 
-    if (res is Map) {
-      final path = res['path'] as String?;
-      final mediaType = res['type'] as String?;
-      final file = res['file'] as XFile?;
+    if (res is! Map) return;
 
-      if (path == null || mediaType == null) return;
+    final path = res['path'] as String?;
+    final mediaType = res['type'] as String?;
+    final file = res['file'] as XFile?;
+    final description = (res['description'] ?? '').toString().trim();
 
-      setState(() {
-        selectedMediaPath = path;
-        selectedMediaType = mediaType;
-        selectedMediaFile = file;
-      });
+    if (path == null || path.trim().isEmpty || mediaType == null) return;
+
+    Uint8List? bytes;
+
+    if (mediaType == 'image' && file != null) {
+      try {
+        bytes = await file.readAsBytes();
+      } catch (_) {
+        bytes = null;
+      }
     }
+
+    if (!mounted) return;
+
+    setState(() {
+      selectedMediaPath = path;
+      selectedMediaType = mediaType;
+      selectedMediaFile = file;
+      selectedImageBytes = bytes;
+
+      if (description.isNotEmpty && noteCtrl.text.trim().isEmpty) {
+        noteCtrl.text = description;
+      }
+    });
   }
 
   void removeMedia() {
@@ -308,40 +311,16 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
       selectedMediaPath = null;
       selectedMediaType = null;
       selectedMediaFile = null;
+      selectedImageBytes = null;
     });
   }
 
-  void applyQuickTemplate(String text) {
+  void toggleActivityDetail(String value) {
     setState(() {
-      noteCtrl.text = text;
-    });
-  }
-
-  void _syncTagsWithType() {
-    final map = {
-      'وجبة': 'أكل',
-      'نوم': 'نوم',
-      'حفاض': 'عناية',
-      'صحة': 'صحة',
-      'نشاط': 'نشاط',
-      'ملاحظة': 'مهم',
-    };
-
-    final mapped = map[type];
-
-    if (mapped != null && availableTags.contains(mapped)) {
-      if (!selectedTags.contains(mapped)) {
-        selectedTags.add(mapped);
-      }
-    }
-  }
-
-  void toggleTag(String tag) {
-    setState(() {
-      if (selectedTags.contains(tag)) {
-        selectedTags.remove(tag);
+      if (selectedActivityDetails.contains(value)) {
+        selectedActivityDetails.remove(value);
       } else {
-        selectedTags.add(tag);
+        selectedActivityDetails.add(value);
       }
     });
   }
@@ -367,47 +346,6 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
     return '$year/$month/$day';
   }
 
-  Future<void> pickDateTime() async {
-    final pickedDate = await showDatePicker(
-      context: context,
-      initialDate: selectedDateTime,
-      firstDate: DateTime.now().subtract(const Duration(days: 30)),
-      lastDate: DateTime.now().add(const Duration(days: 30)),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context),
-          child: child!,
-        );
-      },
-    );
-
-    if (pickedDate == null || !mounted) return;
-
-    final pickedTime = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(selectedDateTime),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context),
-          child: child!,
-        );
-      },
-    );
-
-    if (pickedTime == null) return;
-
-    setState(() {
-      selectedDateTime = DateTime(
-        pickedDate.year,
-        pickedDate.month,
-        pickedDate.day,
-        pickedTime.hour,
-        pickedTime.minute,
-      );
-      useNowTime = false;
-    });
-  }
-
   String autoTitle() {
     switch (type) {
       case 'وجبة':
@@ -421,129 +359,139 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
       case 'نشاط':
         return 'تحديث نشاط';
       default:
-        return importance == 'عاجل' ? 'ملاحظة عاجلة' : 'ملاحظة عامة';
+        return importance == 'عاجل' ? 'ملاحظة عاجلة' : 'ملاحظة';
     }
   }
 
-  String buildSuggestedNote() {
+  String _baseStatusText() {
+    switch (type) {
+      case 'وجبة':
+        return mealStatus;
+      case 'نوم':
+        return sleepStatus;
+      case 'حفاض':
+        return diaperStatus;
+      case 'صحة':
+        return healthStatus;
+      case 'نشاط':
+        final details = selectedActivityDetails.isEmpty
+            ? ''
+            : 'تفاصيل النشاط: ${selectedActivityDetails.join('، ')}';
+        return [
+          activityStatus,
+          if (details.isNotEmpty) details,
+        ].join(' - ');
+      default:
+        return '';
+    }
+  }
+
+  String buildFinalNote() {
+    final base = _baseStatusText();
     final note = noteCtrl.text.trim();
     final extra = extraCtrl.text.trim();
 
-    String baseText;
+    final now = DateTime.now();
 
-    switch (type) {
-      case 'وجبة':
-        baseText = mealStatus;
-        break;
-      case 'نوم':
-        baseText = sleepStatus;
-        break;
-      case 'حفاض':
-        baseText = diaperStatus;
-        break;
-      case 'صحة':
-        baseText = healthStatus;
-        break;
-      case 'نشاط':
-        baseText = activityStatus;
-        break;
-      default:
-        baseText = noteStatus;
-    }
-
-    final parts = <String>[];
-
-    parts.add(baseText);
-
-    if (note.isNotEmpty) {
-      parts.add(note);
-    }
-
-    if (extra.isNotEmpty) {
-      parts.add(extra);
-    }
-
-    final tagText =
-        selectedTags.isEmpty ? '' : 'التصنيفات: ${selectedTags.join('، ')}';
-
-    final moodText = 'المزاج: $selectedMood';
-    final energyText = 'النشاط: $selectedEnergy';
-    final locationText =
-        selectedLocation.isNotEmpty ? 'المكان: $selectedLocation' : '';
-    final importanceText = 'الأهمية: $importance';
-    final timeText =
-        'الوقت: ${formatDate(selectedDateTime)} - ${formatTime(selectedDateTime)}';
-
-    final summaryParts = [
-      parts.join('. '),
-      moodText,
-      energyText,
-      if (tagText.isNotEmpty) tagText,
-      if (locationText.isNotEmpty) locationText,
-      importanceText,
-      timeText,
+    final parts = <String>[
+      if (base.isNotEmpty) base,
+      if (note.isNotEmpty) note,
+      if (extra.isNotEmpty) extra,
+      'المزاج: $selectedMood',
+      'النشاط: $selectedEnergy',
+      'المكان: $selectedLocation',
+      'الأهمية: $importance',
+      'الوقت: ${formatDate(now)} - ${formatTime(now)}',
     ];
 
-    return summaryParts.join(' | ');
+    return parts.join(' | ');
+  }
+
+  bool _validateBeforeSave() {
+    final note = noteCtrl.text.trim();
+    final extra = extraCtrl.text.trim();
+    final hasStructuredType = type != 'ملاحظة';
+
+    if (!hasStructuredType && note.isEmpty && extra.isEmpty) {
+      _showSnack('يرجى كتابة وصف للتحديث');
+      return false;
+    }
+
+    if (type == 'نشاط' && selectedActivityDetails.isEmpty) {
+      _showSnack('يرجى اختيار تفاصيل النشاط');
+      return false;
+    }
+
+    if (note.isNotEmpty && note.length < 3) {
+      _showSnack('وصف التحديث قصير جدًا');
+      return false;
+    }
+
+    return true;
+  }
+
+  Future<Map<String, dynamic>> _uploadMediaIfNeeded() async {
+    if (selectedMediaType == null ||
+        selectedMediaType!.trim().isEmpty ||
+        selectedMediaFile == null) {
+      return {
+        'mediaType': '',
+        'mediaPath': '',
+        'mediaUrl': '',
+        'mediaUrlExpiresAt': '',
+        'storageProvider': '',
+        'bucket': '',
+        'mimeType': '',
+        'sizeBytes': 0,
+        'hasMedia': false,
+      };
+    }
+
+    final uploaded = await _galleryService.uploadChildMediaDetailed(
+      childId: widget.child.id,
+      file: selectedMediaFile!,
+      mediaType: selectedMediaType!,
+    );
+
+    if (uploaded == null) {
+      throw Exception('فشل رفع الوسائط');
+    }
+
+    return {
+      ...uploaded.toMap(),
+      'hasMedia': true,
+    };
   }
 
   Future<void> save() async {
-    final finalNote = buildSuggestedNote().trim();
-
-    if (noteCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('اكتبي وصفًا واضحًا للتحديث أولًا'),
-        ),
-      );
-      return;
-    }
+    if (!_validateBeforeSave()) return;
 
     setState(() {
       isLoading = true;
     });
 
     try {
-      final now = Timestamp.now();
-      final eventTimestamp = Timestamp.fromDate(selectedDateTime);
+      final nowDate = DateTime.now();
+      final now = Timestamp.fromDate(nowDate);
       final priority = _priorityValue(importance);
-
-      String? uploadedMediaUrl;
-      String? uploadedMediaPath;
-      String? uploadedBucket;
-      String? uploadedStorageProvider;
-      String? uploadedMimeType;
-      int? uploadedSizeBytes;
-
-      if (selectedMediaType != null &&
-          (selectedMediaFile != null || selectedMediaPath != null)) {
-        final fileToUpload = selectedMediaFile ?? XFile(selectedMediaPath!);
-
-        final uploaded = await _galleryService.uploadChildMediaDetailed(
-          childId: widget.child.id,
-          file: fileToUpload,
-          mediaType: selectedMediaType!,
-        );
-
-        if (uploaded != null) {
-          uploadedMediaUrl = uploaded.signedUrl;
-          uploadedMediaPath = uploaded.path;
-          uploadedBucket = uploaded.bucket;
-          uploadedStorageProvider = uploaded.storageProvider;
-          uploadedMimeType = uploaded.mimeType;
-          uploadedSizeBytes = uploaded.sizeBytes;
-        }
-      }
+      final finalNote = buildFinalNote();
 
       final userInfo = await fetchCurrentUserInfo();
       final parentInfo = await fetchParentLinkInfo();
+      final mediaData = await _uploadMediaIfNeeded();
 
-      final parentUid = (parentInfo['parentUid'] ?? '').toString().trim();
+      final parentUid = (parentInfo['parentUid'] ?? '').trim();
       final parentUsername =
-          (parentInfo['parentUsername'] ?? '').toString().trim().toLowerCase();
-      final parentName = (parentInfo['parentName'] ?? '').toString().trim();
+          (parentInfo['parentUsername'] ?? '').trim().toLowerCase();
+      final parentName = (parentInfo['parentName'] ?? '').trim();
 
-      final updateRef = await _firestore.collection('updates').add({
+      final canNotifyParent = parentUid.isNotEmpty || parentUsername.isNotEmpty;
+
+      final updateRef = _firestore.collection('updates').doc();
+      final notificationRef = _firestore.collection('notifications').doc();
+
+      final updateData = {
+        'updateId': updateRef.id,
         'childId': widget.child.id,
         'childName': widget.child.name,
         'parentUid': parentUid,
@@ -559,8 +507,8 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
         'message': finalNote,
         'description': finalNote,
         'createdAt': now,
-        'time': FieldValue.serverTimestamp(),
-        'eventAt': eventTimestamp,
+        'time': now,
+        'eventAt': now,
         'updatedAt': now,
         'byRole': userInfo['role'],
         'createdByUid': userInfo['uid'],
@@ -569,90 +517,89 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
         'senderUid': userInfo['uid'],
         'senderName': userInfo['name'],
         'senderRole': userInfo['role'],
-        'mediaType': selectedMediaType ?? '',
-        'mediaPath': uploadedMediaPath ?? '',
-        'mediaUrl': uploadedMediaUrl ?? '',
-        'storageProvider': uploadedStorageProvider ?? '',
-        'bucket': uploadedBucket ?? '',
-        'mimeType': uploadedMimeType ?? '',
-        'sizeBytes': uploadedSizeBytes ?? 0,
-        'hasMedia': uploadedMediaUrl != null || uploadedMediaPath != null,
+        ...mediaData,
         'importance': priority,
         'priority': priority,
         'importanceLabel': importance,
-        'tags': selectedTags,
         'mood': selectedMood,
         'energy': selectedEnergy,
         'locationLabel': selectedLocation,
-        'notifyParent': notifyParent,
-      });
+        'activityStatus': activityStatus,
+        'activityDetails': selectedActivityDetails.toList(),
+        'mealStatus': mealStatus,
+        'sleepStatus': sleepStatus,
+        'diaperStatus': diaperStatus,
+        'healthStatus': healthStatus,
+        'notifyParent': canNotifyParent,
+      };
 
-      if (notifyParent) {
-        await _firestore.collection('notifications').add({
-          'uid': parentUid,
-          'targetUid': parentUid,
-          'targetRole': 'parent',
-          'receiverUid': parentUid,
-          'receiverRole': 'parent',
-          'parentUid': parentUid,
-          'parentUsername': parentUsername,
-          'parentName': parentName,
-          'childId': widget.child.id,
-          'childName': widget.child.name,
-          'section': 'Nursery',
-          'group': widget.child.group,
-          'title': autoTitle(),
-          'body': finalNote,
-          'message': finalNote,
-          'description': finalNote,
-          'type': 'update_notification',
-          'notificationType': 'update_notification',
-          'category': type,
-          'templateType': type,
-          'updateId': updateRef.id,
-          'isRead': false,
-          'read': false,
-          'seen': false,
-          'createdAt': now,
-          'time': FieldValue.serverTimestamp(),
-          'updatedAt': now,
-          'createdByUid': userInfo['uid'],
-          'createdByName': userInfo['name'],
-          'createdByRole': userInfo['role'],
-          'senderUid': userInfo['uid'],
-          'senderName': userInfo['name'],
-          'senderRole': userInfo['role'],
-          'priority': priority,
-          'importance': priority,
-          'importanceLabel': importance,
-          'hasMedia': uploadedMediaUrl != null || uploadedMediaPath != null,
-          'mediaType': selectedMediaType ?? '',
-          'mediaPath': uploadedMediaPath ?? '',
-          'mediaUrl': uploadedMediaUrl ?? '',
-          'storageProvider': uploadedStorageProvider ?? '',
-          'bucket': uploadedBucket ?? '',
-          'mimeType': uploadedMimeType ?? '',
-          'sizeBytes': uploadedSizeBytes ?? 0,
-        });
+      final notificationData = {
+        'notificationId': notificationRef.id,
+        'uid': parentUid,
+        'targetUid': parentUid,
+        'targetUsername': parentUsername,
+        'targetRole': 'parent',
+        'receiverUid': parentUid,
+        'receiverUsername': parentUsername,
+        'receiverRole': 'parent',
+        'parentUid': parentUid,
+        'parentUsername': parentUsername,
+        'parentName': parentName,
+        'childId': widget.child.id,
+        'childName': widget.child.name,
+        'section': 'Nursery',
+        'group': widget.child.group,
+        'title': autoTitle(),
+        'body': finalNote,
+        'message': finalNote,
+        'description': finalNote,
+        'type': 'update_notification',
+        'notificationType': 'update_notification',
+        'category': type,
+        'templateType': type,
+        'updateId': updateRef.id,
+        'isRead': false,
+        'read': false,
+        'seen': false,
+        'createdAt': now,
+        'time': now,
+        'eventAt': now,
+        'updatedAt': now,
+        'createdByUid': userInfo['uid'],
+        'createdByName': userInfo['name'],
+        'createdByRole': userInfo['role'],
+        'byRole': userInfo['role'],
+        'senderUid': userInfo['uid'],
+        'senderName': userInfo['name'],
+        'senderRole': userInfo['role'],
+        'priority': priority,
+        'importance': priority,
+        'importanceLabel': importance,
+        ...mediaData,
+      };
+
+      final batch = _firestore.batch();
+
+      batch.set(updateRef, updateData);
+
+      if (canNotifyParent) {
+        batch.set(notificationRef, notificationData);
       }
+
+      await batch.commit();
 
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('تم إضافة التحديث بنجاح'),
-        ),
+      _showSnack(
+        canNotifyParent
+            ? 'تم إضافة التحديث وإشعار ولي الأمر'
+            : 'تم إضافة التحديث، لكن لم يتم العثور على بيانات ولي الأمر للإشعار',
+        backgroundColor: Colors.green,
       );
 
       Navigator.pop(context, true);
     } catch (e) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('حدث خطأ أثناء حفظ التحديث: $e'),
-        ),
-      );
+      _showSnack('حدث خطأ أثناء حفظ التحديث: $e');
     } finally {
       if (!mounted) return;
 
@@ -675,51 +622,26 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
       case 'نشاط':
         return _buildNurseryActivityFields();
       default:
-        return _buildNurseryNoteFields();
+        return const SizedBox.shrink();
     }
   }
 
   Widget _buildNurseryMealFields() {
     return _sectionCard(
       title: 'تفاصيل الوجبة',
-      child: Column(
-        children: [
-          _ChoiceWrap(
-            values: const [
-              'تناول الوجبة جيدًا',
-              'تناول جزءًا من الوجبة',
-              'رفض الوجبة',
-              'شرب الحليب',
-            ],
-            selectedValue: mealStatus,
-            onSelected: (value) {
-              setState(() {
-                mealStatus = value;
-              });
-            },
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _QuickTextChip(
-                label: 'شهية جيدة',
-                onTap: () => applyQuickTemplate('كانت شهيته جيدة اليوم.'),
-              ),
-              _QuickTextChip(
-                label: 'احتاج مساعدة',
-                onTap: () => applyQuickTemplate('احتاج مساعدة أثناء الوجبة.'),
-              ),
-              _QuickTextChip(
-                label: 'أكل ببطء',
-                onTap: () => applyQuickTemplate(
-                  'تناول الطعام ببطء لكنه أكمل معظم الوجبة.',
-                ),
-              ),
-            ],
-          ),
+      child: _ChoiceWrap(
+        values: const [
+          'تناول الوجبة جيدًا',
+          'تناول جزءًا من الوجبة',
+          'رفض الوجبة',
+          'شرب الحليب',
         ],
+        selectedValue: mealStatus,
+        onSelected: (value) {
+          setState(() {
+            mealStatus = value;
+          });
+        },
       ),
     );
   }
@@ -727,42 +649,19 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
   Widget _buildNurserySleepFields() {
     return _sectionCard(
       title: 'تفاصيل النوم',
-      child: Column(
-        children: [
-          _ChoiceWrap(
-            values: const [
-              'نام جيدًا',
-              'نام بصعوبة',
-              'استيقظ أكثر من مرة',
-              'لم ينم اليوم',
-            ],
-            selectedValue: sleepStatus,
-            onSelected: (value) {
-              setState(() {
-                sleepStatus = value;
-              });
-            },
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _QuickTextChip(
-                label: 'نوم هادئ',
-                onTap: () => applyQuickTemplate(
-                  'نام بهدوء واستيقظ بحالة جيدة.',
-                ),
-              ),
-              _QuickTextChip(
-                label: 'قلق أثناء النوم',
-                onTap: () => applyQuickTemplate(
-                  'كان قلقًا قليلًا أثناء النوم.',
-                ),
-              ),
-            ],
-          ),
+      child: _ChoiceWrap(
+        values: const [
+          'نام جيدًا',
+          'نام بصعوبة',
+          'استيقظ أكثر من مرة',
+          'لم ينم اليوم',
         ],
+        selectedValue: sleepStatus,
+        onSelected: (value) {
+          setState(() {
+            sleepStatus = value;
+          });
+        },
       ),
     );
   }
@@ -770,42 +669,19 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
   Widget _buildNurseryDiaperFields() {
     return _sectionCard(
       title: 'تفاصيل الحفاض',
-      child: Column(
-        children: [
-          _ChoiceWrap(
-            values: const [
-              'تم التبديل',
-              'تم التنظيف',
-              'يحتاج متابعة',
-              'تم التبديل مع ملاحظة',
-            ],
-            selectedValue: diaperStatus,
-            onSelected: (value) {
-              setState(() {
-                diaperStatus = value;
-              });
-            },
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _QuickTextChip(
-                label: 'كل شيء طبيعي',
-                onTap: () => applyQuickTemplate(
-                  'تم التبديل وكل شيء طبيعي.',
-                ),
-              ),
-              _QuickTextChip(
-                label: 'احمرار بسيط',
-                onTap: () => applyQuickTemplate(
-                  'لوحظ احمرار بسيط ويحتاج متابعة.',
-                ),
-              ),
-            ],
-          ),
+      child: _ChoiceWrap(
+        values: const [
+          'تم التبديل',
+          'تم التنظيف',
+          'يحتاج متابعة',
+          'تم التبديل مع ملاحظة',
         ],
+        selectedValue: diaperStatus,
+        onSelected: (value) {
+          setState(() {
+            diaperStatus = value;
+          });
+        },
       ),
     );
   }
@@ -813,42 +689,19 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
   Widget _buildNurseryHealthFields() {
     return _sectionCard(
       title: 'تفاصيل الحالة الصحية',
-      child: Column(
-        children: [
-          _ChoiceWrap(
-            values: const [
-              'حالته مستقرة',
-              'حرارة خفيفة',
-              'كحة خفيفة',
-              'يحتاج متابعة',
-            ],
-            selectedValue: healthStatus,
-            onSelected: (value) {
-              setState(() {
-                healthStatus = value;
-              });
-            },
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _QuickTextChip(
-                label: 'بحالة جيدة',
-                onTap: () => applyQuickTemplate(
-                  'الطفل بحالة جيدة وتمت متابعته.',
-                ),
-              ),
-              _QuickTextChip(
-                label: 'تم إبلاغ الأهل',
-                onTap: () => applyQuickTemplate(
-                  'تمت ملاحظة الحالة وإبلاغ ولي الأمر للمتابعة.',
-                ),
-              ),
-            ],
-          ),
+      child: _ChoiceWrap(
+        values: const [
+          'حالته مستقرة',
+          'حرارة خفيفة',
+          'كحة خفيفة',
+          'يحتاج متابعة',
         ],
+        selectedValue: healthStatus,
+        onSelected: (value) {
+          setState(() {
+            healthStatus = value;
+          });
+        },
       ),
     );
   }
@@ -857,6 +710,7 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
     return _sectionCard(
       title: 'تفاصيل النشاط',
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _ChoiceWrap(
             values: const [
@@ -872,67 +726,31 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
               });
             },
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
           Wrap(
             spacing: 8,
             runSpacing: 8,
-            children: [
-              _QuickTextChip(
-                label: 'رسم وتلوين',
-                onTap: () => applyQuickTemplate(
-                  'شارك في نشاط الرسم والتلوين وكان سعيدًا.',
-                ),
-              ),
-              _QuickTextChip(
-                label: 'لعب جماعي',
-                onTap: () => applyQuickTemplate(
-                  'شارك في اللعب الجماعي مع الأطفال.',
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
+            children: activityDetailsOptions.map((item) {
+              final selected = selectedActivityDetails.contains(item);
 
-  Widget _buildNurseryNoteFields() {
-    return _sectionCard(
-      title: 'ملاحظة عامة',
-      child: Column(
-        children: [
-          _ChoiceWrap(
-            values: const [
-              'ملاحظة عامة',
-              'يوم جيد',
-              'يحتاج متابعة',
-              'ملاحظة مهمة',
-            ],
-            selectedValue: noteStatus,
-            onSelected: (value) {
-              setState(() {
-                noteStatus = value;
-              });
-            },
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _QuickTextChip(
-                label: 'كان هادئًا',
-                onTap: () => applyQuickTemplate(
-                  'كان هادئًا ومتعاونًا خلال اليوم.',
+              return FilterChip(
+                selected: selected,
+                label: Text(item),
+                onSelected: (_) => toggleActivityDetail(item),
+                selectedColor: AppColors.primary.withOpacity(0.14),
+                checkmarkColor: AppColors.primary,
+                labelStyle: TextStyle(
+                  color: selected ? AppColors.primary : AppColors.textDark,
+                  fontWeight: FontWeight.w700,
                 ),
-              ),
-              _QuickTextChip(
-                label: 'متفاعل',
-                onTap: () => applyQuickTemplate(
-                  'كان متفاعلًا بشكل جميل مع المحيط.',
+                side: BorderSide(
+                  color: selected
+                      ? AppColors.primary
+                      : AppColors.border.withOpacity(0.9),
                 ),
-              ),
-            ],
+                backgroundColor: Colors.white,
+              );
+            }).toList(),
           ),
         ],
       ),
@@ -942,7 +760,7 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
   @override
   Widget build(BuildContext context) {
     final hasMedia = selectedMediaPath != null && selectedMediaType != null;
-    final previewText = buildSuggestedNote();
+    final previewText = buildFinalNote();
 
     return AppPageScaffold(
       title: 'إضافة تحديث',
@@ -956,17 +774,13 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
           const SizedBox(height: 18),
           _buildTypeSection(context),
           const SizedBox(height: 18),
-          _buildTagsSection(),
-          const SizedBox(height: 18),
           _buildTimeAndLocationSection(),
           const SizedBox(height: 18),
           _buildStatusSection(),
           const SizedBox(height: 18),
           buildDynamicFields(),
           const SizedBox(height: 18),
-          _buildNoteSection(context),
-          const SizedBox(height: 18),
-          _buildOptionsSection(),
+          _buildNoteSection(),
           const SizedBox(height: 18),
           _buildPreviewSection(previewText),
           const SizedBox(height: 20),
@@ -1172,195 +986,85 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
   }
 
   Widget _buildTypeSection(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'نوع التحديث',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'اختاري النوع المناسب بشكل سريع وواضح.',
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: AppColors.textLight,
-              ),
-        ),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: types.map((t) {
-            final selected = type == t;
-            final color = typeColor(t);
-
-            return InkWell(
-              borderRadius: BorderRadius.circular(16),
-              onTap: () {
-                setState(() {
-                  type = t;
-                  _syncTagsWithType();
-                });
-              },
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 12,
-                ),
-                decoration: BoxDecoration(
-                  color: selected ? color.withOpacity(0.14) : Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: selected ? color : AppColors.border.withOpacity(0.9),
-                    width: selected ? 1.5 : 1.0,
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      typeIcon(t),
-                      size: 18,
-                      color: selected ? color : AppColors.textLight,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      t,
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        color: selected ? color : AppColors.textDark,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }).toList(),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildTagsSection() {
     return _sectionCard(
-      title: 'التصنيفات',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'يمكنك اختيار أكثر من تصنيف لنفس التحديث.',
-            style: TextStyle(
-              color: AppColors.textLight,
-              height: 1.5,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: availableTags.map((tag) {
-              final selected = selectedTags.contains(tag);
+      title: 'نوع التحديث',
+      child: Wrap(
+        spacing: 10,
+        runSpacing: 10,
+        children: nurseryTypes.map((item) {
+          final selected = type == item;
+          final color = typeColor(item);
 
-              return FilterChip(
-                selected: selected,
-                label: Text(tag),
-                onSelected: (_) => toggleTag(tag),
-                selectedColor: AppColors.primary.withOpacity(0.12),
-                checkmarkColor: AppColors.primary,
-                labelStyle: TextStyle(
-                  color: selected ? AppColors.primary : AppColors.textDark,
-                  fontWeight: FontWeight.w700,
+          return InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: () {
+              setState(() {
+                type = item;
+
+                if (type != 'نشاط') {
+                  selectedActivityDetails.clear();
+                }
+              });
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 12,
+              ),
+              decoration: BoxDecoration(
+                color: selected ? color.withOpacity(0.14) : Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: selected ? color : AppColors.border.withOpacity(0.9),
+                  width: selected ? 1.5 : 1.0,
                 ),
-                side: BorderSide(
-                  color: selected
-                      ? AppColors.primary
-                      : AppColors.border.withOpacity(0.9),
-                ),
-                backgroundColor: Colors.white,
-              );
-            }).toList(),
-          ),
-        ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    typeIcon(item),
+                    size: 18,
+                    color: selected ? color : AppColors.textLight,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    item,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: selected ? color : AppColors.textDark,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }).toList(),
       ),
     );
   }
 
   Widget _buildTimeAndLocationSection() {
+    final now = DateTime.now();
+
     return _sectionCard(
       title: 'الوقت والمكان',
-      child: Column(
+      child: Row(
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: _miniInfoCard(
-                  icon: Icons.access_time_rounded,
-                  title: 'وقت التحديث',
-                  value:
-                      '${formatDate(selectedDateTime)} - ${formatTime(selectedDateTime)}',
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _miniInfoCard(
-                  icon: Icons.place_outlined,
-                  title: 'المكان',
-                  value: selectedLocation,
-                ),
-              ),
-            ],
+          Expanded(
+            child: _miniInfoCard(
+              icon: Icons.access_time_rounded,
+              title: 'وقت التحديث',
+              value: '${formatDate(now)} - ${formatTime(now)}',
+            ),
           ),
-          const SizedBox(height: 12),
-          SwitchListTile(
-            value: useNowTime,
-            onChanged: (value) {
-              setState(() {
-                useNowTime = value;
-                if (value) {
-                  selectedDateTime = DateTime.now();
-                }
-              });
-            },
-            contentPadding: EdgeInsets.zero,
-            activeColor: AppColors.primary,
-            title: const Text(
-              'استخدام الوقت الحالي',
-              style: TextStyle(fontWeight: FontWeight.w700),
+          const SizedBox(width: 10),
+          Expanded(
+            child: _miniInfoCard(
+              icon: Icons.place_outlined,
+              title: 'المكان',
+              value: selectedLocation,
             ),
-            subtitle: const Text('فعّليها لاختيار "الآن" مباشرة'),
-          ),
-          if (!useNowTime) ...[
-            const SizedBox(height: 6),
-            OutlinedButton.icon(
-              onPressed: pickDateTime,
-              icon: const Icon(Icons.schedule_rounded),
-              label: const Text('اختيار التاريخ والوقت'),
-            ),
-          ],
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            value: selectedLocation,
-            decoration: const InputDecoration(
-              labelText: 'المكان',
-              prefixIcon: Icon(Icons.place_outlined),
-            ),
-            items: availableLocations
-                .map(
-                  (location) => DropdownMenuItem<String>(
-                    value: location,
-                    child: Text(location),
-                  ),
-                )
-                .toList(),
-            onChanged: (value) {
-              if (value == null) return;
-
-              setState(() {
-                selectedLocation = value;
-              });
-            },
           ),
         ],
       ),
@@ -1476,7 +1180,7 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
     );
   }
 
-  Widget _buildNoteSection(BuildContext context) {
+  Widget _buildNoteSection() {
     return _sectionCard(
       title: 'وصف التحديث',
       child: Column(
@@ -1486,12 +1190,12 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
             maxLines: 4,
             textAlign: TextAlign.right,
             decoration: const InputDecoration(
-              hintText: 'اكتبي ماذا حدث مع الطفل بالتفصيل...',
+              hintText: 'اكتبي تفاصيل التحديث',
               alignLabelWithHint: true,
               prefixIcon: Icon(Icons.edit_note_outlined),
             ),
             onChanged: (_) {
-              if (saveAsDraftPreview) setState(() {});
+              setState(() {});
             },
           ),
           const SizedBox(height: 12),
@@ -1500,55 +1204,13 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
             maxLines: 3,
             textAlign: TextAlign.right,
             decoration: const InputDecoration(
-              hintText: 'تفاصيل إضافية اختيارية مثل الملاحظات أو التوصيات...',
+              hintText: 'تفاصيل إضافية اختيارية',
               alignLabelWithHint: true,
               prefixIcon: Icon(Icons.notes_outlined),
             ),
             onChanged: (_) {
-              if (saveAsDraftPreview) setState(() {});
+              setState(() {});
             },
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildOptionsSection() {
-    return _sectionCard(
-      title: 'خيارات إضافية',
-      child: Column(
-        children: [
-          CheckboxListTile(
-            value: notifyParent,
-            onChanged: (value) {
-              setState(() {
-                notifyParent = value ?? false;
-              });
-            },
-            activeColor: AppColors.primary,
-            contentPadding: EdgeInsets.zero,
-            controlAffinity: ListTileControlAffinity.leading,
-            title: const Text(
-              'إرسال إشعار لولي الأمر',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            subtitle: const Text('سيتم إنشاء إشعار مع التحديث'),
-          ),
-          CheckboxListTile(
-            value: saveAsDraftPreview,
-            onChanged: (value) {
-              setState(() {
-                saveAsDraftPreview = value ?? true;
-              });
-            },
-            activeColor: AppColors.primary,
-            contentPadding: EdgeInsets.zero,
-            controlAffinity: ListTileControlAffinity.leading,
-            title: const Text(
-              'تحديث المعاينة مباشرة',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            subtitle: const Text('معاينة فورية للنص النهائي قبل الحفظ'),
           ),
         ],
       ),
@@ -1594,7 +1256,7 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
             ),
             const SizedBox(height: 12),
             Text(
-              previewText.isEmpty ? 'سيظهر النص النهائي هنا' : previewText,
+              previewText,
               style: const TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w700,
@@ -1612,138 +1274,89 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
     final isImage = selectedMediaType == 'image';
     final isVideo = selectedMediaType == 'video';
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'مرفق اختياري',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'يمكنكِ إرفاق صورة أو فيديو مع التحديث.',
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: AppColors.textLight,
-              ),
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: pickMedia,
-                icon: const Icon(Icons.add_a_photo_outlined),
-                label: Text(hasMedia ? 'تغيير المرفق' : 'إضافة صورة أو فيديو'),
-              ),
-            ),
-          ],
-        ),
-        if (hasMedia) ...[
-          const SizedBox(height: 14),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(
-                color: AppColors.border.withOpacity(0.85),
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      isImage
-                          ? Icons.image_outlined
-                          : Icons.video_library_outlined,
-                      color: AppColors.primary,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        isImage ? 'تم إرفاق صورة' : 'تم إرفاق فيديو',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: removeMedia,
-                      icon: const Icon(Icons.close_rounded),
-                    ),
-                  ],
+    return _sectionCard(
+      title: 'مرفق',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          OutlinedButton.icon(
+            onPressed: isLoading ? null : pickMedia,
+            icon: const Icon(Icons.add_a_photo_outlined),
+            label: Text(hasMedia ? 'تغيير المرفق' : 'إضافة صورة أو فيديو'),
+          ),
+          if (hasMedia) ...[
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.background,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(
+                  color: AppColors.border.withOpacity(0.85),
                 ),
-                if (isImage && !kIsWeb)
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(14),
-                    child: Image.file(
-                      File(selectedMediaPath!),
-                      width: double.infinity,
-                      height: 190,
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                if (isImage && kIsWeb)
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: AppColors.background,
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: const Text(
-                      'تم اختيار صورة.\nالمعاينة المحلية غير مدعومة على Flutter Web، لكن سيتم رفع الصورة عند الإرسال.',
-                      style: TextStyle(
-                        color: AppColors.textLight,
-                        height: 1.5,
-                      ),
-                    ),
-                  ),
-                if (isVideo)
-                  Column(
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
                     children: [
-                      const SizedBox(height: 8),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: AppColors.background,
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: const Text(
-                          'تم اختيار فيديو بنجاح.',
-                          style: TextStyle(
-                            color: AppColors.textDark,
+                      Icon(
+                        isImage
+                            ? Icons.image_outlined
+                            : Icons.video_library_outlined,
+                        color: AppColors.primary,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          isImage ? 'تم إرفاق صورة' : 'تم إرفاق فيديو',
+                          style: const TextStyle(
                             fontWeight: FontWeight.w700,
                           ),
                         ),
                       ),
-                      const SizedBox(height: 10),
-                      OutlinedButton.icon(
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => VideoPreviewPage(
-                                path: selectedMediaPath!,
-                              ),
-                            ),
-                          );
-                        },
-                        icon: const Icon(Icons.play_circle_outline_rounded),
-                        label: const Text('معاينة الفيديو'),
+                      IconButton(
+                        onPressed: isLoading ? null : removeMedia,
+                        icon: const Icon(Icons.close_rounded),
                       ),
                     ],
                   ),
-              ],
+                  if (isImage && selectedImageBytes != null) ...[
+                    const SizedBox(height: 10),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: Image.memory(
+                        selectedImageBytes!,
+                        width: double.infinity,
+                        height: 190,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                  ],
+                  if (isVideo) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: const Text(
+                        'الفيديو جاهز للإرسال',
+                        style: TextStyle(
+                          color: AppColors.textDark,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ),
-          ),
+          ],
         ],
-      ],
+      ),
     );
   }
 
@@ -1926,67 +1539,23 @@ class _ChoiceWrap extends StatelessWidget {
       children: values.map((value) {
         final selected = selectedValue == value;
 
-        return InkWell(
-          borderRadius: BorderRadius.circular(14),
-          onTap: () => onSelected(value),
-          child: Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 10,
-            ),
-            decoration: BoxDecoration(
-              color:
-                  selected ? AppColors.primary.withOpacity(0.10) : Colors.white,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: selected
-                    ? AppColors.primary
-                    : AppColors.border.withOpacity(0.9),
-              ),
-            ),
-            child: Text(
-              value,
-              style: TextStyle(
-                color: selected ? AppColors.primary : AppColors.textDark,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
+        return FilterChip(
+          selected: selected,
+          label: Text(value),
+          onSelected: (_) => onSelected(value),
+          selectedColor: AppColors.primary.withOpacity(0.14),
+          checkmarkColor: AppColors.primary,
+          labelStyle: TextStyle(
+            color: selected ? AppColors.primary : AppColors.textDark,
+            fontWeight: FontWeight.w700,
           ),
+          side: BorderSide(
+            color:
+                selected ? AppColors.primary : AppColors.border.withOpacity(0.9),
+          ),
+          backgroundColor: Colors.white,
         );
       }).toList(),
-    );
-  }
-}
-
-class _QuickTextChip extends StatelessWidget {
-  final String label;
-  final VoidCallback onTap;
-
-  const _QuickTextChip({
-    required this.label,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ActionChip(
-      onPressed: onTap,
-      backgroundColor: AppColors.background,
-      side: BorderSide(
-        color: AppColors.border.withOpacity(0.85),
-      ),
-      label: Text(
-        label,
-        style: const TextStyle(
-          fontWeight: FontWeight.w700,
-          color: AppColors.textDark,
-        ),
-      ),
-      avatar: const Icon(
-        Icons.auto_awesome_outlined,
-        size: 18,
-        color: AppColors.primary,
-      ),
     );
   }
 }

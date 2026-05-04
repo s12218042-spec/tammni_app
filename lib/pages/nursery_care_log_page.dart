@@ -7,6 +7,7 @@ import '../widgets/app_page_scaffold.dart';
 
 bool isToday(DateTime date) {
   final now = DateTime.now();
+
   return date.year == now.year &&
       date.month == now.month &&
       date.day == now.day;
@@ -17,6 +18,7 @@ bool isThisWeek(DateTime date) {
   final startOfToday = DateTime(now.year, now.month, now.day);
   final target = DateTime(date.year, date.month, date.day);
   final diff = startOfToday.difference(target).inDays;
+
   return diff >= 0 && diff <= 7;
 }
 
@@ -36,7 +38,11 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   String selectedTypeFilter = 'all';
-  String selectedDateFilter = 'all';
+  final Set<String> selectedDateFilters = {
+  'today',
+  'week',
+  'older',
+};
 
   String _resolveType(Map<String, dynamic> data) {
     final candidates = [
@@ -118,6 +124,7 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
 
   String _resolveMediaType(Map<String, dynamic> data) {
     final directType = (data['mediaType'] ?? '').toString().trim().toLowerCase();
+
     if (directType.isNotEmpty) return directType;
 
     final mediaUrl = (data['mediaUrl'] ?? '').toString().trim().toLowerCase();
@@ -143,6 +150,39 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
     return '';
   }
 
+  bool get _isAllDateFiltersSelected =>
+    selectedDateFilters.contains('today') &&
+    selectedDateFilters.contains('week') &&
+    selectedDateFilters.contains('older');
+
+void _selectAllDateFilters() {
+  setState(() {
+    selectedDateFilters
+      ..clear()
+      ..addAll(['today', 'week', 'older']);
+  });
+}
+
+void _toggleDateFilter(String value) {
+  setState(() {
+    if (selectedDateFilters.contains(value)) {
+      selectedDateFilters.remove(value);
+    } else {
+      selectedDateFilters.add(value);
+    }
+
+    if (selectedDateFilters.isEmpty) {
+      selectedDateFilters.addAll(['today', 'week', 'older']);
+    }
+  });
+}
+
+String _dateGroupValue(DateTime date) {
+  if (isToday(date)) return 'today';
+  if (isThisWeek(date)) return 'week';
+  return 'older';
+}
+
   Future<List<Map<String, dynamic>>> fetchCareLog() async {
     final updatesSnapshot = await _firestore
         .collection('updates')
@@ -154,7 +194,6 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
 
       return {
         'id': doc.id,
-        'source': 'update',
         'type': _resolveType(data),
         'note': _resolveNote(data),
         'displayTime': _resolveTimestamp(data),
@@ -191,8 +230,10 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
       final d = t.day.toString().padLeft(2, '0');
       final h = t.hour.toString().padLeft(2, '0');
       final min = t.minute.toString().padLeft(2, '0');
+
       return '$y/$m/$d - $h:$min';
     }
+
     return 'غير محدد';
   }
 
@@ -210,10 +251,12 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
         return 'نشاط';
       case 'ملاحظة':
         return 'ملاحظة';
+      case 'كاميرا':
+        return 'كاميرا';
       case 'وسائط':
         return 'وسائط';
       default:
-        return type.isEmpty ? 'ملاحظة' : type;
+        return type.trim().isEmpty ? 'ملاحظة' : type;
     }
   }
 
@@ -259,41 +302,30 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
     }
   }
 
-  List<Map<String, dynamic>> applyFilter(List<Map<String, dynamic>> items) {
-    List<Map<String, dynamic>> result = List.from(items);
+ List<Map<String, dynamic>> applyFilter(List<Map<String, dynamic>> items) {
+  List<Map<String, dynamic>> result = List.from(items);
 
-    if (selectedTypeFilter != 'all') {
-      result = result.where((item) {
-        final itemType = (item['type'] ?? '').toString();
-        return itemType == selectedTypeFilter;
-      }).toList();
-    }
-
-    if (selectedDateFilter != 'all') {
-      result = result.where((item) {
-        final ts = item['displayTime'] as Timestamp?;
-        if (ts == null) return false;
-
-        final date = ts.toDate();
-
-        if (selectedDateFilter == 'today') {
-          return isToday(date);
-        }
-
-        if (selectedDateFilter == 'week') {
-          return isThisWeek(date) && !isToday(date);
-        }
-
-        if (selectedDateFilter == 'older') {
-          return !isThisWeek(date);
-        }
-
-        return true;
-      }).toList();
-    }
-
-    return result;
+  if (selectedTypeFilter != 'all') {
+    result = result.where((item) {
+      final itemType = (item['type'] ?? '').toString();
+      return itemType == selectedTypeFilter;
+    }).toList();
   }
+
+  if (!_isAllDateFiltersSelected) {
+    result = result.where((item) {
+      final ts = item['displayTime'] as Timestamp?;
+      if (ts == null) return false;
+
+      final date = ts.toDate();
+      final group = _dateGroupValue(date);
+
+      return selectedDateFilters.contains(group);
+    }).toList();
+  }
+
+  return result;
+}
 
   Map<String, int> buildStats(List<Map<String, dynamic>> items) {
     int total = items.length;
@@ -317,31 +349,18 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
   bool isNewItem(Map<String, dynamic> item) {
     final ts = item['displayTime'] as Timestamp?;
     if (ts == null) return false;
+
     return isToday(ts.toDate());
   }
 
-  List<Map<String, dynamic>> getTodayItems(List<Map<String, dynamic>> items) {
-    return items.where((item) {
-      final ts = item['displayTime'] as Timestamp?;
-      if (ts == null) return false;
-      return isToday(ts.toDate());
-    }).toList();
-  }
-
-  List<Map<String, dynamic>> getPreviousItems(List<Map<String, dynamic>> items) {
-    return items.where((item) {
-      final ts = item['displayTime'] as Timestamp?;
-      if (ts == null) return true;
-      return !isToday(ts.toDate());
-    }).toList();
-  }
-
   void clearFilters() {
-    setState(() {
-      selectedTypeFilter = 'all';
-      selectedDateFilter = 'all';
-    });
-  }
+  setState(() {
+    selectedTypeFilter = 'all';
+    selectedDateFilters
+      ..clear()
+      ..addAll(['today', 'week', 'older']);
+  });
+}
 
   String dateFilterLabel(String value) {
     switch (value) {
@@ -387,13 +406,10 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
             if (snapshot.hasError) {
               return ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
-                children: [
-                  const SizedBox(height: 40),
+                children: const [
+                  SizedBox(height: 40),
                   Center(
-                    child: Text(
-                      'حدث خطأ أثناء تحميل سجل الرعاية',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
+                    child: Text('حدث خطأ أثناء تحميل سجل الرعاية'),
                   ),
                 ],
               );
@@ -402,16 +418,12 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
             final allItems = snapshot.data ?? [];
             final stats = buildStats(allItems);
             final filteredItems = applyFilter(allItems);
-            final todayItems = getTodayItems(filteredItems);
-            final previousItems = getPreviousItems(filteredItems);
-
+    
             return ListView(
               physics: const AlwaysScrollableScrollPhysics(),
               children: [
                 _buildHeader(),
-                const SizedBox(height: 18),
-                _buildInfoNotice(),
-                const SizedBox(height: 18),
+                const SizedBox(height: 16),
                 _buildStatsSection(stats),
                 const SizedBox(height: 16),
                 _buildTypeFilterSection(),
@@ -420,61 +432,26 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
                 const SizedBox(height: 12),
                 _buildActiveFiltersSummary(),
                 const SizedBox(height: 16),
-                if (filteredItems.isEmpty) ...[
-                  _buildEmptyState(),
-                ] else ...[
-                  _buildSectionHeader(
-                    title: 'سجلات اليوم',
-                    subtitle: 'كل السجلات التي تمت إضافتها اليوم',
-                    icon: Icons.wb_sunny_outlined,
-                  ),
-                  const SizedBox(height: 12),
-                  if (todayItems.isEmpty)
-                    _buildMiniEmptyState('لا توجد سجلات اليوم')
-                  else
-                    ...todayItems.map(
-                      (item) => Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: _CareLogCard(
-                          type: itemTypeLabel(item['type'] ?? ''),
-                          note: item['note'] ?? '',
-                          createdByName: item['createdByName'] ?? '',
-                          timeText: formatDateTime(item['displayTime']),
-                          icon: itemIcon(item['type'] ?? ''),
-                          color: itemColor(item['type'] ?? ''),
-                          isNew: true,
-                          hasMedia: item['hasMedia'] == true,
-                          mediaType: (item['mediaType'] ?? '').toString(),
-                        ),
-                      ),
-                    ),
-                  const SizedBox(height: 18),
-                  _buildSectionHeader(
-                    title: 'السجلات السابقة',
-                    subtitle: 'كل السجلات الأقدم بحسب الفلاتر المختارة',
-                    icon: Icons.history_rounded,
-                  ),
-                  const SizedBox(height: 12),
-                  if (previousItems.isEmpty)
-                    _buildMiniEmptyState('لا توجد سجلات سابقة مطابقة')
-                  else
-                    ...previousItems.map(
-                      (item) => Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: _CareLogCard(
-                          type: itemTypeLabel(item['type'] ?? ''),
-                          note: item['note'] ?? '',
-                          createdByName: item['createdByName'] ?? '',
-                          timeText: formatDateTime(item['displayTime']),
-                          icon: itemIcon(item['type'] ?? ''),
-                          color: itemColor(item['type'] ?? ''),
-                          isNew: isNewItem(item),
-                          hasMedia: item['hasMedia'] == true,
-                          mediaType: (item['mediaType'] ?? '').toString(),
-                        ),
-                      ),
-                    ),
-                ],
+               if (filteredItems.isEmpty) ...[
+                 _buildEmptyState(),
+                  ] else ...[
+                 ...filteredItems.map(
+                 (item) => Padding(
+                 padding: const EdgeInsets.only(bottom: 12),
+                 child: _CareLogCard(
+                 type: itemTypeLabel(item['type'] ?? ''),
+                 note: item['note'] ?? '',
+                 createdByName: item['createdByName'] ?? '',
+                 timeText: formatDateTime(item['displayTime']),
+                 icon: itemIcon(item['type'] ?? ''),
+                 color: itemColor(item['type'] ?? ''),
+                 isNew: isNewItem(item),
+                 hasMedia: item['hasMedia'] == true,
+                mediaType: (item['mediaType'] ?? '').toString(),
+                 ),
+                ),
+              ),
+            ],
                 const SizedBox(height: 8),
               ],
             );
@@ -508,73 +485,29 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Row(
-            children: [
-              Container(
-                width: 54,
-                height: 54,
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.65),
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: const Icon(
-                  Icons.favorite_border_rounded,
-                  color: AppColors.primary,
-                  size: 28,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'سجل رعاية ${widget.child.name}',
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.textDark,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          const Text(
-            'عرض منظم ومريح لمتابعة رعاية الطفل اليومية، مع فلاتر أوضح وسجلات مرتبة بشكل أسهل.',
-            style: TextStyle(
-              fontSize: 14,
-              color: AppColors.textLight,
-              height: 1.6,
+          Container(
+            width: 54,
+            height: 54,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.65),
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: const Icon(
+              Icons.favorite_border_rounded,
+              color: AppColors.primary,
+              size: 28,
             ),
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInfoNotice() {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: const Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            Icons.info_outline_rounded,
-            color: AppColors.secondary,
-          ),
-          SizedBox(width: 10),
+          const SizedBox(width: 12),
           Expanded(
             child: Text(
-              'ملاحظة: هذا السجل خاص بالرعاية اليومية فقط، أما تسجيل الدخول والخروج فهو إداري وليس جزءًا من سجل الرعاية.',
-              style: TextStyle(
+              'سجل رعاية ${widget.child.name}',
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
                 color: AppColors.textDark,
-                height: 1.5,
               ),
             ),
           ),
@@ -606,137 +539,101 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
   }
 
   Widget _buildTypeFilterSection() {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(
-          color: AppColors.border.withOpacity(0.8),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 14,
-            offset: const Offset(0, 7),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    return _FilterCard(
+      title: 'نوع السجل',
+      icon: Icons.tune_rounded,
+      iconColor: AppColors.primary,
+      child: Wrap(
+        spacing: 10,
+        runSpacing: 10,
         children: [
-          const Row(
-            children: [
-              Icon(
-                Icons.tune_rounded,
-                color: AppColors.primary,
-                size: 20,
-              ),
-              SizedBox(width: 8),
-              Text(
-                'فلترة حسب نوع السجل',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.textDark,
-                ),
-              ),
-            ],
+          _TypeFilterChipItem(
+            label: 'الكل',
+            icon: Icons.apps_rounded,
+            color: AppColors.primary,
+            isSelected: selectedTypeFilter == 'all',
+            onTap: () {
+              setState(() {
+                selectedTypeFilter = 'all';
+              });
+            },
           ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              _TypeFilterChipItem(
-                label: 'الكل',
-                icon: Icons.apps_rounded,
-                color: AppColors.primary,
-                isSelected: selectedTypeFilter == 'all',
-                onTap: () {
-                  setState(() {
-                    selectedTypeFilter = 'all';
-                  });
-                },
-              ),
-              _TypeFilterChipItem(
-                label: 'وجبة',
-                icon: Icons.restaurant_outlined,
-                color: const Color(0xFFFFB74D),
-                isSelected: selectedTypeFilter == 'وجبة',
-                onTap: () {
-                  setState(() {
-                    selectedTypeFilter = 'وجبة';
-                  });
-                },
-              ),
-              _TypeFilterChipItem(
-                label: 'نوم',
-                icon: Icons.bedtime_outlined,
-                color: const Color(0xFF9575CD),
-                isSelected: selectedTypeFilter == 'نوم',
-                onTap: () {
-                  setState(() {
-                    selectedTypeFilter = 'نوم';
-                  });
-                },
-              ),
-              _TypeFilterChipItem(
-                label: 'حفاض',
-                icon: Icons.child_friendly_outlined,
-                color: const Color(0xFF4FC3F7),
-                isSelected: selectedTypeFilter == 'حفاض',
-                onTap: () {
-                  setState(() {
-                    selectedTypeFilter = 'حفاض';
-                  });
-                },
-              ),
-              _TypeFilterChipItem(
-                label: 'صحة',
-                icon: Icons.health_and_safety_outlined,
-                color: AppColors.success,
-                isSelected: selectedTypeFilter == 'صحة',
-                onTap: () {
-                  setState(() {
-                    selectedTypeFilter = 'صحة';
-                  });
-                },
-              ),
-              _TypeFilterChipItem(
-                label: 'نشاط',
-                icon: Icons.palette_outlined,
-                color: AppColors.primary,
-                isSelected: selectedTypeFilter == 'نشاط',
-                onTap: () {
-                  setState(() {
-                    selectedTypeFilter = 'نشاط';
-                  });
-                },
-              ),
-              _TypeFilterChipItem(
-                label: 'ملاحظة',
-                icon: Icons.edit_note_outlined,
-                color: AppColors.textLight,
-                isSelected: selectedTypeFilter == 'ملاحظة',
-                onTap: () {
-                  setState(() {
-                    selectedTypeFilter = 'ملاحظة';
-                  });
-                },
-              ),
-              _TypeFilterChipItem(
-                label: 'كاميرا',
-                icon: Icons.photo_camera_outlined,
-                color: AppColors.secondary,
-                isSelected: selectedTypeFilter == 'كاميرا',
-                onTap: () {
-                  setState(() {
-                    selectedTypeFilter = 'كاميرا';
-                  });
-                },
-              ),
-            ],
+          _TypeFilterChipItem(
+            label: 'وجبة',
+            icon: Icons.restaurant_outlined,
+            color: const Color(0xFFFFB74D),
+            isSelected: selectedTypeFilter == 'وجبة',
+            onTap: () {
+              setState(() {
+                selectedTypeFilter = 'وجبة';
+              });
+            },
+          ),
+          _TypeFilterChipItem(
+            label: 'نوم',
+            icon: Icons.bedtime_outlined,
+            color: const Color(0xFF9575CD),
+            isSelected: selectedTypeFilter == 'نوم',
+            onTap: () {
+              setState(() {
+                selectedTypeFilter = 'نوم';
+              });
+            },
+          ),
+          _TypeFilterChipItem(
+            label: 'حفاض',
+            icon: Icons.child_friendly_outlined,
+            color: const Color(0xFF4FC3F7),
+            isSelected: selectedTypeFilter == 'حفاض',
+            onTap: () {
+              setState(() {
+                selectedTypeFilter = 'حفاض';
+              });
+            },
+          ),
+          _TypeFilterChipItem(
+            label: 'صحة',
+            icon: Icons.health_and_safety_outlined,
+            color: AppColors.success,
+            isSelected: selectedTypeFilter == 'صحة',
+            onTap: () {
+              setState(() {
+                selectedTypeFilter = 'صحة';
+              });
+            },
+          ),
+          _TypeFilterChipItem(
+            label: 'نشاط',
+            icon: Icons.palette_outlined,
+            color: AppColors.primary,
+            isSelected: selectedTypeFilter == 'نشاط',
+            onTap: () {
+              setState(() {
+                selectedTypeFilter = 'نشاط';
+              });
+            },
+          ),
+          _TypeFilterChipItem(
+            label: 'ملاحظة',
+            icon: Icons.edit_note_outlined,
+            color: AppColors.textLight,
+            isSelected: selectedTypeFilter == 'ملاحظة',
+            onTap: () {
+              setState(() {
+                selectedTypeFilter = 'ملاحظة';
+              });
+            },
+          ),
+          _TypeFilterChipItem(
+            label: 'كاميرا',
+            icon: Icons.photo_camera_outlined,
+            color: AppColors.secondary,
+            isSelected: selectedTypeFilter == 'كاميرا',
+            onTap: () {
+              setState(() {
+                selectedTypeFilter = 'كاميرا';
+              });
+            },
           ),
         ],
       ),
@@ -744,266 +641,114 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
   }
 
   Widget _buildDateFilterSection() {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(
-          color: AppColors.border.withOpacity(0.8),
+  return _FilterCard(
+    title: 'وقت السجل',
+    icon: Icons.schedule_rounded,
+    iconColor: AppColors.secondary,
+    child: Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        _FilterChipItem(
+          label: 'الكل',
+          icon: Icons.apps_rounded,
+          isSelected: _isAllDateFiltersSelected,
+          onTap: _selectAllDateFilters,
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 14,
-            offset: const Offset(0, 7),
-          ),
-        ],
+        _FilterChipItem(
+          label: 'اليوم',
+          icon: Icons.today_rounded,
+          isSelected: selectedDateFilters.contains('today'),
+          onTap: () => _toggleDateFilter('today'),
+        ),
+        _FilterChipItem(
+          label: 'هذا الأسبوع',
+          icon: Icons.date_range_rounded,
+          isSelected: selectedDateFilters.contains('week'),
+          onTap: () => _toggleDateFilter('week'),
+        ),
+        _FilterChipItem(
+          label: 'الأقدم',
+          icon: Icons.archive_outlined,
+          isSelected: selectedDateFilters.contains('older'),
+          onTap: () => _toggleDateFilter('older'),
+        ),
+      ],
+    ),
+  );
+}
+
+  Widget _buildActiveFiltersSummary() {
+  final hasTypeFilter = selectedTypeFilter != 'all';
+  final hasDateFilter = !_isAllDateFiltersSelected;
+  final hasFilters = hasTypeFilter || hasDateFilter;
+
+  if (!hasFilters) return const SizedBox.shrink();
+
+  return Container(
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: AppColors.primary.withOpacity(0.06),
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(
+        color: AppColors.primary.withOpacity(0.16),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Row(
-            children: [
-              Icon(
-                Icons.schedule_rounded,
-                color: AppColors.secondary,
-                size: 20,
-              ),
-              SizedBox(width: 8),
-              Text(
-                'فلترة حسب الوقت',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.textDark,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Wrap(
+    ),
+    child: Row(
+      children: [
+        const Icon(
+          Icons.filter_alt_rounded,
+          color: AppColors.primary,
+          size: 20,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Wrap(
             spacing: 8,
             runSpacing: 8,
             children: [
-              _FilterChipItem(
-                label: 'الكل',
-                icon: Icons.apps_rounded,
-                isSelected: selectedDateFilter == 'all',
-                onTap: () {
-                  setState(() {
-                    selectedDateFilter = 'all';
-                  });
-                },
-              ),
-              _FilterChipItem(
-                label: 'اليوم',
-                icon: Icons.today_rounded,
-                isSelected: selectedDateFilter == 'today',
-                onTap: () {
-                  setState(() {
-                    selectedDateFilter = 'today';
-                  });
-                },
-              ),
-              _FilterChipItem(
-                label: 'هذا الأسبوع',
-                icon: Icons.date_range_rounded,
-                isSelected: selectedDateFilter == 'week',
-                onTap: () {
-                  setState(() {
-                    selectedDateFilter = 'week';
-                  });
-                },
-              ),
-              _FilterChipItem(
-                label: 'الأقدم',
-                icon: Icons.archive_outlined,
-                isSelected: selectedDateFilter == 'older',
-                onTap: () {
-                  setState(() {
-                    selectedDateFilter = 'older';
-                  });
-                },
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildActiveFiltersSummary() {
-    final hasFilters =
-        selectedTypeFilter != 'all' || selectedDateFilter != 'all';
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: hasFilters ? AppColors.primary.withOpacity(0.06) : Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: hasFilters
-              ? AppColors.primary.withOpacity(0.16)
-              : AppColors.border.withOpacity(0.8),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                hasFilters
-                    ? Icons.filter_alt_rounded
-                    : Icons.filter_alt_off_rounded,
-                color: hasFilters ? AppColors.primary : AppColors.textLight,
-                size: 20,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                hasFilters ? 'الفلاتر النشطة' : 'لا توجد فلاتر مفعلة',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w800,
-                  color:
-                      hasFilters ? AppColors.textDark : AppColors.textLight,
+              if (hasTypeFilter)
+                _Badge(
+                  text: itemTypeLabel(selectedTypeFilter),
+                  background: itemColor(selectedTypeFilter).withOpacity(0.10),
+                  foreground: itemColor(selectedTypeFilter),
                 ),
-              ),
-              const Spacer(),
-              if (hasFilters)
-                TextButton.icon(
-                  onPressed: clearFilters,
-                  icon: const Icon(Icons.restart_alt_rounded, size: 18),
-                  label: const Text('مسح'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: AppColors.primary,
-                  ),
+              if (hasDateFilter && selectedDateFilters.contains('today'))
+                _Badge(
+                  text: 'اليوم',
+                  background: AppColors.secondary.withOpacity(0.10),
+                  foreground: AppColors.secondary,
+                  icon: Icons.today_rounded,
+                ),
+              if (hasDateFilter && selectedDateFilters.contains('week'))
+                _Badge(
+                  text: 'هذا الأسبوع',
+                  background: AppColors.secondary.withOpacity(0.10),
+                  foreground: AppColors.secondary,
+                  icon: Icons.date_range_rounded,
+                ),
+              if (hasDateFilter && selectedDateFilters.contains('older'))
+                _Badge(
+                  text: 'الأقدم',
+                  background: AppColors.secondary.withOpacity(0.10),
+                  foreground: AppColors.secondary,
+                  icon: Icons.archive_outlined,
                 ),
             ],
           ),
-          if (hasFilters) ...[
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                if (selectedTypeFilter != 'all')
-                  _Badge(
-                    text: itemTypeLabel(selectedTypeFilter),
-                    background: itemColor(selectedTypeFilter).withOpacity(0.10),
-                    foreground: itemColor(selectedTypeFilter),
-                  ),
-                if (selectedDateFilter != 'all')
-                  _Badge(
-                    text: dateFilterLabel(selectedDateFilter),
-                    background: AppColors.secondary.withOpacity(0.10),
-                    foreground: AppColors.secondary,
-                    icon: dateFilterIcon(selectedDateFilter),
-                  ),
-              ],
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSectionHeader({
-    required String title,
-    required String subtitle,
-    required IconData icon,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.primary.withOpacity(0.06),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: AppColors.primary.withOpacity(0.12),
         ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: AppColors.primary.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Icon(
-              icon,
-              color: AppColors.primary,
-            ),
+        TextButton.icon(
+          onPressed: clearFilters,
+          icon: const Icon(Icons.restart_alt_rounded, size: 18),
+          label: const Text('مسح'),
+          style: TextButton.styleFrom(
+            foregroundColor: AppColors.primary,
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 15.5,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.textDark,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  subtitle,
-                  style: const TextStyle(
-                    fontSize: 12.5,
-                    color: AppColors.textLight,
-                    height: 1.4,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMiniEmptyState(String text) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.border.withOpacity(0.8)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: AppColors.background,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Icon(
-              Icons.inbox_outlined,
-              color: AppColors.textLight,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              text,
-              style: const TextStyle(
-                fontSize: 13.5,
-                color: AppColors.textDark,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+        ),
+      ],
+    ),
+  );
+}
 
   Widget _buildEmptyState() {
     return Container(
@@ -1032,16 +777,66 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
               color: AppColors.textDark,
             ),
           ),
-          SizedBox(height: 6),
-          Text(
-            'جرّبي تغيير نوع الفلترة أو وقت السجل.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 13.5,
-              color: AppColors.textLight,
-              height: 1.5,
-            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FilterCard extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final Color iconColor;
+  final Widget child;
+
+  const _FilterCard({
+    required this.title,
+    required this.icon,
+    required this.iconColor,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(
+          color: AppColors.border.withOpacity(0.8),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 14,
+            offset: const Offset(0, 7),
           ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                icon,
+                color: iconColor,
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.textDark,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          child,
         ],
       ),
     );
@@ -1401,9 +1196,8 @@ class _FilterChipItem extends StatelessWidget {
         fontWeight: FontWeight.w700,
       ),
       side: BorderSide(
-        color: isSelected
-            ? AppColors.primary.withOpacity(0.30)
-            : AppColors.border,
+        color:
+            isSelected ? AppColors.primary.withOpacity(0.30) : AppColors.border,
       ),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),

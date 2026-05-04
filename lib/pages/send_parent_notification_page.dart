@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../models/child_model.dart';
+import '../services/app_notification_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 
@@ -89,12 +90,10 @@ class _SendParentNotificationPageState
         return 'supplies';
       case 'media':
         return 'media';
-      case 'care':
-        return 'nursery_notification';
-      case 'note':
-        return 'nursery_notification';
       case 'custom':
         return 'custom';
+      case 'care':
+      case 'note':
       default:
         return 'nursery_notification';
     }
@@ -107,7 +106,7 @@ class _SendParentNotificationPageState
       return {
         'uid': '',
         'name': 'مستخدم غير معروف',
-        'role': '',
+        'role': 'nursery_staff',
         'username': '',
       };
     }
@@ -123,11 +122,13 @@ class _SendParentNotificationPageState
         'uid': currentUser.uid,
         'name': (data['displayName'] ??
                 data['name'] ??
+                data['fullName'] ??
                 data['username'] ??
+                currentUser.displayName ??
                 'مستخدم')
             .toString()
             .trim(),
-        'role': role,
+        'role': role.isEmpty ? 'nursery_staff' : role,
         'username': (data['username'] ?? '').toString().trim().toLowerCase(),
       };
     } catch (_) {
@@ -136,7 +137,7 @@ class _SendParentNotificationPageState
         'name': currentUser.displayName?.trim().isNotEmpty == true
             ? currentUser.displayName!.trim()
             : 'مستخدم',
-        'role': '',
+        'role': 'nursery_staff',
         'username': '',
       };
     }
@@ -171,9 +172,7 @@ class _SendParentNotificationPageState
           parentName = docParentName;
         }
       }
-    } catch (_) {
-      // fallback على بيانات child الحالية
-    }
+    } catch (_) {}
 
     return {
       'parentUid': parentUid,
@@ -225,23 +224,6 @@ class _SendParentNotificationPageState
             : 'ملاحظة تخص ${widget.child.name}: $custom';
       default:
         return custom;
-    }
-  }
-
-  String helperText() {
-    switch (selectedTemplate) {
-      case 'health':
-        return 'اكتبي ملاحظة صحية مختصرة وواضحة، مثل تعب بسيط أو متابعة دواء أو ملاحظة تحتاج انتباه الأهل.';
-      case 'media':
-        return 'استخدمي هذا النوع عندما يتم إرسال صورة أو فيديو جديد متعلق بالطفل أو نشاطه.';
-      case 'supplies':
-        return 'اكتبي المستلزمات المطلوبة بشكل مباشر، مثل ملابس إضافية أو مناديل أو أدوات خاصة.';
-      case 'care':
-        return 'هذا النوع مناسب للمتابعة اليومية العامة، مثل الأكل أو اللعب أو التفاعل أو الراحة.';
-      case 'note':
-        return 'استخدميه لأي ملاحظة عامة قصيرة تريدين إيصالها لوليّ الأمر.';
-      default:
-        return 'اكتبي رسالة مخصصة وواضحة كما تريدين إرسالها تمامًا للأهل.';
     }
   }
 
@@ -320,20 +302,30 @@ class _SendParentNotificationPageState
     return item['icon'] as IconData;
   }
 
+  void showSnack(
+    String message, {
+    Color backgroundColor = Colors.redAccent,
+  }) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: backgroundColor,
+      ),
+    );
+  }
+
   Future<void> sendNotification() async {
     final finalMessage = buildMessage().trim();
 
     if (selectedTemplate == 'custom' && finalMessage.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('اكتبي الرسالة أولًا')),
-      );
+      showSnack('اكتبي الرسالة أولًا');
       return;
     }
 
     if (finalMessage.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('لا يمكن إرسال إشعار فارغ')),
-      );
+      showSnack('لا يمكن إرسال إشعار فارغ');
       return;
     }
 
@@ -354,90 +346,61 @@ class _SendParentNotificationPageState
         throw Exception('لا يوجد ولي أمر مرتبط بهذا الطفل لإرسال الإشعار');
       }
 
-      final now = Timestamp.now();
       final title = buildTitle();
       final notificationType = templateNotificationType(selectedTemplate);
 
-      await _firestore.collection('notifications').add({
-        // Receiver / target fields
-        'targetUid': parentUid,
-        'targetUsername': parentUsername,
-        'targetRole': 'parent',
-        'targetName': parentName,
-        'notificationFor': 'parent',
-
-        // Backward-compatible parent fields
-        'parentUid': parentUid,
-        'parentUsername': parentUsername,
-        'parentName': parentName,
-
-        // Child context
-        'childId': widget.child.id,
-        'childName': widget.child.name,
-        'section': widget.child.section,
-        'group': widget.child.group,
-
-        // Notification content
-        'title': title,
-        'subject': title,
-        'notificationTitle': title,
-        'body': finalMessage,
-        'message': finalMessage,
-        'text': finalMessage,
-        'description': finalMessage,
-
-        // Notification classification
-        'type': notificationType,
-        'notificationType': notificationType,
-        'category': selectedTemplate,
-        'templateType': selectedTemplate,
-        'priority': selectedPriority,
-        'importance': selectedPriority,
-        'level': selectedPriority,
-
-        // Read state
-        'isRead': false,
-        'read': false,
-        'seen': false,
-        'readAt': null,
-
-        // Created by fields
-        'createdByUid': userInfo['uid'],
-        'createdByName': userInfo['name'],
-        'createdByRole': userInfo['role'],
-        'createdByUsername': userInfo['username'],
-        'byRole': userInfo['role'],
-        'senderId': userInfo['uid'],
-        'senderName': userInfo['name'],
-        'senderRole': userInfo['role'],
-
-        // Optional navigation fields
-        'source': 'send_parent_notification_page',
-        'route': 'parent_notifications',
-        'relatedCollection': 'notifications',
-        'relatedDocId': '',
-
-        // Time fields
-        'createdAt': now,
-        'time': FieldValue.serverTimestamp(),
-        'timestamp': now,
-        'eventAt': now,
-        'updatedAt': now,
-      });
+      await AppNotificationService.instance.createNotification(
+        title: title,
+        body: finalMessage,
+        type: notificationType,
+        notificationFor: 'parent',
+        priority: selectedPriority,
+        targetUid: parentUid,
+        targetUsername: parentUsername,
+        targetRole: 'parent',
+        parentUid: parentUid,
+        parentUsername: parentUsername,
+        parentName: parentName,
+        childId: widget.child.id,
+        childName: widget.child.name,
+        section: widget.child.section,
+        group: widget.child.group,
+        createdByUid: userInfo['uid'] ?? '',
+        createdByName: userInfo['name'] ?? 'مستخدم',
+        createdByRole: userInfo['role'] ?? 'nursery_staff',
+        extraData: {
+          'targetName': parentName,
+          'subject': title,
+          'notificationTitle': title,
+          'message': finalMessage,
+          'text': finalMessage,
+          'description': finalMessage,
+          'notificationType': notificationType,
+          'category': selectedTemplate,
+          'templateType': selectedTemplate,
+          'importance': selectedPriority,
+          'level': selectedPriority,
+          'createdByUsername': userInfo['username'] ?? '',
+          'byRole': userInfo['role'] ?? 'nursery_staff',
+          'senderId': userInfo['uid'] ?? '',
+          'senderName': userInfo['name'] ?? 'مستخدم',
+          'senderRole': userInfo['role'] ?? 'nursery_staff',
+          'source': 'send_parent_notification_page',
+          'route': 'parent_notifications',
+          'relatedCollection': 'notifications',
+        },
+      );
 
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم إرسال الإشعار بنجاح')),
+      showSnack(
+        'تم إرسال الإشعار بنجاح',
+        backgroundColor: Colors.green,
       );
 
       Navigator.pop(context, true);
     } catch (e) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('حدث خطأ أثناء إرسال الإشعار: $e')),
-      );
+      showSnack('حدث خطأ أثناء إرسال الإشعار: $e');
     } finally {
       if (!mounted) return;
 
@@ -464,24 +427,25 @@ class _SendParentNotificationPageState
           color: AppColors.primary.withOpacity(0.08),
         ),
       ),
-      child: const Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Text(
-            'إرسال إشعار للأهل',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w800,
-              color: AppColors.textDark,
+          CircleAvatar(
+            radius: 24,
+            backgroundColor: Colors.white,
+            child: Icon(
+              Icons.notifications_active_outlined,
+              color: AppColors.primary,
             ),
           ),
-          SizedBox(height: 8),
-          Text(
-            'اختاري نوع الإشعار، أضيفي التفاصيل إذا لزم، وراجعي المعاينة قبل الإرسال. هذه الصفحة مخصصة لإرسال إشعارات سريعة وواضحة لوليّ الأمر.',
-            style: TextStyle(
-              fontSize: 14,
-              color: AppColors.textLight,
-              height: 1.5,
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Text(
+              'إرسال إشعار للأهل',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: AppColors.textDark,
+              ),
             ),
           ),
         ],
@@ -524,15 +488,6 @@ class _SendParentNotificationPageState
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'سيتم إرسال الإشعار إلى وليّ أمر:',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: AppColors.textLight,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 4),
                 Text(
                   widget.child.name,
                   style: const TextStyle(
@@ -543,7 +498,7 @@ class _SendParentNotificationPageState
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'القسم: حضانة  •  المجموعة: $groupText',
+                  'حضانة  •  $groupText',
                   style: const TextStyle(
                     fontSize: 13.5,
                     color: AppColors.textLight,
@@ -557,48 +512,20 @@ class _SendParentNotificationPageState
     );
   }
 
-  Widget buildSectionTitle(String title, String subtitle, IconData icon) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.border.withOpacity(0.75)),
-      ),
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 20,
-            backgroundColor: AppColors.primary.withOpacity(0.10),
-            child: Icon(icon, color: AppColors.primary),
+  Widget buildSectionTitle(String title, IconData icon) {
+    return Row(
+      children: [
+        Icon(icon, color: AppColors.primary),
+        const SizedBox(width: 8),
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+            color: AppColors.textDark,
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 15.5,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.textDark,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  subtitle,
-                  style: const TextStyle(
-                    fontSize: 12.8,
-                    color: AppColors.textLight,
-                    height: 1.4,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -670,37 +597,6 @@ class _SendParentNotificationPageState
     );
   }
 
-  Widget buildHelperCard() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.background,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Icon(
-            Icons.info_outline_rounded,
-            color: AppColors.primary,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              helperText(),
-              style: const TextStyle(
-                fontSize: 13.2,
-                color: AppColors.textLight,
-                height: 1.5,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget buildMessageCard() {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -718,52 +614,29 @@ class _SendParentNotificationPageState
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            detailsLabel(),
-            style: const TextStyle(
-              fontSize: 15.5,
-              fontWeight: FontWeight.w800,
-              color: AppColors.textDark,
+      child: TextField(
+        controller: messageCtrl,
+        maxLines: 4,
+        onChanged: (_) => setState(() {}),
+        decoration: InputDecoration(
+          labelText: detailsLabel(),
+          hintText: detailsHint(),
+          alignLabelWithHint: true,
+          filled: true,
+          fillColor: AppColors.background,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide(
+              color: AppColors.border.withOpacity(0.8),
             ),
           ),
-          const SizedBox(height: 8),
-          const Text(
-            'يمكنك ترك الحقل فارغًا في بعض الأنواع الجاهزة، وسيتم تكوين الرسالة تلقائيًا.',
-            style: TextStyle(
-              fontSize: 12.8,
-              color: AppColors.textLight,
-              height: 1.5,
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide(
+              color: AppColors.border.withOpacity(0.8),
             ),
           ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: messageCtrl,
-            maxLines: 4,
-            onChanged: (_) => setState(() {}),
-            decoration: InputDecoration(
-              labelText: detailsLabel(),
-              hintText: detailsHint(),
-              alignLabelWithHint: true,
-              filled: true,
-              fillColor: AppColors.background,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(
-                  color: AppColors.border.withOpacity(0.8),
-                ),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(
-                  color: AppColors.border.withOpacity(0.8),
-                ),
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -791,66 +664,44 @@ class _SendParentNotificationPageState
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'أولوية الإشعار',
-            style: TextStyle(
-              fontSize: 15.5,
-              fontWeight: FontWeight.w800,
-              color: AppColors.textDark,
-            ),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'اختاري مستوى الأهمية المناسب. هذه الإضافة آمنة ولا تؤثر على الصفحات الأخرى.',
-            style: TextStyle(
-              fontSize: 12.8,
-              color: AppColors.textLight,
-              height: 1.5,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            children: priorities.map((item) {
-              final value = item['value']!;
-              final label = item['label']!;
-              final selected = selectedPriority == value;
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: priorities.map((item) {
+          final value = item['value']!;
+          final label = item['label']!;
+          final selected = selectedPriority == value;
 
-              return ChoiceChip(
-                label: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      priorityIcon(value),
-                      size: 16,
-                      color: selected ? Colors.white : priorityColor(value),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(label),
-                  ],
+          return ChoiceChip(
+            label: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  priorityIcon(value),
+                  size: 16,
+                  color: selected ? Colors.white : priorityColor(value),
                 ),
-                selected: selected,
-                selectedColor: priorityColor(value),
-                onSelected: (_) {
-                  setState(() {
-                    selectedPriority = value;
-                  });
-                },
-                labelStyle: TextStyle(
-                  color: selected ? Colors.white : AppColors.textDark,
-                  fontWeight: FontWeight.w700,
-                ),
-                backgroundColor: AppColors.background,
-                side: BorderSide(
-                  color: priorityColor(value).withOpacity(0.35),
-                ),
-              );
-            }).toList(),
-          ),
-        ],
+                const SizedBox(width: 6),
+                Text(label),
+              ],
+            ),
+            selected: selected,
+            selectedColor: priorityColor(value),
+            onSelected: (_) {
+              setState(() {
+                selectedPriority = value;
+              });
+            },
+            labelStyle: TextStyle(
+              color: selected ? Colors.white : AppColors.textDark,
+              fontWeight: FontWeight.w700,
+            ),
+            backgroundColor: AppColors.background,
+            side: BorderSide(
+              color: priorityColor(value).withOpacity(0.35),
+            ),
+          );
+        }).toList(),
       ),
     );
   }
@@ -875,69 +726,46 @@ class _SendParentNotificationPageState
           ),
         ],
       ),
-      child: Column(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'معاينة الإشعار',
-            style: TextStyle(
-              fontSize: 15.5,
-              fontWeight: FontWeight.w800,
-              color: AppColors.textDark,
+          CircleAvatar(
+            backgroundColor: priorityColor(selectedPriority).withOpacity(0.12),
+            child: Icon(
+              templateIcon(selectedTemplate),
+              color: priorityColor(selectedPriority),
             ),
           ),
-          const SizedBox(height: 12),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: AppColors.background,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Row(
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                CircleAvatar(
-                  backgroundColor:
-                      priorityColor(selectedPriority).withOpacity(0.12),
-                  child: Icon(
-                    templateIcon(selectedTemplate),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.textDark,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'الأولوية: ${priorityLabel(selectedPriority)}',
+                  style: TextStyle(
+                    fontSize: 12.8,
+                    fontWeight: FontWeight.w700,
                     color: priorityColor(selectedPriority),
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.textDark,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'الأولوية: ${priorityLabel(selectedPriority)}',
-                        style: TextStyle(
-                          fontSize: 12.8,
-                          fontWeight: FontWeight.w700,
-                          color: priorityColor(selectedPriority),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        preview.isEmpty ? 'ستظهر معاينة الرسالة هنا' : preview,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          height: 1.5,
-                          color: AppColors.textDark,
-                        ),
-                      ),
-                    ],
+                const SizedBox(height: 10),
+                Text(
+                  preview.isEmpty ? 'ستظهر معاينة الرسالة هنا' : preview,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    height: 1.5,
+                    color: AppColors.textDark,
                   ),
                 ),
               ],
@@ -957,7 +785,10 @@ class _SendParentNotificationPageState
             ? const SizedBox(
                 width: 18,
                 height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
               )
             : const Icon(Icons.send_outlined),
         label: Text(isSending ? 'جاري الإرسال...' : 'إرسال الإشعار'),
@@ -980,38 +811,20 @@ class _SendParentNotificationPageState
           buildHeaderCard(),
           const SizedBox(height: 16),
           buildReceiverCard(),
-          const SizedBox(height: 16),
-          buildSectionTitle(
-            'نوع الإشعار',
-            'اختاري القالب الأقرب للحالة لتقليل الحيرة وتسريع الإرسال.',
-            Icons.widgets_outlined,
-          ),
+          const SizedBox(height: 18),
+          buildSectionTitle('نوع الإشعار', Icons.widgets_outlined),
           const SizedBox(height: 12),
           buildTemplateCards(),
-          const SizedBox(height: 12),
-          buildHelperCard(),
-          const SizedBox(height: 16),
-          buildSectionTitle(
-            'تفاصيل الرسالة',
-            'أضيفي نصًا مساعدًا عند الحاجة، خاصة إذا كان الإشعار يحتاج توضيحًا إضافيًا.',
-            Icons.message_outlined,
-          ),
+          const SizedBox(height: 18),
+          buildSectionTitle('تفاصيل الرسالة', Icons.message_outlined),
           const SizedBox(height: 12),
           buildMessageCard(),
-          const SizedBox(height: 16),
-          buildSectionTitle(
-            'الأولوية',
-            'حددي أهمية الإشعار بشكل واضح قبل إرساله.',
-            Icons.priority_high_rounded,
-          ),
+          const SizedBox(height: 18),
+          buildSectionTitle('الأولوية', Icons.priority_high_rounded),
           const SizedBox(height: 12),
           buildPriorityCard(),
-          const SizedBox(height: 16),
-          buildSectionTitle(
-            'المعاينة النهائية',
-            'راجعي الشكل النهائي الذي سيصل لوليّ الأمر.',
-            Icons.remove_red_eye_outlined,
-          ),
+          const SizedBox(height: 18),
+          buildSectionTitle('المعاينة النهائية', Icons.remove_red_eye_outlined),
           const SizedBox(height: 12),
           buildPreviewCard(),
           const SizedBox(height: 20),
