@@ -1,11 +1,15 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../models/child_model.dart';
+import '../services/account_settings_service.dart';
 import '../services/auth_service.dart';
 import '../services/gallery_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
+import 'account_history_page.dart';
+import 'account_settings_page.dart';
 import 'add_update_page.dart';
 import 'camera_checkin_page.dart';
 import 'child_handoff_log_page.dart';
@@ -14,12 +18,8 @@ import 'nursery_care_log_page.dart';
 import 'nursery_chats_page.dart';
 import 'quick_care_update_page.dart';
 import 'send_parent_notification_page.dart';
-import 'welcome_page.dart';
-import 'account_settings_page.dart';
 import 'start_live_stream_page.dart';
-import '../services/account_settings_service.dart';
-import 'account_history_page.dart';
-import 'package:image_picker/image_picker.dart';
+import 'welcome_page.dart';
 
 class NurseryStaffHomePage extends StatefulWidget {
   const NurseryStaffHomePage({super.key});
@@ -271,7 +271,9 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
           ? data['time'] as Timestamp
           : data['createdAt'] is Timestamp
               ? data['createdAt'] as Timestamp
-              : null;
+              : data['eventAt'] is Timestamp
+                  ? data['eventAt'] as Timestamp
+                  : null;
 
       if (ts == null) continue;
       if (ts.toDate().isBefore(startOfDay)) continue;
@@ -319,7 +321,9 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
           ? data['time'] as Timestamp
           : data['createdAt'] is Timestamp
               ? data['createdAt'] as Timestamp
-              : null;
+              : data['eventAt'] is Timestamp
+                  ? data['eventAt'] as Timestamp
+                  : null;
 
       if (ts == null) continue;
       if (ts.toDate().isBefore(startOfDay)) continue;
@@ -328,7 +332,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
       if (old == null) {
         latestUpdateByChild[childId] = {
           'type': (data['type'] ?? 'تحديث').toString(),
-          'note': (data['note'] ?? '').toString(),
+          'note': (data['note'] ?? data['message'] ?? '').toString(),
           'time': ts,
         };
       } else {
@@ -336,7 +340,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
         if (oldTs == null || ts.compareTo(oldTs) > 0) {
           latestUpdateByChild[childId] = {
             'type': (data['type'] ?? 'تحديث').toString(),
-            'note': (data['note'] ?? '').toString(),
+            'note': (data['note'] ?? data['message'] ?? '').toString(),
             'time': ts,
           };
         }
@@ -373,14 +377,16 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
           ? data['time'] as Timestamp
           : data['createdAt'] is Timestamp
               ? data['createdAt'] as Timestamp
-              : null;
+              : data['eventAt'] is Timestamp
+                  ? data['eventAt'] as Timestamp
+                  : null;
 
       if (ts == null) continue;
       if (ts.toDate().isBefore(startOfDay)) continue;
 
       final childName = (data['childName'] ?? 'طفل').toString();
       final type = (data['type'] ?? 'تحديث').toString();
-      final note = (data['note'] ?? '').toString();
+      final note = (data['note'] ?? data['message'] ?? '').toString();
       final createdByName = (data['createdByName'] ?? '').toString();
 
       activities.add({
@@ -413,35 +419,259 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
     return activities.take(6).toList();
   }
 
+  Future<int> fetchUnreadNurseryNotificationsCount() async {
+    final userInfo = await fetchCurrentUserInfo();
+    final currentUid = (userInfo['uid'] ?? '').toString();
+
+    final docs = await _fetchNurseryNotificationDocs(limit: 80);
+
+    return docs.where((doc) {
+      final data = doc.data();
+      final isRead = data['isRead'] == true ||
+          data['read'] == true ||
+          data['seen'] == true;
+
+      if (isRead) return false;
+
+      final targetUid = (data['targetUid'] ??
+              data['receiverUid'] ??
+              data['userUid'] ??
+              data['toUid'] ??
+              '')
+          .toString()
+          .trim();
+
+      final targetRole = (data['targetRole'] ??
+              data['receiverRole'] ??
+              data['roleTarget'] ??
+              data['notificationFor'] ??
+              '')
+          .toString();
+
+      if (currentUid.isNotEmpty && targetUid == currentUid) return true;
+      if (_isNurseryRole(targetRole)) return true;
+
+      return false;
+    }).length;
+  }
+
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      _fetchNurseryNotificationDocs({int limit = 60}) async {
+    final userInfo = await fetchCurrentUserInfo();
+    final currentUid = (userInfo['uid'] ?? '').toString().trim();
+
+    final List<QueryDocumentSnapshot<Map<String, dynamic>>> allDocs = [];
+
+    Future<void> addQuery(Query<Map<String, dynamic>> query) async {
+      try {
+        final snapshot = await query.limit(limit).get();
+        allDocs.addAll(snapshot.docs);
+      } catch (_) {
+        // بعض الحقول قد لا تكون موجودة أو تحتاج index، لذلك نترك fallback العام يعمل.
+      }
+    }
+
+    if (currentUid.isNotEmpty) {
+      await addQuery(
+        _firestore
+            .collection('notifications')
+            .where('targetUid', isEqualTo: currentUid)
+            .orderBy('createdAt', descending: true),
+      );
+
+      await addQuery(
+        _firestore
+            .collection('notifications')
+            .where('receiverUid', isEqualTo: currentUid)
+            .orderBy('createdAt', descending: true),
+      );
+
+      await addQuery(
+        _firestore
+            .collection('notifications')
+            .where('userUid', isEqualTo: currentUid)
+            .orderBy('createdAt', descending: true),
+      );
+    }
+
+    await addQuery(
+      _firestore
+          .collection('notifications')
+          .where('targetRole', isEqualTo: 'nursery_staff')
+          .orderBy('createdAt', descending: true),
+    );
+
+    await addQuery(
+      _firestore
+          .collection('notifications')
+          .where('notificationFor', isEqualTo: 'nursery_staff')
+          .orderBy('createdAt', descending: true),
+    );
+
+    await addQuery(
+      _firestore
+          .collection('notifications')
+          .where('createdByRole', isEqualTo: 'nursery_staff')
+          .orderBy('createdAt', descending: true),
+    );
+
+    await addQuery(
+      _firestore
+          .collection('notifications')
+          .where('byRole', isEqualTo: 'nursery_staff')
+          .orderBy('createdAt', descending: true),
+    );
+
+    if (allDocs.isEmpty) {
+      final fallback = await _firestore
+          .collection('notifications')
+          .orderBy('createdAt', descending: true)
+          .limit(limit)
+          .get();
+
+      allDocs.addAll(fallback.docs);
+    }
+
+    final seen = <String>{};
+    final unique = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+
+    for (final doc in allDocs) {
+      if (seen.add(doc.id)) {
+        unique.add(doc);
+      }
+    }
+
+    unique.sort((a, b) {
+      final aData = a.data();
+      final bData = b.data();
+
+      final aTime = _resolveNotificationTimestamp(aData);
+      final bTime = _resolveNotificationTimestamp(bData);
+
+      if (aTime == null && bTime == null) return 0;
+      if (aTime == null) return 1;
+      if (bTime == null) return -1;
+
+      return bTime.compareTo(aTime);
+    });
+
+    return unique.take(limit).toList();
+  }
+
+  Timestamp? _resolveNotificationTimestamp(Map<String, dynamic> data) {
+    final values = [
+      data['createdAt'],
+      data['time'],
+      data['timestamp'],
+      data['eventAt'],
+      data['updatedAt'],
+    ];
+
+    for (final value in values) {
+      if (value is Timestamp) return value;
+    }
+
+    return null;
+  }
+
   Future<List<Map<String, dynamic>>> fetchRecentSentNotifications() async {
-    final snapshot = await _firestore
-        .collection('notifications')
-        .orderBy('createdAt', descending: true)
-        .limit(40)
-        .get();
+    final docs = await _fetchNurseryNotificationDocs(limit: 80);
+    final userInfo = await fetchCurrentUserInfo();
+    final currentUid = (userInfo['uid'] ?? '').toString().trim();
 
     final items = <Map<String, dynamic>>[];
 
-    for (final doc in snapshot.docs) {
+    for (final doc in docs) {
       final data = doc.data();
 
       final createdByRole = (data['createdByRole'] ?? '').toString();
       final byRole = (data['byRole'] ?? '').toString();
 
-      final isNurseryNotification =
+      final targetUid = (data['targetUid'] ??
+              data['receiverUid'] ??
+              data['userUid'] ??
+              data['toUid'] ??
+              '')
+          .toString()
+          .trim();
+
+      final targetRole = (data['targetRole'] ??
+              data['receiverRole'] ??
+              data['roleTarget'] ??
+              data['notificationFor'] ??
+              '')
+          .toString();
+
+      final isSentByNursery =
           _isNurseryRole(createdByRole) || _isNurseryRole(byRole);
 
-      if (!isNurseryNotification) continue;
+      final isForCurrentStaff =
+          currentUid.isNotEmpty && targetUid == currentUid;
+
+      final isForNurseryRole = _isNurseryRole(targetRole);
+
+      if (!isSentByNursery && !isForCurrentStaff && !isForNurseryRole) {
+        continue;
+      }
 
       items.add({
-        'title': (data['title'] ?? 'إشعار').toString(),
-        'body': (data['body'] ?? data['message'] ?? '').toString(),
-        'createdAt': data['createdAt'],
+        'id': doc.id,
+        'title':
+            (data['title'] ?? data['subject'] ?? data['notificationTitle'] ?? 'إشعار')
+                .toString(),
+        'body': (data['body'] ??
+                data['message'] ??
+                data['text'] ??
+                data['description'] ??
+                '')
+            .toString(),
+        'createdAt': _resolveNotificationTimestamp(data),
         'childName': (data['childName'] ?? '').toString(),
+        'type': (data['type'] ??
+                data['notificationType'] ??
+                data['category'] ??
+                'notification')
+            .toString(),
+        'priority':
+            (data['priority'] ?? data['importance'] ?? data['level'] ?? '')
+                .toString(),
+        'isRead': data['isRead'] == true ||
+            data['read'] == true ||
+            data['seen'] == true,
+        'createdByName': (data['createdByName'] ??
+                data['senderName'] ??
+                data['byName'] ??
+                '')
+            .toString(),
+        'createdByRole': createdByRole.isNotEmpty ? createdByRole : byRole,
+        'direction': isSentByNursery ? 'sent' : 'received',
       });
     }
 
-    return items;
+    items.sort((a, b) {
+      final aTime = a['createdAt'] as Timestamp?;
+      final bTime = b['createdAt'] as Timestamp?;
+
+      if (aTime == null && bTime == null) return 0;
+      if (aTime == null) return 1;
+      if (bTime == null) return -1;
+
+      return bTime.compareTo(aTime);
+    });
+
+    return items.take(50).toList();
+  }
+
+  Future<void> markNurseryNotificationAsRead(String notificationId) async {
+    if (notificationId.trim().isEmpty) return;
+
+    await _firestore.collection('notifications').doc(notificationId).set({
+      'isRead': true,
+      'read': true,
+      'seen': true,
+      'readAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   Future<void> openAddUpdate(ChildModel child) async {
@@ -491,6 +721,8 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
       final userInfo = await fetchCurrentUserInfo();
       final parentInfo = await fetchParentLinkInfo(child);
 
+      final now = Timestamp.now();
+
       await _firestore.collection('updates').add({
         'childId': child.id,
         'childName': child.name,
@@ -502,10 +734,17 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
         'note': description.isNotEmpty
             ? description
             : (type == 'image' ? 'صورة للطفل' : 'فيديو قصير للطفل'),
+        'message': description.isNotEmpty
+            ? description
+            : (type == 'image' ? 'صورة للطفل' : 'فيديو قصير للطفل'),
+        'description': description.isNotEmpty
+            ? description
+            : (type == 'image' ? 'صورة للطفل' : 'فيديو قصير للطفل'),
         'title': 'تحديث كاميرا',
-        'createdAt': Timestamp.now(),
+        'createdAt': now,
         'time': FieldValue.serverTimestamp(),
-        'eventAt': Timestamp.now(),
+        'eventAt': now,
+        'updatedAt': now,
         'byRole': userInfo['role'],
         'createdByUid': userInfo['uid'],
         'createdByName': userInfo['name'],
@@ -518,7 +757,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
         'mimeType': uploaded.mimeType,
         'sizeBytes': uploaded.sizeBytes,
         'hasMedia': true,
-        'importance': 'عادي',
+        'importance': 'normal',
         'tags': ['كاميرا'],
         'mood': '',
         'energy': '',
@@ -583,6 +822,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
           children: children,
           onSendPressed: () => openSendNotification(children),
           fetchRecentNotifications: fetchRecentSentNotifications,
+          markAsRead: markNurseryNotificationAsRead,
         ),
       ),
     );
@@ -653,7 +893,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
   }
 
   Future<Map<String, String>> fetchParentLinkInfo(ChildModel child) async {
-    String parentUid = '';
+    String parentUid = child.parentUid.trim();
     String parentUsername = child.parentUsername.trim().toLowerCase();
 
     try {
@@ -663,10 +903,13 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
       if (childDoc.exists) {
         final data = childDoc.data() ?? <String, dynamic>{};
 
-        parentUid = (data['parentUid'] ?? '').toString().trim();
-
+        final docParentUid = (data['parentUid'] ?? '').toString().trim();
         final docParentUsername =
             (data['parentUsername'] ?? '').toString().trim().toLowerCase();
+
+        if (docParentUid.isNotEmpty) {
+          parentUid = docParentUid;
+        }
 
         if (docParentUsername.isNotEmpty) {
           parentUsername = docParentUsername;
@@ -708,6 +951,51 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
 
       return matchesSearch && matchesStatus;
     }).toList();
+  }
+
+  Widget _buildNotificationActionButton(List<ChildModel> children) {
+    return FutureBuilder<int>(
+      future: fetchUnreadNurseryNotificationsCount(),
+      builder: (context, snapshot) {
+        final count = snapshot.data ?? 0;
+
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.notifications_none_rounded),
+              tooltip: 'الإشعارات',
+              onPressed: () => _openNotificationsPage(children),
+            ),
+            if (count > 0)
+              PositionedDirectional(
+                top: 6,
+                end: 6,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 5,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.red,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  constraints: const BoxConstraints(minWidth: 18),
+                  child: Text(
+                    count > 99 ? '99+' : '$count',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
   }
 
   Widget _buildBody({
@@ -876,8 +1164,11 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
                 trailing: CircleAvatar(
                   radius: 18,
                   backgroundColor: AppColors.primary.withOpacity(0.12),
-                  child:
-                      const Icon(Icons.edit, size: 18, color: AppColors.primary),
+                  child: const Icon(
+                    Icons.edit,
+                    size: 18,
+                    color: AppColors.primary,
+                  ),
                 ),
                 onTap: () async {
                   await Navigator.push(
@@ -931,8 +1222,10 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
               SwitchListTile(
                 secondary: CircleAvatar(
                   backgroundColor: Colors.blue.withOpacity(0.12),
-                  child:
-                      const Icon(Icons.language_rounded, color: Colors.blue),
+                  child: const Icon(
+                    Icons.language_rounded,
+                    color: Colors.blue,
+                  ),
                 ),
                 title: const Text('لغة التطبيق'),
                 subtitle: Text(isArabic ? 'العربية' : 'English'),
@@ -985,7 +1278,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
                 ),
                 title: const Text('الإشعارات'),
                 subtitle:
-                    const Text('عرض الإشعارات المرسلة وفتح صفحة الإشعارات'),
+                    const Text('عرض الإشعارات المستلمة والمرسلة للأهل'),
                 onTap: () => _openNotificationsPage(nurseryChildren),
               ),
               const Divider(height: 1),
@@ -1181,12 +1474,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
                     title: _pageTitle,
                     actions: selectedIndex == 0
                         ? [
-                            IconButton(
-                              icon: const Icon(Icons.notifications_none_rounded),
-                              tooltip: 'الإشعارات',
-                              onPressed: () =>
-                                  _openNotificationsPage(nurseryChildren),
-                            ),
+                            _buildNotificationActionButton(nurseryChildren),
                             IconButton(
                               icon: const Icon(Icons.refresh_rounded),
                               tooltip: 'تحديث الصفحة',
@@ -1202,13 +1490,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
                                 ),
                               ]
                             : [
-                                IconButton(
-                                  icon:
-                                      const Icon(Icons.notifications_none_rounded),
-                                  tooltip: 'الإشعارات',
-                                  onPressed: () =>
-                                      _openNotificationsPage(nurseryChildren),
-                                ),
+                                _buildNotificationActionButton(nurseryChildren),
                               ],
                     child: _buildBody(
                       nurseryChildren: nurseryChildren,
@@ -1405,21 +1687,21 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
 
   Widget _buildQuickActions(List<ChildModel> children) {
     final actions = [
-    _QuickActionItem(
-      icon: Icons.wifi_tethering_rounded,
-      label: 'بث مباشر',
-      onTap: () async {
-        await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => const StartLiveStreamPage(),
-          ),
-        );
+      _QuickActionItem(
+        icon: Icons.wifi_tethering_rounded,
+        label: 'بث مباشر',
+        onTap: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const StartLiveStreamPage(),
+            ),
+          );
 
-        if (!mounted) return;
-        setState(() {});
-      },
-    ),
+          if (!mounted) return;
+          setState(() {});
+        },
+      ),
       _QuickActionItem(
         icon: Icons.flash_on_rounded,
         label: 'رعاية سريعة',
@@ -1873,16 +2155,39 @@ class _NurseryChildDashboardCard extends StatelessWidget {
   }
 }
 
-class _NurseryNotificationsPage extends StatelessWidget {
+class _NurseryNotificationsPage extends StatefulWidget {
   final List<ChildModel> children;
   final Future<void> Function() onSendPressed;
   final Future<List<Map<String, dynamic>>> Function() fetchRecentNotifications;
+  final Future<void> Function(String notificationId) markAsRead;
 
   const _NurseryNotificationsPage({
     required this.children,
     required this.onSendPressed,
     required this.fetchRecentNotifications,
+    required this.markAsRead,
   });
+
+  @override
+  State<_NurseryNotificationsPage> createState() =>
+      _NurseryNotificationsPageState();
+}
+
+class _NurseryNotificationsPageState extends State<_NurseryNotificationsPage> {
+  late Future<List<Map<String, dynamic>>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = widget.fetchRecentNotifications();
+  }
+
+  Future<void> _refresh() async {
+    setState(() {
+      _future = widget.fetchRecentNotifications();
+    });
+    await _future;
+  }
 
   String _formatTimestamp(dynamic raw) {
     if (raw is Timestamp) {
@@ -1892,134 +2197,272 @@ class _NurseryNotificationsPage extends StatelessWidget {
     return 'غير محدد';
   }
 
+  Color _typeColor(String type, String direction, bool isRead) {
+    if (!isRead && direction == 'received') return Colors.orange;
+
+    switch (type.trim().toLowerCase()) {
+      case 'message':
+      case 'new_message':
+        return Colors.blueGrey;
+      case 'complaint_created':
+      case 'complaint_reply':
+        return Colors.redAccent;
+      case 'live_stream_started':
+        return Colors.red;
+      case 'live_stream_ended':
+        return Colors.grey;
+      case 'update_notification':
+      case 'nursery_notification':
+        return AppColors.primary;
+      default:
+        return AppColors.secondary;
+    }
+  }
+
+  IconData _typeIcon(String type, String direction) {
+    if (direction == 'sent') return Icons.mark_email_read_outlined;
+
+    switch (type.trim().toLowerCase()) {
+      case 'message':
+      case 'new_message':
+        return Icons.chat_bubble_outline_rounded;
+      case 'complaint_created':
+      case 'complaint_reply':
+        return Icons.report_problem_outlined;
+      case 'live_stream_started':
+        return Icons.wifi_tethering_rounded;
+      case 'live_stream_ended':
+        return Icons.stop_circle_outlined;
+      case 'update_notification':
+      case 'nursery_notification':
+        return Icons.notifications_active_outlined;
+      default:
+        return Icons.notifications_none_rounded;
+    }
+  }
+
+  String _directionLabel(String direction) {
+    return direction == 'sent' ? 'مرسل' : 'وارد';
+  }
+
   @override
   Widget build(BuildContext context) {
     return AppPageScaffold(
       title: 'الإشعارات',
       child: FutureBuilder<List<Map<String, dynamic>>>(
-        future: fetchRecentNotifications(),
+        future: _future,
         builder: (context, snapshot) {
           final items = snapshot.data ?? [];
 
-          return ListView(
-            children: [
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    children: [
-                      const _InfoPanel(
-                        icon: Icons.notifications_active_outlined,
-                        title: 'إشعارات موظفة الحضانة',
-                        message:
-                            'من هنا يمكنك إرسال إشعار جديد للأهل ومراجعة آخر الإشعارات المرسلة.',
+          return RefreshIndicator(
+            onRefresh: _refresh,
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: [
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      children: [
+                        const _InfoPanel(
+                          icon: Icons.notifications_active_outlined,
+                          title: 'إشعارات موظفة الحضانة',
+                          message:
+                              'من هنا يمكنك إرسال إشعار جديد للأهل ومراجعة الإشعارات الواردة والمرسلة.',
+                        ),
+                        const SizedBox(height: 14),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: () async {
+                              await widget.onSendPressed();
+                              if (!mounted) return;
+                              await _refresh();
+                            },
+                            icon: const Icon(Icons.add_alert_outlined),
+                            label: const Text('إرسال إشعار جديد'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'آخر الإشعارات',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                    color: AppColors.textDark,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                if (snapshot.connectionState == ConnectionState.waiting)
+                  const Center(child: CircularProgressIndicator())
+                else if (items.isEmpty)
+                  const Card(
+                    child: Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Text(
+                        'لا توجد إشعارات بعد.',
+                        style: TextStyle(color: AppColors.textLight),
                       ),
-                      const SizedBox(height: 14),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: onSendPressed,
-                          icon: const Icon(Icons.add_alert_outlined),
-                          label: const Text('إرسال إشعار جديد'),
+                    ),
+                  )
+                else
+                  ...items.map((item) {
+                    final id = (item['id'] ?? '').toString();
+                    final title = (item['title'] ?? 'إشعار').toString();
+                    final body = (item['body'] ?? '').toString();
+                    final childName = (item['childName'] ?? '').toString();
+                    final type = (item['type'] ?? '').toString();
+                    final priority = (item['priority'] ?? '').toString();
+                    final direction = (item['direction'] ?? 'received')
+                        .toString()
+                        .trim()
+                        .toLowerCase();
+                    final isRead = item['isRead'] == true;
+                    final color = _typeColor(type, direction, isRead);
+
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(18),
+                        onTap: () async {
+                          if (!isRead && id.trim().isNotEmpty) {
+                            await widget.markAsRead(id);
+                            if (!mounted) return;
+                            await _refresh();
+                          }
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              CircleAvatar(
+                                backgroundColor: color.withOpacity(0.12),
+                                child: Icon(
+                                  _typeIcon(type, direction),
+                                  color: color,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            title,
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 14.5,
+                                              color: isRead
+                                                  ? AppColors.textLight
+                                                  : AppColors.textDark,
+                                            ),
+                                          ),
+                                        ),
+                                        if (!isRead && direction == 'received')
+                                          Container(
+                                            width: 9,
+                                            height: 9,
+                                            decoration: const BoxDecoration(
+                                              color: Colors.orange,
+                                              shape: BoxShape.circle,
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 6,
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 9,
+                                            vertical: 5,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: color.withOpacity(0.10),
+                                            borderRadius:
+                                                BorderRadius.circular(999),
+                                          ),
+                                          child: Text(
+                                            _directionLabel(direction),
+                                            style: TextStyle(
+                                              color: color,
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                        if (priority.trim().isNotEmpty)
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 9,
+                                              vertical: 5,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: Colors.orange
+                                                  .withOpacity(0.10),
+                                              borderRadius:
+                                                  BorderRadius.circular(999),
+                                            ),
+                                            child: Text(
+                                              priority,
+                                              style: const TextStyle(
+                                                color: Colors.orange,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                    if (childName.trim().isNotEmpty) ...[
+                                      const SizedBox(height: 7),
+                                      Text(
+                                        'الطفل: $childName',
+                                        style: const TextStyle(
+                                          color: AppColors.textLight,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                    ],
+                                    if (body.trim().isNotEmpty) ...[
+                                      const SizedBox(height: 7),
+                                      Text(
+                                        body,
+                                        style: const TextStyle(
+                                          color: AppColors.textLight,
+                                          height: 1.35,
+                                        ),
+                                      ),
+                                    ],
+                                    const SizedBox(height: 7),
+                                    Text(
+                                      _formatTimestamp(item['createdAt']),
+                                      style: const TextStyle(
+                                        color: AppColors.textLight,
+                                        fontSize: 12.5,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'آخر الإشعارات المرسلة',
-                style: TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 16,
-                  color: AppColors.textDark,
-                ),
-              ),
-              const SizedBox(height: 12),
-              if (snapshot.connectionState == ConnectionState.waiting)
-                const Center(child: CircularProgressIndicator())
-              else if (items.isEmpty)
-                const Card(
-                  child: Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text(
-                      'لا توجد إشعارات مرسلة بعد.',
-                      style: TextStyle(color: AppColors.textLight),
-                    ),
-                  ),
-                )
-              else
-                ...items.map(
-                  (item) => Card(
-                    margin: const EdgeInsets.only(bottom: 10),
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          CircleAvatar(
-                            backgroundColor:
-                                AppColors.primary.withOpacity(0.12),
-                            child: const Icon(
-                              Icons.notifications_none_rounded,
-                              color: AppColors.primary,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  (item['title'] ?? 'إشعار').toString(),
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14.5,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                if ((item['childName'] ?? '')
-                                    .toString()
-                                    .trim()
-                                    .isNotEmpty)
-                                  Text(
-                                    'الطفل: ${item['childName']}',
-                                    style: const TextStyle(
-                                      color: AppColors.textLight,
-                                      fontSize: 13,
-                                    ),
-                                  ),
-                                if ((item['body'] ?? '')
-                                    .toString()
-                                    .trim()
-                                    .isNotEmpty) ...[
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    (item['body'] ?? '').toString(),
-                                    style: const TextStyle(
-                                      color: AppColors.textLight,
-                                      height: 1.35,
-                                    ),
-                                  ),
-                                ],
-                                const SizedBox(height: 6),
-                                Text(
-                                  _formatTimestamp(item['createdAt']),
-                                  style: const TextStyle(
-                                    color: AppColors.textLight,
-                                    fontSize: 12.5,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-            ],
+                    );
+                  }),
+              ],
+            ),
           );
         },
       ),

@@ -1,6 +1,7 @@
+import 'dart:typed_data';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -37,11 +38,11 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
   String status = 'new';
   String incidentPlace = 'الصف';
 
-  bool parentNotified = false;
   bool isSaving = false;
 
   List<String> witnesses = [];
   XFile? selectedImage;
+  Uint8List? selectedImageBytes;
 
   final List<String> placeOptions = const [
     'الصف',
@@ -55,6 +56,14 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
     'مكان آخر',
   ];
 
+  final List<String> incidentTypes = const [
+    'سقوط بسيط',
+    'اصطدام',
+    'جرح',
+    'وعكة صحية',
+    'حادث آخر',
+  ];
+
   @override
   void dispose() {
     detailsCtrl.dispose();
@@ -64,28 +73,19 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
     super.dispose();
   }
 
-  String autoAnalyzeRisk() {
-    final text = detailsCtrl.text.trim();
+  String _normalizeRole(String value) {
+    final role = value.trim().toLowerCase();
 
-    if (text.contains('دم') || text.contains('كسر')) {
-      return 'urgent';
+    if (role == 'nursery' ||
+        role == 'nursery staff' ||
+        role == 'nursery_staff') {
+      return 'nursery_staff';
     }
-    if (text.contains('بكاء') || text.contains('سقوط')) {
-      return 'important';
-    }
-    return 'normal';
-  }
 
-  String riskLabel(String p) {
-    if (p == 'urgent') return 'عاجل';
-    if (p == 'important') return 'مهم';
-    return 'عادي';
-  }
+    if (role == 'admin') return 'admin';
+    if (role == 'parent') return 'parent';
 
-  Color riskColor(String p) {
-    if (p == 'urgent') return Colors.red;
-    if (p == 'important') return Colors.orange;
-    return Colors.green;
+    return role.isEmpty ? 'nursery_staff' : role;
   }
 
   String get finalIncidentPlace {
@@ -93,7 +93,81 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
       final text = otherLocationCtrl.text.trim();
       return text.isEmpty ? 'مكان آخر' : text;
     }
+
     return incidentPlace;
+  }
+
+  String autoAnalyzeRisk() {
+    final text = detailsCtrl.text.trim();
+
+    if (text.contains('دم') ||
+        text.contains('كسر') ||
+        text.contains('نزيف') ||
+        text.contains('إغماء') ||
+        text.contains('اختناق') ||
+        text.contains('صعوبة تنفس')) {
+      return 'urgent';
+    }
+
+    if (text.contains('بكاء') ||
+        text.contains('سقوط') ||
+        text.contains('اصطدام') ||
+        text.contains('جرح') ||
+        text.contains('تورم')) {
+      return 'important';
+    }
+
+    return 'normal';
+  }
+
+  String riskLabel(String value) {
+    switch (value) {
+      case 'urgent':
+        return 'عاجل';
+      case 'important':
+        return 'مهم';
+      case 'normal':
+      default:
+        return 'عادي';
+    }
+  }
+
+  Color riskColor(String value) {
+    switch (value) {
+      case 'urgent':
+        return Colors.red;
+      case 'important':
+        return Colors.orange;
+      case 'normal':
+      default:
+        return Colors.green;
+    }
+  }
+
+  String _statusLabel(String value) {
+    switch (value.trim().toLowerCase()) {
+      case 'review':
+        return 'قيد المراجعة';
+      case 'done':
+        return 'مكتمل';
+      case 'new':
+      default:
+        return 'جديد';
+    }
+  }
+
+  void _showSnack(
+    String message, {
+    Color backgroundColor = Colors.redAccent,
+  }) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: backgroundColor,
+      ),
+    );
   }
 
   Future<Map<String, String>> fetchCurrentUserInfo() async {
@@ -103,28 +177,43 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
       return {
         'uid': '',
         'name': 'مستخدم غير معروف',
-        'role': '',
+        'role': 'nursery_staff',
       };
     }
 
-    final userDoc =
-        await _firestore.collection('users').doc(currentUser.uid).get();
-    final data = userDoc.data() ?? {};
+    try {
+      final userDoc =
+          await _firestore.collection('users').doc(currentUser.uid).get();
 
-    return {
-      'uid': currentUser.uid,
-      'name': (data['displayName'] ??
-              data['name'] ??
-              data['username'] ??
-              'مستخدم')
-          .toString(),
-      'role': (data['role'] ?? '').toString(),
-    };
+      final data = userDoc.data() ?? <String, dynamic>{};
+
+      return {
+        'uid': currentUser.uid,
+        'name': (data['displayName'] ??
+                data['name'] ??
+                data['fullName'] ??
+                data['username'] ??
+                currentUser.displayName ??
+                'مستخدم')
+            .toString()
+            .trim(),
+        'role': _normalizeRole((data['role'] ?? 'nursery_staff').toString()),
+      };
+    } catch (_) {
+      return {
+        'uid': currentUser.uid,
+        'name': currentUser.displayName?.trim().isNotEmpty == true
+            ? currentUser.displayName!.trim()
+            : 'مستخدم',
+        'role': 'nursery_staff',
+      };
+    }
   }
 
   Future<Map<String, String>> fetchParentLinkInfo() async {
-    String parentUid = '';
+    String parentUid = widget.child.parentUid.trim();
     String parentUsername = widget.child.parentUsername.trim().toLowerCase();
+    String parentName = widget.child.parentName.trim();
 
     try {
       final childDoc =
@@ -133,22 +222,21 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
       if (childDoc.exists) {
         final data = childDoc.data() ?? <String, dynamic>{};
 
-        parentUid = (data['parentUid'] ?? '').toString().trim();
-
+        final docParentUid = (data['parentUid'] ?? '').toString().trim();
         final docParentUsername =
             (data['parentUsername'] ?? '').toString().trim().toLowerCase();
+        final docParentName = (data['parentName'] ?? '').toString().trim();
 
-        if (docParentUsername.isNotEmpty) {
-          parentUsername = docParentUsername;
-        }
+        if (docParentUid.isNotEmpty) parentUid = docParentUid;
+        if (docParentUsername.isNotEmpty) parentUsername = docParentUsername;
+        if (docParentName.isNotEmpty) parentName = docParentName;
       }
-    } catch (_) {
-      // fallback
-    }
+    } catch (_) {}
 
     return {
       'parentUid': parentUid,
       'parentUsername': parentUsername,
+      'parentName': parentName,
     };
   }
 
@@ -159,27 +247,38 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
         imageQuality: 75,
       );
 
-      if (picked != null) {
-        setState(() {
-          selectedImage = picked;
-        });
-      }
-    } catch (e) {
+      if (picked == null) return;
+
+      final bytes = await picked.readAsBytes();
+
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذر التقاط الصورة: $e')),
-      );
+
+      setState(() {
+        selectedImage = picked;
+        selectedImageBytes = bytes;
+      });
+    } catch (e) {
+      _showSnack('تعذر التقاط الصورة: $e');
     }
+  }
+
+  void removeImage() {
+    setState(() {
+      selectedImage = null;
+      selectedImageBytes = null;
+    });
   }
 
   void addWitness() {
     final value = witnessCtrl.text.trim();
+
     if (value.isEmpty) return;
 
     setState(() {
       if (!witnesses.contains(value)) {
         witnesses.add(value);
       }
+
       witnessCtrl.clear();
     });
   }
@@ -188,9 +287,13 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
     if (selectedImage == null) {
       return {
         'hasImage': false,
+        'hasMedia': false,
         'imagePath': '',
-        'imageUrl': null,
-        'imageType': null,
+        'imageUrl': '',
+        'imageType': '',
+        'mediaPath': '',
+        'mediaUrl': '',
+        'mediaType': '',
         'storageProvider': '',
         'bucket': '',
         'mimeType': '',
@@ -210,9 +313,13 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
 
     return {
       'hasImage': true,
+      'hasMedia': true,
       'imagePath': uploaded.path,
       'imageUrl': uploaded.signedUrl,
       'imageType': 'image',
+      'mediaPath': uploaded.path,
+      'mediaUrl': uploaded.signedUrl,
+      'mediaType': 'image',
       'storageProvider': uploaded.storageProvider,
       'bucket': uploaded.bucket,
       'mimeType': uploaded.mimeType,
@@ -220,384 +327,265 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
     };
   }
 
+  String _buildIncidentSummary({
+    required String autoRisk,
+  }) {
+    final details = detailsCtrl.text.trim();
+    final action = actionCtrl.text.trim();
+    final witnessText = witnesses.isEmpty ? '' : witnesses.join('، ');
+
+    final parts = <String>[
+      'نوع الحادث: $incidentType',
+      'المكان: $finalIncidentPlace',
+      'درجة الخطورة: ${riskLabel(autoRisk)}',
+      'الأولوية: ${riskLabel(priority)}',
+      if (details.isNotEmpty) 'التفاصيل: $details',
+      if (action.isNotEmpty) 'الإجراء المتخذ: $action',
+      if (witnessText.isNotEmpty) 'الشهود: $witnessText',
+    ];
+
+    return parts.join(' | ');
+  }
+
+  bool _validateIncident() {
+    final details = detailsCtrl.text.trim();
+    final action = actionCtrl.text.trim();
+
+    if (details.isEmpty) {
+      _showSnack('يرجى كتابة تفاصيل الحادث');
+      return false;
+    }
+
+    if (details.length < 5) {
+      _showSnack('تفاصيل الحادث قصيرة جدًا');
+      return false;
+    }
+
+    if (action.isEmpty) {
+      _showSnack('يرجى كتابة الإجراء المتخذ');
+      return false;
+    }
+
+    if (incidentPlace == 'مكان آخر' && otherLocationCtrl.text.trim().isEmpty) {
+      _showSnack('يرجى تحديد مكان الحادث');
+      return false;
+    }
+
+    return true;
+  }
+
   Future<void> saveIncident() async {
-    if (detailsCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('اكتبي التفاصيل أولاً')),
-      );
-      return;
-    }
+    if (!_validateIncident()) return;
 
-    if (incidentPlace == 'مكان آخر' &&
-        otherLocationCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('حددي المكان بالتفصيل')),
-      );
-      return;
-    }
-
-    setState(() => isSaving = true);
-
-    final autoRisk = autoAnalyzeRisk();
-    final now = Timestamp.now();
+    setState(() {
+      isSaving = true;
+    });
 
     try {
+      final autoRisk = autoAnalyzeRisk();
+      final now = Timestamp.now();
+      final finalSummary = _buildIncidentSummary(autoRisk: autoRisk);
+
       final userInfo = await fetchCurrentUserInfo();
       final parentInfo = await fetchParentLinkInfo();
       final imageData = await _uploadIncidentImageIfNeeded();
 
-      await _firestore.collection('incident_reports').add({
+      final parentUid = (parentInfo['parentUid'] ?? '').trim();
+      final parentUsername =
+          (parentInfo['parentUsername'] ?? '').trim().toLowerCase();
+      final parentName = (parentInfo['parentName'] ?? '').trim();
+
+      final canNotifyParent = parentUid.isNotEmpty || parentUsername.isNotEmpty;
+
+      final reportRef = _firestore.collection('incident_reports').doc();
+      final notificationRef = _firestore.collection('notifications').doc();
+
+      final batch = _firestore.batch();
+
+      batch.set(reportRef, {
+        'reportId': reportRef.id,
         'childId': widget.child.id,
         'childName': widget.child.name,
-        'parentUid': parentInfo['parentUid'],
-        'parentUsername': parentInfo['parentUsername'],
-        'parentName': widget.child.parentName,
+        'parentUid': parentUid,
+        'parentUsername': parentUsername,
+        'parentName': parentName,
         'section': 'Nursery',
-
+        'group': widget.child.group,
         'title': 'تقرير حادث',
         'type': 'incident_report',
+        'reportType': 'incident_report',
+        'category': 'incident_report',
         'incidentType': incidentType,
         'priority': priority,
+        'importance': priority,
         'autoRisk': autoRisk,
         'status': status,
+        'statusLabel': _statusLabel(status),
         'incidentPlace': finalIncidentPlace,
-
+        'locationLabel': finalIncidentPlace,
         'details': detailsCtrl.text.trim(),
-        'note': detailsCtrl.text.trim(),
+        'note': finalSummary,
+        'message': finalSummary,
+        'description': finalSummary,
         'actionTaken': actionCtrl.text.trim(),
         'witnesses': witnesses,
-
-        'parentNotified': parentNotified,
-
+        'parentNotified': canNotifyParent,
+        'notifyParent': canNotifyParent,
         ...imageData,
-
         'createdAt': now,
-        'time': FieldValue.serverTimestamp(),
+        'time': now,
         'eventAt': now,
-        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': now,
         'reviewedAt': null,
-
+        'byRole': userInfo['role'],
         'createdByUid': userInfo['uid'],
         'createdByName': userInfo['name'],
         'createdByRole': userInfo['role'],
+        'senderUid': userInfo['uid'],
+        'senderName': userInfo['name'],
+        'senderRole': userInfo['role'],
       });
+
+      if (canNotifyParent) {
+        batch.set(notificationRef, {
+          'notificationId': notificationRef.id,
+          'uid': parentUid,
+          'targetUid': parentUid,
+          'targetUsername': parentUsername,
+          'targetRole': 'parent',
+          'receiverUid': parentUid,
+          'receiverUsername': parentUsername,
+          'receiverRole': 'parent',
+          'parentUid': parentUid,
+          'parentUsername': parentUsername,
+          'parentName': parentName,
+          'childId': widget.child.id,
+          'childName': widget.child.name,
+          'section': 'Nursery',
+          'group': widget.child.group,
+          'title': autoRisk == 'urgent' || priority == 'urgent'
+              ? 'تنبيه عاجل بخصوص حادث'
+              : 'تقرير حادث جديد',
+          'body': finalSummary,
+          'message': finalSummary,
+          'description': finalSummary,
+          'type': 'incident_report',
+          'notificationType': 'incident_report',
+          'category': 'incident_report',
+          'templateType': 'incident_report',
+          'reportId': reportRef.id,
+          'incidentReportId': reportRef.id,
+          'incidentType': incidentType,
+          'priority': priority,
+          'importance': priority,
+          'autoRisk': autoRisk,
+          'isRead': false,
+          'read': false,
+          'seen': false,
+          'createdAt': now,
+          'time': now,
+          'eventAt': now,
+          'updatedAt': now,
+          'createdByUid': userInfo['uid'],
+          'createdByName': userInfo['name'],
+          'createdByRole': userInfo['role'],
+          'byRole': userInfo['role'],
+          'senderUid': userInfo['uid'],
+          'senderName': userInfo['name'],
+          'senderRole': userInfo['role'],
+          ...imageData,
+        });
+      }
+
+      await batch.commit();
 
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم حفظ التقرير بنجاح')),
+      _showSnack(
+        canNotifyParent
+            ? 'تم حفظ التقرير وإشعار ولي الأمر'
+            : 'تم حفظ التقرير، لكن لم يتم العثور على بيانات ولي الأمر للإشعار',
+        backgroundColor: Colors.green,
       );
 
       Navigator.pop(context, true);
     } catch (e) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('حدث خطأ أثناء حفظ التقرير: $e')),
-      );
+      _showSnack('حدث خطأ أثناء حفظ التقرير: $e');
     } finally {
       if (!mounted) return;
-      setState(() => isSaving = false);
+
+      setState(() {
+        isSaving = false;
+      });
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final autoRisk = autoAnalyzeRisk();
+  InputDecoration _inputDecoration({
+    String? label,
+    String? hint,
+    IconData? icon,
+  }) {
+    return InputDecoration(
+      labelText: label,
+      hintText: hint,
+      prefixIcon: icon == null ? null : Icon(icon),
+      filled: true,
+      fillColor: Colors.grey.shade50,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: Colors.grey.shade300),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: Colors.grey.shade300),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: AppColors.primary),
+      ),
+    );
+  }
 
-    return AppPageScaffold(
-      title: 'تقرير حادث',
-      child: ListView(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: riskColor(autoRisk).withOpacity(0.10),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: riskColor(autoRisk).withOpacity(0.25),
-              ),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.auto_awesome, color: riskColor(autoRisk)),
-                const SizedBox(width: 8),
-                Text(
-                  'تحليل تلقائي: ${riskLabel(autoRisk)}',
-                  style: TextStyle(
-                    color: riskColor(autoRisk),
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
+  Widget _imagePreview() {
+    if (selectedImageBytes == null) {
+      return Container(
+        height: 150,
+        width: double.infinity,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.grey.shade300),
+        ),
+        child: Icon(
+          Icons.image_outlined,
+          size: 38,
+          color: Colors.grey.shade500,
+        ),
+      );
+    }
 
-          _card(
-            'مكان الحادث',
-            Icons.location_on_outlined,
-            child: Column(
-              children: [
-                DropdownButtonFormField<String>(
-                  value: incidentPlace,
-                  decoration: const InputDecoration(
-                    hintText: 'اختاري مكان الحادث',
-                  ),
-                  items: placeOptions
-                      .map(
-                        (e) => DropdownMenuItem<String>(
-                          value: e,
-                          child: Text(e),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (v) {
-                    if (v == null) return;
-                    setState(() => incidentPlace = v);
-                  },
-                ),
-                if (incidentPlace == 'مكان آخر') ...[
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: otherLocationCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'حددي المكان',
-                      hintText: 'اكتبي المكان بالتفصيل',
-                    ),
-                  ),
-                ],
-              ],
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: Image.memory(
+        selectedImageBytes!,
+        height: 150,
+        width: double.infinity,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) {
+          return Container(
+            height: 150,
+            width: double.infinity,
+            color: Colors.grey.shade200,
+            alignment: Alignment.center,
+            child: Icon(
+              Icons.broken_image_outlined,
+              size: 36,
+              color: Colors.grey.shade500,
             ),
-          ),
-
-          _card(
-            'صورة الحادث',
-            Icons.camera_alt_outlined,
-            child: Column(
-              children: [
-                if (selectedImage != null)
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: kIsWeb
-                        ? Image.network(
-                            selectedImage!.path,
-                            height: 150,
-                            width: double.infinity,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) {
-                              return Container(
-                                height: 150,
-                                width: double.infinity,
-                                color: Colors.grey.shade200,
-                                alignment: Alignment.center,
-                                child: const Icon(
-                                  Icons.broken_image_outlined,
-                                  size: 36,
-                                  color: AppColors.textLight,
-                                ),
-                              );
-                            },
-                          )
-                        : Image.network(
-                            selectedImage!.path,
-                            height: 150,
-                            width: double.infinity,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) {
-                              return Container(
-                                height: 150,
-                                width: double.infinity,
-                                color: Colors.grey.shade200,
-                                alignment: Alignment.center,
-                                child: const Icon(
-                                  Icons.image_outlined,
-                                  size: 36,
-                                  color: AppColors.textLight,
-                                ),
-                              );
-                            },
-                          ),
-                  ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: pickImage,
-                        icon: const Icon(Icons.camera_alt_outlined),
-                        label: Text(
-                          selectedImage == null ? 'التقاط صورة' : 'تغيير الصورة',
-                        ),
-                      ),
-                    ),
-                    if (selectedImage != null) ...[
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () {
-                            setState(() {
-                              selectedImage = null;
-                            });
-                          },
-                          icon: const Icon(Icons.delete_outline),
-                          label: const Text('حذف الصورة'),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ],
-            ),
-          ),
-
-          _card(
-            'نوع الحادث',
-            Icons.report_problem_outlined,
-            child: DropdownButtonFormField<String>(
-              value: incidentType,
-              items: const [
-                DropdownMenuItem(value: 'سقوط بسيط', child: Text('سقوط بسيط')),
-                DropdownMenuItem(value: 'اصطدام', child: Text('اصطدام')),
-                DropdownMenuItem(value: 'جرح', child: Text('جرح')),
-                DropdownMenuItem(value: 'وعكة صحية', child: Text('وعكة صحية')),
-                DropdownMenuItem(value: 'حادث آخر', child: Text('حادث آخر')),
-              ],
-              onChanged: (v) {
-                if (v == null) return;
-                setState(() => incidentType = v);
-              },
-            ),
-          ),
-
-          _card(
-            'ماذا حدث؟',
-            Icons.description_outlined,
-            child: TextField(
-              controller: detailsCtrl,
-              maxLines: 4,
-              onChanged: (_) => setState(() {}),
-              decoration: const InputDecoration(
-                hintText: 'اكتبي تفاصيل الحادث أو الملاحظة المهمة',
-              ),
-            ),
-          ),
-
-          _card(
-            'الإجراء المتخذ',
-            Icons.medical_services_outlined,
-            child: TextField(
-              controller: actionCtrl,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                hintText: 'ما الإجراء الذي تم اتخاذه؟',
-              ),
-            ),
-          ),
-
-          _card(
-            'شهود الحادث',
-            Icons.groups_outlined,
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: witnessCtrl,
-                        decoration: const InputDecoration(
-                          hintText: 'أضيفي اسم شاهد',
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    ElevatedButton(
-                      onPressed: addWitness,
-                      child: const Text('إضافة'),
-                    ),
-                  ],
-                ),
-                if (witnesses.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: witnesses.map((witness) {
-                      return Chip(
-                        label: Text(witness),
-                        onDeleted: () {
-                          setState(() {
-                            witnesses.remove(witness);
-                          });
-                        },
-                      );
-                    }).toList(),
-                  ),
-                ],
-              ],
-            ),
-          ),
-
-          SwitchListTile(
-            value: parentNotified,
-            onChanged: (v) => setState(() => parentNotified = v),
-            title: const Text('إشعار ولي الأمر'),
-            subtitle: const Text('حددي إن كان تم إشعار ولي الأمر بخصوص الحادث'),
-          ),
-
-          _card(
-            'أولوية التقرير',
-            Icons.priority_high_outlined,
-            child: DropdownButtonFormField<String>(
-              value: priority,
-              items: const [
-                DropdownMenuItem(value: 'normal', child: Text('عادي')),
-                DropdownMenuItem(value: 'important', child: Text('مهم')),
-                DropdownMenuItem(value: 'urgent', child: Text('عاجل')),
-              ],
-              onChanged: (v) {
-                if (v == null) return;
-                setState(() => priority = v);
-              },
-            ),
-          ),
-
-          _card(
-            'حالة التقرير',
-            Icons.flag_outlined,
-            child: DropdownButtonFormField<String>(
-              value: status,
-              items: const [
-                DropdownMenuItem(value: 'new', child: Text('جديد')),
-                DropdownMenuItem(value: 'review', child: Text('قيد المراجعة')),
-                DropdownMenuItem(value: 'done', child: Text('مكتمل')),
-              ],
-              onChanged: (v) {
-                if (v == null) return;
-                setState(() => status = v);
-              },
-            ),
-          ),
-
-          const SizedBox(height: 20),
-          ElevatedButton.icon(
-            onPressed: isSaving ? null : saveIncident,
-            icon: isSaving
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.2,
-                      color: Colors.white,
-                    ),
-                  )
-                : const Icon(Icons.save_outlined),
-            label: Text(isSaving ? 'جاري الحفظ...' : 'حفظ التقرير'),
-            style: ElevatedButton.styleFrom(
-              minimumSize: const Size(double.infinity, 54),
-            ),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
@@ -616,16 +604,294 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
         children: [
           Row(
             children: [
-              Icon(icon),
+              Icon(icon, color: AppColors.primary),
               const SizedBox(width: 8),
-              Text(
-                title,
-                style: const TextStyle(fontWeight: FontWeight.bold),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15.5,
+                  ),
+                ),
               ),
             ],
           ),
           const SizedBox(height: 12),
           child,
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final autoRisk = autoAnalyzeRisk();
+
+    return AppPageScaffold(
+      title: 'تقرير حادث',
+      child: ListView(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(14),
+            margin: const EdgeInsets.only(bottom: 12),
+            decoration: BoxDecoration(
+              color: riskColor(autoRisk).withOpacity(0.10),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: riskColor(autoRisk).withOpacity(0.25),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.warning_amber_rounded, color: riskColor(autoRisk)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'درجة الخطورة: ${riskLabel(autoRisk)}',
+                    style: TextStyle(
+                      color: riskColor(autoRisk),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          _card(
+            'مكان الحادث',
+            Icons.location_on_outlined,
+            child: Column(
+              children: [
+                DropdownButtonFormField<String>(
+                  value: incidentPlace,
+                  decoration: _inputDecoration(
+                    hint: 'اختاري مكان الحادث',
+                  ),
+                  items: placeOptions
+                      .map(
+                        (place) => DropdownMenuItem<String>(
+                          value: place,
+                          child: Text(place),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    if (value == null) return;
+
+                    setState(() {
+                      incidentPlace = value;
+
+                      if (incidentPlace != 'مكان آخر') {
+                        otherLocationCtrl.clear();
+                      }
+                    });
+                  },
+                ),
+                if (incidentPlace == 'مكان آخر') ...[
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: otherLocationCtrl,
+                    decoration: _inputDecoration(
+                      label: 'تحديد المكان',
+                      hint: 'اكتبي مكان الحادث',
+                      icon: Icons.edit_location_alt_outlined,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          _card(
+            'صورة الحادث',
+            Icons.camera_alt_outlined,
+            child: Column(
+              children: [
+                _imagePreview(),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: isSaving ? null : pickImage,
+                        icon: const Icon(Icons.camera_alt_outlined),
+                        label: Text(
+                          selectedImage == null ? 'التقاط صورة' : 'تغيير الصورة',
+                        ),
+                      ),
+                    ),
+                    if (selectedImage != null) ...[
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: isSaving ? null : removeImage,
+                          icon: const Icon(Icons.delete_outline),
+                          label: const Text('حذف الصورة'),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          ),
+          _card(
+            'نوع الحادث',
+            Icons.report_problem_outlined,
+            child: DropdownButtonFormField<String>(
+              value: incidentType,
+              decoration: _inputDecoration(
+                hint: 'اختاري نوع الحادث',
+              ),
+              items: incidentTypes
+                  .map(
+                    (type) => DropdownMenuItem<String>(
+                      value: type,
+                      child: Text(type),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (value) {
+                if (value == null) return;
+
+                setState(() {
+                  incidentType = value;
+                });
+              },
+            ),
+          ),
+          _card(
+            'تفاصيل الحادث',
+            Icons.description_outlined,
+            child: TextField(
+              controller: detailsCtrl,
+              maxLines: 4,
+              onChanged: (_) => setState(() {}),
+              decoration: _inputDecoration(
+                hint: 'اكتبي تفاصيل الحادث',
+              ),
+            ),
+          ),
+          _card(
+            'الإجراء المتخذ',
+            Icons.medical_services_outlined,
+            child: TextField(
+              controller: actionCtrl,
+              maxLines: 3,
+              decoration: _inputDecoration(
+                hint: 'اكتبي الإجراء الذي تم اتخاذه',
+              ),
+            ),
+          ),
+          _card(
+            'شهود الحادث',
+            Icons.groups_outlined,
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: witnessCtrl,
+                        decoration: _inputDecoration(
+                          hint: 'اسم الشاهد',
+                          icon: Icons.person_outline,
+                        ),
+                        onSubmitted: (_) => addWitness(),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    ElevatedButton(
+                      onPressed: addWitness,
+                      child: const Text('إضافة'),
+                    ),
+                  ],
+                ),
+                if (witnesses.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: witnesses.map((witness) {
+                        return Chip(
+                          label: Text(witness),
+                          onDeleted: () {
+                            setState(() {
+                              witnesses.remove(witness);
+                            });
+                          },
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          _card(
+            'أولوية التقرير',
+            Icons.priority_high_outlined,
+            child: DropdownButtonFormField<String>(
+              value: priority,
+              decoration: _inputDecoration(
+                hint: 'اختاري الأولوية',
+              ),
+              items: const [
+                DropdownMenuItem(value: 'normal', child: Text('عادي')),
+                DropdownMenuItem(value: 'important', child: Text('مهم')),
+                DropdownMenuItem(value: 'urgent', child: Text('عاجل')),
+              ],
+              onChanged: (value) {
+                if (value == null) return;
+
+                setState(() {
+                  priority = value;
+                });
+              },
+            ),
+          ),
+          _card(
+            'حالة التقرير',
+            Icons.flag_outlined,
+            child: DropdownButtonFormField<String>(
+              value: status,
+              decoration: _inputDecoration(
+                hint: 'اختاري حالة التقرير',
+              ),
+              items: const [
+                DropdownMenuItem(value: 'new', child: Text('جديد')),
+                DropdownMenuItem(value: 'review', child: Text('قيد المراجعة')),
+                DropdownMenuItem(value: 'done', child: Text('مكتمل')),
+              ],
+              onChanged: (value) {
+                if (value == null) return;
+
+                setState(() {
+                  status = value;
+                });
+              },
+            ),
+          ),
+          const SizedBox(height: 10),
+          ElevatedButton.icon(
+            onPressed: isSaving ? null : saveIncident,
+            icon: isSaving
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.save_outlined),
+            label: Text(isSaving ? 'جاري الحفظ...' : 'حفظ التقرير'),
+            style: ElevatedButton.styleFrom(
+              minimumSize: const Size(double.infinity, 54),
+            ),
+          ),
         ],
       ),
     );

@@ -1,12 +1,195 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../models/message_model.dart';
+import 'app_notification_service.dart';
 
 class MessageService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   CollectionReference<Map<String, dynamic>> get _messagesRef =>
       _firestore.collection('messages');
+
+  String _normalizeRole(String value) {
+    final role = value.trim().toLowerCase();
+
+    if (role == 'nursery' ||
+        role == 'nursery staff' ||
+        role == 'nursery_staff') {
+      return 'nursery_staff';
+    }
+
+    return role;
+  }
+
+  bool _isParentRole(String value) {
+    return _normalizeRole(value) == 'parent';
+  }
+
+  String _roleLabel(String value) {
+    switch (_normalizeRole(value)) {
+      case 'parent':
+        return 'وليّ الأمر';
+      case 'nursery_staff':
+        return 'موظفة الحضانة';
+      case 'admin':
+        return 'الإدارة';
+      default:
+        return value.trim().isEmpty ? 'مستخدم' : value.trim();
+    }
+  }
+
+  String _safePreview(String text) {
+    final clean = text.trim();
+
+    if (clean.isEmpty) return 'رسالة جديدة';
+    if (clean.length <= 80) return clean;
+
+    return '${clean.substring(0, 80)}...';
+  }
+
+  Future<Map<String, String>> _fetchUserInfo(String uid) async {
+    if (uid.trim().isEmpty) {
+      return {
+        'uid': '',
+        'name': 'مستخدم',
+        'username': '',
+        'role': '',
+      };
+    }
+
+    try {
+      final doc = await _firestore.collection('users').doc(uid).get();
+      final data = doc.data() ?? <String, dynamic>{};
+
+      return {
+        'uid': uid,
+        'name': (data['displayName'] ??
+                data['name'] ??
+                data['username'] ??
+                'مستخدم')
+            .toString()
+            .trim(),
+        'username': (data['username'] ?? '').toString().trim().toLowerCase(),
+        'role': _normalizeRole((data['role'] ?? '').toString()),
+      };
+    } catch (_) {
+      return {
+        'uid': uid,
+        'name': 'مستخدم',
+        'username': '',
+        'role': '',
+      };
+    }
+  }
+
+  Future<void> _createMessageNotification({
+    required String childId,
+    required String childName,
+    required String senderId,
+    required String senderName,
+    required String senderRole,
+    required String receiverId,
+    required String receiverName,
+    required String receiverRole,
+    required String text,
+    required String messageId,
+  }) async {
+    if (senderId.trim().isEmpty || receiverId.trim().isEmpty) return;
+    if (senderId == receiverId) return;
+
+    final normalizedReceiverRole = _normalizeRole(receiverRole);
+    final normalizedSenderRole = _normalizeRole(senderRole);
+
+    String title;
+
+    if (childName.trim().isNotEmpty && !childName.startsWith('محادثة مباشرة')) {
+      title = 'رسالة جديدة بخصوص $childName';
+    } else {
+      title = 'رسالة جديدة من ${senderName.trim().isEmpty ? _roleLabel(senderRole) : senderName.trim()}';
+    }
+
+    final body =
+        '${senderName.trim().isEmpty ? _roleLabel(senderRole) : senderName.trim()}: ${_safePreview(text)}';
+
+    await AppNotificationService.instance.createNotification(
+      title: title,
+      body: body,
+      type: 'message',
+      notificationFor: normalizedReceiverRole,
+      targetUid: receiverId,
+      targetRole: normalizedReceiverRole,
+      childId: childId,
+      childName: childName,
+      priority: 'normal',
+      parentUid: _isParentRole(receiverRole) ? receiverId : '',
+      parentUsername: '',
+      createdByUid: senderId,
+      createdByName: senderName,
+      createdByRole: normalizedSenderRole,
+      extraData: {
+        'messageId': messageId,
+        'conversationChildId': childId,
+        'senderId': senderId,
+        'senderName': senderName,
+        'senderRole': normalizedSenderRole,
+        'receiverId': receiverId,
+        'receiverName': receiverName,
+        'receiverRole': normalizedReceiverRole,
+        'isMessageNotification': true,
+      },
+    );
+  }
+
+  Future<void> _createReactionNotification({
+    required String messageId,
+    required String messageText,
+    required String childId,
+    required String childName,
+    required String messageOwnerId,
+    required String messageOwnerRole,
+    required String reactedByUid,
+    required String reactedByName,
+    required String reactedByRole,
+    required String emoji,
+  }) async {
+    if (messageOwnerId.trim().isEmpty || reactedByUid.trim().isEmpty) return;
+    if (messageOwnerId == reactedByUid) return;
+
+    final normalizedOwnerRole = _normalizeRole(messageOwnerRole);
+    final normalizedReactorRole = _normalizeRole(reactedByRole);
+
+    final title = 'تفاعل جديد على رسالتك';
+    final body =
+        '${reactedByName.trim().isEmpty ? _roleLabel(reactedByRole) : reactedByName.trim()} تفاعل بـ $emoji على رسالتك: ${_safePreview(messageText)}';
+
+    await AppNotificationService.instance.createNotification(
+      title: title,
+      body: body,
+      type: 'message_reaction',
+      notificationFor: normalizedOwnerRole,
+      targetUid: messageOwnerId,
+      targetRole: normalizedOwnerRole,
+      childId: childId,
+      childName: childName,
+      priority: 'normal',
+      parentUid: _isParentRole(messageOwnerRole) ? messageOwnerId : '',
+      parentUsername: '',
+      createdByUid: reactedByUid,
+      createdByName: reactedByName,
+      createdByRole: normalizedReactorRole,
+      extraData: {
+        'messageId': messageId,
+        'conversationChildId': childId,
+        'emoji': emoji,
+        'reactedByUid': reactedByUid,
+        'reactedByName': reactedByName,
+        'reactedByRole': normalizedReactorRole,
+        'messageOwnerId': messageOwnerId,
+        'messageOwnerRole': normalizedOwnerRole,
+        'isReactionNotification': true,
+      },
+    );
+  }
 
   Stream<List<MessageModel>> getConversationMessages({
     required String childId,
@@ -112,15 +295,18 @@ class MessageService {
     final cleanText = text.trim();
     if (cleanText.isEmpty) return;
 
-    await _messagesRef.add({
+    final normalizedSenderRole = _normalizeRole(senderRole);
+    final normalizedReceiverRole = _normalizeRole(receiverRole);
+
+    final docRef = await _messagesRef.add({
       'childId': childId,
       'childName': childName,
       'senderId': senderId,
       'senderName': senderName,
-      'senderRole': senderRole,
+      'senderRole': normalizedSenderRole,
       'receiverId': receiverId,
       'receiverName': receiverName,
-      'receiverRole': receiverRole,
+      'receiverRole': normalizedReceiverRole,
       'text': cleanText,
       'sentAt': Timestamp.now(),
       'isRead': false,
@@ -138,7 +324,22 @@ class MessageService {
       'replyToText': replyToText,
       'replyToSenderId': replyToSenderId,
       'replyToSenderName': replyToSenderName,
+      'notificationCreated': true,
+      'updatedAt': FieldValue.serverTimestamp(),
     });
+
+    await _createMessageNotification(
+      childId: childId,
+      childName: childName,
+      senderId: senderId,
+      senderName: senderName,
+      senderRole: normalizedSenderRole,
+      receiverId: receiverId,
+      receiverName: receiverName,
+      receiverRole: normalizedReceiverRole,
+      text: cleanText,
+      messageId: docRef.id,
+    );
   }
 
   Future<void> markConversationAsRead({
@@ -169,7 +370,11 @@ class MessageService {
     }).toList();
 
     for (final doc in docsToUpdate) {
-      await doc.reference.update({'isRead': true});
+      await doc.reference.update({
+        'isRead': true,
+        'readAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
     }
   }
 
@@ -179,6 +384,13 @@ class MessageService {
     required String emoji,
   }) async {
     final docRef = _messagesRef.doc(messageId);
+
+    bool shouldNotify = false;
+    String messageText = '';
+    String childId = '';
+    String childName = '';
+    String messageOwnerId = '';
+    String messageOwnerRole = '';
 
     await _firestore.runTransaction((transaction) async {
       final snapshot = await transaction.get(docRef);
@@ -214,14 +426,43 @@ class MessageService {
 
       if (currentEmoji == emoji) {
         currentReactions.remove(userId);
+        shouldNotify = false;
       } else {
         currentReactions[userId] = emoji;
+
+        final senderId = (data['senderId'] ?? '').toString();
+        if (senderId.isNotEmpty && senderId != userId) {
+          shouldNotify = true;
+          messageOwnerId = senderId;
+          messageOwnerRole = (data['senderRole'] ?? '').toString();
+          messageText = (data['text'] ?? '').toString();
+          childId = (data['childId'] ?? '').toString();
+          childName = (data['childName'] ?? '').toString();
+        }
       }
 
       transaction.update(docRef, {
         'reactions': currentReactions,
+        'updatedAt': FieldValue.serverTimestamp(),
       });
     });
+
+    if (!shouldNotify) return;
+
+    final reactorInfo = await _fetchUserInfo(userId);
+
+    await _createReactionNotification(
+      messageId: messageId,
+      messageText: messageText,
+      childId: childId,
+      childName: childName,
+      messageOwnerId: messageOwnerId,
+      messageOwnerRole: messageOwnerRole,
+      reactedByUid: userId,
+      reactedByName: reactorInfo['name'] ?? 'مستخدم',
+      reactedByRole: reactorInfo['role'] ?? '',
+      emoji: emoji,
+    );
   }
 
   Future<void> deleteMessageForMe({
@@ -246,6 +487,7 @@ class MessageService {
 
       transaction.update(docRef, {
         'deletedForUserIds': deletedForUserIds.toList(),
+        'updatedAt': FieldValue.serverTimestamp(),
       });
     });
   }
@@ -278,6 +520,7 @@ class MessageService {
         'replyToText': null,
         'replyToSenderId': null,
         'replyToSenderName': null,
+        'updatedAt': FieldValue.serverTimestamp(),
       });
     });
   }

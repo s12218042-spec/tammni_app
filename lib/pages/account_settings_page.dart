@@ -85,8 +85,13 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
 
   try {
     final result = await _service.refreshEmailAfterVerificationIfNeeded();
+
     if (result == EmailRefreshStatus.success) {
       await _loadUserData();
+      _showSnack('تمت مزامنة البريد الإلكتروني بنجاح');
+    } else if (result == EmailRefreshStatus.noCurrentUser) {
+      await _handleSessionEndedAfterEmailVerification();
+      return;
     }
   } catch (_) {}
 

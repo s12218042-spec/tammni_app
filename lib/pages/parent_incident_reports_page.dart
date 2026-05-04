@@ -13,14 +13,45 @@ class ParentIncidentReportsPage extends StatelessWidget {
     required this.child,
   });
 
-  String _formatDate(Timestamp? ts) {
-    if (ts == null) return '-';
+  DateTime? _dateFromDynamic(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    if (value is String) return DateTime.tryParse(value);
+    return null;
+  }
 
-    final d = ts.toDate();
-    final hour = d.hour.toString().padLeft(2, '0');
-    final minute = d.minute.toString().padLeft(2, '0');
+  DateTime? _resolveDateTime(Map<String, dynamic> data) {
+    final candidates = [
+      data['eventAt'],
+      data['time'],
+      data['createdAt'],
+      data['timestamp'],
+      data['updatedAt'],
+    ];
 
-    return '${d.year}/${d.month.toString().padLeft(2, '0')}/${d.day.toString().padLeft(2, '0')} - $hour:$minute';
+    for (final value in candidates) {
+      final date = _dateFromDynamic(value);
+      if (date != null) return date;
+    }
+
+    return null;
+  }
+
+  String _formatDateTime(DateTime? dateTime) {
+    if (dateTime == null) return '-';
+
+    final day = dateTime.day.toString().padLeft(2, '0');
+    final month = dateTime.month.toString().padLeft(2, '0');
+    final year = dateTime.year.toString();
+
+    int hour = dateTime.hour;
+    final minute = dateTime.minute.toString().padLeft(2, '0');
+    final period = hour >= 12 ? 'م' : 'ص';
+
+    hour = hour % 12;
+    if (hour == 0) hour = 12;
+
+    return '$year/$month/$day - $hour:$minute $period';
   }
 
   Color _priorityColor(String priority) {
@@ -78,9 +109,18 @@ class ParentIncidentReportsPage extends StatelessWidget {
       case 'accident':
         return 'حادث';
       case 'incident':
-        return 'بلاغ';
+      case 'incident_report':
+        return 'تقرير حادث';
       case 'سقوط بسيط':
         return 'سقوط بسيط';
+      case 'اصطدام':
+        return 'اصطدام';
+      case 'جرح':
+        return 'جرح';
+      case 'وعكة صحية':
+        return 'وعكة صحية';
+      case 'حادث آخر':
+        return 'حادث آخر';
       case 'إصابة':
         return 'إصابة';
       case 'حادث':
@@ -88,19 +128,23 @@ class ParentIncidentReportsPage extends StatelessWidget {
       case 'ملاحظة':
         return 'ملاحظة';
       default:
-        return type.trim().isEmpty ? 'بلاغ' : type;
+        return type.trim().isEmpty ? 'تقرير حادث' : type;
     }
   }
 
   String _roleLabel(String role) {
     final clean = role.trim().toLowerCase();
 
-    if (clean == 'nursery' || clean == 'nursery_staff') {
+    if (clean == 'nursery' ||
+        clean == 'nursery staff' ||
+        clean == 'nursery_staff') {
       return 'موظفة الحضانة';
     }
+
     if (clean == 'admin') {
       return 'الإدارة';
     }
+
     if (clean == 'parent') {
       return 'وليّ الأمر';
     }
@@ -120,15 +164,17 @@ class ParentIncidentReportsPage extends StatelessWidget {
   String _resolveIncidentType(Map<String, dynamic> data) {
     return _firstNonEmpty([
       data['incidentType'],
-      data['type'],
-      data['reportType'],
-      data['title'],
+      data['incidentLabel'],
+      data['type'] == 'incident_report' ? '' : data['type'],
+      data['reportType'] == 'incident_report' ? '' : data['reportType'],
+      data['title'] == 'تقرير حادث' ? '' : data['title'],
     ]);
   }
 
   String _resolvePriority(Map<String, dynamic> data) {
     return _firstNonEmpty([
       data['priority'],
+      data['importance'],
       data['severity'],
       data['level'],
       data['autoRisk'],
@@ -138,10 +184,8 @@ class ParentIncidentReportsPage extends StatelessWidget {
   String _resolveDetails(Map<String, dynamic> data) {
     return _firstNonEmpty([
       data['details'],
+      data['incidentDetails'],
       data['note'],
-      data['message'],
-      data['body'],
-      data['description'],
     ]);
   }
 
@@ -151,6 +195,15 @@ class ParentIncidentReportsPage extends StatelessWidget {
       data['action'],
       data['response'],
       data['actionNote'],
+    ]);
+  }
+
+  String _resolveIncidentPlace(Map<String, dynamic> data) {
+    return _firstNonEmpty([
+      data['incidentPlace'],
+      data['locationLabel'],
+      data['place'],
+      data['location'],
     ]);
   }
 
@@ -173,60 +226,65 @@ class ParentIncidentReportsPage extends StatelessWidget {
     ]);
   }
 
-  bool _resolveParentNotified(Map<String, dynamic> data) {
-    final candidates = [
-      data['parentNotified'],
-      data['notifiedParent'],
-      data['isParentNotified'],
-    ];
-
-    for (final value in candidates) {
-      if (value is bool) return value;
-    }
-
-    return false;
+  String _resolveImageUrl(Map<String, dynamic> data) {
+    return _firstNonEmpty([
+      data['mediaUrl'],
+      data['imageUrl'],
+      data['photoUrl'],
+      data['attachmentUrl'],
+    ]);
   }
 
-  Timestamp? _resolveTimestamp(Map<String, dynamic> data) {
-    final candidates = [
-      data['eventAt'],
-      data['createdAt'],
-      data['time'],
-      data['timestamp'],
-      data['updatedAt'],
-    ];
+  List<String> _resolveWitnesses(Map<String, dynamic> data) {
+    final value = data['witnesses'];
 
-    for (final value in candidates) {
-      if (value is Timestamp) return value;
+    if (value is List) {
+      return value
+          .map((item) => item.toString().trim())
+          .where((item) => item.isNotEmpty)
+          .toList();
     }
 
-    return null;
+    final text = _firstNonEmpty([
+      data['witnessesText'],
+      data['witness'],
+    ]);
+
+    if (text.isEmpty) return [];
+
+    return text
+        .split(RegExp(r'[,،]'))
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .toList();
   }
 
-  Future<List<Map<String, dynamic>>> fetchIncidentReports() async {
-    final snapshot = await FirebaseFirestore.instance
-        .collection('incident_reports')
-        .where('childId', isEqualTo: child.id)
-        .get();
-
-    final items = snapshot.docs.map((doc) {
+  List<Map<String, dynamic>> _prepareIncidentReports(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final items = docs.map((doc) {
       final data = doc.data();
+      final displayDateTime = _resolveDateTime(data);
 
       return {
+        'id': doc.id,
         'incidentType': _resolveIncidentType(data),
         'priority': _resolvePriority(data),
+        'autoRisk': (data['autoRisk'] ?? '').toString().trim(),
         'details': _resolveDetails(data),
         'actionTaken': _resolveActionTaken(data),
-        'parentNotified': _resolveParentNotified(data),
+        'incidentPlace': _resolveIncidentPlace(data),
         'createdByName': _resolveCreatedByName(data),
         'createdByRole': _resolveCreatedByRole(data),
-        'displayTime': _resolveTimestamp(data),
+        'displayDateTime': displayDateTime,
+        'imageUrl': _resolveImageUrl(data),
+        'witnesses': _resolveWitnesses(data),
       };
     }).toList();
 
     items.sort((a, b) {
-      final aTime = a['displayTime'] as Timestamp?;
-      final bTime = b['displayTime'] as Timestamp?;
+      final aTime = a['displayDateTime'] as DateTime?;
+      final bTime = b['displayDateTime'] as DateTime?;
 
       if (aTime == null && bTime == null) return 0;
       if (aTime == null) return 1;
@@ -238,10 +296,115 @@ class ParentIncidentReportsPage extends StatelessWidget {
     return items;
   }
 
+  Stream<QuerySnapshot<Map<String, dynamic>>> _incidentReportsStream() {
+    return FirebaseFirestore.instance
+        .collection('incident_reports')
+        .where('childId', isEqualTo: child.id)
+        .snapshots();
+  }
+
+  Widget _buildImagePreview(String imageUrl) {
+    if (imageUrl.trim().isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: Image.network(
+          imageUrl,
+          height: 160,
+          width: double.infinity,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) {
+            return Container(
+              height: 120,
+              width: double.infinity,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.grey.shade300),
+              ),
+              child: Text(
+                'تعذر عرض صورة الحادث',
+                style: TextStyle(
+                  color: Colors.grey.shade600,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _infoRow({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    if (value.trim().isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: AppColors.textLight),
+          const SizedBox(width: 8),
+          Text(
+            '$label: ',
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              color: AppColors.textDark,
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(
+                color: AppColors.textLight,
+                height: 1.4,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _emptyState() {
+    return const Card(
+      child: Padding(
+        padding: EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.description_outlined,
+              size: 44,
+              color: AppColors.textLight,
+            ),
+            SizedBox(height: 10),
+            Text(
+              'لا توجد تقارير حالياً',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: AppColors.textLight,
+                fontSize: 15,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return AppPageScaffold(
-      title: 'بلاغات الحوادث',
+      title: 'تقارير الحوادث',
       child: Column(
         children: [
           Container(
@@ -266,10 +429,10 @@ class ParentIncidentReportsPage extends StatelessWidget {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    'بلاغات الحوادث والملاحظات المهمة للطفل ${child.name}',
+                    child.name,
                     style: const TextStyle(
                       fontWeight: FontWeight.bold,
-                      fontSize: 15.5,
+                      fontSize: 16,
                     ),
                   ),
                 ),
@@ -278,15 +441,15 @@ class ParentIncidentReportsPage extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           Expanded(
-            child: FutureBuilder<List<Map<String, dynamic>>>(
-              future: fetchIncidentReports(),
+            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: _incidentReportsStream(),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
                   return Card(
                     child: Padding(
                       padding: const EdgeInsets.all(18),
                       child: Text(
-                        'حدث خطأ أثناء تحميل البلاغات\n${snapshot.error}',
+                        'حدث خطأ أثناء تحميل التقارير\n${snapshot.error}',
                         style: const TextStyle(color: Colors.red),
                       ),
                     ),
@@ -299,33 +462,11 @@ class ParentIncidentReportsPage extends StatelessWidget {
                   );
                 }
 
-                final docs = snapshot.data ?? [];
+                final rawDocs = snapshot.data?.docs ?? [];
+                final docs = _prepareIncidentReports(rawDocs);
 
                 if (docs.isEmpty) {
-                  return Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: const [
-                          Icon(
-                            Icons.description_outlined,
-                            size: 44,
-                            color: AppColors.textLight,
-                          ),
-                          SizedBox(height: 10),
-                          Text(
-                            'لا توجد بلاغات حوادث أو ملاحظات مهمة حالياً',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: AppColors.textLight,
-                              fontSize: 15,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
+                  return _emptyState();
                 }
 
                 return ListView.separated(
@@ -333,17 +474,27 @@ class ParentIncidentReportsPage extends StatelessWidget {
                   separatorBuilder: (_, __) => const SizedBox(height: 10),
                   itemBuilder: (context, index) {
                     final data = docs[index];
+
                     final incidentType = (data['incidentType'] ?? '').toString();
                     final priority = (data['priority'] ?? '').toString();
+                    final autoRisk = (data['autoRisk'] ?? '').toString();
                     final details = (data['details'] ?? '').toString();
                     final actionTaken = (data['actionTaken'] ?? '').toString();
-                    final parentNotified = data['parentNotified'] == true;
+                    final incidentPlace =
+                        (data['incidentPlace'] ?? '').toString();
                     final createdByName =
                         (data['createdByName'] ?? '').toString();
                     final createdByRole =
                         (data['createdByRole'] ?? '').toString();
-                    final createdAt = data['displayTime'] as Timestamp?;
-                    final priorityColor = _priorityColor(priority);
+                    final displayDateTime =
+                        data['displayDateTime'] as DateTime?;
+                    final imageUrl = (data['imageUrl'] ?? '').toString();
+                    final witnesses =
+                        (data['witnesses'] as List<String>?) ?? [];
+
+                    final resolvedPriority =
+                        priority.trim().isNotEmpty ? priority : autoRisk;
+                    final priorityColor = _priorityColor(resolvedPriority);
 
                     final senderText = [
                       if (createdByName.trim().isNotEmpty)
@@ -383,7 +534,7 @@ class ParentIncidentReportsPage extends StatelessWidget {
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
-                                        _formatDate(createdAt),
+                                        _formatDateTime(displayDateTime),
                                         style: const TextStyle(
                                           color: AppColors.textLight,
                                           fontSize: 12.5,
@@ -402,7 +553,7 @@ class ParentIncidentReportsPage extends StatelessWidget {
                                     borderRadius: BorderRadius.circular(12),
                                   ),
                                   child: Text(
-                                    'الأولوية: ${_priorityLabel(priority)}',
+                                    _priorityLabel(resolvedPriority),
                                     style: TextStyle(
                                       color: priorityColor,
                                       fontWeight: FontWeight.bold,
@@ -412,88 +563,33 @@ class ParentIncidentReportsPage extends StatelessWidget {
                                 ),
                               ],
                             ),
-                            if (details.trim().isNotEmpty) ...[
-                              const SizedBox(height: 12),
-                              const Text(
-                                'التفاصيل',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                ),
+                            _buildImagePreview(imageUrl),
+                            const SizedBox(height: 4),
+                            _infoRow(
+                              icon: Icons.location_on_outlined,
+                              label: 'المكان',
+                              value: incidentPlace,
+                            ),
+                            _infoRow(
+                              icon: Icons.description_outlined,
+                              label: 'التفاصيل',
+                              value: details,
+                            ),
+                            _infoRow(
+                              icon: Icons.medical_services_outlined,
+                              label: 'الإجراء',
+                              value: actionTaken,
+                            ),
+                            if (witnesses.isNotEmpty)
+                              _infoRow(
+                                icon: Icons.groups_outlined,
+                                label: 'الشهود',
+                                value: witnesses.join('، '),
                               ),
-                              const SizedBox(height: 6),
-                              Text(
-                                details,
-                                style: const TextStyle(height: 1.45),
-                              ),
-                            ],
-                            if (actionTaken.trim().isNotEmpty) ...[
-                              const SizedBox(height: 12),
-                              const Text(
-                                'الإجراء المتخذ',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                actionTaken,
-                                style: const TextStyle(
-                                  color: AppColors.textLight,
-                                  height: 1.45,
-                                ),
-                              ),
-                            ],
-                            const SizedBox(height: 12),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 7,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: (parentNotified
-                                            ? Colors.green
-                                            : Colors.grey)
-                                        .withOpacity(0.10),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Text(
-                                    parentNotified
-                                        ? 'تم إشعار ولي الأمر'
-                                        : 'لم يتم إشعار ولي الأمر',
-                                    style: TextStyle(
-                                      color: parentNotified
-                                          ? Colors.green
-                                          : Colors.grey,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ),
-                                if (senderText.trim().isNotEmpty)
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 7,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color:
-                                          AppColors.primary.withOpacity(0.10),
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: Text(
-                                      'بواسطة: $senderText',
-                                      style: const TextStyle(
-                                        color: AppColors.primary,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ),
-                              ],
+                            _infoRow(
+                              icon: Icons.badge_outlined,
+                              label: 'تم بواسطة',
+                              value: senderText,
                             ),
                           ],
                         ),

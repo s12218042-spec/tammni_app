@@ -10,7 +10,94 @@ class PushSenderService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final SupabaseClient _supabase = Supabase.instance.client;
 
-  /// إرسال إشعار مباشر إلى توكن واحد
+  static const String _functionName = 'send-fcm-notification';
+
+  String _clean(String value) => value.trim();
+
+  String _normalizeUsername(String value) => value.trim().toLowerCase();
+
+  String _normalizeRole(String value) {
+    final role = value.trim().toLowerCase();
+
+    if (role == 'nursery' ||
+        role == 'nursery staff' ||
+        role == 'nursery_staff') {
+      return 'nursery_staff';
+    }
+
+    return role;
+  }
+
+  List<String> _extractTokens(Map<String, dynamic> data) {
+    final tokens = <String>{};
+
+    final rawFcmTokens = data['fcmTokens'];
+    if (rawFcmTokens is List) {
+      for (final token in rawFcmTokens) {
+        final cleanToken = token.toString().trim();
+        if (cleanToken.isNotEmpty) {
+          tokens.add(cleanToken);
+        }
+      }
+    }
+
+    final singleToken = (data['fcmToken'] ?? '').toString().trim();
+    if (singleToken.isNotEmpty) {
+      tokens.add(singleToken);
+    }
+
+    final notificationToken =
+        (data['notificationToken'] ?? '').toString().trim();
+    if (notificationToken.isNotEmpty) {
+      tokens.add(notificationToken);
+    }
+
+    return tokens.toList();
+  }
+
+  String _screenForType(String type) {
+    switch (type.trim().toLowerCase()) {
+      case 'message':
+      case 'message_reaction':
+        return 'messages';
+
+      case 'live_stream_started':
+      case 'live_stream_ended':
+        return 'live_stream';
+
+      case 'update_notification':
+      case 'nursery_notification':
+      case 'custom':
+        return 'notifications';
+
+      case 'entry':
+      case 'exit':
+        return 'entry_exit';
+
+      case 'incident_report':
+        return 'incident_report';
+
+      case 'invoice':
+      case 'invoice_status':
+      case 'invoice_created':
+      case 'invoice_updated':
+        return 'invoices';
+
+      case 'complaint_status':
+      case 'complaint_reply':
+        return 'complaints';
+
+      case 'account_enabled':
+      case 'account_disabled':
+      case 'account_updated':
+      case 'account_deleted':
+        return 'account';
+
+      default:
+        return 'notifications';
+    }
+  }
+
   Future<bool> sendToToken({
     required String token,
     required String title,
@@ -18,11 +105,19 @@ class PushSenderService {
     String type = 'general',
     String screen = '',
     String childId = '',
+    String childName = '',
     String parentUid = '',
+    String parentUsername = '',
+    String targetUid = '',
+    String targetRole = '',
+    String notificationId = '',
+    String roomId = '',
+    String liveStreamId = '',
+    Map<String, dynamic>? extraData,
   }) async {
-    final cleanToken = token.trim();
-    final cleanTitle = title.trim();
-    final cleanBody = body.trim();
+    final cleanToken = _clean(token);
+    final cleanTitle = _clean(title);
+    final cleanBody = _clean(body);
 
     if (cleanToken.isEmpty || cleanBody.isEmpty) {
       debugPrint('PushSenderService: token أو body فارغ');
@@ -31,152 +126,405 @@ class PushSenderService {
 
     try {
       final response = await _supabase.functions.invoke(
-        'send-fcm-notification',
+        _functionName,
         body: {
           'token': cleanToken,
           'title': cleanTitle.isNotEmpty ? cleanTitle : 'طمّني',
           'body': cleanBody,
-          'type': type,
-          'screen': screen,
-          'childId': childId,
-          'parentUid': parentUid,
+          'data': {
+            'type': type,
+            'screen': screen.trim().isEmpty ? _screenForType(type) : screen,
+            'childId': childId,
+            'childName': childName,
+            'parentUid': parentUid,
+            'parentUsername': parentUsername,
+            'targetUid': targetUid,
+            'targetRole': targetRole,
+            'notificationId': notificationId,
+            'roomId': roomId,
+            'liveStreamId': liveStreamId,
+            ...?extraData,
+          },
         },
       );
 
-      final data = response.data;
+      final status = response.status;
+      final isSuccess = status >= 200 && status < 300;
 
-      debugPrint('PushSenderService response: $data');
-
-      if (data is Map && data['success'] == true) {
-        return true;
+      if (!isSuccess) {
+        debugPrint(
+          'PushSenderService: فشل إرسال الإشعار. status=$status data=${response.data}',
+        );
       }
 
-      return false;
+      return isSuccess;
     } catch (e) {
-      debugPrint('PushSenderService sendToToken error: $e');
+      debugPrint('PushSenderService: خطأ أثناء sendToToken: $e');
       return false;
     }
   }
 
-  /// إرسال إشعار لكل أجهزة ولي الأمر حسب parentUid
-  Future<int> sendToParent({
-    required String parentUid,
+  Future<int> sendToTokens({
+    required List<String> tokens,
     required String title,
     required String body,
     String type = 'general',
     String screen = '',
     String childId = '',
+    String childName = '',
+    String parentUid = '',
+    String parentUsername = '',
+    String targetUid = '',
+    String targetRole = '',
+    String notificationId = '',
+    String roomId = '',
+    String liveStreamId = '',
+    Map<String, dynamic>? extraData,
   }) async {
-    final cleanParentUid = parentUid.trim();
+    final uniqueTokens = tokens
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toSet()
+        .toList();
 
-    if (cleanParentUid.isEmpty) {
-      debugPrint('PushSenderService: parentUid فارغ');
+    if (uniqueTokens.isEmpty) {
+      debugPrint('PushSenderService: لا يوجد tokens للإرسال');
       return 0;
     }
 
+    int successCount = 0;
+
+    for (final token in uniqueTokens) {
+      final ok = await sendToToken(
+        token: token,
+        title: title,
+        body: body,
+        type: type,
+        screen: screen,
+        childId: childId,
+        childName: childName,
+        parentUid: parentUid,
+        parentUsername: parentUsername,
+        targetUid: targetUid,
+        targetRole: targetRole,
+        notificationId: notificationId,
+        roomId: roomId,
+        liveStreamId: liveStreamId,
+        extraData: extraData,
+      );
+
+      if (ok) successCount++;
+    }
+
+    return successCount;
+  }
+
+  Future<List<String>> getUserTokensByUid(String uid) async {
+    final cleanUid = uid.trim();
+    if (cleanUid.isEmpty) return [];
+
     try {
-      final userDoc =
-          await _firestore.collection('users').doc(cleanParentUid).get();
+      final doc = await _firestore.collection('users').doc(cleanUid).get();
 
-      if (!userDoc.exists) {
-        debugPrint('PushSenderService: لا يوجد users/$cleanParentUid');
-        return 0;
-      }
+      if (!doc.exists) return [];
 
-      final data = userDoc.data() ?? {};
+      final data = doc.data() ?? <String, dynamic>{};
+      final isActive = (data['isActive'] ?? true) == true;
 
-      final rawTokens = data['fcmTokens'];
+      if (!isActive) return [];
 
-      if (rawTokens is! List || rawTokens.isEmpty) {
-        debugPrint('PushSenderService: لا يوجد fcmTokens لولي الأمر');
-        return 0;
-      }
+      return _extractTokens(data);
+    } catch (e) {
+      debugPrint('PushSenderService: فشل جلب tokens حسب uid: $e');
+      return [];
+    }
+  }
 
-      final tokens = rawTokens
-          .map((e) => e.toString().trim())
-          .where((token) => token.isNotEmpty)
-          .toSet()
-          .toList();
+  Future<List<String>> getUserTokensByUsername(String username) async {
+    final cleanUsername = _normalizeUsername(username);
+    if (cleanUsername.isEmpty) return [];
 
-      if (tokens.isEmpty) {
-        debugPrint('PushSenderService: قائمة التوكنات فارغة بعد التنظيف');
-        return 0;
-      }
+    try {
+      final snapshot = await _firestore
+          .collection('users')
+          .where('username', isEqualTo: cleanUsername)
+          .limit(1)
+          .get();
 
-      int successCount = 0;
+      if (snapshot.docs.isEmpty) return [];
 
-      for (final token in tokens) {
-        final success = await sendToToken(
-          token: token,
-          title: title,
-          body: body,
-          type: type,
-          screen: screen,
-          childId: childId,
-          parentUid: cleanParentUid,
-        );
+      final data = snapshot.docs.first.data();
+      final isActive = (data['isActive'] ?? true) == true;
 
-        if (success) {
-          successCount++;
+      if (!isActive) return [];
+
+      return _extractTokens(data);
+    } catch (e) {
+      debugPrint('PushSenderService: فشل جلب tokens حسب username: $e');
+      return [];
+    }
+  }
+
+  Future<List<String>> getUsersTokensByRole(String role) async {
+    final cleanRole = _normalizeRole(role);
+    if (cleanRole.isEmpty) return [];
+
+    try {
+      final tokens = <String>{};
+
+      Future<void> collectRoleTokens(String roleValue) async {
+        final snapshot = await _firestore
+            .collection('users')
+            .where('role', isEqualTo: roleValue)
+            .where('isActive', isEqualTo: true)
+            .get();
+
+        for (final doc in snapshot.docs) {
+          tokens.addAll(_extractTokens(doc.data()));
         }
       }
 
-      debugPrint(
-        'PushSenderService: تم إرسال $successCount من ${tokens.length} إشعار',
-      );
+      await collectRoleTokens(cleanRole);
 
-      return successCount;
+      if (cleanRole == 'nursery_staff') {
+        await collectRoleTokens('nursery');
+        await collectRoleTokens('nursery staff');
+      }
+
+      return tokens.toList();
     } catch (e) {
-      debugPrint('PushSenderService sendToParent error: $e');
-      return 0;
+      debugPrint('PushSenderService: فشل جلب tokens حسب الدور: $e');
+      return [];
     }
   }
 
-  /// إرسال إشعار تحديث طفل
-  Future<int> sendChildUpdateNotification({
-    required String parentUid,
-    required String childId,
-    required String childName,
-    String updateType = '',
+  Future<int> sendToUser({
+    required String uid,
+    required String title,
+    required String body,
+    String type = 'general',
+    String screen = '',
+    String childId = '',
+    String childName = '',
+    String parentUid = '',
+    String parentUsername = '',
+    String targetRole = '',
+    String notificationId = '',
+    String roomId = '',
+    String liveStreamId = '',
+    Map<String, dynamic>? extraData,
   }) async {
-    final title = 'تحديث جديد من طمّني';
+    final cleanUid = uid.trim();
+    if (cleanUid.isEmpty) return 0;
 
-    final body = childName.trim().isEmpty
-        ? 'تمت إضافة تحديث جديد لطفلك'
-        : 'تمت إضافة تحديث جديد للطفل $childName';
+    final tokens = await getUserTokensByUid(cleanUid);
 
-    return sendToParent(
-      parentUid: parentUid,
+    return sendToTokens(
+      tokens: tokens,
       title: title,
       body: body,
-      type: updateType.isNotEmpty ? updateType : 'child_update',
-      screen: 'child_updates',
+      type: type,
+      screen: screen,
       childId: childId,
+      childName: childName,
+      parentUid: parentUid,
+      parentUsername: parentUsername,
+      targetUid: cleanUid,
+      targetRole: targetRole,
+      notificationId: notificationId,
+      roomId: roomId,
+      liveStreamId: liveStreamId,
+      extraData: extraData,
     );
   }
 
-  /// إرسال إشعار رسالة جديدة
-  Future<int> sendNewMessageNotification({
-    required String receiverUid,
-    required String senderName,
-    required String messagePreview,
+  Future<int> sendToParent({
+    required String parentUid,
+    required String parentUsername,
+    required String title,
+    required String body,
+    String type = 'general',
+    String screen = '',
     String childId = '',
+    String childName = '',
+    String notificationId = '',
+    String roomId = '',
+    String liveStreamId = '',
+    Map<String, dynamic>? extraData,
   }) async {
-    final title = senderName.trim().isEmpty
-        ? 'رسالة جديدة في طمّني'
-        : 'رسالة جديدة من $senderName';
+    final tokens = <String>{};
 
-    final body = messagePreview.trim().isEmpty
-        ? 'لديك رسالة جديدة'
-        : messagePreview.trim();
+    final cleanParentUid = parentUid.trim();
+    final cleanParentUsername = _normalizeUsername(parentUsername);
 
-    return sendToParent(
-      parentUid: receiverUid,
+    if (cleanParentUid.isNotEmpty) {
+      tokens.addAll(await getUserTokensByUid(cleanParentUid));
+    }
+
+    if (tokens.isEmpty && cleanParentUsername.isNotEmpty) {
+      tokens.addAll(await getUserTokensByUsername(cleanParentUsername));
+    }
+
+    return sendToTokens(
+      tokens: tokens.toList(),
       title: title,
       body: body,
-      type: 'new_message',
-      screen: 'messages',
+      type: type,
+      screen: screen,
       childId: childId,
+      childName: childName,
+      parentUid: cleanParentUid,
+      parentUsername: cleanParentUsername,
+      targetUid: cleanParentUid,
+      targetRole: 'parent',
+      notificationId: notificationId,
+      roomId: roomId,
+      liveStreamId: liveStreamId,
+      extraData: extraData,
     );
+  }
+
+  Future<int> sendToRole({
+    required String role,
+    required String title,
+    required String body,
+    String type = 'general',
+    String screen = '',
+    String notificationId = '',
+    Map<String, dynamic>? extraData,
+  }) async {
+    final cleanRole = _normalizeRole(role);
+    final tokens = await getUsersTokensByRole(cleanRole);
+
+    return sendToTokens(
+      tokens: tokens,
+      title: title,
+      body: body,
+      type: type,
+      screen: screen,
+      targetRole: cleanRole,
+      notificationId: notificationId,
+      extraData: extraData,
+    );
+  }
+
+  Future<int> sendFromNotificationData({
+    required String notificationId,
+    required Map<String, dynamic> notificationData,
+  }) async {
+    final title = (notificationData['title'] ?? 'طمّني').toString().trim();
+
+    final body = (notificationData['body'] ??
+            notificationData['message'] ??
+            notificationData['text'] ??
+            '')
+        .toString()
+        .trim();
+
+    if (body.isEmpty) {
+      debugPrint('PushSenderService: notification body فارغ');
+      return 0;
+    }
+
+    final type = (notificationData['type'] ?? 'general').toString().trim();
+
+    final screen = _screenForType(type);
+
+    final targetUid =
+        (notificationData['targetUid'] ?? '').toString().trim();
+
+    final targetRole = _normalizeRole(
+      (notificationData['targetRole'] ??
+              notificationData['notificationFor'] ??
+              '')
+          .toString(),
+    );
+
+    final parentUid =
+        (notificationData['parentUid'] ?? '').toString().trim();
+
+    final parentUsername =
+        (notificationData['parentUsername'] ?? '').toString().trim();
+
+    final childId = (notificationData['childId'] ?? '').toString().trim();
+    final childName = (notificationData['childName'] ?? '').toString().trim();
+
+    final roomId = (notificationData['roomId'] ??
+            notificationData['liveStreamId'] ??
+            '')
+        .toString()
+        .trim();
+
+    final liveStreamId = (notificationData['liveStreamId'] ??
+            notificationData['roomId'] ??
+            '')
+        .toString()
+        .trim();
+
+    final extraPayload = {
+      'status': (notificationData['status'] ?? '').toString(),
+      'priority': (notificationData['priority'] ??
+              notificationData['importance'] ??
+              '')
+          .toString(),
+      'createdByUid': (notificationData['createdByUid'] ?? '').toString(),
+      'createdByName': (notificationData['createdByName'] ?? '').toString(),
+      'createdByRole': (notificationData['createdByRole'] ?? '').toString(),
+      'messageId': (notificationData['messageId'] ?? '').toString(),
+      'conversationChildId':
+          (notificationData['conversationChildId'] ?? '').toString(),
+      'emoji': (notificationData['emoji'] ?? '').toString(),
+    };
+
+    if (targetUid.isNotEmpty) {
+      return sendToUser(
+        uid: targetUid,
+        title: title,
+        body: body,
+        type: type,
+        screen: screen,
+        childId: childId,
+        childName: childName,
+        parentUid: parentUid,
+        parentUsername: parentUsername,
+        targetRole: targetRole,
+        notificationId: notificationId,
+        roomId: roomId,
+        liveStreamId: liveStreamId,
+        extraData: extraPayload,
+      );
+    }
+
+    if (parentUid.isNotEmpty || parentUsername.isNotEmpty) {
+      return sendToParent(
+        parentUid: parentUid,
+        parentUsername: parentUsername,
+        title: title,
+        body: body,
+        type: type,
+        screen: screen,
+        childId: childId,
+        childName: childName,
+        notificationId: notificationId,
+        roomId: roomId,
+        liveStreamId: liveStreamId,
+        extraData: extraPayload,
+      );
+    }
+
+    if (targetRole.isNotEmpty) {
+      return sendToRole(
+        role: targetRole,
+        title: title,
+        body: body,
+        type: type,
+        screen: screen,
+        notificationId: notificationId,
+        extraData: extraPayload,
+      );
+    }
+
+    debugPrint('PushSenderService: لا يوجد target واضح للإشعار');
+    return 0;
   }
 }

@@ -43,37 +43,37 @@ class AccountSettingsData {
       name: (map['name'] ?? map['displayName'] ?? '').toString().trim(),
       username: (map['username'] ?? '').toString().trim(),
       email: (map['email'] ?? '').toString().trim(),
-      role: _normalizeRole((map['role'] ?? '').toString()),
+      role: normalizeRole((map['role'] ?? '').toString()),
       isActive: (map['isActive'] ?? true) == true,
       pendingEmail: (map['pendingEmail'] ?? '').toString().trim(),
       emailChangeRequestedAt: parseDate(map['emailChangeRequestedAt']),
     );
   }
 
- static String _normalizeRole(String rawRole) {
-  final role = rawRole.trim().toLowerCase();
+  static String normalizeRole(String rawRole) {
+    final role = rawRole.trim().toLowerCase();
 
-  if (role == 'nursery' ||
-      role == 'nursery staff' ||
-      role == 'nursery_staff') {
-    return 'nursery_staff';
+    if (role == 'nursery' ||
+        role == 'nursery staff' ||
+        role == 'nursery_staff') {
+      return 'nursery_staff';
+    }
+
+    return role;
   }
-
-  return role;
-}
 
   String get roleLabel {
-  switch (role) {
-    case 'parent':
-      return 'وليّ أمر';
-    case 'nursery_staff':
-      return 'موظفة الحضانة';
-    case 'admin':
-      return 'الأدمن';
-    default:
-      return 'مستخدم';
+    switch (role) {
+      case 'parent':
+        return 'وليّ أمر';
+      case 'nursery_staff':
+        return 'موظفة الحضانة';
+      case 'admin':
+        return 'الإدارة';
+      default:
+        return 'مستخدم';
+    }
   }
-}
 
   bool get hasPendingEmailChange => pendingEmail.isNotEmpty;
 }
@@ -117,6 +117,20 @@ class AccountSettingsService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   User? get currentUser => _auth.currentUser;
+
+  static const String _authActionUrl =
+      'https://daycare-app-220c0.web.app/auth_action.html';
+
+  ActionCodeSettings get _actionCodeSettings {
+    return ActionCodeSettings(
+      url: _authActionUrl,
+      handleCodeInApp: false,
+    );
+  }
+
+  String _normalizeRole(String rawRole) {
+    return AccountSettingsData.normalizeRole(rawRole);
+  }
 
   Future<DocumentSnapshot<Map<String, dynamic>>> _getUserDoc() async {
     final user = _auth.currentUser;
@@ -171,6 +185,7 @@ class AccountSettingsService {
 
     final normalizedSpaces = name.replaceAll(RegExp(r'\s+'), ' ');
     final regex = RegExp(r'^[A-Za-z\u0600-\u06FF\s]+$');
+
     if (!regex.hasMatch(normalizedSpaces)) {
       return 'الاسم يجب أن يحتوي على حروف فقط بدون أرقام أو رموز';
     }
@@ -195,7 +210,7 @@ class AccountSettingsService {
   }
 
   String formatFullName(String rawName) {
-    String cleaned = rawName.trim().replaceAll(RegExp(r'\s+'), ' ');
+    final cleaned = rawName.trim().replaceAll(RegExp(r'\s+'), ' ');
 
     if (cleaned.isEmpty) return cleaned;
 
@@ -236,7 +251,7 @@ class AccountSettingsService {
       'status': status,
       'actorUid': actorUid ?? currentUser?.uid ?? '',
       'actorName': actorName ?? (currentUser?.displayName ?? ''),
-      'actorRole': actorRole ?? '',
+      'actorRole': _normalizeRole(actorRole ?? ''),
       'createdAt': FieldValue.serverTimestamp(),
       ...?extraData,
     });
@@ -267,6 +282,7 @@ class AccountSettingsService {
     }
 
     final validationError = validateFullName(newName);
+
     if (validationError != null) {
       throw FirebaseAuthException(
         code: 'invalid-name',
@@ -324,6 +340,7 @@ class AccountSettingsService {
     }
 
     final email = (user.email ?? '').trim();
+
     if (email.isEmpty) {
       throw FirebaseAuthException(
         code: 'missing-email',
@@ -380,6 +397,9 @@ class AccountSettingsService {
       await docRef.set({
         'passwordUpdatedAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
+        'mustChangePassword': false,
+        'isFirstLogin': false,
+        'passwordChangedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
       await logAccountAction(
@@ -418,6 +438,40 @@ class AccountSettingsService {
     }
   }
 
+  Future<bool> _emailExistsInAppData({
+    required String email,
+    required String currentUid,
+  }) async {
+    final cleanEmail = email.trim().toLowerCase();
+
+    final loginSnapshot = await _firestore
+        .collection('login_usernames')
+        .where('email', isEqualTo: cleanEmail)
+        .limit(1)
+        .get();
+
+    for (final doc in loginSnapshot.docs) {
+      final uid = (doc.data()['uid'] ?? '').toString().trim();
+      if (uid.isEmpty || uid != currentUid) {
+        return true;
+      }
+    }
+
+    final usersSnapshot = await _firestore
+        .collection('users')
+        .where('email', isEqualTo: cleanEmail)
+        .limit(1)
+        .get();
+
+    for (final doc in usersSnapshot.docs) {
+      if (doc.id != currentUid) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   Future<void> requestEmailChange({
     required String newEmail,
     required String currentPassword,
@@ -444,6 +498,7 @@ class AccountSettingsService {
     final cleanPassword = currentPassword.trim();
 
     final emailError = validateEmail(cleanNewEmail);
+
     if (emailError != null) {
       throw FirebaseAuthException(
         code: 'invalid-new-email',
@@ -472,6 +527,18 @@ class AccountSettingsService {
       );
     }
 
+    final existsInAppData = await _emailExistsInAppData(
+      email: cleanNewEmail,
+      currentUid: user.uid,
+    );
+
+    if (existsInAppData) {
+      throw FirebaseAuthException(
+        code: 'email-already-in-use',
+        message: 'هذا البريد مستخدم مسبقًا داخل النظام',
+      );
+    }
+
     final credential = EmailAuthProvider.credential(
       email: currentEmail,
       password: cleanPassword,
@@ -480,14 +547,9 @@ class AccountSettingsService {
     try {
       await user.reauthenticateWithCredential(credential);
 
-      final actionCodeSettings = ActionCodeSettings(
-        url: 'https://daycare-app-220c0.web.app/auth_action.html',
-        handleCodeInApp: false,
-      );
-
       await user.verifyBeforeUpdateEmail(
         cleanNewEmail,
-        actionCodeSettings,
+        _actionCodeSettings,
       );
 
       final userDocRef = await _getUserDocRef();
@@ -506,6 +568,7 @@ class AccountSettingsService {
 
       if (username.isNotEmpty) {
         final loginRef = _firestore.collection('login_usernames').doc(username);
+
         batch.set(loginRef, {
           'pendingEmail': cleanNewEmail,
           'emailChangeRequestedAt': FieldValue.serverTimestamp(),
@@ -583,6 +646,7 @@ class AccountSettingsService {
     }
 
     await user.reload();
+
     final refreshedUser = _auth.currentUser;
     final actualEmail = (refreshedUser?.email ?? '').trim().toLowerCase();
 
@@ -628,9 +692,14 @@ class AccountSettingsService {
   }
 
   Future<void> clearPendingEmailChange() async {
+    final user = _auth.currentUser;
     final userDoc = await _getUserDoc();
     final data = userDoc.data() ?? <String, dynamic>{};
-    final username = (data['username'] ?? '').toString().trim().toLowerCase();
+
+    final username =
+        (data['username'] ?? '').toString().trim().toLowerCase();
+    final pendingEmail =
+        (data['pendingEmail'] ?? '').toString().trim().toLowerCase();
 
     final batch = _firestore.batch();
 
@@ -642,6 +711,7 @@ class AccountSettingsService {
 
     if (username.isNotEmpty) {
       final loginRef = _firestore.collection('login_usernames').doc(username);
+
       batch.set(loginRef, {
         'pendingEmail': FieldValue.delete(),
         'emailChangeRequestedAt': FieldValue.delete(),
@@ -650,6 +720,19 @@ class AccountSettingsService {
     }
 
     await batch.commit();
+
+    if (user != null && pendingEmail.isNotEmpty) {
+      await logAccountAction(
+        targetUid: user.uid,
+        action: 'email_change_cancelled',
+        title: 'تم إلغاء طلب تغيير البريد',
+        message: 'تم إلغاء طلب تغيير البريد الإلكتروني قبل اعتماده',
+        status: 'info',
+        extraData: {
+          'cancelledPendingEmail': pendingEmail,
+        },
+      );
+    }
   }
 
   Future<void> deactivateCurrentAccount({
@@ -666,12 +749,12 @@ class AccountSettingsService {
 
     final doc = await _getUserDoc();
     final data = doc.data() ?? <String, dynamic>{};
-    final role = ((data['role'] ?? '').toString()).trim().toLowerCase();
+    final role = _normalizeRole((data['role'] ?? '').toString());
 
     if (role == 'admin') {
       throw FirebaseAuthException(
         code: 'admin-self-deactivate-not-allowed',
-        message: 'لا يمكن للأدمن تعطيل حسابه بنفسه',
+        message: 'لا يمكن للإدارة تعطيل حسابها بنفسها',
       );
     }
 
@@ -716,16 +799,12 @@ class AccountSettingsService {
 
     final doc = await _getUserDoc();
     final data = doc.data() ?? <String, dynamic>{};
-
-    final rawRole = (data['role'] ?? '').toString().trim().toLowerCase();
-    final role = rawRole == 'nursery' || rawRole == 'nursery staff'
-        ? 'nursery_staff'
-        : rawRole;
+    final role = _normalizeRole((data['role'] ?? '').toString());
 
     if (role == 'admin') {
       throw FirebaseAuthException(
         code: 'admin-self-delete-not-allowed',
-        message: 'لا يمكن للأدمن طلب حذف حسابه بنفسه',
+        message: 'لا يمكن للإدارة طلب حذف حسابها بنفسها',
       );
     }
 
@@ -765,9 +844,7 @@ class AccountSettingsService {
       'updatedAt': FieldValue.serverTimestamp(),
     });
 
-    final docRef = doc.reference;
-
-    await docRef.set({
+    await doc.reference.set({
       'deletionRequested': true,
       'deletionRequestType': 'permanent',
       'deletionRequestedAt': FieldValue.serverTimestamp(),
@@ -795,12 +872,12 @@ class AccountSettingsService {
 
     final doc = await _getUserDoc();
     final data = doc.data() ?? <String, dynamic>{};
-    final rawRole = (data['role'] ?? '').toString().trim().toLowerCase();
+    final role = _normalizeRole((data['role'] ?? '').toString());
 
-    if (rawRole == 'admin') {
+    if (role == 'admin') {
       throw FirebaseAuthException(
         code: 'admin-cancel-delete-not-allowed',
-        message: 'لا يمكن للأدمن تنفيذ هذه العملية',
+        message: 'لا يمكن للإدارة تنفيذ هذه العملية',
       );
     }
 
@@ -829,6 +906,7 @@ class AccountSettingsService {
       if (aTime == null && bTime == null) return 0;
       if (aTime == null) return 1;
       if (bTime == null) return -1;
+
       return bTime.compareTo(aTime);
     });
 
@@ -888,6 +966,7 @@ class AccountSettingsService {
       if (aTime == null && bTime == null) return 0;
       if (aTime == null) return 1;
       if (bTime == null) return -1;
+
       return bTime.compareTo(aTime);
     });
 

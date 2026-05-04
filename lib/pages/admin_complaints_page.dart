@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
@@ -13,6 +14,7 @@ class AdminComplaintsPage extends StatefulWidget {
 
 class _AdminComplaintsPageState extends State<AdminComplaintsPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
 
   final TextEditingController _searchController = TextEditingController();
 
@@ -30,6 +32,12 @@ class _AdminComplaintsPageState extends State<AdminComplaintsPage> {
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  String _safeText(dynamic value, {String fallback = ''}) {
+    if (value == null) return fallback;
+    final text = value.toString().trim();
+    return text.isEmpty ? fallback : text;
   }
 
   String _statusLabel(String status) {
@@ -86,6 +94,83 @@ class _AdminComplaintsPageState extends State<AdminComplaintsPage> {
     return 'غير محدد';
   }
 
+  String _notificationTitleForStatus(String status) {
+    switch (status.trim().toLowerCase()) {
+      case 'in_review':
+        return 'تمت مراجعة شكواك';
+      case 'resolved':
+        return 'تم حل الشكوى';
+      case 'rejected':
+        return 'تم إغلاق الشكوى';
+      case 'pending':
+        return 'تم تحديث الشكوى';
+      default:
+        return 'تحديث على الشكوى';
+    }
+  }
+
+  String _notificationBodyForComplaint({
+    required String status,
+    required String complaintTitle,
+    required String adminReply,
+  }) {
+    final statusLabel = _statusLabel(status);
+
+    if (adminReply.trim().isNotEmpty) {
+      return 'تم تحديث حالة الشكوى "$complaintTitle" إلى: $statusLabel. رد الإدارة: ${adminReply.trim()}';
+    }
+
+    return 'تم تحديث حالة الشكوى "$complaintTitle" إلى: $statusLabel.';
+  }
+
+  String _priorityForStatus(String status) {
+    switch (status.trim().toLowerCase()) {
+      case 'resolved':
+        return 'important';
+      case 'rejected':
+        return 'important';
+      default:
+        return 'normal';
+    }
+  }
+
+  Future<Map<String, String>> _fetchCurrentAdminInfo() async {
+    final currentUser = _auth.currentUser;
+
+    if (currentUser == null) {
+      return {
+        'uid': '',
+        'name': 'الإدارة',
+        'role': 'admin',
+        'username': '',
+      };
+    }
+
+    try {
+      final doc = await _firestore.collection('users').doc(currentUser.uid).get();
+      final data = doc.data() ?? <String, dynamic>{};
+
+      return {
+        'uid': currentUser.uid,
+        'name': _safeText(
+          data['displayName'] ?? data['name'] ?? data['username'],
+          fallback: 'الإدارة',
+        ),
+        'role': 'admin',
+        'username': _safeText(data['username']).toLowerCase(),
+      };
+    } catch (_) {
+      return {
+        'uid': currentUser.uid,
+        'name': currentUser.displayName?.trim().isNotEmpty == true
+            ? currentUser.displayName!.trim()
+            : 'الإدارة',
+        'role': 'admin',
+        'username': '',
+      };
+    }
+  }
+
   void _toggleStatusFilter(String value) {
     setState(() {
       if (_selectedStatuses.contains(value)) {
@@ -106,33 +191,143 @@ class _AdminComplaintsPageState extends State<AdminComplaintsPage> {
 
   Future<void> _updateComplaintStatus({
     required String docId,
+    required Map<String, dynamic> oldData,
     required String newStatus,
     String? adminReply,
   }) async {
     try {
-      final data = <String, dynamic>{
+      final adminInfo = await _fetchCurrentAdminInfo();
+      final now = Timestamp.now();
+
+      final replyText = (adminReply ?? '').trim();
+      final parentUid = _safeText(oldData['parentUid']);
+      final parentUsername = _safeText(oldData['parentUsername']).toLowerCase();
+      final parentName = _safeText(oldData['parentName'], fallback: 'وليّ الأمر');
+      final complaintTitle =
+          _safeText(oldData['title'], fallback: 'شكوى بدون عنوان');
+      final oldStatus = _safeText(oldData['status'], fallback: 'pending');
+
+      final complaintUpdateData = <String, dynamic>{
         'status': newStatus,
         'updatedAt': FieldValue.serverTimestamp(),
+        'reviewedAt': FieldValue.serverTimestamp(),
+        'reviewedByUid': adminInfo['uid'],
+        'reviewedByName': adminInfo['name'],
+        'reviewedByRole': 'admin',
       };
 
       if (newStatus == 'resolved') {
-        data['resolvedAt'] = FieldValue.serverTimestamp();
+        complaintUpdateData['resolvedAt'] = FieldValue.serverTimestamp();
       }
 
-      if (adminReply != null) {
-        data['adminReply'] = adminReply.trim();
+      if (replyText.isNotEmpty) {
+        complaintUpdateData['adminReply'] = replyText;
+        complaintUpdateData['reviewNote'] = replyText;
+      } else if (adminReply != null) {
+        complaintUpdateData['adminReply'] = '';
       }
 
-      await _firestore.collection('complaints').doc(docId).set(
-            data,
-            SetOptions(merge: true),
-          );
+      final batch = _firestore.batch();
+
+      final complaintRef = _firestore.collection('complaints').doc(docId);
+      batch.set(complaintRef, complaintUpdateData, SetOptions(merge: true));
+
+      final shouldCreateNotification =
+          parentUid.isNotEmpty || parentUsername.isNotEmpty;
+
+      final statusChanged = oldStatus.trim().toLowerCase() !=
+          newStatus.trim().toLowerCase();
+
+      final hasReply = replyText.isNotEmpty;
+
+      if (shouldCreateNotification && (statusChanged || hasReply)) {
+        final notificationTitle = _notificationTitleForStatus(newStatus);
+        final notificationBody = _notificationBodyForComplaint(
+          status: newStatus,
+          complaintTitle: complaintTitle,
+          adminReply: replyText,
+        );
+
+        final notificationRef = _firestore.collection('notifications').doc();
+
+        batch.set(notificationRef, {
+          // Receiver / target fields
+          'targetUid': parentUid,
+          'targetUsername': parentUsername,
+          'targetRole': 'parent',
+          'targetName': parentName,
+          'notificationFor': 'parent',
+
+          // Backward-compatible parent fields
+          'parentUid': parentUid,
+          'parentUsername': parentUsername,
+          'parentName': parentName,
+
+          // Notification content
+          'title': notificationTitle,
+          'subject': notificationTitle,
+          'notificationTitle': notificationTitle,
+          'body': notificationBody,
+          'message': notificationBody,
+          'text': notificationBody,
+          'description': notificationBody,
+          'details': notificationBody,
+
+          // Complaint context
+          'complaintId': docId,
+          'complaintTitle': complaintTitle,
+          'complaintStatus': newStatus,
+          'adminReply': replyText,
+
+          // Type/classification
+          'type': 'complaint_update',
+          'notificationType': 'complaint_update',
+          'category': 'complaints',
+          'templateType': 'admin_complaint_reply',
+          'priority': _priorityForStatus(newStatus),
+          'importance': _priorityForStatus(newStatus),
+          'level': _priorityForStatus(newStatus),
+
+          // Read state
+          'isRead': false,
+          'read': false,
+          'seen': false,
+          'readAt': null,
+
+          // Created by fields
+          'createdByUid': adminInfo['uid'],
+          'createdByName': adminInfo['name'],
+          'createdByRole': 'admin',
+          'createdByUsername': adminInfo['username'],
+          'byRole': 'admin',
+          'senderId': adminInfo['uid'],
+          'senderName': adminInfo['name'],
+          'senderRole': 'admin',
+
+          // Routing/linking
+          'source': 'admin_complaints_page',
+          'route': 'parent_complaints',
+          'relatedCollection': 'complaints',
+          'relatedDocId': docId,
+
+          // Time fields
+          'createdAt': now,
+          'time': FieldValue.serverTimestamp(),
+          'timestamp': now,
+          'eventAt': now,
+          'updatedAt': now,
+        });
+      }
+
+      await batch.commit();
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            'تم تحديث حالة الشكوى بنجاح',
+            shouldCreateNotification
+                ? 'تم تحديث حالة الشكوى وإشعار ولي الأمر'
+                : 'تم تحديث حالة الشكوى بنجاح',
             textAlign: TextAlign.center,
           ),
         ),
@@ -155,7 +350,7 @@ class _AdminComplaintsPageState extends State<AdminComplaintsPage> {
     required Map<String, dynamic> data,
   }) async {
     final replyController = TextEditingController(
-      text: (data['adminReply'] ?? '').toString(),
+      text: (data['adminReply'] ?? data['reviewNote'] ?? '').toString(),
     );
 
     final currentStatus = (data['status'] ?? 'pending').toString();
@@ -176,21 +371,26 @@ class _AdminComplaintsPageState extends State<AdminComplaintsPage> {
                     children: [
                       _detailItem(
                         label: 'عنوان الشكوى',
-                        value: (data['title'] ?? 'بدون عنوان').toString(),
+                        value: _safeText(data['title'], fallback: 'بدون عنوان'),
                       ),
                       _detailItem(
                         label: 'وليّ الأمر',
-                        value: (data['parentName'] ?? 'غير محدد').toString(),
+                        value: _safeText(
+                          data['parentName'],
+                          fallback: 'غير محدد',
+                        ),
                       ),
                       _detailItem(
                         label: 'اسم المستخدم',
-                        value:
-                            (data['parentUsername'] ?? 'غير محدد').toString(),
+                        value: _safeText(
+                          data['parentUsername'],
+                          fallback: 'غير محدد',
+                        ),
                       ),
                       _detailItem(
                         label: 'الحالة الحالية',
                         value: _statusLabel(
-                          (data['status'] ?? 'pending').toString(),
+                          _safeText(data['status'], fallback: 'pending'),
                         ),
                       ),
                       _detailItem(
@@ -199,9 +399,18 @@ class _AdminComplaintsPageState extends State<AdminComplaintsPage> {
                       ),
                       _detailItem(
                         label: 'محتوى الشكوى',
-                        value: (data['message'] ?? 'لا يوجد نص').toString(),
+                        value: _safeText(
+                          data['message'],
+                          fallback: 'لا يوجد نص',
+                        ),
                         isMultiline: true,
                       ),
+                      if (_safeText(data['adminReply']).isNotEmpty)
+                        _detailItem(
+                          label: 'آخر رد من الإدارة',
+                          value: _safeText(data['adminReply']),
+                          isMultiline: true,
+                        ),
                       const SizedBox(height: 12),
                       DropdownButtonFormField<String>(
                         value: selectedStatus,
@@ -229,8 +438,9 @@ class _AdminComplaintsPageState extends State<AdminComplaintsPage> {
                         controller: replyController,
                         maxLines: 4,
                         decoration: const InputDecoration(
-                          labelText: 'رد الأدمن / ملاحظة إدارية',
-                          hintText: 'اكتبي ردًا أو ملاحظة داخلية على الشكوى',
+                          labelText: 'رد الإدارة لولي الأمر',
+                          hintText:
+                              'اكتبي ردًا واضحًا سيظهر لولي الأمر في صفحة الشكاوى وسيصله كإشعار',
                           prefixIcon: Icon(Icons.reply_all_rounded),
                           alignLabelWithHint: true,
                         ),
@@ -247,6 +457,7 @@ class _AdminComplaintsPageState extends State<AdminComplaintsPage> {
                     onPressed: () async {
                       await _updateComplaintStatus(
                         docId: docId,
+                        oldData: data,
                         newStatus: selectedStatus,
                         adminReply: replyController.text,
                       );
@@ -255,7 +466,7 @@ class _AdminComplaintsPageState extends State<AdminComplaintsPage> {
                       Navigator.pop(context);
                     },
                     icon: const Icon(Icons.save_outlined),
-                    label: const Text('حفظ التحديث'),
+                    label: const Text('حفظ وإشعار ولي الأمر'),
                   ),
                 ],
               ),
@@ -314,12 +525,11 @@ class _AdminComplaintsPageState extends State<AdminComplaintsPage> {
     return docs.where((doc) {
       final data = doc.data();
 
-      final status = (data['status'] ?? 'pending').toString().trim();
-      final title = (data['title'] ?? '').toString().toLowerCase();
-      final message = (data['message'] ?? '').toString().toLowerCase();
-      final parentName = (data['parentName'] ?? '').toString().toLowerCase();
-      final parentUsername =
-          (data['parentUsername'] ?? '').toString().toLowerCase();
+      final status = _safeText(data['status'], fallback: 'pending');
+      final title = _safeText(data['title']).toLowerCase();
+      final message = _safeText(data['message']).toLowerCase();
+      final parentName = _safeText(data['parentName']).toLowerCase();
+      final parentUsername = _safeText(data['parentUsername']).toLowerCase();
 
       final matchesStatus =
           _selectedStatuses.isEmpty || _selectedStatuses.contains(status);
@@ -338,7 +548,7 @@ class _AdminComplaintsPageState extends State<AdminComplaintsPage> {
   @override
   Widget build(BuildContext context) {
     return AppPageScaffold(
-      title: 'شكاوي أولياء الأمور',
+      title: 'شكاوى أولياء الأمور',
       child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: _firestore
             .collection('complaints')
@@ -377,13 +587,15 @@ class _AdminComplaintsPageState extends State<AdminComplaintsPage> {
                   ...docs.map((doc) {
                     final data = doc.data();
                     final title =
-                        (data['title'] ?? 'شكوى بدون عنوان').toString();
-                    final message = (data['message'] ?? '').toString();
-                    final parentName =
-                        (data['parentName'] ?? 'وليّ أمر غير محدد').toString();
-                    final parentUsername =
-                        (data['parentUsername'] ?? '').toString();
-                    final status = (data['status'] ?? 'pending').toString();
+                        _safeText(data['title'], fallback: 'شكوى بدون عنوان');
+                    final message = _safeText(data['message']);
+                    final parentName = _safeText(
+                      data['parentName'],
+                      fallback: 'وليّ أمر غير محدد',
+                    );
+                    final parentUsername = _safeText(data['parentUsername']);
+                    final status =
+                        _safeText(data['status'], fallback: 'pending');
 
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 12),
@@ -472,6 +684,43 @@ class _AdminComplaintsPageState extends State<AdminComplaintsPage> {
                                   ),
                                 ),
                               ),
+                              if (_safeText(data['adminReply']).isNotEmpty) ...[
+                                const SizedBox(height: 10),
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.primary.withOpacity(0.06),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: AppColors.primary.withOpacity(0.12),
+                                    ),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'آخر رد من الإدارة',
+                                        style: TextStyle(
+                                          color: AppColors.primary,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        _safeText(data['adminReply']),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: AppColors.textDark,
+                                          height: 1.4,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                               const SizedBox(height: 10),
                               Row(
                                 children: [
@@ -502,7 +751,8 @@ class _AdminComplaintsPageState extends State<AdminComplaintsPage> {
                                           data: data,
                                         );
                                       },
-                                      icon: const Icon(Icons.visibility_outlined),
+                                      icon:
+                                          const Icon(Icons.visibility_outlined),
                                       label: const Text('عرض التفاصيل'),
                                     ),
                                   ),
@@ -541,15 +791,15 @@ class _AdminComplaintsPageState extends State<AdminComplaintsPage> {
     List<QueryDocumentSnapshot<Map<String, dynamic>>> filteredDocs,
   ) {
     final pendingCount = allDocs.where((doc) {
-      return (doc.data()['status'] ?? 'pending').toString() == 'pending';
+      return _safeText(doc.data()['status'], fallback: 'pending') == 'pending';
     }).length;
 
     final reviewCount = allDocs.where((doc) {
-      return (doc.data()['status'] ?? '').toString() == 'in_review';
+      return _safeText(doc.data()['status']) == 'in_review';
     }).length;
 
     final resolvedCount = allDocs.where((doc) {
-      return (doc.data()['status'] ?? '').toString() == 'resolved';
+      return _safeText(doc.data()['status']) == 'resolved';
     }).length;
 
     return Column(
@@ -713,15 +963,12 @@ class _AdminComplaintsPageState extends State<AdminComplaintsPage> {
                     },
                     selectedColor: _statusColor(value).withOpacity(0.18),
                     labelStyle: TextStyle(
-                      color: selected
-                          ? _statusColor(value)
-                          : AppColors.textDark,
+                      color:
+                          selected ? _statusColor(value) : AppColors.textDark,
                       fontWeight: FontWeight.w700,
                     ),
                     side: BorderSide(
-                      color: selected
-                          ? _statusColor(value)
-                          : AppColors.border,
+                      color: selected ? _statusColor(value) : AppColors.border,
                     ),
                     backgroundColor: Colors.white,
                     checkmarkColor: _statusColor(value),

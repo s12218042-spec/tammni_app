@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../theme/app_theme.dart';
 import '../utils/child_section_utils.dart';
@@ -107,6 +108,26 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
     );
   }
 
+  bool _isValidPalestinianIdChecksum(String id) {
+    if (!RegExp(r'^\d{9}$').hasMatch(id)) return false;
+
+    int sum = 0;
+
+    for (int i = 0; i < id.length; i++) {
+      final digit = int.parse(id[i]);
+      final factor = i.isEven ? 1 : 2;
+      int result = digit * factor;
+
+      if (result > 9) {
+        result -= 9;
+      }
+
+      sum += result;
+    }
+
+    return sum % 10 == 0;
+  }
+
   String? _validatePalestinianId(String value) {
     final clean = value.trim();
 
@@ -118,12 +139,20 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
       return 'رقم الهوية يجب أن يتكون من 9 أرقام';
     }
 
+    if (RegExp(r'^(\d)\1{8}$').hasMatch(clean)) {
+      return 'رقم الهوية غير صالح';
+    }
+
+    if (!_isValidPalestinianIdChecksum(clean)) {
+      return 'رقم الهوية غير صالح';
+    }
+
     return null;
   }
 
   bool _isValidPalestinianMobile(String value) {
     final clean = value.trim();
-    return RegExp(r'^(059|056)\d{7}$').hasMatch(clean);
+    return RegExp(r'^(059|056|052)\d{7}$').hasMatch(clean);
   }
 
   String? _validatePalestinianMobile(String value, {required String label}) {
@@ -137,22 +166,26 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
       return '$label يجب أن يتكون من 10 أرقام';
     }
 
+    if (RegExp(r'^(\d)\1{9}$').hasMatch(clean)) {
+      return '$label غير صالح';
+    }
+
     if (!_isValidPalestinianMobile(clean)) {
-      return '$label يجب أن يكون رقم جوال فلسطيني صحيحًا (059 أو 056)';
+      return '$label يجب أن يكون رقم جوال صحيحًا يبدأ بـ 059 أو 056 أو 052';
     }
 
     return null;
   }
 
   Color _sectionColor(String section) {
-  switch (section) {
-    case 'Nursery':
-      return const Color(0xFFEFA7C8);
-    case 'OutOfRange':
-    default:
-      return Colors.redAccent;
+    switch (section) {
+      case 'Nursery':
+        return const Color(0xFFEFA7C8);
+      case 'OutOfRange':
+      default:
+        return Colors.redAccent;
+    }
   }
-}
 
   Widget _buildSectionBadge(String section) {
     final color = _sectionColor(section);
@@ -178,6 +211,7 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
 
   Future<void> _pickBirthDate() async {
     final now = DateTime.now();
+
     final picked = await showDatePicker(
       context: context,
       initialDate: DateTime(now.year - 4),
@@ -190,11 +224,11 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
     final sectionResult = ChildSectionUtils.resolveSectionAndGroup(picked);
 
     setState(() {
-  selectedBirthDate = picked;
-  birthDateCtrl.text =
-      '${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
-  resolvedSection = sectionResult.section;
-});
+      selectedBirthDate = picked;
+      birthDateCtrl.text =
+          '${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
+      resolvedSection = sectionResult.section;
+    });
   }
 
   void addPickupContact() {
@@ -214,6 +248,7 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
 
   Future<Map<String, dynamic>> _getParentInfo() async {
     final currentUser = _auth.currentUser;
+
     if (currentUser == null) {
       throw Exception('يجب تسجيل الدخول أولاً');
     }
@@ -262,6 +297,7 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
       final existingBirthDate = childInfo['birthDate'];
 
       DateTime? existingDate;
+
       if (existingBirthDate is Timestamp) {
         existingDate = existingBirthDate.toDate();
       } else if (existingBirthDate is String) {
@@ -293,11 +329,13 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
 
     for (final doc in snapshot.docs) {
       final data = doc.data();
+
       final existingName =
           (data['fullName'] ?? data['name'] ?? '').toString().trim();
       final existingBirthDate = data['birthDate'];
 
       DateTime? existingDate;
+
       if (existingBirthDate is Timestamp) {
         existingDate = existingBirthDate.toDate();
       }
@@ -326,9 +364,9 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
         ChildSectionUtils.resolveSectionAndGroup(selectedBirthDate!);
 
     if (sectionResult.section != 'Nursery') {
-  _showSnack('عمر الطفل خارج نطاق الحضانة في النظام الحالي');
-  return;
-}
+      _showSnack('عمر الطفل خارج نطاق الحضانة في النظام الحالي');
+      return;
+    }
 
     for (final pickup in pickupContacts) {
       if (!pickup.isValid()) {
@@ -364,6 +402,9 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
         throw Exception('هذا الطفل مرتبط بالفعل بحساب ولي الأمر');
       }
 
+      final childFullName = childNameCtrl.text.trim();
+      final now = FieldValue.serverTimestamp();
+
       final requestData = <String, dynamic>{
         'requestType': 'add_child',
         'status': 'pending',
@@ -371,12 +412,15 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
         'parentName': parent['name'],
         'parentUsername': parent['username'],
         'parentEmail': parent['email'],
+        'childName': childFullName,
         'childInfo': {
-          'fullName': childNameCtrl.text.trim(),
+          'fullName': childFullName,
+          'name': childFullName,
           'identityNumber': childIdentityCtrl.text.trim(),
           'birthDate': Timestamp.fromDate(selectedBirthDate!),
           'gender': selectedGender,
           'section': 'Nursery',
+          'group': '',
           'status': 'active',
           'hasChronicDiseases': hasChronicDiseases,
           'chronicDiseases':
@@ -403,17 +447,58 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
         'reviewedByUid': '',
         'reviewedByName': '',
         'reviewedAt': null,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
+        'createdAt': now,
+        'updatedAt': now,
       };
 
-      await _firestore.collection('add_child_requests').add(requestData);
+      final requestRef =
+          await _firestore.collection('add_child_requests').add(requestData);
+
+      await _firestore.collection('notifications').add({
+        'title': 'طلب إضافة طفل جديد',
+        'body':
+            'أرسل ولي الأمر ${parent['name']} طلب إضافة الطفل $childFullName ويحتاج مراجعة الإدارة.',
+        'message':
+            'أرسل ولي الأمر ${parent['name']} طلب إضافة الطفل $childFullName ويحتاج مراجعة الإدارة.',
+        'type': 'add_child_request',
+        'notificationType': 'add_child_request',
+        'category': 'requests',
+        'requestType': 'add_child',
+        'requestId': requestRef.id,
+        'status': 'pending',
+        'priority': 'important',
+        'importance': 'important',
+        'targetRole': 'admin',
+        'receiverRole': 'admin',
+        'parentUid': parent['uid'],
+        'parentUsername': parent['username'],
+        'parentName': parent['name'],
+        'parentEmail': parent['email'],
+        'childName': childFullName,
+        'childId': '',
+        'section': 'Nursery',
+        'group': '',
+        'isRead': false,
+        'read': false,
+        'seen': false,
+        'createdAt': FieldValue.serverTimestamp(),
+        'time': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+        'createdByUid': parent['uid'],
+        'createdByName': parent['name'],
+        'createdByRole': 'parent',
+        'senderUid': parent['uid'],
+        'senderName': parent['name'],
+        'senderRole': 'parent',
+      });
 
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('تم إرسال طلب إضافة الطفل بنجاح وسيتم مراجعته من الإدارة'),
+          content: Text(
+            'تم إرسال طلب إضافة الطفل بنجاح وسيتم مراجعته من الإدارة',
+          ),
         ),
       );
 
@@ -431,6 +516,7 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
 
   void _showSnack(String message) {
     if (!mounted) return;
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message)),
     );
@@ -514,7 +600,7 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
+          const Icon(
             Icons.info_outline_rounded,
             color: AppColors.secondary,
           ),
@@ -551,7 +637,9 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
             radius: 20,
             backgroundColor: color.withOpacity(0.14),
             child: Icon(
-              isOutOfRange ? Icons.warning_amber_rounded : Icons.apartment_rounded,
+              isOutOfRange
+                  ? Icons.warning_amber_rounded
+                  : Icons.apartment_rounded,
               color: color,
             ),
           ),
@@ -604,6 +692,10 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
           TextFormField(
             controller: childIdentityCtrl,
             keyboardType: TextInputType.number,
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly,
+              LengthLimitingTextInputFormatter(9),
+            ],
             decoration: customDecoration(
               label: 'رقم هوية الطفل',
               icon: Icons.badge_outlined,
@@ -647,7 +739,7 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'عمر الطفل أكبر من نطاق الحضانة/الروضة في النظام الحالي، لذلك لا يمكن إرسال الطلب بهذه البيانات.',
+                      'عمر الطفل خارج نطاق الحضانة في النظام الحالي، لذلك لا يمكن إرسال الطلب بهذه البيانات.',
                       style: TextStyle(
                         color: Colors.redAccent,
                         fontWeight: FontWeight.w600,
@@ -676,7 +768,6 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
               });
             },
           ),
-          
         ],
       ),
     );
@@ -928,15 +1019,21 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
                   TextFormField(
                     controller: pickup.phoneCtrl,
                     keyboardType: TextInputType.phone,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(10),
+                    ],
                     decoration: customDecoration(
                       label: 'رقم الجوال',
                       icon: Icons.phone_rounded,
                     ),
                     validator: (value) {
                       final clean = (value ?? '').trim();
+
                       if (clean.isEmpty) {
                         return 'أدخلي رقم الجوال';
                       }
+
                       return _validatePalestinianMobile(
                         clean,
                         label: 'رقم الجوال',
@@ -1059,7 +1156,7 @@ class _PickupContactDraft {
 
   bool isValid() {
     final phone = phoneCtrl.text.trim();
-    final isValidPhone = RegExp(r'^(059|056)\d{7}$').hasMatch(phone);
+    final isValidPhone = RegExp(r'^(059|056|052)\d{7}$').hasMatch(phone);
 
     return nameCtrl.text.trim().isNotEmpty &&
         relationCtrl.text.trim().isNotEmpty &&

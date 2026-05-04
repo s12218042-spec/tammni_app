@@ -23,7 +23,7 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
   bool isProcessing = false;
 
   Color _statusColor(String status) {
-    switch (status) {
+    switch (status.trim().toLowerCase()) {
       case 'approved':
         return Colors.green;
       case 'rejected':
@@ -35,7 +35,7 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
   }
 
   String _statusLabel(String status) {
-    switch (status) {
+    switch (status.trim().toLowerCase()) {
       case 'approved':
         return 'تمت الموافقة';
       case 'rejected':
@@ -88,6 +88,7 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
     try {
       final doc =
           await _firestore.collection('users').doc(currentUser.uid).get();
+
       final data = doc.data() ?? {};
 
       final displayName = (data['name'] ??
@@ -95,11 +96,12 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
               data['fullName'] ??
               data['username'] ??
               'admin')
-          .toString();
+          .toString()
+          .trim();
 
       return {
         'uid': currentUser.uid,
-        'name': displayName,
+        'name': displayName.isEmpty ? 'admin' : displayName,
       };
     } catch (_) {
       return {
@@ -155,27 +157,98 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
     return items;
   }
 
+  Future<void> _markRelatedAdminNotificationsAsHandled({
+    required String requestId,
+    required String status,
+    required String adminUid,
+    required String adminName,
+  }) async {
+    try {
+      final snapshot = await _firestore
+          .collection('notifications')
+          .where('requestId', isEqualTo: requestId)
+          .where('targetRole', isEqualTo: 'admin')
+          .limit(20)
+          .get();
+
+      if (snapshot.docs.isEmpty) return;
+
+      final batch = _firestore.batch();
+
+      for (final doc in snapshot.docs) {
+        batch.set(
+          doc.reference,
+          {
+            'status': status,
+            'isHandled': true,
+            'handledAt': FieldValue.serverTimestamp(),
+            'handledByUid': adminUid,
+            'handledByName': adminName,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      }
+
+      await batch.commit();
+    } catch (_) {
+      // لا نوقف الموافقة/الرفض لو فشل تحديث إشعار الأدمن
+    }
+  }
+
   Future<void> _createParentNotification({
+    required String parentUid,
     required String parentUsername,
+    required String parentName,
     required String title,
     required String body,
     required String requestId,
     required String childName,
     required String status,
+    required String adminUid,
+    required String adminName,
     String reviewNote = '',
+    String createdChildId = '',
   }) async {
+    final cleanParentUsername = parentUsername.trim().toLowerCase();
+
     await _firestore.collection('notifications').add({
-      'parentUsername': parentUsername.trim().toLowerCase(),
+      'uid': parentUid,
+      'targetUid': parentUid,
+      'targetRole': 'parent',
+      'receiverUid': parentUid,
+      'receiverRole': 'parent',
+      'parentUid': parentUid,
+      'parentUsername': cleanParentUsername,
+      'parentName': parentName.trim(),
       'title': title.trim(),
       'body': body.trim(),
       'message': body.trim(),
       'type': 'add_child_request',
+      'notificationType': 'add_child_request',
+      'category': 'requests',
+      'requestType': 'add_child',
       'requestId': requestId,
+      'childId': createdChildId,
       'childName': childName.trim(),
+      'section': 'Nursery',
+      'group': '',
       'status': status,
       'reviewNote': reviewNote.trim(),
+      'priority': status == 'approved' ? 'normal' : 'important',
+      'importance': status == 'approved' ? 'normal' : 'important',
       'isRead': false,
+      'read': false,
+      'seen': false,
       'createdAt': FieldValue.serverTimestamp(),
+      'time': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+      'createdByUid': adminUid,
+      'createdByName': adminName,
+      'createdByRole': 'admin',
+      'senderUid': adminUid,
+      'senderName': adminName,
+      'senderRole': 'admin',
     });
   }
 
@@ -211,11 +284,13 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
 
     for (final doc in snapshot.docs) {
       final data = doc.data();
+
       final existingName =
           (data['fullName'] ?? data['name'] ?? '').toString().trim();
       final existingBirthDate = data['birthDate'];
 
       DateTime? existingDate;
+
       if (existingBirthDate is Timestamp) {
         existingDate = existingBirthDate.toDate();
       }
@@ -246,6 +321,7 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
     final parentUid = (item['parentUid'] ?? '').toString().trim();
     final parentName = (item['parentName'] ?? '').toString().trim();
     final parentUsername = (item['parentUsername'] ?? '').toString().trim();
+
     final childInfo =
         (item['childInfo'] as Map<String, dynamic>?) ?? <String, dynamic>{};
 
@@ -310,7 +386,10 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
       ),
     );
 
-    if (confirmed != true) return;
+    if (confirmed != true) {
+      noteController.dispose();
+      return;
+    }
 
     setState(() {
       isProcessing = true;
@@ -322,9 +401,9 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
       final resolvedSection = sectionResult.section;
 
       if (resolvedSection != 'Nursery') {
-  _showSnack('عمر الطفل خارج نطاق الحضانة في النظام الحالي');
-  return;
-}
+        _showSnack('عمر الطفل خارج نطاق الحضانة في النظام الحالي');
+        return;
+      }
 
       final alreadyExists = await _childAlreadyExistsForParent(
         parentUid: parentUid,
@@ -338,8 +417,12 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
       }
 
       final adminInfo = await _getCurrentAdminInfo();
-      final childDocRef = _firestore.collection('children').doc();
+      final adminUid = adminInfo['uid'] ?? '';
+      final adminName = adminInfo['name'] ?? 'admin';
 
+      final childDocRef = _firestore.collection('children').doc();
+      final requestRef =
+          _firestore.collection('add_child_requests').doc(requestId);
 
       await _firestore.runTransaction((transaction) async {
         transaction.set(childDocRef, {
@@ -350,6 +433,7 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
           'gender': (childInfo['gender'] ?? '').toString().trim(),
           'birthDate': Timestamp.fromDate(childBirthDate),
           'section': 'Nursery',
+          'group': '',
           'status': 'active',
           'isActive': true,
           'hasChronicDiseases':
@@ -373,40 +457,51 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
           'authorizedPickupContacts':
               childInfo['authorizedPickupContacts'] ?? [],
           'parentUid': parentUid,
-          'parentUsername': parentUsername,
+          'parentUsername': parentUsername.trim().toLowerCase(),
           'parentName': parentName,
           'createdAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
-          'createdByUid': adminInfo['uid'],
-          'createdByName': adminInfo['name'],
+          'createdByUid': adminUid,
+          'createdByName': adminName,
           'createdByRole': 'admin',
           'createdFromRequestId': requestId,
           'history': [],
         });
 
-        transaction.update(
-          _firestore.collection('add_child_requests').doc(requestId),
-          {
-            'status': 'approved',
-            'reviewNote': noteController.text.trim(),
-            'reviewedByUid': adminInfo['uid'],
-            'reviewedByName': adminInfo['name'],
-            'reviewedAt': FieldValue.serverTimestamp(),
-            'updatedAt': FieldValue.serverTimestamp(),
-            'createdChildId': childDocRef.id,
-           'approvalSection': 'Nursery',
-          },
-        );
+        transaction.update(requestRef, {
+          'status': 'approved',
+          'reviewNote': noteController.text.trim(),
+          'reviewedByUid': adminUid,
+          'reviewedByName': adminName,
+          'reviewedAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+          'createdChildId': childDocRef.id,
+          'approvalSection': 'Nursery',
+          'processedToChildDoc': true,
+          'linkedChildId': childDocRef.id,
+        });
       });
 
       await _createParentNotification(
+        parentUid: parentUid,
         parentUsername: parentUsername,
+        parentName: parentName,
         title: 'تمت الموافقة على طلب إضافة الطفل',
         body: 'تمت إضافة الطفل $childName إلى حسابك بنجاح.',
         requestId: requestId,
         childName: childName,
         status: 'approved',
+        adminUid: adminUid,
+        adminName: adminName,
         reviewNote: noteController.text.trim(),
+        createdChildId: childDocRef.id,
+      );
+
+      await _markRelatedAdminNotificationsAsHandled(
+        requestId: requestId,
+        status: 'approved',
+        adminUid: adminUid,
+        adminName: adminName,
       );
 
       if (!mounted) return;
@@ -416,6 +511,8 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
     } catch (e) {
       _showSnack('حدث خطأ أثناء تنفيذ الموافقة: $e');
     } finally {
+      noteController.dispose();
+
       if (mounted) {
         setState(() {
           isProcessing = false;
@@ -429,9 +526,14 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
 
     final requestId = item['id'].toString();
     final noteController = TextEditingController();
+
     final childInfo =
         (item['childInfo'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+
+    final parentUid = (item['parentUid'] ?? '').toString().trim();
+    final parentName = (item['parentName'] ?? '').toString().trim();
     final parentUsername = (item['parentUsername'] ?? '').toString().trim();
+
     final childName =
         (childInfo['fullName'] ?? childInfo['name'] ?? '').toString().trim();
 
@@ -483,41 +585,68 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
       ),
     );
 
-    if (confirmed != true) return;
+    if (confirmed != true) {
+      noteController.dispose();
+      return;
+    }
 
     setState(() {
       isProcessing = true;
     });
 
     try {
+      final adminInfo = await _getCurrentAdminInfo();
+      final adminUid = adminInfo['uid'] ?? '';
+      final adminName = adminInfo['name'] ?? 'admin';
+
       await _updateRequestStatus(
         requestId: requestId,
         newStatus: 'rejected',
         reviewNote: noteController.text,
+        extraData: {
+          'processedToChildDoc': false,
+          'createdChildId': '',
+          'linkedChildId': '',
+        },
       );
 
       await _createParentNotification(
+        parentUid: parentUid,
         parentUsername: parentUsername,
+        parentName: parentName,
         title: 'تم رفض طلب إضافة الطفل',
-        body: 'تم رفض طلب إضافة الطفل $childName.',
+        body: noteController.text.trim().isEmpty
+            ? 'تم رفض طلب إضافة الطفل $childName.'
+            : 'تم رفض طلب إضافة الطفل $childName. السبب: ${noteController.text.trim()}',
         requestId: requestId,
         childName: childName,
         status: 'rejected',
+        adminUid: adminUid,
+        adminName: adminName,
         reviewNote: noteController.text.trim(),
       );
 
+      await _markRelatedAdminNotificationsAsHandled(
+        requestId: requestId,
+        status: 'rejected',
+        adminUid: adminUid,
+        adminName: adminName,
+      );
+
       if (!mounted) return;
+
       _showSnack('تم رفض الطلب وتحديث حالته');
       setState(() {});
     } catch (e) {
       _showSnack('حدث خطأ أثناء رفض الطلب: $e');
     } finally {
+      noteController.dispose();
+
       if (mounted) {
         setState(() {
           isProcessing = false;
         });
       }
-      noteController.dispose();
     }
   }
 
@@ -525,6 +654,11 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
     final status = (item['status'] ?? 'pending').toString();
     final reviewNote = (item['reviewNote'] ?? '').toString();
     final reviewedByName = (item['reviewedByName'] ?? '').toString();
+    final createdChildId = (item['createdChildId'] ??
+            item['linkedChildId'] ??
+            '')
+        .toString()
+        .trim();
 
     final childInfo =
         (item['childInfo'] as Map<String, dynamic>?) ?? <String, dynamic>{};
@@ -534,7 +668,7 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
     final resolvedSection = sectionResult.section;
 
     final sectionText =
-    resolvedSection == 'Nursery' ? 'حضانة' : 'خارج نطاق الحضانة';
+        resolvedSection == 'Nursery' ? 'حضانة' : 'خارج نطاق الحضانة';
 
     final hasChronicDiseases =
         (childInfo['hasChronicDiseases'] ?? false) == true;
@@ -622,7 +756,9 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
                       ),
                       _InfoRow(
                         'الحساسية',
-                        hasAllergies ? '${childInfo['allergies'] ?? '-'}' : 'لا',
+                        hasAllergies
+                            ? '${childInfo['allergies'] ?? '-'}'
+                            : 'لا',
                       ),
                       _InfoRow(
                         'الأدوية',
@@ -690,6 +826,10 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
                         _InfoRow(
                           'تمت المراجعة بواسطة',
                           reviewedByName.isEmpty ? '-' : reviewedByName,
+                        ),
+                        _InfoRow(
+                          'رقم الطفل المنشأ',
+                          createdChildId.isEmpty ? '-' : createdChildId,
                         ),
                         _InfoRow(
                           'ملاحظة المراجعة',
@@ -760,12 +900,15 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
 
   String _formatDate(Timestamp? ts) {
     if (ts == null) return 'بدون تاريخ';
+
     final d = ts.toDate();
+
     return '${d.year}/${d.month.toString().padLeft(2, '0')}/${d.day.toString().padLeft(2, '0')}';
   }
 
   void _showSnack(String message) {
     if (!mounted) return;
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message)),
     );
@@ -802,32 +945,33 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
     );
   }
 
- Widget _buildSectionBadge(String section) {
-  final color =
-      section == 'Nursery' ? const Color(0xFFEFA7C8) : Colors.redAccent;
+  Widget _buildSectionBadge(String section) {
+    final color =
+        section == 'Nursery' ? const Color(0xFFEFA7C8) : Colors.redAccent;
 
-  final text = section == 'Nursery' ? 'حضانة' : 'خارج نطاق الحضانة';
+    final text = section == 'Nursery' ? 'حضانة' : 'خارج نطاق الحضانة';
 
-  return Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-    decoration: BoxDecoration(
-      color: color.withOpacity(0.14),
-      borderRadius: BorderRadius.circular(14),
-    ),
-    child: Text(
-      text,
-      style: TextStyle(
-        color: color,
-        fontWeight: FontWeight.w700,
-        fontSize: 12.5,
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.14),
+        borderRadius: BorderRadius.circular(14),
       ),
-    ),
-  );
-}
+      child: Text(
+        text,
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.w700,
+          fontSize: 12.5,
+        ),
+      ),
+    );
+  }
 
   Widget _buildRequestCard(Map<String, dynamic> item) {
     final status = (item['status'] ?? 'pending').toString();
     final createdAt = item['createdAt'] as Timestamp?;
+
     final childInfo =
         (item['childInfo'] as Map<String, dynamic>?) ?? <String, dynamic>{};
 
@@ -967,9 +1111,8 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
                   children: [
                     Expanded(
                       child: ElevatedButton.icon(
-                        onPressed: isProcessing
-                            ? null
-                            : () => _approveRequest(item),
+                        onPressed:
+                            isProcessing ? null : () => _approveRequest(item),
                         icon: const Icon(Icons.check_circle_outline),
                         label: const Text('موافقة'),
                         style: ElevatedButton.styleFrom(
@@ -981,9 +1124,8 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: ElevatedButton.icon(
-                        onPressed: isProcessing
-                            ? null
-                            : () => _rejectRequest(item),
+                        onPressed:
+                            isProcessing ? null : () => _rejectRequest(item),
                         icon: const Icon(Icons.cancel_outlined),
                         label: const Text('رفض'),
                         style: ElevatedButton.styleFrom(
@@ -1004,8 +1146,7 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final hasCustomFilters =
-        searchText.trim().isNotEmpty ||
+    final hasCustomFilters = searchText.trim().isNotEmpty ||
         selectedStatuses.length != 1 ||
         !selectedStatuses.contains('pending');
 

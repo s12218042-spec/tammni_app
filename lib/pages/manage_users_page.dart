@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../services/app_notification_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 
@@ -36,7 +38,11 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
 
   String normalizeRole(String value) {
     final role = value.trim().toLowerCase();
-    if (role == 'nursery' || role == 'nursery staff') return 'nursery_staff';
+    if (role == 'nursery' ||
+        role == 'nursery staff' ||
+        role == 'nursery_staff') {
+      return 'nursery_staff';
+    }
     return role;
   }
 
@@ -463,8 +469,8 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
 
   bool isValidPalestinianMobile(String value) {
     final clean = value.replaceAll(' ', '');
-    return RegExp(r'^(059|056)\d{7}$').hasMatch(clean) ||
-        RegExp(r'^(\+97059|\+97056)\d{7}$').hasMatch(clean);
+    return RegExp(r'^(059|056|052)\d{7}$').hasMatch(clean) ||
+        RegExp(r'^(\+97059|\+97056|\+97052)\d{7}$').hasMatch(clean);
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> usersStream() {
@@ -567,6 +573,40 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
     );
   }
 
+  Future<Map<String, String>> _currentAdminInfo() async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+
+    final actorUid = currentUser?.uid ?? '';
+    String actorName = 'الإدارة';
+
+    if (actorUid.trim().isNotEmpty) {
+      try {
+        final doc = await _firestore.collection('users').doc(actorUid).get();
+        final data = doc.data();
+
+        if (data != null) {
+          actorName = _firstNonEmpty([
+            _fieldAsString(data['displayName']),
+            _fieldAsString(data['name']),
+            _fieldAsString(data['username']),
+          ]);
+
+          if (actorName.isEmpty) {
+            actorName = 'الإدارة';
+          }
+        }
+      } catch (_) {
+        actorName = 'الإدارة';
+      }
+    }
+
+    return {
+      'uid': actorUid,
+      'name': actorName,
+      'role': 'admin',
+    };
+  }
+
   Future<void> _logAccountAction({
     required String targetUid,
     required String action,
@@ -574,24 +614,61 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
     required String message,
     String status = 'info',
   }) async {
+    final actor = await _currentAdminInfo();
+
     await _firestore.collection('account_activity_logs').add({
       'targetUid': targetUid,
       'action': action,
       'title': title,
       'message': message,
       'status': status,
-      'actorUid': '',
-      'actorName': 'الإدارة',
-      'actorRole': 'admin',
+      'actorUid': actor['uid'] ?? '',
+      'actorName': actor['name'] ?? 'الإدارة',
+      'actorRole': actor['role'] ?? 'admin',
       'createdAt': FieldValue.serverTimestamp(),
     });
+  }
+
+  Future<void> _notifyParentAccountChange({
+    required String roleValue,
+    required String parentUid,
+    required String parentUsername,
+    required String parentName,
+    required String title,
+    required String body,
+    required String type,
+    String priority = 'normal',
+    Map<String, dynamic>? extraData,
+  }) async {
+    if (normalizeRole(roleValue) != 'parent') return;
+    if (parentUid.trim().isEmpty && parentUsername.trim().isEmpty) return;
+
+    final actor = await _currentAdminInfo();
+
+    await AppNotificationService.instance.notifyParent(
+      parentUid: parentUid,
+      parentUsername: parentUsername,
+      parentName: parentName,
+      title: title,
+      body: body,
+      type: type,
+      priority: priority,
+      createdByUid: actor['uid'] ?? '',
+      createdByName: actor['name'] ?? 'الإدارة',
+      createdByRole: 'admin',
+      extraData: extraData,
+    );
   }
 
   Future<void> toggleUserActive({
     required String uid,
     required bool currentValue,
     required String userName,
+    required String username,
+    required String roleValue,
   }) async {
+    final normalizedRole = normalizeRole(roleValue);
+
     if (!currentValue) {
       await _firestore.collection('users').doc(uid).update({
         'isActive': true,
@@ -603,12 +680,37 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
         'deactivationReason': '',
       });
 
+      if (username.trim().isNotEmpty) {
+        await _firestore.collection('login_usernames').doc(username).set({
+          'uid': uid,
+          'username': username.trim().toLowerCase(),
+          'role': normalizedRole,
+          'isActive': true,
+          'accountStatus': 'active',
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+
       await _logAccountAction(
         targetUid: uid,
         action: 'account_reactivated_by_admin',
         title: 'تمت إعادة تفعيل الحساب',
         message: 'قامت الإدارة بإعادة تفعيل الحساب',
         status: 'success',
+      );
+
+      await _notifyParentAccountChange(
+        roleValue: roleValue,
+        parentUid: uid,
+        parentUsername: username,
+        parentName: userName,
+        title: 'تم تفعيل الحساب',
+        body: 'تم تفعيل حسابك ويمكنك استخدام التطبيق الآن.',
+        type: 'account_enabled',
+        priority: 'normal',
+        extraData: {
+          'accountAction': 'reactivated',
+        },
       );
 
       if (!mounted) return;
@@ -672,6 +774,17 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
+      if (username.trim().isNotEmpty) {
+        await _firestore.collection('login_usernames').doc(username).set({
+          'uid': uid,
+          'username': username.trim().toLowerCase(),
+          'role': normalizedRole,
+          'isActive': false,
+          'accountStatus': 'deactivated',
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+
       await _logAccountAction(
         targetUid: uid,
         action: 'account_deactivated_by_admin',
@@ -680,6 +793,23 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
             ? 'قامت الإدارة بتعطيل الحساب. السبب: $reason'
             : 'قامت الإدارة بتعطيل الحساب مؤقتًا',
         status: 'warning',
+      );
+
+      await _notifyParentAccountChange(
+        roleValue: roleValue,
+        parentUid: uid,
+        parentUsername: username,
+        parentName: userName,
+        title: 'تم تعطيل الحساب',
+        body: reason.isNotEmpty
+            ? 'تم تعطيل حسابك مؤقتًا من قبل الإدارة. السبب: $reason'
+            : 'تم تعطيل حسابك مؤقتًا من قبل الإدارة. يمكنك التواصل مع الحضانة لمعرفة التفاصيل.',
+        type: 'account_disabled',
+        priority: 'important',
+        extraData: {
+          'accountAction': 'deactivated',
+          'reason': reason,
+        },
       );
 
       if (!mounted) return;
@@ -975,6 +1105,8 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
 
     bool isSaving = false;
     final originalRole = normalizeRole((userData['role'] ?? '').toString());
+    final originalUsername =
+        (userData['username'] ?? '').toString().trim().toLowerCase();
     final emailText = (userData['email'] ?? '').toString();
 
     await showDialog(
@@ -1122,7 +1254,11 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                               return;
                             }
 
-                            await _firestore.collection('users').doc(docId).update({
+                            final batch = _firestore.batch();
+                            final userRef =
+                                _firestore.collection('users').doc(docId);
+
+                            batch.update(userRef, {
                               'displayName': newDisplayName,
                               'name': newDisplayName,
                               'username': newUsername,
@@ -1133,6 +1269,59 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                               'personalInfo.phone': newPhone,
                               'parentInfo.phone': newPhone,
                             });
+
+                            if (originalUsername.isNotEmpty &&
+                                originalUsername != newUsername) {
+                              batch.delete(
+                                _firestore
+                                    .collection('login_usernames')
+                                    .doc(originalUsername),
+                              );
+                            }
+
+                            batch.set(
+                              _firestore
+                                  .collection('login_usernames')
+                                  .doc(newUsername),
+                              {
+                                'uid': docId,
+                                'username': newUsername,
+                                'email': emailText,
+                                'role': originalRole,
+                                'isActive': userData['isActive'] ?? true,
+                                'accountStatus':
+                                    userData['accountStatus'] ?? 'active',
+                                'updatedAt': FieldValue.serverTimestamp(),
+                              },
+                              SetOptions(merge: true),
+                            );
+
+                            await batch.commit();
+
+                            await _logAccountAction(
+                              targetUid: docId,
+                              action: 'account_updated_by_admin',
+                              title: 'تم تعديل بيانات الحساب',
+                              message: 'قامت الإدارة بتعديل بيانات الحساب',
+                              status: 'success',
+                            );
+
+                            await _notifyParentAccountChange(
+                              roleValue: originalRole,
+                              parentUid: docId,
+                              parentUsername: newUsername,
+                              parentName: newDisplayName,
+                              title: 'تم تحديث بيانات الحساب',
+                              body:
+                                  'تم تحديث بعض بيانات حسابك من قبل الإدارة.',
+                              type: 'account_updated',
+                              priority: 'normal',
+                              extraData: {
+                                'accountAction': 'updated',
+                                'oldUsername': originalUsername,
+                                'newUsername': newUsername,
+                              },
+                            );
 
                             if (!mounted) return;
 
@@ -1270,6 +1459,13 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
     return result == true;
   }
 
+  Future<void> _deleteUsernameLoginMapping(String username) async {
+    final cleanUsername = username.trim().toLowerCase();
+    if (cleanUsername.isEmpty) return;
+
+    await _firestore.collection('login_usernames').doc(cleanUsername).delete();
+  }
+
   Future<void> handleDeleteUser({
     required String uid,
     required String roleValue,
@@ -1283,6 +1479,15 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
       if (!confirmed) return;
 
       await _firestore.collection('users').doc(uid).delete();
+      await _deleteUsernameLoginMapping(username);
+
+      await _logAccountAction(
+        targetUid: uid,
+        action: 'account_deleted_by_admin',
+        title: 'تم حذف الحساب',
+        message: 'قامت الإدارة بحذف الحساب من النظام',
+        status: 'danger',
+      );
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1303,6 +1508,15 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
       if (!confirmed) return;
 
       await _firestore.collection('users').doc(uid).delete();
+      await _deleteUsernameLoginMapping(username);
+
+      await _logAccountAction(
+        targetUid: uid,
+        action: 'parent_account_deleted_by_admin',
+        title: 'تم حذف حساب ولي الأمر',
+        message: 'قامت الإدارة بحذف حساب ولي الأمر من النظام',
+        status: 'danger',
+      );
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1323,6 +1537,15 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
     if (action == 'delete_only') {
       await _unlinkChildrenFromParent(linkedChildren);
       await _firestore.collection('users').doc(uid).delete();
+      await _deleteUsernameLoginMapping(username);
+
+      await _logAccountAction(
+        targetUid: uid,
+        action: 'parent_deleted_children_unlinked',
+        title: 'تم حذف ولي الأمر وفك ربط الأطفال',
+        message: 'قامت الإدارة بحذف ولي الأمر وفك ربط الأطفال المرتبطين به',
+        status: 'danger',
+      );
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1336,6 +1559,15 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
     if (action == 'archive_children') {
       await _archiveAndUnlinkChildren(linkedChildren);
       await _firestore.collection('users').doc(uid).delete();
+      await _deleteUsernameLoginMapping(username);
+
+      await _logAccountAction(
+        targetUid: uid,
+        action: 'parent_deleted_children_archived',
+        title: 'تم حذف ولي الأمر وأرشفة الأطفال',
+        message: 'قامت الإدارة بحذف ولي الأمر وأرشفة الأطفال المرتبطين به',
+        status: 'danger',
+      );
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1579,7 +1811,8 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                   final userRole = (u['role'] ?? '').toString();
                   final name =
                       (u['displayName'] ?? u['name'] ?? 'بدون اسم').toString();
-                  final username = (u['username'] ?? '').toString();
+                  final username =
+                      (u['username'] ?? '').toString().trim().toLowerCase();
                   final email = (u['email'] ?? '').toString();
                   final phone = extractPhone(u);
                   final statusText = accountStatusLabel(u);
@@ -1610,6 +1843,8 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                         uid: doc.id,
                         currentValue: isActive,
                         userName: name,
+                        username: username,
+                        roleValue: userRole,
                       );
                     },
                     onDelete: () async {

@@ -94,28 +94,40 @@ class _MessagesPageState extends State<MessagesPage> {
     return 'محادثة مباشرة';
   }
 
- IconData get targetIcon {
-  if (widget.targetRole == 'nursery' ||
-      widget.targetRole == 'nursery_staff' ||
-      widget.targetRole == 'nursery staff') {
+  String normalizeRole(String role) {
+  final clean = role.trim().toLowerCase();
+
+  if (clean == 'nursery' ||
+      clean == 'nursery staff' ||
+      clean == 'nursery_staff') {
+    return 'nursery_staff';
+  }
+
+  return clean;
+}
+
+IconData get targetIcon {
+  final role = normalizeRole(widget.targetRole);
+
+  if (role == 'nursery_staff') {
     return Icons.child_care_outlined;
   }
 
-  if (widget.targetRole == 'parent') return Icons.person_outline;
-  if (widget.targetRole == 'admin') return Icons.business_outlined;
+  if (role == 'parent') return Icons.person_outline;
+  if (role == 'admin') return Icons.business_outlined;
 
   return Icons.send_outlined;
 }
 
   Color get targetColor {
-  if (widget.targetRole == 'nursery' ||
-      widget.targetRole == 'nursery_staff' ||
-      widget.targetRole == 'nursery staff') {
+  final role = normalizeRole(widget.targetRole);
+
+  if (role == 'nursery_staff') {
     return const Color(0xFFEFA7C8);
   }
 
-  if (widget.targetRole == 'parent') return AppColors.secondary;
-  if (widget.targetRole == 'admin') return AppColors.secondary;
+  if (role == 'parent') return AppColors.secondary;
+  if (role == 'admin') return AppColors.secondary;
 
   return AppColors.primary;
 }
@@ -135,21 +147,18 @@ class _MessagesPageState extends State<MessagesPage> {
   }
 
   String sectionLabel(String section) {
-    if (section == 'Nursery') return 'حضانة';
-    if (section == 'Kindergarten') return 'روضة';
-    if (section == 'all') return 'كل الأقسام';
-    return section;
-  }
+  final clean = section.trim();
 
-  String roleLabel(String role) {
-  final clean = role.trim().toLowerCase();
+  if (clean == 'Nursery') return 'حضانة';
+  if (clean == 'all') return 'كل الأقسام';
 
-  if (clean == 'nursery' ||
-      clean == 'nursery_staff' ||
-      clean == 'nursery staff') {
-    return 'موظفة حضانة';
-  }
+  return clean.isEmpty ? 'حضانة' : clean;
+}
 
+ String roleLabel(String role) {
+  final clean = normalizeRole(role);
+
+  if (clean == 'nursery_staff') return 'موظفة حضانة';
   if (clean == 'parent') return 'ولي أمر';
   if (clean == 'admin') return 'الإدارة';
 
@@ -157,11 +166,12 @@ class _MessagesPageState extends State<MessagesPage> {
 }
 
   String headerSubtitle() {
-    final roleText = roleLabel(widget.targetRole);
+    final targetRole = normalizeRole(widget.targetRole);
+    final roleText = roleLabel(targetRole);
     final section = widget.targetSection.trim();
 
     if (hasChildContext) {
-      if (widget.targetRole == 'admin' || section.isEmpty) {
+      if (targetRole == 'admin' || section.isEmpty) {
         return '$roleText • متابعة بخصوص الطفل';
       }
 
@@ -200,7 +210,7 @@ class _MessagesPageState extends State<MessagesPage> {
       currentUserName =
           (data['displayName'] ?? data['name'] ?? data['username'] ?? 'مستخدم')
               .toString();
-      currentUserRole = (data['role'] ?? '').toString();
+      currentUserRole = normalizeRole((data['role'] ?? '').toString());
 
       await _messageService.markConversationAsRead(
         childId: conversationChildId,
@@ -277,20 +287,20 @@ class _MessagesPageState extends State<MessagesPage> {
 
     try {
       await _messageService.sendMessage(
-        childId: conversationChildId,
-        childName: conversationChildName,
-        senderId: currentUserId!,
-        senderName: currentUserName,
-        senderRole: currentUserRole,
-        receiverId: widget.targetUserId,
-        receiverName: widget.targetUserName,
-        receiverRole: widget.targetRole,
-        text: text,
-        replyToMessageId: replyingToMessage?.id,
-        replyToText: replyingToMessage?.text,
-        replyToSenderId: replyingToMessage?.senderId,
-        replyToSenderName: replyingToMessage?.senderName,
-      );
+     childId: conversationChildId,
+     childName: conversationChildName,
+     senderId: currentUserId!,
+     senderName: currentUserName,
+     senderRole: normalizeRole(currentUserRole),
+     receiverId: widget.targetUserId,
+     receiverName: widget.targetUserName,
+     receiverRole: normalizeRole(widget.targetRole),
+     text: text,
+     replyToMessageId: replyingToMessage?.id,
+     replyToText: replyingToMessage?.text,
+     replyToSenderId: replyingToMessage?.senderId,
+     replyToSenderName: replyingToMessage?.senderName,
+);
 
       messageCtrl.clear();
 

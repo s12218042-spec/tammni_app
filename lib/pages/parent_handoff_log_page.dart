@@ -13,25 +13,58 @@ class ParentHandoffLogPage extends StatelessWidget {
     required this.child,
   });
 
-  String _formatDate(Timestamp? ts) {
-    if (ts == null) return '-';
-    final d = ts.toDate();
-    final hour = d.hour.toString().padLeft(2, '0');
-    final minute = d.minute.toString().padLeft(2, '0');
-    return '${d.year}/${d.month}/${d.day} - $hour:$minute';
+  DateTime? _dateFromDynamic(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    if (value is String) return DateTime.tryParse(value);
+    return null;
+  }
+
+  DateTime? _resolveDateTime(Map<String, dynamic> data) {
+    final candidates = [
+      data['time'],
+      data['eventAt'],
+      data['createdAt'],
+      data['timestamp'],
+      data['updatedAt'],
+    ];
+
+    for (final value in candidates) {
+      final date = _dateFromDynamic(value);
+      if (date != null) return date;
+    }
+
+    return null;
+  }
+
+  String _formatDateTime(DateTime? dateTime) {
+    if (dateTime == null) return '-';
+
+    final day = dateTime.day.toString().padLeft(2, '0');
+    final month = dateTime.month.toString().padLeft(2, '0');
+    final year = dateTime.year.toString();
+
+    int hour = dateTime.hour;
+    final minute = dateTime.minute.toString().padLeft(2, '0');
+    final period = hour >= 12 ? 'م' : 'ص';
+
+    hour = hour % 12;
+    if (hour == 0) hour = 12;
+
+    return '$year/$month/$day - $hour:$minute $period';
   }
 
   Color _handoffColor(String type) {
     final cleanType = type.trim().toLowerCase();
 
     if (cleanType == 'pickup' || cleanType == 'exit') {
-      return Colors.orange;
+      return Colors.deepOrange;
     }
 
     if (cleanType == 'delivery' ||
         cleanType == 'dropoff' ||
         cleanType == 'entry') {
-      return Colors.green;
+      return Colors.teal;
     }
 
     return AppColors.primary;
@@ -57,13 +90,13 @@ class ParentHandoffLogPage extends StatelessWidget {
     final cleanType = type.trim().toLowerCase();
 
     if (cleanType == 'pickup' || cleanType == 'exit') {
-      return 'استلام';
+      return 'استلام من الحضانة';
     }
 
     if (cleanType == 'delivery' ||
         cleanType == 'dropoff' ||
         cleanType == 'entry') {
-      return 'تسليم';
+      return 'تسليم للحضانة';
     }
 
     return cleanType.isEmpty ? 'سجل' : type;
@@ -121,10 +154,9 @@ class ParentHandoffLogPage extends StatelessWidget {
   String _resolveNote(Map<String, dynamic> data) {
     final candidates = [
       data['note'],
-      data['message'],
-      data['body'],
-      data['description'],
       data['details'],
+      data['adminNote'],
+      data['staffNote'],
     ];
 
     for (final value in candidates) {
@@ -154,43 +186,28 @@ class ParentHandoffLogPage extends StatelessWidget {
     return '';
   }
 
-  Timestamp? _resolveTimestamp(Map<String, dynamic> data) {
-    final candidates = [
-      data['time'],
-      data['createdAt'],
-      data['timestamp'],
-      data['updatedAt'],
-    ];
-
-    for (final value in candidates) {
-      if (value is Timestamp) return value;
-    }
-
-    return null;
-  }
-
-  Future<List<Map<String, dynamic>>> fetchHandoffs() async {
-    final snapshot = await FirebaseFirestore.instance
-        .collection('child_handoffs')
-        .where('childId', isEqualTo: child.id)
-        .get();
-
-    final items = snapshot.docs.map((doc) {
+  List<Map<String, dynamic>> _prepareHandoffs(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final items = docs.map((doc) {
       final data = doc.data();
+      final displayDateTime = _resolveDateTime(data);
 
       return {
+        'id': doc.id,
         'handoffType': _resolveHandoffType(data),
         'personName': _resolvePersonName(data),
         'relation': _resolveRelation(data),
         'note': _resolveNote(data),
         'createdByName': _resolveCreatedByName(data),
-        'displayTime': _resolveTimestamp(data),
+        'displayDateTime': displayDateTime,
+        'isCorrected': data['isCorrected'] == true,
       };
     }).toList();
 
     items.sort((a, b) {
-      final aTime = a['displayTime'] as Timestamp?;
-      final bTime = b['displayTime'] as Timestamp?;
+      final aTime = a['displayDateTime'] as DateTime?;
+      final bTime = b['displayDateTime'] as DateTime?;
 
       if (aTime == null && bTime == null) return 0;
       if (aTime == null) return 1;
@@ -202,10 +219,17 @@ class ParentHandoffLogPage extends StatelessWidget {
     return items;
   }
 
+  Stream<QuerySnapshot<Map<String, dynamic>>> _handoffsStream() {
+    return FirebaseFirestore.instance
+        .collection('child_handoffs')
+        .where('childId', isEqualTo: child.id)
+        .snapshots();
+  }
+
   @override
   Widget build(BuildContext context) {
     return AppPageScaffold(
-      title: 'سجل الاستلام والتسليم',
+      title: 'سجل التسليم والاستلام',
       child: Column(
         children: [
           Container(
@@ -227,10 +251,10 @@ class ParentHandoffLogPage extends StatelessWidget {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    'سجل استلام وتسليم الطفل ${child.name}',
+                    child.name,
                     style: const TextStyle(
                       fontWeight: FontWeight.bold,
-                      fontSize: 15.5,
+                      fontSize: 16,
                     ),
                   ),
                 ),
@@ -239,8 +263,8 @@ class ParentHandoffLogPage extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           Expanded(
-            child: FutureBuilder<List<Map<String, dynamic>>>(
-              future: fetchHandoffs(),
+            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: _handoffsStream(),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
                   return Card(
@@ -258,15 +282,16 @@ class ParentHandoffLogPage extends StatelessWidget {
                   return const Center(child: CircularProgressIndicator());
                 }
 
-                final docs = snapshot.data ?? [];
+                final rawDocs = snapshot.data?.docs ?? [];
+                final docs = _prepareHandoffs(rawDocs);
 
                 if (docs.isEmpty) {
-                  return Card(
+                  return const Card(
                     child: Padding(
-                      padding: const EdgeInsets.all(24),
+                      padding: EdgeInsets.all(24),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
-                        children: const [
+                        children: [
                           Icon(
                             Icons.inventory_2_outlined,
                             size: 44,
@@ -274,7 +299,7 @@ class ParentHandoffLogPage extends StatelessWidget {
                           ),
                           SizedBox(height: 10),
                           Text(
-                            'لا توجد سجلات استلام/تسليم لعرضها حالياً',
+                            'لا توجد سجلات حالياً',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               color: AppColors.textLight,
@@ -292,13 +317,17 @@ class ParentHandoffLogPage extends StatelessWidget {
                   separatorBuilder: (_, __) => const SizedBox(height: 10),
                   itemBuilder: (context, index) {
                     final data = docs[index];
+
                     final handoffType = (data['handoffType'] ?? '').toString();
                     final personName = (data['personName'] ?? '').toString();
                     final relation = (data['relation'] ?? '').toString();
                     final note = (data['note'] ?? '').toString();
                     final createdByName =
                         (data['createdByName'] ?? '').toString();
-                    final createdAt = data['displayTime'] as Timestamp?;
+                    final displayDateTime =
+                        data['displayDateTime'] as DateTime?;
+                    final isCorrected = data['isCorrected'] == true;
+
                     final color = _handoffColor(handoffType);
 
                     return Card(
@@ -336,7 +365,7 @@ class ParentHandoffLogPage extends StatelessWidget {
                                     borderRadius: BorderRadius.circular(12),
                                   ),
                                   child: Text(
-                                    _formatDate(createdAt),
+                                    _formatDateTime(displayDateTime),
                                     style: TextStyle(
                                       color: color,
                                       fontWeight: FontWeight.bold,
@@ -346,6 +375,33 @@ class ParentHandoffLogPage extends StatelessWidget {
                                 ),
                               ],
                             ),
+                            if (isCorrected) ...[
+                              const SizedBox(height: 10),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 5,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.amber.withOpacity(0.12),
+                                    borderRadius: BorderRadius.circular(30),
+                                    border: Border.all(
+                                      color: Colors.amber.withOpacity(0.35),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    'تم تعديل السجل',
+                                    style: TextStyle(
+                                      color: Colors.amber.shade900,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
                             const SizedBox(height: 12),
                             _InfoRow(
                               icon: Icons.person_outline,
@@ -355,7 +411,7 @@ class ParentHandoffLogPage extends StatelessWidget {
                             const SizedBox(height: 8),
                             _InfoRow(
                               icon: Icons.people_outline,
-                              label: 'صلة القرابة',
+                              label: 'القرابة/الصفة',
                               value: relation.isEmpty ? '-' : relation,
                             ),
                             if (note.trim().isNotEmpty) ...[

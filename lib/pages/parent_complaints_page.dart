@@ -19,6 +19,7 @@ class ParentComplaintsPage extends StatefulWidget {
 
 class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
 
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _messageController = TextEditingController();
@@ -43,9 +44,9 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
 
   Timestamp? _resolveTimestamp(Map<String, dynamic> data) {
     final candidates = [
-      data['createdAt'],
       data['updatedAt'],
       data['reviewedAt'],
+      data['createdAt'],
     ];
 
     for (final value in candidates) {
@@ -56,7 +57,7 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
   }
 
   Future<Map<String, dynamic>> _getParentInfo() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = _auth.currentUser?.uid;
     final cleanUsername = widget.parentUsername.trim().toLowerCase();
 
     if (uid != null) {
@@ -74,6 +75,8 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
             data['username'],
             fallback: cleanUsername,
           ).toLowerCase(),
+          'email': _safeText(data['email']),
+          'phone': _safeText(data['phone']),
         };
       }
     }
@@ -96,6 +99,8 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
           data['username'],
           fallback: cleanUsername,
         ).toLowerCase(),
+        'email': _safeText(data['email']),
+        'phone': _safeText(data['phone']),
       };
     }
 
@@ -103,6 +108,43 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
       'uid': uid ?? '',
       'name': 'وليّ الأمر',
       'username': cleanUsername,
+      'email': '',
+      'phone': '',
+    };
+  }
+
+  Future<Map<String, String>> _fetchAdminReceiverInfo() async {
+    try {
+      final adminSnapshot = await _firestore
+          .collection('users')
+          .where('role', isEqualTo: 'admin')
+          .where('isActive', isEqualTo: true)
+          .limit(1)
+          .get();
+
+      if (adminSnapshot.docs.isNotEmpty) {
+        final doc = adminSnapshot.docs.first;
+        final data = doc.data();
+
+        return {
+          'uid': doc.id,
+          'name': _safeText(
+            data['displayName'] ?? data['name'] ?? data['username'],
+            fallback: 'الإدارة',
+          ),
+          'username': _safeText(data['username']).toLowerCase(),
+          'role': 'admin',
+        };
+      }
+    } catch (_) {
+      // fallback عام للإدارة
+    }
+
+    return {
+      'uid': '',
+      'name': 'الإدارة',
+      'username': '',
+      'role': 'admin',
     };
   }
 
@@ -134,23 +176,121 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
 
     try {
       final parentInfo = await _getParentInfo();
+      final adminInfo = await _fetchAdminReceiverInfo();
 
-      await _firestore.collection('complaints').add({
+      final parentUid = _safeText(parentInfo['uid']);
+      final parentUsername =
+          _safeText(parentInfo['username']).trim().toLowerCase();
+      final parentName = _safeText(parentInfo['name'], fallback: 'وليّ الأمر');
+
+      final now = Timestamp.now();
+
+      final batch = _firestore.batch();
+
+      final complaintRef = _firestore.collection('complaints').doc();
+
+      batch.set(complaintRef, {
         'title': title,
         'message': message,
         'status': 'pending',
-        'parentUid': _safeText(parentInfo['uid']),
-        'parentName': _safeText(parentInfo['name'], fallback: 'وليّ الأمر'),
-        'parentUsername':
-            _safeText(parentInfo['username']).trim().toLowerCase(),
+
+        // Parent fields
+        'parentUid': parentUid,
+        'parentName': parentName,
+        'parentUsername': parentUsername,
+        'parentEmail': _safeText(parentInfo['email']),
+        'parentPhone': _safeText(parentInfo['phone']),
+
+        // Review fields
         'adminReply': '',
         'reviewNote': '',
         'reviewedByName': '',
         'reviewedByUid': '',
+        'reviewedByRole': '',
         'reviewedAt': null,
+        'resolvedAt': null,
+
+        // Created by fields
+        'createdByUid': parentUid,
+        'createdByName': parentName,
+        'createdByRole': 'parent',
+        'createdByUsername': parentUsername,
+
+        // Time fields
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
+
+      final notificationRef = _firestore.collection('notifications').doc();
+
+      batch.set(notificationRef, {
+        // Receiver / target fields for admin
+        'targetUid': adminInfo['uid'],
+        'targetUsername': adminInfo['username'],
+        'targetRole': 'admin',
+        'targetName': adminInfo['name'],
+        'notificationFor': 'admin',
+
+        // Sender / parent fields
+        'parentUid': parentUid,
+        'parentUsername': parentUsername,
+        'parentName': parentName,
+
+        // Notification content
+        'title': 'شكوى جديدة من ولي أمر',
+        'subject': 'شكوى جديدة من ولي أمر',
+        'notificationTitle': 'شكوى جديدة من ولي أمر',
+        'body': 'أرسل $parentName شكوى جديدة بعنوان: $title',
+        'message': 'أرسل $parentName شكوى جديدة بعنوان: $title',
+        'text': message,
+        'description': message,
+        'details': message,
+
+        // Complaint context
+        'complaintId': complaintRef.id,
+        'complaintTitle': title,
+        'complaintStatus': 'pending',
+
+        // Type/classification
+        'type': 'complaint_created',
+        'notificationType': 'complaint_created',
+        'category': 'complaints',
+        'templateType': 'parent_complaint',
+        'priority': 'important',
+        'importance': 'important',
+        'level': 'important',
+
+        // Read state
+        'isRead': false,
+        'read': false,
+        'seen': false,
+        'readAt': null,
+
+        // Created by fields
+        'createdByUid': parentUid,
+        'createdByName': parentName,
+        'createdByRole': 'parent',
+        'createdByUsername': parentUsername,
+        'byRole': 'parent',
+        'senderId': parentUid,
+        'senderName': parentName,
+        'senderRole': 'parent',
+
+        // Routing/linking
+        'source': 'parent_complaints_page',
+        'route': 'admin_complaints',
+        'relatedCollection': 'complaints',
+        'relatedDocId': complaintRef.id,
+
+        // Time fields
+        'createdAt': now,
+        'time': FieldValue.serverTimestamp(),
+        'timestamp': now,
+        'eventAt': now,
+        'updatedAt': now,
+      });
+
+      await batch.commit();
 
       _titleController.clear();
       _messageController.clear();
@@ -158,7 +298,7 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('تم إرسال الشكوى بنجاح'),
+          content: Text('تم إرسال الشكوى بنجاح وإشعار الإدارة'),
         ),
       );
     } catch (e) {
@@ -294,6 +434,10 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
                   value: _formatDate(data['createdAt']),
                 ),
                 _detailItem(
+                  label: 'آخر تحديث',
+                  value: _formatDate(data['updatedAt']),
+                ),
+                _detailItem(
                   label: 'نص الشكوى',
                   value: _safeText(data['message'], fallback: 'لا يوجد نص'),
                   isMultiline: true,
@@ -303,7 +447,7 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
                   value: adminReply.isEmpty ? 'لا يوجد رد بعد' : adminReply,
                   isMultiline: true,
                 ),
-                if (reviewNote.isNotEmpty)
+                if (reviewNote.isNotEmpty && reviewNote != adminReply)
                   _detailItem(
                     label: 'ملاحظة الإدارة',
                     value: reviewNote,
@@ -374,7 +518,7 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> _complaintsStream() {
-    final currentUid = FirebaseAuth.instance.currentUser?.uid;
+    final currentUid = _auth.currentUser?.uid;
     final cleanUsername = widget.parentUsername.trim().toLowerCase();
 
     if (currentUid != null && currentUid.trim().isNotEmpty) {
@@ -506,7 +650,9 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
 
                 if (snapshot.hasError) {
                   return Center(
-                    child: Text('حدث خطأ أثناء تحميل الشكاوى: ${snapshot.error}'),
+                    child: Text(
+                      'حدث خطأ أثناء تحميل الشكاوى: ${snapshot.error}',
+                    ),
                   );
                 }
 
@@ -559,7 +705,8 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
                     final title =
                         _safeText(data['title'], fallback: 'شكوى بدون عنوان');
                     final message = _safeText(data['message']);
-                    final status = _safeText(data['status'], fallback: 'pending');
+                    final status =
+                        _safeText(data['status'], fallback: 'pending');
                     final adminReply = _safeText(data['adminReply']);
                     final reviewNote = _safeText(data['reviewNote']);
 
@@ -622,7 +769,9 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
                                   borderRadius: BorderRadius.circular(14),
                                 ),
                                 child: Text(
-                                  message.isEmpty ? 'لا يوجد وصف مرفق' : message,
+                                  message.isEmpty
+                                      ? 'لا يوجد وصف مرفق'
+                                      : message,
                                   maxLines: 3,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(
@@ -686,7 +835,8 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
                                   ),
                                 ),
                               ],
-                              if (reviewNote.trim().isNotEmpty) ...[
+                              if (reviewNote.trim().isNotEmpty &&
+                                  reviewNote.trim() != adminReply.trim()) ...[
                                 const SizedBox(height: 10),
                                 Container(
                                   width: double.infinity,

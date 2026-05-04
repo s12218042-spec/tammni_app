@@ -24,7 +24,7 @@ class _AdminRegistrationRequestsPageState
   bool isProcessing = false;
 
   Color _statusColor(String status) {
-    switch (status) {
+    switch (status.trim().toLowerCase()) {
       case 'approved':
         return Colors.green;
       case 'rejected':
@@ -36,7 +36,7 @@ class _AdminRegistrationRequestsPageState
   }
 
   String _statusLabel(String status) {
-    switch (status) {
+    switch (status.trim().toLowerCase()) {
       case 'approved':
         return 'تمت الموافقة';
       case 'rejected':
@@ -48,7 +48,7 @@ class _AdminRegistrationRequestsPageState
   }
 
   String _activationMethodLabel(String value) {
-    switch (value) {
+    switch (value.trim().toLowerCase()) {
       case 'temporary_password':
         return 'كلمة مرور مؤقتة';
       case 'email_reset':
@@ -163,10 +163,15 @@ class _AdminRegistrationRequestsPageState
         final childrenInfo =
             (item['childrenInfo'] as List<dynamic>?) ?? <dynamic>[];
 
-        final fullName =
-            (parentInfo['fullName'] ?? parentInfo['name'] ?? '').toString();
-        final username = (parentInfo['username'] ?? '').toString();
-        final email = (parentInfo['email'] ?? '').toString();
+        final fullName = (parentInfo['fullName'] ??
+                parentInfo['name'] ??
+                item['fullName'] ??
+                '')
+            .toString();
+        final username =
+            (parentInfo['username'] ?? item['username'] ?? '').toString();
+        final email = (parentInfo['email'] ?? item['email'] ?? '').toString();
+        final phone = (parentInfo['phone'] ?? item['phone'] ?? '').toString();
 
         final childNames = childrenInfo
             .map(
@@ -176,7 +181,7 @@ class _AdminRegistrationRequestsPageState
             .join(' ');
 
         final combined =
-            '$fullName $username $email $childNames'.toLowerCase();
+            '$fullName $username $email $phone $childNames'.toLowerCase();
 
         return combined.contains(q);
       }).toList();
@@ -219,6 +224,105 @@ class _AdminRegistrationRequestsPageState
         .get();
 
     return snapshot.docs.isNotEmpty;
+  }
+
+  Future<void> _markRelatedAdminRegistrationNotificationsAsHandled({
+    required String requestId,
+    required String status,
+    required String adminUid,
+    required String adminName,
+  }) async {
+    final snapshot = await _firestore
+        .collection('notifications')
+        .where('requestId', isEqualTo: requestId)
+        .get();
+
+    if (snapshot.docs.isEmpty) return;
+
+    final batch = _firestore.batch();
+
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      final type = (data['type'] ?? data['notificationType'] ?? '').toString();
+
+      if (type != 'parent_registration_request') continue;
+
+      batch.set(
+        doc.reference,
+        {
+          'isRead': true,
+          'read': true,
+          'seen': true,
+          'status': status,
+          'handled': true,
+          'handledByUid': adminUid,
+          'handledByName': adminName,
+          'handledAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+    }
+
+    await batch.commit();
+  }
+
+  Future<void> _createParentRegistrationReviewNotification({
+    required String parentUid,
+    required String parentUsername,
+    required String parentName,
+    required String requestId,
+    required String status,
+    required String adminUid,
+    required String adminName,
+    String reviewNote = '',
+  }) async {
+    final approved = status == 'approved';
+
+    final title = approved
+        ? 'تمت الموافقة على طلب التسجيل'
+        : 'تم رفض طلب التسجيل';
+
+    final body = approved
+        ? 'تمت الموافقة على طلب إنشاء حسابك. تم إرسال رابط تعيين كلمة المرور إلى بريدك الإلكتروني. بعد تعيين كلمة المرور يمكنك تسجيل الدخول باستخدام اسم المستخدم الخاص بك.'
+        : reviewNote.trim().isEmpty
+            ? 'نعتذر، تم رفض طلب إنشاء الحساب. يمكنك مراجعة الإدارة لمعرفة التفاصيل.'
+            : 'نعتذر، تم رفض طلب إنشاء الحساب. ملاحظة الإدارة: ${reviewNote.trim()}';
+
+    await _firestore.collection('notifications').add({
+      'uid': parentUid,
+      'targetUid': parentUid,
+      'userUid': parentUid,
+      'receiverUid': parentUid,
+      'parentUid': parentUid,
+      'parentUsername': parentUsername,
+      'parentName': parentName,
+      'title': title,
+      'body': body,
+      'message': body,
+      'type': approved ? 'registration_request_approved' : 'registration_request_rejected',
+      'notificationType':
+          approved ? 'registration_request_approved' : 'registration_request_rejected',
+      'category': 'registration_requests',
+      'status': status,
+      'requestId': requestId,
+      'requestType': 'parent_registration',
+      'activationMethod': approved ? 'email_reset' : '',
+      'priority': approved ? 'normal' : 'important',
+      'importance': approved ? 'normal' : 'important',
+      'isRead': false,
+      'read': false,
+      'seen': false,
+      'createdAt': FieldValue.serverTimestamp(),
+      'time': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+      'createdByUid': adminUid,
+      'createdByName': adminName,
+      'createdByRole': 'admin',
+      'senderUid': adminUid,
+      'senderName': adminName,
+      'senderRole': 'admin',
+    });
   }
 
   Future<void> _updateRequestStatus({
@@ -351,11 +455,23 @@ class _AdminRegistrationRequestsPageState
       return;
     }
 
-    final parentName =
-        (parentInfo['fullName'] ?? parentInfo['name'] ?? '').toString().trim();
-    final rawUsername =
-        (parentInfo['username'] ?? '').toString().trim().toLowerCase();
-    final email = (parentInfo['email'] ?? '').toString().trim().toLowerCase();
+    final parentName = (parentInfo['fullName'] ??
+            parentInfo['name'] ??
+            item['fullName'] ??
+            '')
+        .toString()
+        .trim();
+
+    final rawUsername = (parentInfo['username'] ?? item['username'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+
+    final email = (parentInfo['email'] ?? item['email'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+
     final authUid = (item['authUid'] ?? '').toString().trim();
     final emailVerified = (item['emailVerified'] ?? false) == true;
     final authPreCreated = (item['authPreCreated'] ?? false) == true;
@@ -451,10 +567,10 @@ class _AdminRegistrationRequestsPageState
             ChildSectionUtils.resolveSectionAndGroup(childBirthDate);
         final resolvedSection = sectionResult.section;
 
-       if (resolvedSection != 'Nursery') {
-  _showSnack('يوجد طفل عمره خارج نطاق الحضانة في النظام الحالي');
-  return;
-}
+        if (resolvedSection != 'Nursery') {
+          _showSnack('يوجد طفل عمره خارج نطاق الحضانة في النظام الحالي');
+          return;
+        }
       }
 
       final adminInfo = await _getCurrentAdminInfo();
@@ -523,10 +639,7 @@ class _AdminRegistrationRequestsPageState
 
       for (final rawChild in childrenInfo) {
         final child = Map<String, dynamic>.from(rawChild as Map);
-
         final childBirthDate = _parseRequestBirthDate(child['birthDate']);
-
-       
 
         final childDocRef = _firestore.collection('children').doc();
 
@@ -540,6 +653,7 @@ class _AdminRegistrationRequestsPageState
               ? null
               : Timestamp.fromDate(childBirthDate),
           'section': 'Nursery',
+          'group': '',
           'status': 'active',
           'isActive': true,
           'hasChronicDiseases': (child['hasChronicDiseases'] ?? false) == true,
@@ -600,32 +714,57 @@ class _AdminRegistrationRequestsPageState
       batch.set(notificationRef, {
         'uid': authUid,
         'targetUid': authUid,
+        'userUid': authUid,
+        'receiverUid': authUid,
+        'parentUid': authUid,
+        'parentUsername': rawUsername,
+        'parentName': parentName,
         'title': 'تمت الموافقة على طلب التسجيل',
         'body':
             'تمت الموافقة على طلب إنشاء حسابك. تم إرسال رابط تعيين كلمة المرور إلى بريدك الإلكتروني. بعد تعيين كلمة المرور يمكنك تسجيل الدخول باستخدام اسم المستخدم الخاص بك.',
         'message':
             'تمت الموافقة على طلب إنشاء حسابك. تم إرسال رابط تعيين كلمة المرور إلى بريدك الإلكتروني. بعد تعيين كلمة المرور يمكنك تسجيل الدخول باستخدام اسم المستخدم الخاص بك.',
-        'type': 'registration_request',
+        'type': 'registration_request_approved',
+        'notificationType': 'registration_request_approved',
+        'category': 'registration_requests',
         'status': 'approved',
         'requestId': requestId,
+        'requestType': 'parent_registration',
         'activationMethod': 'email_reset',
+        'priority': 'normal',
+        'importance': 'normal',
         'isRead': false,
+        'read': false,
+        'seen': false,
         'createdAt': FieldValue.serverTimestamp(),
+        'time': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
         'createdByUid': adminInfo['uid'],
         'createdByName': adminInfo['name'],
+        'createdByRole': 'admin',
+        'senderUid': adminInfo['uid'],
+        'senderName': adminInfo['name'],
+        'senderRole': 'admin',
       });
 
       await batch.commit();
 
-      final actionCodeSettings = ActionCodeSettings(
-  url: 'https://daycare-app-220c0.web.app/auth_action.html',
-  handleCodeInApp: false,
-);
+      await _markRelatedAdminRegistrationNotificationsAsHandled(
+        requestId: requestId,
+        status: 'approved',
+        adminUid: adminInfo['uid'] ?? '',
+        adminName: adminInfo['name'] ?? 'admin',
+      );
 
-await _auth.sendPasswordResetEmail(
-  email: email,
-  actionCodeSettings: actionCodeSettings,
-);
+      final actionCodeSettings = ActionCodeSettings(
+        url: 'https://daycare-app-220c0.web.app/auth_action.html',
+        handleCodeInApp: false,
+      );
+
+      await _auth.sendPasswordResetEmail(
+        email: email,
+        actionCodeSettings: actionCodeSettings,
+      );
 
       if (!mounted) return;
 
@@ -664,6 +803,26 @@ await _auth.sendPasswordResetEmail(
     if (isProcessing) return;
 
     final requestId = item['id'].toString();
+
+    final parentInfo =
+        (item['parentInfo'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+
+    final parentName = (parentInfo['fullName'] ??
+            parentInfo['name'] ??
+            item['fullName'] ??
+            'ولي أمر')
+        .toString()
+        .trim();
+
+    final parentUsername = (parentInfo['username'] ?? item['username'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+
+    final parentUid = (item['authUid'] ?? item['linkedParentUid'] ?? '')
+        .toString()
+        .trim();
+
     final noteController = TextEditingController();
 
     final confirmed = await showDialog<bool>(
@@ -721,6 +880,8 @@ await _auth.sendPasswordResetEmail(
     });
 
     try {
+      final adminInfo = await _getCurrentAdminInfo();
+
       await _updateRequestStatus(
         requestId: requestId,
         newStatus: 'rejected',
@@ -734,6 +895,26 @@ await _auth.sendPasswordResetEmail(
           'isFirstLogin': false,
         },
       );
+
+      await _markRelatedAdminRegistrationNotificationsAsHandled(
+        requestId: requestId,
+        status: 'rejected',
+        adminUid: adminInfo['uid'] ?? '',
+        adminName: adminInfo['name'] ?? 'admin',
+      );
+
+      if (parentUid.isNotEmpty || parentUsername.isNotEmpty) {
+        await _createParentRegistrationReviewNotification(
+          parentUid: parentUid,
+          parentUsername: parentUsername,
+          parentName: parentName.isEmpty ? 'ولي أمر' : parentName,
+          requestId: requestId,
+          status: 'rejected',
+          adminUid: adminInfo['uid'] ?? '',
+          adminName: adminInfo['name'] ?? 'admin',
+          reviewNote: noteController.text,
+        );
+      }
 
       if (!mounted) return;
       _showSnack('تم رفض الطلب وتحديث حالته');
@@ -808,19 +989,19 @@ await _auth.sendPasswordResetEmail(
                     children: [
                       _InfoRow(
                         'الاسم',
-                        '${parentInfo['fullName'] ?? parentInfo['name'] ?? '-'}',
+                        '${parentInfo['fullName'] ?? parentInfo['name'] ?? item['fullName'] ?? '-'}',
                       ),
                       _InfoRow(
                         'اسم المستخدم',
-                        '${parentInfo['username'] ?? '-'}',
+                        '${parentInfo['username'] ?? item['username'] ?? '-'}',
                       ),
                       _InfoRow(
                         'البريد الإلكتروني',
-                        '${parentInfo['email'] ?? '-'}',
+                        '${parentInfo['email'] ?? item['email'] ?? '-'}',
                       ),
                       _InfoRow(
                         'رقم الجوال',
-                        '${parentInfo['phone'] ?? parentInfo['mobile'] ?? '-'}',
+                        '${parentInfo['phone'] ?? parentInfo['mobile'] ?? item['phone'] ?? '-'}',
                       ),
                       _InfoRow(
                         'الجوال البديل',
@@ -862,11 +1043,13 @@ await _auth.sendPasswordResetEmail(
                             final resolvedSection = sectionResult.section;
 
                             final sectionText =
-    resolvedSection == 'Nursery' ? 'حضانة' : 'خارج نطاق الحضانة';
-                            
+                                resolvedSection == 'Nursery'
+                                    ? 'حضانة'
+                                    : 'خارج نطاق الحضانة';
+
                             final ageWarning = resolvedSection != 'Nursery'
-    ? ' • العمر خارج نطاق الحضانة'
-    : '';
+                                ? ' • العمر خارج نطاق الحضانة'
+                                : '';
 
                             final hasChronicDiseases =
                                 (child['hasChronicDiseases'] ?? false) == true;
@@ -883,8 +1066,7 @@ await _auth.sendPasswordResetEmail(
                             return [
                               _InfoRow(
                                 'الطفل ${entry.key + 1}',
-                               '${child['fullName'] ?? child['name'] ?? '-'}'
-' • $sectionText$ageWarning',
+                                '${child['fullName'] ?? child['name'] ?? '-'} • $sectionText$ageWarning',
                               ),
                               _InfoRow(
                                 'هوية الطفل',
@@ -1086,10 +1268,13 @@ await _auth.sendPasswordResetEmail(
     final emailVerified = (item['emailVerified'] ?? false) == true;
 
     final parentName =
-        (parentInfo['fullName'] ?? parentInfo['name'] ?? '-').toString();
-    final username = (parentInfo['username'] ?? '-').toString();
+        (parentInfo['fullName'] ?? parentInfo['name'] ?? item['fullName'] ?? '-')
+            .toString();
+    final username =
+        (parentInfo['username'] ?? item['username'] ?? '-').toString();
     final phone =
-        (parentInfo['phone'] ?? parentInfo['mobile'] ?? '-').toString();
+        (parentInfo['phone'] ?? parentInfo['mobile'] ?? item['phone'] ?? '-')
+            .toString();
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -1154,8 +1339,11 @@ await _auth.sendPasswordResetEmail(
               const SizedBox(height: 14),
               Row(
                 children: [
-                  const Icon(Icons.phone_outlined,
-                      size: 18, color: AppColors.textLight),
+                  const Icon(
+                    Icons.phone_outlined,
+                    size: 18,
+                    color: AppColors.textLight,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -1168,8 +1356,11 @@ await _auth.sendPasswordResetEmail(
               const SizedBox(height: 8),
               Row(
                 children: [
-                  const Icon(Icons.child_care_outlined,
-                      size: 18, color: AppColors.textLight),
+                  const Icon(
+                    Icons.child_care_outlined,
+                    size: 18,
+                    color: AppColors.textLight,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -1182,8 +1373,11 @@ await _auth.sendPasswordResetEmail(
               const SizedBox(height: 8),
               Row(
                 children: [
-                  const Icon(Icons.calendar_today_outlined,
-                      size: 18, color: AppColors.textLight),
+                  const Icon(
+                    Icons.calendar_today_outlined,
+                    size: 18,
+                    color: AppColors.textLight,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -1221,8 +1415,11 @@ await _auth.sendPasswordResetEmail(
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    const Icon(Icons.vpn_key_outlined,
-                        size: 18, color: AppColors.textLight),
+                    const Icon(
+                      Icons.vpn_key_outlined,
+                      size: 18,
+                      color: AppColors.textLight,
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(

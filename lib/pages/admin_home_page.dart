@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../services/auth_service.dart';
@@ -98,6 +99,19 @@ class _AdminHomePageState extends State<AdminHomePage> {
         .limit(200)
         .get();
 
+    final currentAdminUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+
+     QuerySnapshot<Map<String, dynamic>>? unreadMessagesSnapshot;
+
+     if (currentAdminUid.trim().isNotEmpty) {
+      unreadMessagesSnapshot = await _firestore
+      .collection('messages')
+      .where('receiverId', isEqualTo: currentAdminUid)
+      .where('isRead', isEqualTo: false)
+      .limit(200)
+      .get();
+}
+
     final users = usersSnapshot.docs.map((e) => e.data()).toList();
     final children = childrenSnapshot.docs.map((e) => e.data()).toList();
     final updates = updatesSnapshot.docs.map((e) => e.data()).toList();
@@ -107,6 +121,21 @@ class _AdminHomePageState extends State<AdminHomePage> {
     final deletionRequests =
         deletionRequestsSnapshot.docs.map((e) => e.data()).toList();
     final complaints = complaintsSnapshot.docs.map((e) => e.data()).toList();
+
+    int unreadMessagesCount = 0;
+
+    if (unreadMessagesSnapshot != null) {
+  unreadMessagesCount = unreadMessagesSnapshot.docs.where((doc) {
+    final data = doc.data();
+
+    final deletedForUserIds =
+        (data['deletedForUserIds'] as List<dynamic>? ?? [])
+            .map((e) => e.toString())
+            .toList();
+
+    return !deletedForUserIds.contains(currentAdminUid);
+   }).length;
+}
 
     int activeChildren = 0;
     int archivedChildren = 0;
@@ -261,6 +290,17 @@ class _AdminHomePageState extends State<AdminHomePage> {
       );
     }
 
+    if (unreadMessagesCount > 0) {
+      alerts.add(
+       _AdminAlertItem(
+       title: 'يوجد $unreadMessagesCount رسالة/رسائل غير مقروءة',
+       subtitle: 'راجعي تبويب الرسائل للرد على أولياء الأمور أو الموظفات.',
+       icon: Icons.mark_chat_unread_outlined,
+       color: Colors.blue,
+       ),
+      );
+    }
+
     if (users.isEmpty) {
       alerts.add(
         const _AdminAlertItem(
@@ -308,6 +348,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
       inReviewComplaints: inReviewComplaints,
       resolvedComplaints: resolvedComplaints,
       rejectedComplaints: rejectedComplaints,
+      unreadMessagesCount: unreadMessagesCount,
       alerts: alerts,
       recentActivities: recentActivities.take(20).toList(),
     );
@@ -622,6 +663,14 @@ class _AdminHomePageState extends State<AdminHomePage> {
                     'مفتوحة ${data.pendingComplaints + data.inReviewComplaints} • محلولة ${data.resolvedComplaints}',
                 icon: Icons.report_problem_outlined,
               ),
+              _DashboardStatCard(
+                title: 'الرسائل غير المقروءة',
+                value: '${data.unreadMessagesCount}',
+                subtitle: data.unreadMessagesCount > 0
+                  ? 'تحتاج متابعة من تبويب الرسائل'
+                  : 'لا توجد رسائل غير مقروءة',
+                icon: Icons.mark_chat_unread_outlined,
+              ),
             ],
           ),
           const SizedBox(height: 24),
@@ -714,6 +763,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
               );
             },
           ),
+          
           _AdminActionCard(
             icon: Icons.group_rounded,
             title: 'إدارة المستخدمين',
@@ -1447,6 +1497,7 @@ class _AdminDashboardData {
   final int inReviewComplaints;
   final int resolvedComplaints;
   final int rejectedComplaints;
+  final int unreadMessagesCount;
 
   final List<_AdminAlertItem> alerts;
   final List<_AdminActivityItem> recentActivities;
@@ -1474,6 +1525,7 @@ class _AdminDashboardData {
     required this.inReviewComplaints,
     required this.resolvedComplaints,
     required this.rejectedComplaints,
+    required this.unreadMessagesCount,
     required this.alerts,
     required this.recentActivities,
   });

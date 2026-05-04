@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 class ChildHandoffLogPage extends StatefulWidget {
@@ -25,6 +26,7 @@ class ChildHandoffLogPage extends StatefulWidget {
 
 class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
   final TextEditingController _personNameController = TextEditingController();
@@ -34,10 +36,15 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
 
   String _handoffType = 'delivery';
   bool _isSaving = false;
+  bool _isUpdatingLast = false;
+
+  String? _lastLogId;
   Map<String, dynamic>? _lastLog;
 
   String _logSearchText = '';
   final Set<String> _selectedLogTypes = {};
+
+  String _selectedRelationOption = '';
 
   final List<String> _relationSuggestions = [
     'الأب',
@@ -52,61 +59,8 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
     'الخالة',
     'السائق',
     'مفوض',
+    'أخرى',
   ];
-
-  String get _safeChildId {
-    if (widget.childId != null && widget.childId!.trim().isNotEmpty) {
-      return widget.childId!.trim();
-    }
-
-    final child = widget.child;
-
-    if (child is Map<String, dynamic>) {
-      return (child['id'] ??
-              child['childId'] ??
-              child['uid'] ??
-              child['docId'] ??
-              '')
-          .toString();
-    }
-
-    try {
-      final dynamic id = child?.id;
-      if (id != null) return id.toString();
-    } catch (_) {}
-
-    try {
-      final dynamic id = child?.childId;
-      if (id != null) return id.toString();
-    } catch (_) {}
-
-    return '';
-  }
-
-  String get _safeChildName {
-    if (widget.childName != null && widget.childName!.trim().isNotEmpty) {
-      return widget.childName!.trim();
-    }
-
-    final child = widget.child;
-
-    if (child is Map<String, dynamic>) {
-      return (child['name'] ?? child['childName'] ?? child['fullName'] ?? 'الطفل')
-          .toString();
-    }
-
-    try {
-      final dynamic name = child?.name;
-      if (name != null) return name.toString();
-    } catch (_) {}
-
-    try {
-      final dynamic name = child?.childName;
-      if (name != null) return name.toString();
-    } catch (_) {}
-
-    return 'الطفل';
-  }
 
   @override
   void initState() {
@@ -123,36 +77,248 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
     super.dispose();
   }
 
-  Future<Map<String, String>> _fetchParentLinkInfo() async {
-    String parentUid = '';
-    String parentUsername = '';
+  String get _safeChildId {
+    if (widget.childId != null && widget.childId!.trim().isNotEmpty) {
+      return widget.childId!.trim();
+    }
 
-    if (_safeChildId.isEmpty) {
-      return {
-        'parentUid': '',
-        'parentUsername': '',
-      };
+    final child = widget.child;
+
+    if (child is Map<String, dynamic>) {
+      return (child['id'] ??
+              child['childId'] ??
+              child['uid'] ??
+              child['docId'] ??
+              '')
+          .toString()
+          .trim();
     }
 
     try {
-      final childDoc = await _firestore.collection('children').doc(_safeChildId).get();
+      final dynamic id = child?.id;
+      if (id != null) return id.toString().trim();
+    } catch (_) {}
 
-      if (childDoc.exists) {
-        final data = childDoc.data() ?? <String, dynamic>{};
+    try {
+      final dynamic id = child?.childId;
+      if (id != null) return id.toString().trim();
+    } catch (_) {}
 
-        parentUid = (data['parentUid'] ?? '').toString().trim();
-        parentUsername =
-            (data['parentUsername'] ?? '').toString().trim().toLowerCase();
+    return '';
+  }
+
+  String get _safeChildName {
+    if (widget.childName != null && widget.childName!.trim().isNotEmpty) {
+      return widget.childName!.trim();
+    }
+
+    final child = widget.child;
+
+    if (child is Map<String, dynamic>) {
+      return (child['name'] ?? child['childName'] ?? child['fullName'] ?? 'الطفل')
+          .toString()
+          .trim();
+    }
+
+    try {
+      final dynamic name = child?.name;
+      if (name != null) return name.toString().trim();
+    } catch (_) {}
+
+    try {
+      final dynamic name = child?.childName;
+      if (name != null) return name.toString().trim();
+    } catch (_) {}
+
+    return 'الطفل';
+  }
+
+  String get _safeChildSection {
+    final child = widget.child;
+
+    if (child is Map<String, dynamic>) {
+      final section = (child['section'] ?? '').toString().trim();
+      return section.isEmpty ? 'Nursery' : section;
+    }
+
+    try {
+      final dynamic section = child?.section;
+      if (section != null && section.toString().trim().isNotEmpty) {
+        return section.toString().trim();
       }
     } catch (_) {}
 
-    if (parentUsername.isEmpty) {
-      final child = widget.child;
+    return 'Nursery';
+  }
 
-      if (child is Map<String, dynamic>) {
+  String get _safeChildGroup {
+    final child = widget.child;
+
+    if (child is Map<String, dynamic>) {
+      return (child['group'] ?? '').toString().trim();
+    }
+
+    try {
+      final dynamic group = child?.group;
+      if (group != null) return group.toString().trim();
+    } catch (_) {}
+
+    return '';
+  }
+
+  bool get _isOtherRelationSelected => _selectedRelationOption == 'أخرى';
+
+  bool get _lastLogIsSameType {
+    final lastType = (_lastLog?['handoffType'] ?? '').toString().trim();
+    return _lastLogId != null && lastType == _handoffType;
+  }
+
+  String _normalizeRole(String value) {
+    final role = value.trim().toLowerCase();
+
+    if (role == 'nursery' || role == 'nursery staff') {
+      return 'nursery_staff';
+    }
+
+    if (role == 'admin') return 'admin';
+    if (role == 'parent') return 'parent';
+    if (role == 'nursery_staff') return 'nursery_staff';
+
+    return role.isEmpty ? 'nursery_staff' : role;
+  }
+
+  DateTime? _dateFromDynamic(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+
+    if (value is String) {
+      return DateTime.tryParse(value);
+    }
+
+    return null;
+  }
+
+  DateTime? _logDate(Map<String, dynamic> data) {
+    return _dateFromDynamic(data['time']) ??
+        _dateFromDynamic(data['eventAt']) ??
+        _dateFromDynamic(data['createdAt']) ??
+        _dateFromDynamic(data['updatedAt']);
+  }
+
+  bool _isToday(DateTime date) {
+    final now = DateTime.now();
+    return date.year == now.year &&
+        date.month == now.month &&
+        date.day == now.day;
+  }
+
+  void _showSnack(
+    String message, {
+    Color backgroundColor = Colors.redAccent,
+  }) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: backgroundColor,
+      ),
+    );
+  }
+
+  Future<Map<String, String>> _fetchCurrentUserInfo() async {
+    final currentUser = _auth.currentUser;
+
+    String uid = widget.createdByUid?.trim() ?? '';
+    String name = widget.createdByName?.trim() ?? '';
+    String role = _normalizeRole(widget.createdByRole ?? '');
+
+    if (currentUser != null) {
+      uid = uid.isNotEmpty ? uid : currentUser.uid;
+
+      try {
+        final userDoc =
+            await _firestore.collection('users').doc(currentUser.uid).get();
+
+        final data = userDoc.data() ?? <String, dynamic>{};
+
+        name = name.isNotEmpty
+            ? name
+            : (data['displayName'] ??
+                    data['name'] ??
+                    data['fullName'] ??
+                    data['username'] ??
+                    currentUser.displayName ??
+                    'مستخدم')
+                .toString()
+                .trim();
+
+        role = _normalizeRole(
+          role.isNotEmpty ? role : (data['role'] ?? 'nursery_staff').toString(),
+        );
+      } catch (_) {
+        name = name.isNotEmpty
+            ? name
+            : currentUser.displayName?.trim().isNotEmpty == true
+                ? currentUser.displayName!.trim()
+                : 'مستخدم';
+
+        role = _normalizeRole(role);
+      }
+    }
+
+    return {
+      'uid': uid,
+      'name': name.isEmpty ? 'مستخدم' : name,
+      'role': _normalizeRole(role),
+    };
+  }
+
+  Future<Map<String, String>> _fetchParentLinkInfo() async {
+    String parentUid = '';
+    String parentUsername = '';
+    String parentName = '';
+
+    if (_safeChildId.isNotEmpty) {
+      try {
+        final childDoc =
+            await _firestore.collection('children').doc(_safeChildId).get();
+
+        if (childDoc.exists) {
+          final data = childDoc.data() ?? <String, dynamic>{};
+
+          parentUid = (data['parentUid'] ?? '').toString().trim();
+          parentUsername =
+              (data['parentUsername'] ?? '').toString().trim().toLowerCase();
+          parentName = (data['parentName'] ?? '').toString().trim();
+        }
+      } catch (_) {}
+    }
+
+    final child = widget.child;
+
+    if (child is Map<String, dynamic>) {
+      if (parentUid.isEmpty) {
+        parentUid = (child['parentUid'] ?? '').toString().trim();
+      }
+
+      if (parentUsername.isEmpty) {
         parentUsername =
             (child['parentUsername'] ?? '').toString().trim().toLowerCase();
-      } else {
+      }
+
+      if (parentName.isEmpty) {
+        parentName = (child['parentName'] ?? '').toString().trim();
+      }
+    } else {
+      if (parentUid.isEmpty) {
+        try {
+          final dynamic uid = child?.parentUid;
+          if (uid != null) parentUid = uid.toString().trim();
+        } catch (_) {}
+      }
+
+      if (parentUsername.isEmpty) {
         try {
           final dynamic username = child?.parentUsername;
           if (username != null) {
@@ -160,19 +326,11 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
           }
         } catch (_) {}
       }
-    }
 
-    if (parentUid.isEmpty) {
-      final child = widget.child;
-
-      if (child is Map<String, dynamic>) {
-        parentUid = (child['parentUid'] ?? '').toString().trim();
-      } else {
+      if (parentName.isEmpty) {
         try {
-          final dynamic uid = child?.parentUid;
-          if (uid != null) {
-            parentUid = uid.toString().trim();
-          }
+          final dynamic name = child?.parentName;
+          if (name != null) parentName = name.toString().trim();
         } catch (_) {}
       }
     }
@@ -180,6 +338,7 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
     return {
       'parentUid': parentUid,
       'parentUsername': parentUsername,
+      'parentName': parentName,
     };
   }
 
@@ -194,9 +353,12 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
           .limit(1)
           .get();
 
-      if (snap.docs.isNotEmpty) {
-        final last = snap.docs.first.data();
+      if (snap.docs.isNotEmpty && mounted) {
+        final doc = snap.docs.first;
+        final last = doc.data();
+
         setState(() {
+          _lastLogId = doc.id;
           _lastLog = last;
           _handoffType =
               last['handoffType'] == 'delivery' ? 'pickup' : 'delivery';
@@ -244,13 +406,7 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
   }
 
   String _formatDateTime(dynamic value) {
-    DateTime? dateTime;
-
-    if (value is Timestamp) {
-      dateTime = value.toDate();
-    } else if (value is DateTime) {
-      dateTime = value;
-    }
+    final dateTime = _dateFromDynamic(value);
 
     if (dateTime == null) return 'غير محدد';
 
@@ -267,12 +423,6 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
     return '$year/$month/$day - $hour:$minute $period';
   }
 
-  String _currentOperationHint() {
-    return _handoffType == 'delivery'
-        ? 'وثّقي هنا الشخص الذي قام بتسليم الطفل للحضانة.'
-        : 'وثّقي هنا الشخص الذي قام باستلام الطفل من الحضانة.';
-  }
-
   String _personFieldLabel() {
     return _handoffType == 'delivery'
         ? 'اسم الشخص الذي سلّم الطفل'
@@ -285,88 +435,318 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
         : 'مثال: تم الاستلام مبكرًا / استلمه الجد / ملاحظة خاصة';
   }
 
-  Future<void> _saveHandoff() async {
-    if (!_formKey.currentState!.validate()) return;
+  String _buildNotificationTitle({bool isUpdate = false}) {
+    if (isUpdate) {
+      return _handoffType == 'delivery'
+          ? 'تم تعديل سجل تسليم الطفل للحضانة'
+          : 'تم تعديل سجل استلام الطفل من الحضانة';
+    }
+
+    return _handoffType == 'delivery'
+        ? 'تم تسجيل تسليم الطفل للحضانة'
+        : 'تم تسجيل استلام الطفل من الحضانة';
+  }
+
+  String _buildNotificationBody() {
+    final person = _personNameController.text.trim();
+    final relation = _relationController.text.trim();
+    final note = _noteController.text.trim();
+
+    final action = _handoffType == 'delivery'
+        ? 'تم تسجيل تسليم $_safeChildName للحضانة'
+        : 'تم تسجيل استلام $_safeChildName من الحضانة';
+
+    final parts = <String>[
+      action,
+      if (person.isNotEmpty) 'الشخص: $person',
+      if (relation.isNotEmpty) 'الصفة/القرابة: $relation',
+      if (note.isNotEmpty) 'ملاحظة: $note',
+    ];
+
+    return parts.join(' - ');
+  }
+
+  bool _validateInputs() {
+    final formValid = _formKey.currentState?.validate() ?? false;
+    if (!formValid) return false;
 
     if (_safeChildId.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('تعذر تحديد بيانات الطفل'),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
-      return;
+      _showSnack('تعذر تحديد بيانات الطفل');
+      return false;
     }
 
-    final lastType = _lastLog?['handoffType'];
+    final personName = _personNameController.text.trim();
+    final relation = _relationController.text.trim();
+
+    if (personName.isEmpty) {
+      _showSnack('يرجى إدخال اسم الشخص');
+      return false;
+    }
+
+    if (personName.length < 2) {
+      _showSnack('اسم الشخص قصير جدًا');
+      return false;
+    }
+
+    if (relation.isEmpty) {
+      _showSnack('يرجى اختيار أو إدخال صلة القرابة / الصفة');
+      return false;
+    }
+
+    if (relation.length < 2) {
+      _showSnack('صلة القرابة أو الصفة قصيرة جدًا');
+      return false;
+    }
+
+    return true;
+  }
+
+  Map<String, dynamic> _buildHandoffData({
+    required Timestamp now,
+    required Map<String, String> parentInfo,
+    required Map<String, String> userInfo,
+  }) {
+    final parentUid = (parentInfo['parentUid'] ?? '').trim();
+    final parentUsername = (parentInfo['parentUsername'] ?? '').trim().toLowerCase();
+    final parentName = (parentInfo['parentName'] ?? '').trim();
+
+    final personName = _personNameController.text.trim();
+    final relation = _relationController.text.trim();
+    final note = _noteController.text.trim();
+    final message = _buildNotificationBody();
+
+    return {
+      'childId': _safeChildId,
+      'childName': _safeChildName,
+      'parentUid': parentUid,
+      'parentUsername': parentUsername,
+      'parentName': parentName,
+      'section': _safeChildSection,
+      'group': _safeChildGroup,
+      'handoffType': _handoffType,
+      'handoffTypeLabel': _handoffTypeLabel(_handoffType),
+      'personName': personName,
+      'relation': relation,
+      'note': note,
+      'message': message,
+      'description': message,
+      'time': now,
+      'eventAt': now,
+      'updatedAt': now,
+      'createdByUid': userInfo['uid'],
+      'createdByName': userInfo['name'],
+      'createdByRole': userInfo['role'],
+      'byRole': userInfo['role'],
+    };
+  }
+
+  Map<String, dynamic> _buildNotificationData({
+    required Timestamp now,
+    required Map<String, String> parentInfo,
+    required Map<String, String> userInfo,
+    required String handoffId,
+    required bool isUpdate,
+  }) {
+    final parentUid = (parentInfo['parentUid'] ?? '').trim();
+    final parentUsername = (parentInfo['parentUsername'] ?? '').trim().toLowerCase();
+    final parentName = (parentInfo['parentName'] ?? '').trim();
+
+    final personName = _personNameController.text.trim();
+    final relation = _relationController.text.trim();
+    final message = _buildNotificationBody();
+
+    return {
+      'uid': parentUid,
+      'targetUid': parentUid,
+      'targetRole': 'parent',
+      'receiverUid': parentUid,
+      'receiverRole': 'parent',
+      'parentUid': parentUid,
+      'parentUsername': parentUsername,
+      'parentName': parentName,
+      'childId': _safeChildId,
+      'childName': _safeChildName,
+      'section': _safeChildSection,
+      'group': _safeChildGroup,
+      'title': _buildNotificationTitle(isUpdate: isUpdate),
+      'body': message,
+      'message': message,
+      'description': message,
+      'type': isUpdate ? 'child_handoff_updated' : 'child_handoff',
+      'notificationType': isUpdate ? 'child_handoff_updated' : 'child_handoff',
+      'category': 'child_handoff',
+      'templateType': _handoffType,
+      'handoffId': handoffId,
+      'handoffType': _handoffType,
+      'handoffTypeLabel': _handoffTypeLabel(_handoffType),
+      'personName': personName,
+      'relation': relation,
+      'priority': 'normal',
+      'importance': 'normal',
+      'isRead': false,
+      'read': false,
+      'seen': false,
+      'createdAt': now,
+      'time': now,
+      'eventAt': now,
+      'updatedAt': now,
+      'createdByUid': userInfo['uid'],
+      'createdByName': userInfo['name'],
+      'createdByRole': userInfo['role'],
+      'byRole': userInfo['role'],
+      'senderUid': userInfo['uid'],
+      'senderName': userInfo['name'],
+      'senderRole': userInfo['role'],
+    };
+  }
+
+  Future<void> _saveHandoff() async {
+    if (!_validateInputs()) return;
+
+    final lastType = (_lastLog?['handoffType'] ?? '').toString().trim();
 
     if (lastType == _handoffType) {
-      final operation = _handoffType == 'delivery'
-          ? 'لا يمكن تسجيل تسليم مرتين متتاليتين'
-          : 'لا يمكن تسجيل استلام مرتين متتاليتين';
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(operation),
-          backgroundColor: Colors.redAccent,
-        ),
+      _showSnack(
+        _handoffType == 'delivery'
+            ? 'لا يمكن تسجيل تسليم مرتين متتاليتين. إذا كان السجل السابق خاطئًا استخدمي زر تعديل آخر سجل.'
+            : 'لا يمكن تسجيل استلام مرتين متتاليتين. إذا كان السجل السابق خاطئًا استخدمي زر تعديل آخر سجل.',
       );
       return;
     }
 
-    setState(() => _isSaving = true);
+    setState(() {
+      _isSaving = true;
+    });
 
     try {
-      final now = DateTime.now();
+      final now = Timestamp.now();
       final parentInfo = await _fetchParentLinkInfo();
+      final userInfo = await _fetchCurrentUserInfo();
 
-      await _firestore.collection('child_handoffs').add({
-        'childId': _safeChildId,
-        'childName': _safeChildName,
-        'parentUid': parentInfo['parentUid'],
-        'parentUsername': parentInfo['parentUsername'],
-        'handoffType': _handoffType,
+      final handoffRef = _firestore.collection('child_handoffs').doc();
+      final notificationRef = _firestore.collection('notifications').doc();
+
+      final handoffData = _buildHandoffData(
+        now: now,
+        parentInfo: parentInfo,
+        userInfo: userInfo,
+      );
+
+      final notificationData = _buildNotificationData(
+        now: now,
+        parentInfo: parentInfo,
+        userInfo: userInfo,
+        handoffId: handoffRef.id,
+        isUpdate: false,
+      );
+
+      final batch = _firestore.batch();
+
+      batch.set(handoffRef, {
+        ...handoffData,
+        'createdAt': now,
+      });
+
+      batch.set(notificationRef, notificationData);
+
+      await batch.commit();
+
+      _clearFormAfterSave();
+
+      _showSnack(
+        _handoffType == 'delivery'
+            ? 'تم تسجيل تسليم الطفل للحضانة وإشعار ولي الأمر'
+            : 'تم تسجيل استلام الطفل من الحضانة وإشعار ولي الأمر',
+        backgroundColor: Colors.green,
+      );
+
+      await _loadLastLog();
+    } catch (e) {
+      _showSnack('حدث خطأ أثناء حفظ السجل: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _updateLastHandoff() async {
+    if (!_validateInputs()) return;
+
+    if (_lastLogId == null || !_lastLogIsSameType) {
+      _showSnack('لا يوجد سجل مطابق قابل للتعديل');
+      return;
+    }
+
+    setState(() {
+      _isUpdatingLast = true;
+    });
+
+    try {
+      final now = Timestamp.now();
+      final parentInfo = await _fetchParentLinkInfo();
+      final userInfo = await _fetchCurrentUserInfo();
+
+      final handoffRef = _firestore.collection('child_handoffs').doc(_lastLogId);
+      final notificationRef = _firestore.collection('notifications').doc();
+
+      final message = _buildNotificationBody();
+
+      final batch = _firestore.batch();
+
+      batch.update(handoffRef, {
         'personName': _personNameController.text.trim(),
         'relation': _relationController.text.trim(),
         'note': _noteController.text.trim(),
-        'time': Timestamp.fromDate(now),
-        'createdAt': FieldValue.serverTimestamp(),
-        'createdByUid': widget.createdByUid,
-        'createdByName': widget.createdByName,
-        'createdByRole': widget.createdByRole,
+        'message': message,
+        'description': message,
+        'updatedAt': now,
+        'correctedAt': now,
+        'correctedByUid': userInfo['uid'],
+        'correctedByName': userInfo['name'],
+        'correctedByRole': userInfo['role'],
+        'isCorrected': true,
       });
 
-      _personNameController.clear();
-      _relationController.clear();
-      _noteController.clear();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              _handoffType == 'delivery'
-                  ? 'تم تسجيل تسليم الطفل للحضانة بنجاح'
-                  : 'تم تسجيل استلام الطفل من الحضانة بنجاح',
-            ),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-
-      await _loadLastLog();
-      setState(() {});
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('حدث خطأ أثناء حفظ السجل: $e'),
-          backgroundColor: Colors.redAccent,
+      batch.set(
+        notificationRef,
+        _buildNotificationData(
+          now: now,
+          parentInfo: parentInfo,
+          userInfo: userInfo,
+          handoffId: _lastLogId!,
+          isUpdate: true,
         ),
       );
+
+      await batch.commit();
+
+      _clearFormAfterSave();
+
+      _showSnack(
+        'تم تعديل آخر سجل وإشعار ولي الأمر',
+        backgroundColor: Colors.green,
+      );
+
+      await _loadLastLog();
+    } catch (e) {
+      _showSnack('حدث خطأ أثناء تعديل آخر سجل: $e');
     } finally {
       if (mounted) {
-        setState(() => _isSaving = false);
+        setState(() {
+          _isUpdatingLast = false;
+        });
       }
     }
+  }
+
+  void _clearFormAfterSave() {
+    _personNameController.clear();
+    _relationController.clear();
+    _noteController.clear();
+    _selectedRelationOption = '';
   }
 
   Widget _buildSectionCard({
@@ -433,7 +813,7 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
           child: _buildTypeOption(
             type: 'delivery',
             title: 'تسليم للحضانة',
-            subtitle: 'الطفل دخل الحضانة',
+            subtitle: 'دخول الطفل',
             icon: Icons.login_rounded,
           ),
         ),
@@ -442,7 +822,7 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
           child: _buildTypeOption(
             type: 'pickup',
             title: 'استلام من الحضانة',
-            subtitle: 'الطفل غادر الحضانة',
+            subtitle: 'مغادرة الطفل',
             icon: Icons.logout_rounded,
           ),
         ),
@@ -521,6 +901,8 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
     int maxLines = 1,
     TextInputType? keyboardType,
     Widget? suffixIcon,
+    bool readOnly = false,
+    VoidCallback? onTap,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
@@ -529,7 +911,10 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
         validator: validator,
         maxLines: maxLines,
         keyboardType: keyboardType,
+        readOnly: readOnly,
+        onTap: onTap,
         onChanged: (_) => setState(() {}),
+        maxLength: controller == _noteController ? 250 : null,
         decoration: InputDecoration(
           labelText: label,
           hintText: hint,
@@ -561,14 +946,27 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
       spacing: 8,
       runSpacing: 8,
       children: _relationSuggestions.map((relation) {
-        final isSelected = _relationController.text.trim() == relation;
+        final isOther = relation == 'أخرى';
+
+        final isSelected = isOther
+            ? _isOtherRelationSelected
+            : _selectedRelationOption == relation ||
+                _relationController.text.trim() == relation;
 
         return ChoiceChip(
           label: Text(relation),
           selected: isSelected,
+          selectedColor: Colors.blue.withOpacity(0.16),
+          checkmarkColor: Colors.blue,
           onSelected: (_) {
             setState(() {
-              _relationController.text = relation;
+              _selectedRelationOption = relation;
+
+              if (isOther) {
+                _relationController.clear();
+              } else {
+                _relationController.text = relation;
+              }
             });
           },
         );
@@ -576,11 +974,63 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
     );
   }
 
+  Widget _buildRelationField() {
+    if (_isOtherRelationSelected) {
+      return _buildTextField(
+        controller: _relationController,
+        label: 'اكتبي صلة القرابة / الصفة',
+        hint: 'مثال: جارة، مرافقة، شخص آخر مفوض',
+        validator: (value) {
+          if (value == null || value.trim().isEmpty) {
+            return 'يرجى إدخال صلة القرابة أو الصفة';
+          }
+
+          if (value.trim().length < 2) {
+            return 'القيمة قصيرة جدًا';
+          }
+
+          return null;
+        },
+        suffixIcon: const Icon(Icons.edit_rounded),
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.family_restroom_rounded, color: Colors.grey),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              _relationController.text.trim().isEmpty
+                  ? 'اختاري صلة القرابة أو الصفة'
+                  : _relationController.text.trim(),
+              style: TextStyle(
+                color: _relationController.text.trim().isEmpty
+                    ? Colors.grey.shade600
+                    : Colors.black87,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildStatusCard() {
-    final lastType = _lastLog?['handoffType'];
+    final lastType = (_lastLog?['handoffType'] ?? '').toString().trim();
     final lastPerson = (_lastLog?['personName'] ?? '').toString();
     final lastRelation = (_lastLog?['relation'] ?? '').toString();
-    final lastTime = _lastLog?['time'] ?? _lastLog?['createdAt'];
+    final lastTime = _lastLog == null ? null : _logDate(_lastLog!);
 
     final statusText = lastType == 'delivery'
         ? 'الطفل داخل الحضانة حاليًا'
@@ -605,7 +1055,7 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
                 radius: 22,
                 backgroundColor: statusColor.withOpacity(0.12),
                 child: Icon(
-                  lastType == null
+                  lastType.isEmpty
                       ? Icons.info_outline_rounded
                       : _handoffTypeIcon(lastType),
                   color: statusColor,
@@ -639,7 +1089,7 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
             children: [
               _buildInfoChip(
                 icon: Icons.history_rounded,
-                label: lastType == null
+                label: lastType.isEmpty
                     ? 'لا توجد عملية سابقة'
                     : 'آخر عملية: ${_handoffTypeLabel(lastType)}',
                 color: statusColor,
@@ -651,7 +1101,7 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
               ),
             ],
           ),
-          if (lastType != null) ...[
+          if (lastType.isNotEmpty) ...[
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.all(12),
@@ -715,22 +1165,11 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _filterTodayLogs(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
-    final now = DateTime.now();
-
     final todayLogs = docs.where((doc) {
       final data = doc.data();
-      final dynamic timeValue = data['time'] ?? data['createdAt'];
-      DateTime? date;
-
-      if (timeValue is Timestamp) {
-        date = timeValue.toDate();
-      }
-
+      final date = _logDate(data);
       if (date == null) return false;
-
-      return date.year == now.year &&
-          date.month == now.month &&
-          date.day == now.day;
+      return _isToday(date);
     }).toList();
 
     return todayLogs.where((doc) {
@@ -739,6 +1178,7 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
       final person = (data['personName'] ?? '').toString().toLowerCase();
       final relation = (data['relation'] ?? '').toString().toLowerCase();
       final note = (data['note'] ?? '').toString().toLowerCase();
+      final childName = (data['childName'] ?? '').toString().toLowerCase();
 
       final matchesType =
           _selectedLogTypes.isEmpty || _selectedLogTypes.contains(type);
@@ -748,6 +1188,7 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
           person.contains(q) ||
           relation.contains(q) ||
           note.contains(q) ||
+          childName.contains(q) ||
           _handoffTypeLabel(type).toLowerCase().contains(q);
 
       return matchesType && matchesSearch;
@@ -781,7 +1222,13 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
   }
 
   Widget _buildTodayLogs(
-      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final allTodayLogs = docs.where((doc) {
+      final date = _logDate(doc.data());
+      return date != null && _isToday(date);
+    }).toList();
+
     final filteredLogs = _filterTodayLogs(docs);
     final hasCustomFilters =
         _logSearchText.trim().isNotEmpty || _selectedLogTypes.isNotEmpty;
@@ -812,7 +1259,7 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
               });
             },
             decoration: InputDecoration(
-              hintText: 'ابحث داخل سجل اليوم بالشخص أو القرابة أو الملاحظة',
+              hintText: 'ابحثي بالشخص أو القرابة أو الملاحظة',
               prefixIcon: const Icon(Icons.search_rounded),
               suffixIcon: _logSearchText.trim().isEmpty
                   ? null
@@ -883,21 +1330,22 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
                 borderRadius: BorderRadius.circular(14),
               ),
               child: Text(
-                docs.isEmpty
+                allTodayLogs.isEmpty
                     ? 'لا يوجد سجل تسليم/استلام اليوم بعد.'
-                    : 'لا توجد نتائج مطابقة للفلاتر داخل سجل اليوم.',
+                    : 'لا توجد نتائج مطابقة للفلاتر.',
                 style: TextStyle(color: Colors.grey.shade700),
               ),
             )
           else
-            ...filteredLogs.take(10).map((doc) {
+            ...filteredLogs.take(20).map((doc) {
               final data = doc.data();
               final type = (data['handoffType'] ?? '').toString();
               final person = (data['personName'] ?? '').toString();
               final relation = (data['relation'] ?? '').toString();
               final note = (data['note'] ?? '').toString();
-              final time = data['time'] ?? data['createdAt'];
+              final time = _logDate(data);
               final color = _handoffTypeColor(type);
+              final isCorrected = data['isCorrected'] == true;
 
               return Container(
                 margin: const EdgeInsets.only(bottom: 10),
@@ -913,7 +1361,11 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
                     CircleAvatar(
                       radius: 18,
                       backgroundColor: color.withOpacity(0.15),
-                      child: Icon(_handoffTypeIcon(type), color: color, size: 18),
+                      child: Icon(
+                        _handoffTypeIcon(type),
+                        color: color,
+                        size: 18,
+                      ),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
@@ -946,6 +1398,28 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
                                   style: const TextStyle(fontSize: 11.5),
                                 ),
                               ),
+                              if (isCorrected)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.amber.shade50,
+                                    borderRadius: BorderRadius.circular(30),
+                                    border: Border.all(
+                                      color: Colors.amber.shade200,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    'معدّل',
+                                    style: TextStyle(
+                                      fontSize: 11.5,
+                                      color: Colors.amber.shade900,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
                             ],
                           ),
                           const SizedBox(height: 6),
@@ -955,7 +1429,7 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
                           ),
                           const SizedBox(height: 3),
                           Text(
-                            'القرابة: ${relation.isEmpty ? 'غير محدد' : relation}',
+                            'القرابة/الصفة: ${relation.isEmpty ? 'غير محدد' : relation}',
                             style: const TextStyle(fontSize: 13.5),
                           ),
                           if (note.isNotEmpty) ...[
@@ -1032,7 +1506,7 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'صلة القرابة: ${_relationController.text.trim().isEmpty ? '—' : _relationController.text.trim()}',
+                  'صلة القرابة/الصفة: ${_relationController.text.trim().isEmpty ? '—' : _relationController.text.trim()}',
                   style: const TextStyle(fontSize: 13.5),
                 ),
                 const SizedBox(height: 4),
@@ -1042,13 +1516,13 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'الوقت المتوقع للتسجيل: ${_formatDateTime(DateTime.now())}',
+                  'وقت التسجيل: ${_formatDateTime(DateTime.now())}',
                   style: const TextStyle(fontSize: 13.5),
                 ),
-                if ((_lastLog?['handoffType'] ?? '') == _handoffType) ...[
+                if (_lastLogIsSameType) ...[
                   const SizedBox(height: 10),
                   const Text(
-                    'تنبيه: هذه العملية مطابقة لآخر سجل، ولن يتم السماح بحفظها.',
+                    'آخر سجل من نفس نوع العملية. لا يمكن إنشاء سجل جديد مكرر، ويمكن تعديل آخر سجل إذا كانت بياناته خاطئة.',
                     style: TextStyle(
                       color: Colors.redAccent,
                       fontSize: 12.5,
@@ -1060,6 +1534,42 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildUpdateLastButton() {
+    if (!_lastLogIsSameType) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: SizedBox(
+        width: double.infinity,
+        child: OutlinedButton.icon(
+          onPressed: _isSaving || _isUpdatingLast ? null : _updateLastHandoff,
+          icon: _isUpdatingLast
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.edit_note_rounded),
+          label: Text(
+            _isUpdatingLast ? 'جاري تعديل آخر سجل...' : 'تعديل آخر سجل محفوظ',
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 15,
+            ),
+          ),
+          style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 15),
+            foregroundColor: Colors.orange.shade800,
+            side: BorderSide(color: Colors.orange.shade300),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -1093,8 +1603,21 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
               stream: logsStream,
               builder: (context, snapshot) {
                 final docs = snapshot.data?.docs ?? [];
-                if (docs.isNotEmpty && _lastLog == null) {
-                  _lastLog = docs.first.data();
+
+                if (docs.isNotEmpty) {
+                  final firstDoc = docs.first;
+                  final firstData = firstDoc.data();
+
+                  if (_lastLogId != firstDoc.id) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (!mounted) return;
+
+                      setState(() {
+                        _lastLogId = firstDoc.id;
+                        _lastLog = firstData;
+                      });
+                    });
+                  }
                 }
 
                 return SafeArea(
@@ -1116,25 +1639,12 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
                               ),
                               const SizedBox(width: 12),
                               Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'سجل تسليم واستلام $_safeChildName',
-                                      style: const TextStyle(
-                                        fontSize: 17,
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      'استخدمي هذه الصفحة لتوثيق من قام بتسليم الطفل أو استلامه مع وقت العملية وملاحظات إضافية.',
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        color: Colors.grey.shade700,
-                                      ),
-                                    ),
-                                  ],
+                                child: Text(
+                                  'سجل تسليم واستلام $_safeChildName',
+                                  style: const TextStyle(
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w800,
+                                  ),
                                 ),
                               ),
                             ],
@@ -1161,36 +1671,11 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
                               const SizedBox(height: 12),
                               _buildTypeSelector(),
                               const SizedBox(height: 12),
-                              Container(
-                                width: double.infinity,
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: Colors.blue.shade50,
-                                  borderRadius: BorderRadius.circular(14),
-                                  border:
-                                      Border.all(color: Colors.blue.shade100),
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      _currentOperationHint(),
-                                      style: TextStyle(
-                                        color: Colors.blue.shade900,
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 13.5,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      'العملية المتوقعة حسب آخر سجل: ${_nextExpectedLabel(_lastLog?['handoffType'])}',
-                                      style: TextStyle(
-                                        color: Colors.blue.shade800,
-                                        fontSize: 12.5,
-                                      ),
-                                    ),
-                                  ],
-                                ),
+                              _buildInfoChip(
+                                icon: Icons.arrow_forward_rounded,
+                                label:
+                                    'المتوقّع حسب آخر سجل: ${_nextExpectedLabel((_lastLog?['handoffType'] ?? '').toString())}',
+                                color: Colors.indigo,
                               ),
                             ],
                           ),
@@ -1223,6 +1708,11 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
                                   if (value == null || value.trim().isEmpty) {
                                     return 'يرجى إدخال اسم الشخص';
                                   }
+
+                                  if (value.trim().length < 2) {
+                                    return 'اسم الشخص قصير جدًا';
+                                  }
+
                                   return null;
                                 },
                                 suffixIcon:
@@ -1240,73 +1730,13 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
                               const SizedBox(height: 8),
                               _buildRelationSuggestions(),
                               const SizedBox(height: 12),
-                              _buildTextField(
-                                controller: _relationController,
-                                label: 'صلة القرابة / الصفة',
-                                hint: 'مثال: الأم، الجد، السائق، مفوض',
-                                validator: (value) {
-                                  if (value == null || value.trim().isEmpty) {
-                                    return 'يرجى إدخال صلة القرابة أو الصفة';
-                                  }
-                                  return null;
-                                },
-                                suffixIcon:
-                                    const Icon(Icons.family_restroom_rounded),
-                              ),
-                              if (_relationController.text.trim().isNotEmpty &&
-                                  ![
-                                    'الأب',
-                                    'الأم',
-                                    'الأخ',
-                                    'الأخت',
-                                    'الجد',
-                                    'الجدة'
-                                  ].contains(_relationController.text.trim())) ...[
-                                Container(
-                                  width: double.infinity,
-                                  margin: const EdgeInsets.only(bottom: 12),
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: Colors.orange.shade50,
-                                    borderRadius: BorderRadius.circular(14),
-                                    border: Border.all(
-                                        color: Colors.orange.shade100),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Icon(Icons.warning_amber_rounded,
-                                          color: Colors.orange.shade800),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          'يرجى التأكد من أن هذا الشخص مفوض لاستلام الطفل أو تسليمه.',
-                                          style: TextStyle(
-                                            color: Colors.orange.shade900,
-                                            fontSize: 12.5,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
+                              _buildRelationField(),
                               _buildTextField(
                                 controller: _noteController,
                                 label: 'ملاحظة',
                                 hint: _noteHint(),
                                 maxLines: 3,
                                 suffixIcon: const Icon(Icons.notes_rounded),
-                              ),
-                              Align(
-                                alignment: Alignment.centerLeft,
-                                child: Text(
-                                  '${_noteController.text.length} / 250',
-                                  style: TextStyle(
-                                    color: Colors.grey.shade600,
-                                    fontSize: 12,
-                                  ),
-                                ),
                               ),
                             ],
                           ),
@@ -1315,7 +1745,9 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton.icon(
-                            onPressed: _isSaving ? null : _saveHandoff,
+                            onPressed: _isSaving || _isUpdatingLast
+                                ? null
+                                : _saveHandoff,
                             icon: _isSaving
                                 ? const SizedBox(
                                     width: 18,
@@ -1348,6 +1780,7 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
                             ),
                           ),
                         ),
+                        _buildUpdateLastButton(),
                         const SizedBox(height: 14),
                         _buildTodayLogs(docs),
                       ],

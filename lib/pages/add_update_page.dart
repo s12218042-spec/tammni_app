@@ -111,6 +111,30 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
     super.dispose();
   }
 
+  String _normalizeRole(String value) {
+    final role = value.trim().toLowerCase();
+
+    if (role == 'nursery' || role == 'nursery staff') {
+      return 'nursery_staff';
+    }
+
+    if (role == 'admin') return 'admin';
+    if (role == 'parent') return 'parent';
+
+    return role.isEmpty ? 'nursery_staff' : role;
+  }
+
+  String _priorityValue(String value) {
+    switch (value.trim()) {
+      case 'عاجل':
+        return 'urgent';
+      case 'مهم':
+        return 'important';
+      default:
+        return 'normal';
+    }
+  }
+
   String sectionLabel(String section) {
     return 'حضانة';
   }
@@ -192,15 +216,18 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
 
       final data = userDoc.data() ?? <String, dynamic>{};
 
+      final roleFromUser = (data['role'] ?? widget.byRole).toString();
+
       return {
         'uid': currentUser.uid,
         'name': (data['displayName'] ??
                 data['name'] ??
+                data['fullName'] ??
                 data['username'] ??
                 'مستخدم')
             .toString()
             .trim(),
-        'role': 'nursery_staff',
+        'role': _normalizeRole(roleFromUser),
       };
     } catch (_) {
       return {
@@ -208,7 +235,7 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
         'name': currentUser.displayName?.trim().isNotEmpty == true
             ? currentUser.displayName!.trim()
             : 'مستخدم',
-        'role': 'nursery_staff',
+        'role': _normalizeRole(widget.byRole),
       };
     }
   }
@@ -216,6 +243,7 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
   Future<Map<String, String>> fetchParentLinkInfo() async {
     String parentUid = widget.child.parentUid.trim();
     String parentUsername = widget.child.parentUsername.trim().toLowerCase();
+    String parentName = widget.child.parentName.trim();
 
     try {
       final childDoc =
@@ -227,6 +255,7 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
         final docParentUid = (data['parentUid'] ?? '').toString().trim();
         final docParentUsername =
             (data['parentUsername'] ?? '').toString().trim().toLowerCase();
+        final docParentName = (data['parentName'] ?? '').toString().trim();
 
         if (docParentUid.isNotEmpty) {
           parentUid = docParentUid;
@@ -235,12 +264,19 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
         if (docParentUsername.isNotEmpty) {
           parentUsername = docParentUsername;
         }
+
+        if (docParentName.isNotEmpty) {
+          parentName = docParentName;
+        }
       }
-    } catch (_) {}
+    } catch (_) {
+      // fallback على بيانات child الحالية
+    }
 
     return {
       'parentUid': parentUid,
       'parentUsername': parentUsername,
+      'parentName': parentName,
     };
   }
 
@@ -469,6 +505,8 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
 
     try {
       final now = Timestamp.now();
+      final eventTimestamp = Timestamp.fromDate(selectedDateTime);
+      final priority = _priorityValue(importance);
 
       String? uploadedMediaUrl;
       String? uploadedMediaPath;
@@ -500,22 +538,37 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
       final userInfo = await fetchCurrentUserInfo();
       final parentInfo = await fetchParentLinkInfo();
 
-      await _firestore.collection('updates').add({
+      final parentUid = (parentInfo['parentUid'] ?? '').toString().trim();
+      final parentUsername =
+          (parentInfo['parentUsername'] ?? '').toString().trim().toLowerCase();
+      final parentName = (parentInfo['parentName'] ?? '').toString().trim();
+
+      final updateRef = await _firestore.collection('updates').add({
         'childId': widget.child.id,
         'childName': widget.child.name,
-        'parentUid': parentInfo['parentUid'],
-        'parentUsername': parentInfo['parentUsername'],
+        'parentUid': parentUid,
+        'parentUsername': parentUsername,
+        'parentName': parentName,
         'section': 'Nursery',
+        'group': widget.child.group,
         'type': type,
-        'note': finalNote,
+        'updateType': type,
+        'category': type,
         'title': autoTitle(),
+        'note': finalNote,
+        'message': finalNote,
+        'description': finalNote,
         'createdAt': now,
         'time': FieldValue.serverTimestamp(),
-        'eventAt': Timestamp.fromDate(selectedDateTime),
+        'eventAt': eventTimestamp,
+        'updatedAt': now,
         'byRole': userInfo['role'],
         'createdByUid': userInfo['uid'],
         'createdByName': userInfo['name'],
         'createdByRole': userInfo['role'],
+        'senderUid': userInfo['uid'],
+        'senderName': userInfo['name'],
+        'senderRole': userInfo['role'],
         'mediaType': selectedMediaType ?? '',
         'mediaPath': uploadedMediaPath ?? '',
         'mediaUrl': uploadedMediaUrl ?? '',
@@ -524,7 +577,9 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
         'mimeType': uploadedMimeType ?? '',
         'sizeBytes': uploadedSizeBytes ?? 0,
         'hasMedia': uploadedMediaUrl != null || uploadedMediaPath != null,
-        'importance': importance,
+        'importance': priority,
+        'priority': priority,
+        'importanceLabel': importance,
         'tags': selectedTags,
         'mood': selectedMood,
         'energy': selectedEnergy,
@@ -534,22 +589,50 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
 
       if (notifyParent) {
         await _firestore.collection('notifications').add({
+          'uid': parentUid,
+          'targetUid': parentUid,
+          'targetRole': 'parent',
+          'receiverUid': parentUid,
+          'receiverRole': 'parent',
+          'parentUid': parentUid,
+          'parentUsername': parentUsername,
+          'parentName': parentName,
           'childId': widget.child.id,
           'childName': widget.child.name,
-          'parentUid': parentInfo['parentUid'],
-          'parentUsername': parentInfo['parentUsername'],
           'section': 'Nursery',
+          'group': widget.child.group,
           'title': autoTitle(),
           'body': finalNote,
           'message': finalNote,
+          'description': finalNote,
           'type': 'update_notification',
+          'notificationType': 'update_notification',
+          'category': type,
+          'templateType': type,
+          'updateId': updateRef.id,
           'isRead': false,
+          'read': false,
+          'seen': false,
           'createdAt': now,
           'time': FieldValue.serverTimestamp(),
+          'updatedAt': now,
           'createdByUid': userInfo['uid'],
           'createdByName': userInfo['name'],
           'createdByRole': userInfo['role'],
-          'importance': importance,
+          'senderUid': userInfo['uid'],
+          'senderName': userInfo['name'],
+          'senderRole': userInfo['role'],
+          'priority': priority,
+          'importance': priority,
+          'importanceLabel': importance,
+          'hasMedia': uploadedMediaUrl != null || uploadedMediaPath != null,
+          'mediaType': selectedMediaType ?? '',
+          'mediaPath': uploadedMediaPath ?? '',
+          'mediaUrl': uploadedMediaUrl ?? '',
+          'storageProvider': uploadedStorageProvider ?? '',
+          'bucket': uploadedBucket ?? '',
+          'mimeType': uploadedMimeType ?? '',
+          'sizeBytes': uploadedSizeBytes ?? 0,
         });
       }
 

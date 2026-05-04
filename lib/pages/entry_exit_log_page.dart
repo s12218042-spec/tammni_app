@@ -31,10 +31,10 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
   String currentUserRole = '';
 
   String selectedEventType = 'entry';
-  String selectedFilter = 'all'; // all / today / entry / exit
+  String selectedFilter = 'all';
   String searchText = '';
 
-  String? currentStatus; // inside / outside / unknown
+  String? currentStatus;
   String? lastEventType;
   Timestamp? lastEventTime;
   String? lastCreatedByName;
@@ -60,6 +60,20 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
   Future<void> initPage() async {
     await loadCurrentUserRole();
     await loadCurrentState();
+  }
+
+  String normalizeRole(String value) {
+    final role = value.trim().toLowerCase();
+
+    if (role == 'nursery' || role == 'nursery staff') {
+      return 'nursery_staff';
+    }
+
+    if (role == 'admin') return 'admin';
+    if (role == 'parent') return 'parent';
+    if (role == 'nursery_staff') return 'nursery_staff';
+
+    return role;
   }
 
   Future<void> loadCurrentUserRole() async {
@@ -88,7 +102,7 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
           await _firestore.collection('users').doc(currentUser.uid).get();
 
       final data = userDoc.data() ?? {};
-      final role = (data['role'] ?? '').toString().trim().toLowerCase();
+      final role = normalizeRole((data['role'] ?? '').toString());
 
       if (!mounted) return;
 
@@ -193,25 +207,36 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
       };
     }
 
-    final userDoc =
-        await _firestore.collection('users').doc(currentUser.uid).get();
+    try {
+      final userDoc =
+          await _firestore.collection('users').doc(currentUser.uid).get();
 
-    final data = userDoc.data() ?? {};
+      final data = userDoc.data() ?? {};
 
-    return {
-      'uid': currentUser.uid,
-      'name': (data['displayName'] ??
-              data['name'] ??
-              data['fullName'] ??
-              data['username'] ??
-              'مستخدم')
-          .toString(),
-      'role': (data['role'] ?? '').toString(),
-    };
+      return {
+        'uid': currentUser.uid,
+        'name': (data['displayName'] ??
+                data['name'] ??
+                data['fullName'] ??
+                data['username'] ??
+                'مستخدم')
+            .toString()
+            .trim(),
+        'role': normalizeRole((data['role'] ?? '').toString()),
+      };
+    } catch (_) {
+      return {
+        'uid': currentUser.uid,
+        'name': currentUser.displayName?.trim().isNotEmpty == true
+            ? currentUser.displayName!.trim()
+            : 'مستخدم',
+        'role': 'admin',
+      };
+    }
   }
 
   Future<Map<String, String>> fetchChildLinkInfo() async {
-    String parentUid = '';
+    String parentUid = widget.child.parentUid.trim();
     String parentUsername = widget.child.parentUsername.trim().toLowerCase();
     String parentName = widget.child.parentName.trim();
     String section = widget.child.section.trim();
@@ -225,16 +250,18 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
       if (childDoc.exists) {
         final data = childDoc.data() ?? <String, dynamic>{};
 
-        parentUid = (data['parentUid'] ?? '').toString().trim();
-
+        final docParentUid = (data['parentUid'] ?? '').toString().trim();
         final docParentUsername =
             (data['parentUsername'] ?? '').toString().trim().toLowerCase();
-
         final docParentName = (data['parentName'] ?? '').toString().trim();
         final docSection = (data['section'] ?? '').toString().trim();
         final docGroup = (data['group'] ?? '').toString().trim();
         final docChildName =
             (data['fullName'] ?? data['name'] ?? '').toString().trim();
+
+        if (docParentUid.isNotEmpty) {
+          parentUid = docParentUid;
+        }
 
         if (docParentUsername.isNotEmpty) {
           parentUsername = docParentUsername;
@@ -262,10 +289,30 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
       'parentUid': parentUid,
       'parentUsername': parentUsername,
       'parentName': parentName,
-      'section': section,
+      'section': section.isEmpty ? 'Nursery' : section,
       'group': group,
-      'childName': childName,
+      'childName': childName.isEmpty ? widget.child.name : childName,
     };
+  }
+
+  String buildNotificationTitle(String eventType) {
+    return eventType == 'entry'
+        ? 'تم توثيق دخول الطفل'
+        : 'تم توثيق خروج الطفل';
+  }
+
+  String buildNotificationBody({
+    required String eventType,
+    required String childName,
+    required String note,
+  }) {
+    final base = eventType == 'entry'
+        ? 'تم تسجيل دخول الطفل $childName إلى الحضانة.'
+        : 'تم تسجيل خروج الطفل $childName من الحضانة.';
+
+    if (note.trim().isEmpty) return base;
+
+    return '$base ملاحظة: ${note.trim()}';
   }
 
   Future<void> createParentNotification({
@@ -273,38 +320,66 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
     required Map<String, String> userInfo,
     required String eventType,
     required String note,
+    required String logId,
+    required Timestamp now,
   }) async {
     final parentUid = (childInfo['parentUid'] ?? '').trim();
-    final parentUsername = (childInfo['parentUsername'] ?? '').trim();
+    final parentUsername =
+        (childInfo['parentUsername'] ?? '').trim().toLowerCase();
+    final parentName = (childInfo['parentName'] ?? '').trim();
     final childName = (childInfo['childName'] ?? widget.child.name).trim();
+    final section = (childInfo['section'] ?? 'Nursery').trim();
+    final group = (childInfo['group'] ?? '').trim();
 
     if (parentUid.isEmpty && parentUsername.isEmpty) return;
 
-    final isEntry = eventType == 'entry';
+    final title = buildNotificationTitle(eventType);
+    final body = buildNotificationBody(
+      eventType: eventType,
+      childName: childName,
+      note: note,
+    );
 
     await _firestore.collection('notifications').add({
       'uid': parentUid,
       'targetUid': parentUid,
+      'targetRole': 'parent',
+      'receiverUid': parentUid,
+      'receiverRole': 'parent',
       'parentUid': parentUid,
       'parentUsername': parentUsername,
+      'parentName': parentName,
       'childId': widget.child.id,
       'childName': childName,
-      'title': isEntry ? 'تم توثيق دخول الطفل' : 'تم توثيق خروج الطفل',
-      'body': isEntry
-          ? 'تم تسجيل دخول الطفل $childName إلى الحضانة.'
-          : 'تم تسجيل خروج الطفل $childName من الحضانة.',
-      'message': isEntry
-          ? 'تم تسجيل دخول الطفل $childName إلى الحضانة.'
-          : 'تم تسجيل خروج الطفل $childName من الحضانة.',
-      'type': isEntry ? 'entry' : 'exit',
+      'section': section,
+      'group': group,
+      'title': title,
+      'body': body,
+      'message': body,
+      'description': body,
+      'type': eventType == 'entry' ? 'entry' : 'exit',
+      'notificationType': eventType == 'entry' ? 'entry' : 'exit',
+      'category': 'entry_exit',
+      'templateType': eventType,
       'eventType': eventType,
+      'entryExitLogId': logId,
       'note': note,
+      'priority': 'normal',
+      'importance': 'normal',
       'isRead': false,
-      'createdAt': FieldValue.serverTimestamp(),
+      'read': false,
+      'seen': false,
+      'createdAt': now,
       'time': FieldValue.serverTimestamp(),
+      'eventAt': now,
+      'updatedAt': now,
       'createdByUid': userInfo['uid'],
       'createdByName': userInfo['name'],
       'createdByRole': userInfo['role'],
+      'byRole': userInfo['role'],
+      'senderUid': userInfo['uid'],
+      'senderName': userInfo['name'],
+      'senderRole': userInfo['role'],
     });
   }
 
@@ -369,8 +444,9 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
       final userInfo = await fetchCurrentUserInfo();
       final childInfo = await fetchChildLinkInfo();
       final note = _noteCtrl.text.trim();
+      final now = Timestamp.now();
 
-      await _firestore.collection('entry_exit_logs').add({
+      final logRef = await _firestore.collection('entry_exit_logs').add({
         'childId': widget.child.id,
         'childName': childInfo['childName'] ?? widget.child.name,
         'parentUid': childInfo['parentUid'],
@@ -379,13 +455,30 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
         'section': childInfo['section'],
         'group': childInfo['group'],
         'eventType': selectedEventType,
+        'eventTypeLabel': eventLabel(selectedEventType),
+        'type': selectedEventType,
+        'title': selectedEventType == 'entry'
+            ? 'تسجيل دخول الطفل'
+            : 'تسجيل خروج الطفل',
         'note': note,
+        'message': buildNotificationBody(
+          eventType: selectedEventType,
+          childName: childInfo['childName'] ?? widget.child.name,
+          note: note,
+        ),
+        'description': buildNotificationBody(
+          eventType: selectedEventType,
+          childName: childInfo['childName'] ?? widget.child.name,
+          note: note,
+        ),
         'createdAt': FieldValue.serverTimestamp(),
-        'time': FieldValue.serverTimestamp(),
-        'eventAt': FieldValue.serverTimestamp(),
+        'time': now,
+        'eventAt': now,
+        'updatedAt': now,
         'createdByUid': userInfo['uid'],
         'createdByName': userInfo['name'],
         'createdByRole': userInfo['role'],
+        'byRole': userInfo['role'],
       });
 
       await createParentNotification(
@@ -393,6 +486,8 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
         userInfo: userInfo,
         eventType: selectedEventType,
         note: note,
+        logId: logRef.id,
+        now: now,
       );
 
       if (!mounted) return;
@@ -401,8 +496,8 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
         SnackBar(
           content: Text(
             selectedEventType == 'entry'
-                ? 'تم تسجيل دخول الطفل بنجاح'
-                : 'تم تسجيل خروج الطفل بنجاح',
+                ? 'تم تسجيل دخول الطفل وإشعار ولي الأمر'
+                : 'تم تسجيل خروج الطفل وإشعار ولي الأمر',
           ),
         ),
       );
@@ -1146,7 +1241,6 @@ class _EntryExitLogCard extends StatelessWidget {
     final role = value.trim().toLowerCase();
 
     if (role == 'admin') return 'الإدارة';
-   
 
     if (role == 'nursery_staff' ||
         role == 'nursery staff' ||

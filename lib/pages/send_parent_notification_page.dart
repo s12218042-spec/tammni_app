@@ -69,6 +69,37 @@ class _SendParentNotificationPageState
     super.dispose();
   }
 
+  String normalizeRole(String value) {
+    final role = value.trim().toLowerCase();
+
+    if (role == 'nursery' ||
+        role == 'nursery staff' ||
+        role == 'nursery_staff') {
+      return 'nursery_staff';
+    }
+
+    return role;
+  }
+
+  String templateNotificationType(String value) {
+    switch (value.trim().toLowerCase()) {
+      case 'health':
+        return 'health';
+      case 'supplies':
+        return 'supplies';
+      case 'media':
+        return 'media';
+      case 'care':
+        return 'nursery_notification';
+      case 'note':
+        return 'nursery_notification';
+      case 'custom':
+        return 'custom';
+      default:
+        return 'nursery_notification';
+    }
+  }
+
   Future<Map<String, String>> fetchCurrentUserInfo() async {
     final currentUser = _auth.currentUser;
 
@@ -77,27 +108,44 @@ class _SendParentNotificationPageState
         'uid': '',
         'name': 'مستخدم غير معروف',
         'role': '',
+        'username': '',
       };
     }
 
-    final userDoc =
-        await _firestore.collection('users').doc(currentUser.uid).get();
-    final data = userDoc.data() ?? {};
+    try {
+      final userDoc =
+          await _firestore.collection('users').doc(currentUser.uid).get();
+      final data = userDoc.data() ?? <String, dynamic>{};
 
-    return {
-      'uid': currentUser.uid,
-      'name': (data['displayName'] ??
-              data['name'] ??
-              data['username'] ??
-              'مستخدم')
-          .toString(),
-      'role': (data['role'] ?? '').toString(),
-    };
+      final role = normalizeRole((data['role'] ?? '').toString());
+
+      return {
+        'uid': currentUser.uid,
+        'name': (data['displayName'] ??
+                data['name'] ??
+                data['username'] ??
+                'مستخدم')
+            .toString()
+            .trim(),
+        'role': role,
+        'username': (data['username'] ?? '').toString().trim().toLowerCase(),
+      };
+    } catch (_) {
+      return {
+        'uid': currentUser.uid,
+        'name': currentUser.displayName?.trim().isNotEmpty == true
+            ? currentUser.displayName!.trim()
+            : 'مستخدم',
+        'role': '',
+        'username': '',
+      };
+    }
   }
 
   Future<Map<String, String>> fetchParentLinkInfo() async {
     String parentUid = widget.child.parentUid.trim();
     String parentUsername = widget.child.parentUsername.trim().toLowerCase();
+    String parentName = widget.child.parentName.trim();
 
     try {
       final childDoc =
@@ -109,6 +157,7 @@ class _SendParentNotificationPageState
         final docParentUid = (data['parentUid'] ?? '').toString().trim();
         final docParentUsername =
             (data['parentUsername'] ?? '').toString().trim().toLowerCase();
+        final docParentName = (data['parentName'] ?? '').toString().trim();
 
         if (docParentUid.isNotEmpty) {
           parentUid = docParentUid;
@@ -116,6 +165,10 @@ class _SendParentNotificationPageState
 
         if (docParentUsername.isNotEmpty) {
           parentUsername = docParentUsername;
+        }
+
+        if (docParentName.isNotEmpty) {
+          parentName = docParentName;
         }
       }
     } catch (_) {
@@ -125,6 +178,7 @@ class _SendParentNotificationPageState
     return {
       'parentUid': parentUid,
       'parentUsername': parentUsername,
+      'parentName': parentName,
     };
   }
 
@@ -276,6 +330,13 @@ class _SendParentNotificationPageState
       return;
     }
 
+    if (finalMessage.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('لا يمكن إرسال إشعار فارغ')),
+      );
+      return;
+    }
+
     setState(() {
       isSending = true;
     });
@@ -284,40 +345,102 @@ class _SendParentNotificationPageState
       final userInfo = await fetchCurrentUserInfo();
       final parentInfo = await fetchParentLinkInfo();
 
+      final parentUid = (parentInfo['parentUid'] ?? '').trim();
+      final parentUsername =
+          (parentInfo['parentUsername'] ?? '').trim().toLowerCase();
+      final parentName = (parentInfo['parentName'] ?? '').trim();
+
+      if (parentUid.isEmpty && parentUsername.isEmpty) {
+        throw Exception('لا يوجد ولي أمر مرتبط بهذا الطفل لإرسال الإشعار');
+      }
+
+      final now = Timestamp.now();
+      final title = buildTitle();
+      final notificationType = templateNotificationType(selectedTemplate);
+
       await _firestore.collection('notifications').add({
+        // Receiver / target fields
+        'targetUid': parentUid,
+        'targetUsername': parentUsername,
+        'targetRole': 'parent',
+        'targetName': parentName,
+        'notificationFor': 'parent',
+
+        // Backward-compatible parent fields
+        'parentUid': parentUid,
+        'parentUsername': parentUsername,
+        'parentName': parentName,
+
+        // Child context
         'childId': widget.child.id,
         'childName': widget.child.name,
-        'parentUid': parentInfo['parentUid'],
-        'parentUsername': parentInfo['parentUsername'],
         'section': widget.child.section,
         'group': widget.child.group,
-        'title': buildTitle(),
+
+        // Notification content
+        'title': title,
+        'subject': title,
+        'notificationTitle': title,
         'body': finalMessage,
         'message': finalMessage,
-        'type': 'nursery_notification',
+        'text': finalMessage,
+        'description': finalMessage,
+
+        // Notification classification
+        'type': notificationType,
+        'notificationType': notificationType,
+        'category': selectedTemplate,
         'templateType': selectedTemplate,
         'priority': selectedPriority,
+        'importance': selectedPriority,
+        'level': selectedPriority,
+
+        // Read state
         'isRead': false,
-        'createdAt': Timestamp.now(),
-        'time': FieldValue.serverTimestamp(),
+        'read': false,
+        'seen': false,
+        'readAt': null,
+
+        // Created by fields
         'createdByUid': userInfo['uid'],
         'createdByName': userInfo['name'],
         'createdByRole': userInfo['role'],
+        'createdByUsername': userInfo['username'],
         'byRole': userInfo['role'],
+        'senderId': userInfo['uid'],
+        'senderName': userInfo['name'],
+        'senderRole': userInfo['role'],
+
+        // Optional navigation fields
+        'source': 'send_parent_notification_page',
+        'route': 'parent_notifications',
+        'relatedCollection': 'notifications',
+        'relatedDocId': '',
+
+        // Time fields
+        'createdAt': now,
+        'time': FieldValue.serverTimestamp(),
+        'timestamp': now,
+        'eventAt': now,
+        'updatedAt': now,
       });
 
       if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('تم إرسال الإشعار بنجاح')),
       );
+
       Navigator.pop(context, true);
     } catch (e) {
       if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('حدث خطأ أثناء إرسال الإشعار: $e')),
       );
     } finally {
       if (!mounted) return;
+
       setState(() {
         isSending = false;
       });
@@ -367,9 +490,8 @@ class _SendParentNotificationPageState
   }
 
   Widget buildReceiverCard() {
-    final groupText = widget.child.group.trim().isEmpty
-        ? 'غير محددة'
-        : widget.child.group;
+    final groupText =
+        widget.child.group.trim().isEmpty ? 'غير محددة' : widget.child.group;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -421,7 +543,7 @@ class _SendParentNotificationPageState
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'القسم: ${widget.child.section == 'Nursery' ? 'حضانة' : 'روضة'}  •  المجموعة: $groupText',
+                  'القسم: حضانة  •  المجموعة: $groupText',
                   style: const TextStyle(
                     fontSize: 13.5,
                     color: AppColors.textLight,
@@ -608,9 +730,9 @@ class _SendParentNotificationPageState
             ),
           ),
           const SizedBox(height: 8),
-          Text(
+          const Text(
             'يمكنك ترك الحقل فارغًا في بعض الأنواع الجاهزة، وسيتم تكوين الرسالة تلقائيًا.',
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 12.8,
               color: AppColors.textLight,
               height: 1.5,
@@ -807,9 +929,7 @@ class _SendParentNotificationPageState
                       ),
                       const SizedBox(height: 10),
                       Text(
-                        preview.isEmpty
-                            ? 'ستظهر معاينة الرسالة هنا'
-                            : preview,
+                        preview.isEmpty ? 'ستظهر معاينة الرسالة هنا' : preview,
                         style: const TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w700,

@@ -45,11 +45,23 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
   List<ChildModel> get activeChildren => widget.children;
 
   bool isNurseryRole(String role) {
-    final value = role.trim().toLowerCase();
-    return value == 'nursery' ||
-        value == 'nursery_staff' ||
-        value == 'nursery staff';
+  final value = role.trim().toLowerCase();
+  return value == 'nursery' ||
+      value == 'nursery_staff' ||
+      value == 'nursery staff';
+}
+
+String normalizeRole(String role) {
+  final value = role.trim().toLowerCase();
+
+  if (value == 'nursery' ||
+      value == 'nursery staff' ||
+      value == 'nursery_staff') {
+    return 'nursery_staff';
   }
+
+  return value;
+}
 
   List<ChildModel> get nurseryChildren => activeChildren;
 
@@ -115,7 +127,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
       };
     }).where((person) {
       final id = (person['id'] ?? '').toString();
-      final role = (person['role'] ?? '').toString().trim().toLowerCase();
+      final role = normalizeRole((person['role'] ?? '').toString());
       final section = (person['section'] ?? '').toString().trim();
       final name = (person['displayName'] ?? '').toString().toLowerCase();
       final username = (person['username'] ?? '').toString().toLowerCase();
@@ -173,21 +185,23 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
   }
 
   bool matchesRecentFilter(MessageModel message) {
-    if (selectedFilter == 'all') return true;
+  if (selectedFilter == 'all') return true;
 
-    final otherRole =
-        message.senderRole == 'parent' ? message.receiverRole : message.senderRole;
+  final senderRole = normalizeRole(message.senderRole);
+  final receiverRole = normalizeRole(message.receiverRole);
 
-    if (selectedFilter == 'admin') {
-      return otherRole.trim().toLowerCase() == 'admin';
-    }
+  final otherRole = senderRole == 'parent' ? receiverRole : senderRole;
 
-    if (selectedFilter == 'nursery') {
-      return isNurseryRole(otherRole);
-    }
-
-    return true;
+  if (selectedFilter == 'admin') {
+    return otherRole == 'admin';
   }
+
+  if (selectedFilter == 'nursery') {
+    return otherRole == 'nursery_staff';
+  }
+
+  return true;
+}
 
   Widget buildTopTab({
     required String label,
@@ -277,13 +291,14 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
 
   Widget buildRecentChatCard(MessageModel message) {
     final childForChat = pickChildForMessage(message);
-    final isParentSender = message.senderRole == 'parent';
+    final senderRole = normalizeRole(message.senderRole);
+final receiverRole = normalizeRole(message.receiverRole);
+final isParentSender = senderRole == 'parent';
 
-    final targetUserId = isParentSender ? message.receiverId : message.senderId;
-    final targetUserName =
-        isParentSender ? message.receiverName : message.senderName;
-    final targetRole =
-        isParentSender ? message.receiverRole : message.senderRole;
+final targetUserId = isParentSender ? message.receiverId : message.senderId;
+final targetUserName =
+    isParentSender ? message.receiverName : message.senderName;
+final targetRole = isParentSender ? receiverRole : senderRole;
     const targetSection = 'Nursery';
 
     final color = sectionColor(targetSection);
@@ -394,7 +409,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
 
   Widget buildPersonCard(Map<String, dynamic> person) {
     final name = (person['displayName'] ?? '').toString();
-    final role = (person['role'] ?? '').toString().trim().toLowerCase();
+    final role = normalizeRole((person['role'] ?? '').toString());
     const section = 'Nursery';
 
     final color = sectionColor(section);
@@ -538,19 +553,23 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
               }
 
               final chats = (snapshot.data ?? [])
-                  .where((m) =>
-                      m.senderRole == 'parent' || m.receiverRole == 'parent')
-                  .where((m) => activeChildren.isNotEmpty)
-                  .where((m) {
-                    final otherRole = m.senderRole == 'parent'
-                        ? m.receiverRole
-                        : m.senderRole;
+    .where((m) {
+      final senderRole = normalizeRole(m.senderRole);
+      final receiverRole = normalizeRole(m.receiverRole);
 
-                    return isNurseryRole(otherRole) ||
-                        otherRole.trim().toLowerCase() == 'admin';
-                  })
-                  .where(matchesRecentFilter)
-                  .toList();
+      return senderRole == 'parent' || receiverRole == 'parent';
+    })
+    .where((m) => activeChildren.isNotEmpty)
+    .where((m) {
+      final senderRole = normalizeRole(m.senderRole);
+      final receiverRole = normalizeRole(m.receiverRole);
+
+      final otherRole = senderRole == 'parent' ? receiverRole : senderRole;
+
+      return otherRole == 'nursery_staff' || otherRole == 'admin';
+    })
+    .where(matchesRecentFilter)
+    .toList();
 
               if (chats.isEmpty) {
                 return Center(

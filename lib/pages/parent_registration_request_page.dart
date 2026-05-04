@@ -586,7 +586,9 @@ class _ParentRegistrationRequestPageState
       if (verified) {
         _showSnack('تم التحقق من البريد الإلكتروني بنجاح');
       } else {
-        _showSnack('لم يتم التحقق من البريد بعد. افتحي الرابط من البريد ثم أعيدي المحاولة');
+        _showSnack(
+          'لم يتم التحقق من البريد بعد. افتحي الرابط من البريد ثم أعيدي المحاولة',
+        );
       }
     } catch (e) {
       _showSnack(e.toString().replaceFirst('Exception: ', ''));
@@ -596,6 +598,108 @@ class _ParentRegistrationRequestPageState
           isCheckingVerification = false;
         });
       }
+    }
+  }
+
+  Future<void> _createAdminRegistrationNotification({
+    required String requestId,
+    required String parentUid,
+    required String parentName,
+    required String parentUsername,
+    required String parentEmail,
+    required String parentPhone,
+  }) async {
+    final title = 'طلب تسجيل ولي أمر جديد';
+    final body =
+        'تم إرسال طلب تسجيل جديد من $parentName باسم المستخدم @$parentUsername، بانتظار مراجعة الإدارة.';
+
+    final baseData = <String, dynamic>{
+      'title': title,
+      'body': body,
+      'message': body,
+      'type': 'parent_registration_request',
+      'notificationType': 'parent_registration_request',
+      'category': 'registration_requests',
+      'priority': 'important',
+      'importance': 'important',
+      'isRead': false,
+      'read': false,
+      'seen': false,
+      'requestId': requestId,
+      'requestType': 'parent_registration',
+      'status': 'pending',
+      'parentUid': parentUid,
+      'parentUsername': parentUsername,
+      'parentName': parentName,
+      'parentEmail': parentEmail,
+      'parentPhone': parentPhone,
+      'createdByUid': parentUid,
+      'createdByName': parentName,
+      'createdByRole': 'parent',
+      'senderUid': parentUid,
+      'senderName': parentName,
+      'senderRole': 'parent',
+      'targetRole': 'admin',
+      'receiverRole': 'admin',
+      'route': 'registration_requests',
+      'createdAt': FieldValue.serverTimestamp(),
+      'time': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+
+    try {
+      final adminsSnapshot = await _firestore
+          .collection('users')
+          .where('role', isEqualTo: 'admin')
+          .get();
+
+      final activeAdmins = adminsSnapshot.docs.where((doc) {
+        final data = doc.data();
+        return data['isActive'] != false;
+      }).toList();
+
+      if (activeAdmins.isEmpty) {
+        await _firestore.collection('notifications').add({
+          ...baseData,
+          'receiverUid': '',
+          'adminUid': '',
+          'userUid': '',
+          'scope': 'admin',
+        });
+        return;
+      }
+
+      final batch = _firestore.batch();
+
+      for (final adminDoc in activeAdmins) {
+        final adminData = adminDoc.data();
+        final adminName = (adminData['displayName'] ??
+                adminData['name'] ??
+                adminData['username'] ??
+                'الإدارة')
+            .toString();
+
+        final notificationRef = _firestore.collection('notifications').doc();
+
+        batch.set(notificationRef, {
+          ...baseData,
+          'receiverUid': adminDoc.id,
+          'adminUid': adminDoc.id,
+          'userUid': adminDoc.id,
+          'receiverName': adminName,
+          'scope': 'admin',
+        });
+      }
+
+      await batch.commit();
+    } catch (_) {
+      await _firestore.collection('notifications').add({
+        ...baseData,
+        'receiverUid': '',
+        'adminUid': '',
+        'userUid': '',
+        'scope': 'admin',
+      });
     }
   }
 
@@ -722,7 +826,6 @@ class _ParentRegistrationRequestPageState
           'notes': notesCtrl.text.trim(),
         },
 
-        // مهم: لم نعد نضيف أطفال داخل طلب التسجيل
         'childrenInfo': [],
 
         'reviewNote': '',
@@ -734,7 +837,17 @@ class _ParentRegistrationRequestPageState
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
-      await _firestore.collection('registration_requests').add(requestData);
+      final requestRef =
+          await _firestore.collection('registration_requests').add(requestData);
+
+      await _createAdminRegistrationNotification(
+        requestId: requestRef.id,
+        parentUid: requestAuthUid,
+        parentName: fullName.isEmpty ? 'ولي أمر' : fullName,
+        parentUsername: cleanUsername,
+        parentEmail: cleanEmail,
+        parentPhone: mainPhone,
+      );
 
       await _auth.signOut();
 
