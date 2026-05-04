@@ -73,19 +73,20 @@ class ParentNurseryLogPage extends StatelessWidget {
   }
 
   String roleLabel(String value) {
-    final role = value.trim().toLowerCase();
+  final role = value.trim().toLowerCase();
 
-    if (role == 'admin') return 'الإدارة';
-    if (role == 'teacher') return 'المعلمة';
-    if (role == 'nursery_staff' ||
-        role == 'nursery staff' ||
-        role == 'nursery') {
-      return 'موظفة الحضانة';
-    }
-    if (role == 'parent') return 'وليّ الأمر';
+  if (role == 'admin') return 'الإدارة';
 
-    return value.trim().isEmpty ? '' : value;
+  if (role == 'nursery_staff' ||
+      role == 'nursery staff' ||
+      role == 'nursery') {
+    return 'موظفة الحضانة';
   }
+
+  if (role == 'parent') return 'وليّ الأمر';
+
+  return value.trim().isEmpty ? '' : value;
+}
 
   String _resolveEventType(Map<String, dynamic> data) {
     return _firstNonEmpty([

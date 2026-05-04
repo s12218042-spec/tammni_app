@@ -17,7 +17,7 @@ class _AdminChatsPageState extends State<AdminChatsPage> {
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
   String searchText = '';
-  String selectedRole = 'all'; // all / teacher / nursery_staff
+  String selectedRole = 'all';
 
   Future<List<Map<String, dynamic>>> fetchAdminContacts() async {
     final currentUser = _auth.currentUser;
@@ -55,8 +55,7 @@ class _AdminChatsPageState extends State<AdminChatsPage> {
           if (!isActive) return false;
           if (uid == currentUser.uid) return false;
 
-          // ✅ الأدمن يتواصل فقط مع المعلمات وموظفات الحضانة
-          if (role != 'teacher' && role != 'nursery_staff') return false;
+if (role != 'nursery_staff') return false;
 
           if (selectedRole != 'all' && role != selectedRole) return false;
 
@@ -72,14 +71,6 @@ class _AdminChatsPageState extends State<AdminChatsPage> {
         .toList();
 
     users.sort((a, b) {
-      final roleA = (a['role'] ?? '').toString();
-      final roleB = (b['role'] ?? '').toString();
-
-      // نخلي المعلمات أولًا ثم موظفات الحضانة
-      if (roleA != roleB) {
-        if (roleA == 'teacher') return -1;
-        if (roleB == 'teacher') return 1;
-      }
 
       final nameA = (a['name'] ?? '').toString();
       final nameB = (b['name'] ?? '').toString();
@@ -89,38 +80,32 @@ class _AdminChatsPageState extends State<AdminChatsPage> {
     return users;
   }
 
-  String roleLabel(String role) {
-    switch (role) {
-      case 'teacher':
-        return 'معلمة';
-      case 'nursery_staff':
-        return 'موظفة حضانة';
-      default:
-        return role;
-    }
+String roleLabel(String role) {
+  switch (role) {
+    case 'nursery_staff':
+      return 'موظفة حضانة';
+    default:
+      return role;
   }
+}
 
   Color roleColor(String role) {
-    switch (role) {
-      case 'teacher':
-        return Colors.blue;
-      case 'nursery_staff':
-        return Colors.orange;
-      default:
-        return AppColors.primary;
-    }
+  switch (role) {
+    case 'nursery_staff':
+      return Colors.orange;
+    default:
+      return AppColors.primary;
   }
+}
 
   IconData roleIcon(String role) {
-    switch (role) {
-      case 'teacher':
-        return Icons.school_rounded;
-      case 'nursery_staff':
-        return Icons.child_care_rounded;
-      default:
-        return Icons.person_rounded;
-    }
+  switch (role) {
+    case 'nursery_staff':
+      return Icons.child_care_rounded;
+    default:
+      return Icons.person_rounded;
   }
+}
 
   @override
   Widget build(BuildContext context) {
@@ -146,7 +131,6 @@ class _AdminChatsPageState extends State<AdminChatsPage> {
           ),
           items: const [
             DropdownMenuItem(value: 'all', child: Text('الكل')),
-            DropdownMenuItem(value: 'teacher', child: Text('المعلمات')),
             DropdownMenuItem(
               value: 'nursery_staff',
               child: Text('موظفات الحضانة'),
@@ -181,7 +165,7 @@ class _AdminChatsPageState extends State<AdminChatsPage> {
               if (users.isEmpty) {
                 return const Center(
                   child: Text(
-                    'لا توجد معلمات أو موظفات حضانة مطابقات حاليًا',
+                   'لا توجد موظفات حضانة مطابقات حاليًا',
                     textAlign: TextAlign.center,
                   ),
                 );

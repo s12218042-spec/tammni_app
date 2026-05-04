@@ -78,7 +78,6 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
       data['senderName'],
       data['byName'],
       data['staffName'],
-      data['teacherName'],
     ];
 
     for (final value in candidates) {
@@ -211,8 +210,8 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
         return 'نشاط';
       case 'ملاحظة':
         return 'ملاحظة';
-      case 'كاميرا':
-        return 'كاميرا';
+      case 'وسائط':
+        return 'وسائط';
       default:
         return type.isEmpty ? 'ملاحظة' : type;
     }

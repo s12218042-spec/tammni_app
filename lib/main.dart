@@ -10,7 +10,12 @@ import 'services/notification_service.dart';
 import 'theme/app_theme.dart';
 
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+
+  debugPrint('وصل إشعار والتطبيق بالخلفية: ${message.messageId}');
+  debugPrint('بيانات الإشعار بالخلفية: ${message.data}');
 }
 
 Future<void> main() async {
@@ -20,12 +25,12 @@ Future<void> main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+
   await Supabase.initialize(
     url: 'https://ogkshpljxxwrcifvakzf.supabase.co',
     anonKey: 'sb_publishable_O1heqMdoC3f0nUR6euY0Uw_y6RJypv1',
   );
-
-  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
   await NotificationService.instance.init();
   await NotificationService.instance.handleInitialMessage();
@@ -42,7 +47,10 @@ class MyApp extends StatelessWidget {
       navigatorKey: NotificationService.instance.navigatorKey,
       debugShowCheckedModeBanner: false,
       locale: const Locale('ar'),
-      supportedLocales: const [Locale('ar'), Locale('en')],
+      supportedLocales: const [
+        Locale('ar'),
+        Locale('en'),
+      ],
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,

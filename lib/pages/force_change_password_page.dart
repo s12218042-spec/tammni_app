@@ -43,8 +43,6 @@ class _ForceChangePasswordPageState extends State<ForceChangePasswordPage> {
     switch (role.trim().toLowerCase()) {
       case 'parent':
         return 'ولي الأمر';
-      case 'teacher':
-        return 'المعلمة';
       case 'nursery':
       case 'nursery staff':
       case 'nursery_staff':

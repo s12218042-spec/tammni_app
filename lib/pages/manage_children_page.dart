@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 
 import '../models/child_model.dart';
 import '../theme/app_theme.dart';
-import '../utils/child_section_utils.dart';
 import '../widgets/app_page_scaffold.dart';
 import 'entry_exit_log_page.dart';
 
@@ -18,19 +17,15 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   final Set<String> selectedViews = {'active'};
-  final Set<String> selectedSections = {};
 
   String searchText = '';
 
   String sectionLabel(String section) {
-    return ChildSectionUtils.sectionArabicLabel(section);
+    return 'حضانة';
   }
 
   Color sectionColor(String section) {
-    if (section == 'Nursery') return const Color(0xFFEFA7C8);
-    if (section == 'Kindergarten') return const Color(0xFF7BB6FF);
-    if (section == 'OutOfRange') return Colors.redAccent;
-    return AppColors.primary;
+    return const Color(0xFFEFA7C8);
   }
 
   String statusLabel(String value) {
@@ -49,22 +44,11 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
     });
   }
 
-  void toggleSectionFilter(String value) {
-    setState(() {
-      if (selectedSections.contains(value)) {
-        selectedSections.remove(value);
-      } else {
-        selectedSections.add(value);
-      }
-    });
-  }
-
   void clearAllFilters() {
     setState(() {
       selectedViews
         ..clear()
         ..add('active');
-      selectedSections.clear();
       searchText = '';
     });
   }
@@ -80,8 +64,7 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
         'name': data['name'] ?? '',
         'identityNumber': data['identityNumber'] ?? '',
         'gender': data['gender'] ?? 'female',
-        'section': data['section'] ?? 'Nursery',
-        'group': data['group'] ?? '',
+        'section': 'Nursery',
         'birthDate': data['birthDate'],
         'isActive': data['isActive'] ?? true,
         'status': data['status'] ?? 'active',
@@ -115,20 +98,12 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
       return selectedViews.contains(currentStatus);
     }).toList();
 
-    final filteredBySection = filteredByStatus.where((child) {
-      final section = (child['section'] ?? '').toString();
-
-      if (selectedSections.isEmpty) return true;
-      return selectedSections.contains(section);
-    }).toList();
-
     final query = searchText.trim().toLowerCase();
 
-    final filtered = filteredBySection.where((child) {
+    final filtered = filteredByStatus.where((child) {
       final name = (child['name'] ?? '').toString().toLowerCase();
       final identity = (child['identityNumber'] ?? '').toString().toLowerCase();
       final section = (child['section'] ?? '').toString().toLowerCase();
-      final group = (child['group'] ?? '').toString().toLowerCase();
       final parentName = (child['parentName'] ?? '').toString().toLowerCase();
       final parentUsername =
           (child['parentUsername'] ?? '').toString().toLowerCase();
@@ -137,7 +112,6 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
           name.contains(query) ||
           identity.contains(query) ||
           section.contains(query) ||
-          group.contains(query) ||
           parentName.contains(query) ||
           parentUsername.contains(query);
     }).toList();
@@ -161,8 +135,19 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
 
   int? calculateAge(dynamic raw) {
     if (raw is Timestamp) {
-      return ChildSectionUtils.calculateAgeInYears(raw.toDate());
+      final birthDate = raw.toDate();
+      final now = DateTime.now();
+
+      int years = now.year - birthDate.year;
+
+      if (now.month < birthDate.month ||
+          (now.month == birthDate.month && now.day < birthDate.day)) {
+        years--;
+      }
+
+      return years;
     }
+
     return null;
   }
 
@@ -187,8 +172,7 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
     return ChildModel.fromMap(
       {
         'name': child['name'] ?? '',
-        'section': child['section'] ?? '',
-        'group': child['group'] ?? '',
+        'section': 'Nursery',
         'parentName': child['parentName'] ?? '',
         'parentUsername': child['parentUsername'] ?? '',
         'birthDate': child['birthDate'],
@@ -219,7 +203,6 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
     final nameCtrl = TextEditingController(text: child['name'] ?? '');
     final identityNumberCtrl =
         TextEditingController(text: child['identityNumber'] ?? '');
-    final groupCtrl = TextEditingController(text: child['group'] ?? '');
     final healthNotesCtrl =
         TextEditingController(text: child['healthNotes'] ?? '');
 
@@ -238,8 +221,7 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
         ? (child['birthDate'] as Timestamp).toDate()
         : DateTime(2023, 1, 1);
 
-    String selectedSection =
-        ChildSectionUtils.resolveSectionAndGroup(selectedBirthDate).section;
+    String selectedSection = 'Nursery';
 
     String selectedGender = (child['gender'] ?? 'female').toString();
 
@@ -251,9 +233,11 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
 
     final List<_PickupContactEditor> pickupContacts =
         ((child['authorizedPickupContacts'] as List?) ?? [])
-            .map((e) => _PickupContactEditor.fromMap(
-                  Map<String, dynamic>.from(e as Map),
-                ))
+            .map(
+              (e) => _PickupContactEditor.fromMap(
+                Map<String, dynamic>.from(e as Map),
+              ),
+            )
             .toList();
 
     if (pickupContacts.isEmpty) {
@@ -345,14 +329,7 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
                               if (picked != null) {
                                 setLocalState(() {
                                   selectedBirthDate = picked;
-                                  selectedSection = ChildSectionUtils
-                                      .resolveSectionAndGroup(picked)
-                                      .section;
-
-                                  if (!ChildSectionUtils.shouldShowGroupField(
-                                      selectedSection)) {
-                                    groupCtrl.clear();
-                                  }
+                                  selectedSection = 'Nursery';
                                 });
                               }
                             },
@@ -373,51 +350,8 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
                               labelText: 'القسم',
                               prefixIcon: Icon(Icons.apartment_outlined),
                             ),
-                            child: Text(
-                              ChildSectionUtils.sectionArabicLabel(
-                                  selectedSection),
-                            ),
+                            child: Text(sectionLabel(selectedSection)),
                           ),
-                          if (selectedSection == 'OutOfRange') ...[
-                            const SizedBox(height: 12),
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.red.withOpacity(0.08),
-                                borderRadius: BorderRadius.circular(14),
-                                border: Border.all(
-                                  color: Colors.red.withOpacity(0.25),
-                                ),
-                              ),
-                              child: const Text(
-                                'عمر الطفل أكبر من نطاق الحضانة/الروضة في النظام الحالي.',
-                                style: TextStyle(
-                                  color: Colors.redAccent,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ],
-                          if (ChildSectionUtils.shouldShowGroupField(
-                              selectedSection)) ...[
-                            const SizedBox(height: 12),
-                            TextFormField(
-                              controller: groupCtrl,
-                              decoration: const InputDecoration(
-                                labelText: 'المجموعة / الصف',
-                                prefixIcon: Icon(Icons.groups_2_outlined),
-                              ),
-                              validator: (value) {
-                                if (ChildSectionUtils.shouldShowGroupField(
-                                        selectedSection) &&
-                                    (value ?? '').trim().isEmpty) {
-                                  return 'اكتب المجموعة / الصف';
-                                }
-                                return null;
-                              },
-                            ),
-                          ],
                           const SizedBox(height: 18),
                           Align(
                             alignment: Alignment.centerRight,
@@ -724,29 +658,9 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
                     onPressed: () async {
                       if (!formKey.currentState!.validate()) return;
 
-                      final resolvedSection = ChildSectionUtils
-                          .resolveSectionAndGroup(selectedBirthDate)
-                          .section;
-                      final resolvedGroup =
-                          ChildSectionUtils.shouldShowGroupField(
-                                  resolvedSection)
-                              ? groupCtrl.text.trim()
-                              : '';
-
-                      if (resolvedSection == 'OutOfRange') {
-                        if (!mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'عمر الطفل أكبر من نطاق الحضانة/الروضة في النظام الحالي',
-                            ),
-                          ),
-                        );
-                        return;
-                      }
+                      const resolvedSection = 'Nursery';
 
                       final oldSection = (child['section'] ?? '').toString();
-                      final oldGroup = (child['group'] ?? '').toString();
                       final oldHistory = List<Map<String, dynamic>>.from(
                         (child['history'] as List?) ?? [],
                       );
@@ -755,9 +669,8 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
                       final nowTs = Timestamp.now();
 
                       final sectionChanged = oldSection != resolvedSection;
-                      final groupChanged = oldGroup != resolvedGroup;
 
-                      if (sectionChanged || groupChanged) {
+                      if (sectionChanged) {
                         newHistory = oldHistory.map((item) {
                           final updated = Map<String, dynamic>.from(item);
                           if (updated['to'] == null) {
@@ -768,7 +681,6 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
 
                         newHistory.add({
                           'section': resolvedSection,
-                          'group': resolvedGroup,
                           'from': nowTs,
                           'to': null,
                         });
@@ -783,7 +695,6 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
                         'gender': selectedGender,
                         'birthDate': Timestamp.fromDate(selectedBirthDate),
                         'section': resolvedSection,
-                        'group': resolvedGroup,
                         'hasChronicDiseases': hasChronicDiseases,
                         'chronicDiseases': hasChronicDiseases
                             ? chronicDiseasesCtrl.text.trim()
@@ -830,13 +741,13 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
 
     nameCtrl.dispose();
     identityNumberCtrl.dispose();
-    groupCtrl.dispose();
     healthNotesCtrl.dispose();
     chronicDiseasesCtrl.dispose();
     allergiesCtrl.dispose();
     medicationsCtrl.dispose();
     dietaryRestrictionsCtrl.dispose();
     specialNeedsCtrl.dispose();
+
     for (final pickup in pickupContacts) {
       pickup.dispose();
     }
@@ -918,9 +829,7 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
       checkmarkColor: Colors.white,
       backgroundColor: Colors.white,
       side: BorderSide(
-        color: selected
-            ? activeColor
-            : AppColors.primary.withOpacity(0.14),
+        color: selected ? activeColor : AppColors.primary.withOpacity(0.14),
       ),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
@@ -932,7 +841,6 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
   Widget buildChildCard(Map<String, dynamic> child) {
     final name = (child['name'] ?? '').toString();
     final section = (child['section'] ?? '').toString();
-    final group = (child['group'] ?? '').toString();
     final identityNumber = (child['identityNumber'] ?? '').toString();
     final gender = (child['gender'] ?? 'female').toString();
     final isActive = child['isActive'] == true;
@@ -984,9 +892,7 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      group.isNotEmpty
-                          ? '${sectionLabel(section)} • $group'
-                          : sectionLabel(section),
+                      sectionLabel(section),
                       style: const TextStyle(
                         fontSize: 13,
                         color: AppColors.textLight,
@@ -1037,23 +943,21 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
             healthSummary(child),
           ),
           const SizedBox(height: 14),
-          if (section == 'Nursery') ...[
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () => openEntryExitLog(child),
-                icon: const Icon(Icons.login_outlined),
-                label: const Text('السجل الإداري للدخول والخروج'),
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size(double.infinity, 50),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () => openEntryExitLog(child),
+              icon: const Icon(Icons.login_outlined),
+              label: const Text('السجل الإداري للدخول والخروج'),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(double.infinity, 50),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
                 ),
               ),
             ),
-            const SizedBox(height: 10),
-          ],
+          ),
+          const SizedBox(height: 10),
           Row(
             children: [
               Expanded(
@@ -1074,9 +978,7 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
                     }
                   },
                   icon: Icon(
-                    isActive
-                        ? Icons.archive_outlined
-                        : Icons.restore_outlined,
+                    isActive ? Icons.archive_outlined : Icons.restore_outlined,
                   ),
                   label: Text(isActive ? 'أرشفة' : 'استعادة'),
                   style: OutlinedButton.styleFrom(
@@ -1128,10 +1030,8 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
   }
 
   Widget buildFiltersCard() {
-    final hasCustomFilters =
-        selectedViews.length != 1 ||
+    final hasCustomFilters = selectedViews.length != 1 ||
         !selectedViews.contains('active') ||
-        selectedSections.isNotEmpty ||
         searchText.trim().isNotEmpty;
 
     return Container(
@@ -1153,7 +1053,7 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
           TextField(
             textAlign: TextAlign.right,
             decoration: InputDecoration(
-              hintText: 'ابحثي باسم الطفل أو رقم الهوية أو القسم أو المجموعة أو اسم ولي الأمر',
+              hintText: 'ابحثي باسم الطفل أو رقم الهوية أو اسم ولي الأمر',
               prefixIcon: const Icon(Icons.search_rounded),
               suffixIcon: searchText.trim().isEmpty
                   ? null
@@ -1203,40 +1103,6 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
               ),
             ],
           ),
-          const SizedBox(height: 14),
-          const Text(
-            'القسم',
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w800,
-              color: AppColors.textDark,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              buildFilterChip(
-                label: sectionLabel('Nursery'),
-                selected: selectedSections.contains('Nursery'),
-                onTap: () => toggleSectionFilter('Nursery'),
-                selectedColor: const Color(0xFFEFA7C8),
-              ),
-              buildFilterChip(
-                label: sectionLabel('Kindergarten'),
-                selected: selectedSections.contains('Kindergarten'),
-                onTap: () => toggleSectionFilter('Kindergarten'),
-                selectedColor: const Color(0xFF7BB6FF),
-              ),
-              buildFilterChip(
-                label: sectionLabel('OutOfRange'),
-                selected: selectedSections.contains('OutOfRange'),
-                onTap: () => toggleSectionFilter('OutOfRange'),
-                selectedColor: Colors.redAccent,
-              ),
-            ],
-          ),
           if (hasCustomFilters) ...[
             const SizedBox(height: 14),
             Align(
@@ -1255,10 +1121,9 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
 
   String buildEmptyStateText() {
     final hasStatusFilter = selectedViews.isNotEmpty;
-    final hasSectionFilter = selectedSections.isNotEmpty;
     final hasSearch = searchText.trim().isNotEmpty;
 
-    if (hasSearch || hasSectionFilter || hasStatusFilter) {
+    if (hasSearch || hasStatusFilter) {
       return 'لا توجد نتائج مطابقة للفلاتر الحالية';
     }
 

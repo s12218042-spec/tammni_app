@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
+import 'live_stream_viewer_page.dart';
 
 class ParentNotificationsPage extends StatefulWidget {
   final String parentUsername;
@@ -133,6 +134,20 @@ class _ParentNotificationsPageState extends State<ParentNotificationsPage> {
           data['importance'],
           data['level'],
         ]),
+        'roomId': _firstNonEmpty([
+        data['roomId'],
+        data['liveStreamId'],
+        ]),
+
+        'liveStreamId': _firstNonEmpty([
+        data['liveStreamId'],
+        data['roomId'],
+        ]),
+
+       'streamTitle': _firstNonEmpty([
+       data['streamTitle'],
+       data['title'],
+        ]),
       };
     }).toList();
 
@@ -149,6 +164,66 @@ class _ParentNotificationsPageState extends State<ParentNotificationsPage> {
 
     return items;
   }
+
+  Future<void> _openLiveStreamFromNotification(Map<String, dynamic> data) async {
+  final roomId = (data['roomId'] ?? data['liveStreamId'] ?? '').toString();
+  final title = (data['streamTitle'] ?? data['title'] ?? 'بث مباشر من الحضانة')
+      .toString();
+  final startedByName = (data['createdByName'] ?? '').toString();
+
+  if (roomId.trim().isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('بيانات البث غير مكتملة')),
+    );
+    return;
+  }
+
+  try {
+    final streamDoc =
+        await _firestore.collection('live_streams').doc(roomId).get();
+
+    if (!streamDoc.exists) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('هذا البث غير موجود أو تم حذفه')),
+      );
+      return;
+    }
+
+    final streamData = streamDoc.data() ?? {};
+    final status = (streamData['status'] ?? '').toString();
+
+    if (status != 'active') {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('انتهى هذا البث المباشر')),
+      );
+      return;
+    }
+
+    if (!mounted) return;
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LiveStreamViewerPage(
+          roomId: roomId,
+          title: (streamData['title'] ?? title).toString(),
+          startedByName: (streamData['startedByName'] ?? startedByName)
+              .toString(),
+        ),
+      ),
+    );
+
+    if (!mounted) return;
+    setState(() {});
+  } catch (e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('تعذر فتح البث: $e')),
+    );
+  }
+}
 
   @override
   Widget build(BuildContext context) {
@@ -225,6 +300,13 @@ class _ParentNotificationsPageState extends State<ParentNotificationsPage> {
                 final body = (data['body'] ?? '').toString();
                 final childName = (data['childName'] ?? '').toString();
                 final type = (data['type'] ?? '').toString();
+                final isLiveStreamStarted =
+                type.trim().toLowerCase() == 'live_stream_started';
+
+                final isLiveStreamEnded =
+                type.trim().toLowerCase() == 'live_stream_ended';
+
+                final roomId = (data['roomId'] ?? data['liveStreamId'] ?? '').toString();
                 final createdByName = (data['createdByName'] ?? '').toString();
                 final createdByRole = (data['createdByRole'] ?? '').toString();
                 final priority = (data['priority'] ?? '').toString();
@@ -348,6 +430,57 @@ class _ParentNotificationsPageState extends State<ParentNotificationsPage> {
                                   fontSize: 12,
                                 ),
                               ),
+                              if (isLiveStreamStarted && roomId.trim().isNotEmpty) ...[
+  const SizedBox(height: 12),
+  SizedBox(
+    width: double.infinity,
+    child: ElevatedButton.icon(
+      onPressed: () => _openLiveStreamFromNotification(data),
+      icon: const Icon(Icons.play_circle_outline_rounded),
+      label: const Text('مشاهدة البث'),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Colors.red,
+        foregroundColor: Colors.white,
+        minimumSize: const Size(double.infinity, 44),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+        ),
+      ),
+    ),
+  ),
+],
+
+if (isLiveStreamEnded) ...[
+  const SizedBox(height: 12),
+  Container(
+    width: double.infinity,
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    decoration: BoxDecoration(
+      color: Colors.grey.withOpacity(0.12),
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: Colors.grey.withOpacity(0.25)),
+    ),
+    child: const Row(
+      children: [
+        Icon(
+          Icons.stop_circle_outlined,
+          color: Colors.grey,
+          size: 20,
+        ),
+        SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            'تم إنهاء هذا البث المباشر',
+            style: TextStyle(
+              color: Colors.grey,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ],
+    ),
+  ),
+],
                             ],
                           ),
                         ),
@@ -383,40 +516,42 @@ class _ParentNotificationsPageState extends State<ParentNotificationsPage> {
   }
 
   static String _senderLabel(String createdByName, String createdByRole) {
-    final role = createdByRole.trim().toLowerCase();
+  final role = createdByRole.trim().toLowerCase();
 
-    String roleLabel;
-    if (role == 'nursery' ||
-        role == 'nursery_staff' ||
-        role == 'nursery staff') {
-      roleLabel = 'موظفة الحضانة';
-    } else if (role == 'teacher') {
-      roleLabel = 'المعلمة';
-    } else if (role == 'admin') {
-      roleLabel = 'الإدارة';
-    } else if (role == 'parent') {
-      roleLabel = 'وليّ الأمر';
-    } else {
-      roleLabel = createdByRole.trim();
-    }
-
-    if (createdByName.trim().isNotEmpty && roleLabel.isNotEmpty) {
-      return '$createdByName - $roleLabel';
-    }
-
-    if (createdByName.trim().isNotEmpty) {
-      return createdByName;
-    }
-
-    if (roleLabel.isNotEmpty) {
-      return roleLabel;
-    }
-
-    return 'غير محدد';
+  String roleLabel;
+  if (role == 'nursery' ||
+      role == 'nursery_staff' ||
+      role == 'nursery staff') {
+    roleLabel = 'موظفة الحضانة';
+  } else if (role == 'admin') {
+    roleLabel = 'الإدارة';
+  } else if (role == 'parent') {
+    roleLabel = 'وليّ الأمر';
+  } else {
+    roleLabel = createdByRole.trim();
   }
+
+  if (createdByName.trim().isNotEmpty && roleLabel.isNotEmpty) {
+    return '$createdByName - $roleLabel';
+  }
+
+  if (createdByName.trim().isNotEmpty) {
+    return createdByName;
+  }
+
+  if (roleLabel.isNotEmpty) {
+    return roleLabel;
+  }
+
+  return 'غير محدد';
+}
 
   static IconData _iconForType(String type) {
     switch (type.trim().toLowerCase()) {
+      case 'live_stream_started':
+        return Icons.wifi_tethering_rounded;
+      case 'live_stream_ended':
+        return Icons.stop_circle_outlined;
       case 'entry':
         return Icons.login_outlined;
       case 'exit':
@@ -440,6 +575,10 @@ class _ParentNotificationsPageState extends State<ParentNotificationsPage> {
 
   static Color _typeColor(String type) {
     switch (type.trim().toLowerCase()) {
+      case 'live_stream_started':
+       return Colors.red;
+      case 'live_stream_ended':
+       return Colors.grey;
       case 'entry':
         return Colors.green;
       case 'exit':
@@ -463,6 +602,10 @@ class _ParentNotificationsPageState extends State<ParentNotificationsPage> {
 
   static String _typeLabel(String type) {
     switch (type.trim().toLowerCase()) {
+      case 'live_stream_started':
+       return 'بث مباشر';
+      case 'live_stream_ended':
+       return 'انتهاء البث';
       case 'entry':
         return 'دخول موثّق';
       case 'exit':
@@ -486,6 +629,10 @@ class _ParentNotificationsPageState extends State<ParentNotificationsPage> {
 
   static String _defaultTitle(String type) {
     switch (type.trim().toLowerCase()) {
+      case 'live_stream_started':
+       return 'بدأ بث مباشر الآن';
+      case 'live_stream_ended':
+       return 'انتهى البث المباشر';
       case 'entry':
         return 'تم توثيق دخول الطفل';
       case 'exit':

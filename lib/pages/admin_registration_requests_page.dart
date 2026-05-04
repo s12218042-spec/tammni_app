@@ -451,10 +451,10 @@ class _AdminRegistrationRequestsPageState
             ChildSectionUtils.resolveSectionAndGroup(childBirthDate);
         final resolvedSection = sectionResult.section;
 
-        if (resolvedSection == 'OutOfRange') {
-          _showSnack('يوجد طفل عمره أكبر من نطاق الحضانة/الروضة في النظام الحالي');
-          return;
-        }
+       if (resolvedSection != 'Nursery') {
+  _showSnack('يوجد طفل عمره خارج نطاق الحضانة في النظام الحالي');
+  return;
+}
       }
 
       final adminInfo = await _getCurrentAdminInfo();
@@ -525,13 +525,8 @@ class _AdminRegistrationRequestsPageState
         final child = Map<String, dynamic>.from(rawChild as Map);
 
         final childBirthDate = _parseRequestBirthDate(child['birthDate']);
-        final sectionResult =
-            ChildSectionUtils.resolveSectionAndGroup(childBirthDate);
-        final resolvedSection = sectionResult.section;
-        final resolvedGroup =
-            ChildSectionUtils.shouldShowGroupField(resolvedSection)
-                ? (child['group'] ?? '').toString().trim()
-                : '';
+
+       
 
         final childDocRef = _firestore.collection('children').doc();
 
@@ -544,8 +539,7 @@ class _AdminRegistrationRequestsPageState
           'birthDate': childBirthDate == null
               ? null
               : Timestamp.fromDate(childBirthDate),
-          'section': resolvedSection,
-          'group': resolvedGroup,
+          'section': 'Nursery',
           'status': 'active',
           'isActive': true,
           'hasChronicDiseases': (child['hasChronicDiseases'] ?? false) == true,
@@ -866,24 +860,13 @@ await _auth.sendPasswordResetEmail(
                               birthDate,
                             );
                             final resolvedSection = sectionResult.section;
-                            final resolvedGroup =
-                                ChildSectionUtils.shouldShowGroupField(
-                              resolvedSection,
-                            )
-                                    ? (child['group'] ?? '').toString().trim()
-                                    : '';
 
                             final sectionText =
-                                ChildSectionUtils.sectionArabicLabel(
-                              resolvedSection,
-                            );
-                            final groupText = resolvedGroup.isEmpty
-                                ? ''
-                                : ' • $resolvedGroup';
-
-                            final ageWarning = resolvedSection == 'OutOfRange'
-                                ? ' • العمر أكبر من نطاق النظام'
-                                : '';
+    resolvedSection == 'Nursery' ? 'حضانة' : 'خارج نطاق الحضانة';
+                            
+                            final ageWarning = resolvedSection != 'Nursery'
+    ? ' • العمر خارج نطاق الحضانة'
+    : '';
 
                             final hasChronicDiseases =
                                 (child['hasChronicDiseases'] ?? false) == true;
@@ -900,8 +883,8 @@ await _auth.sendPasswordResetEmail(
                             return [
                               _InfoRow(
                                 'الطفل ${entry.key + 1}',
-                                '${child['fullName'] ?? child['name'] ?? '-'}'
-                                ' • $sectionText$groupText$ageWarning',
+                               '${child['fullName'] ?? child['name'] ?? '-'}'
+' • $sectionText$ageWarning',
                               ),
                               _InfoRow(
                                 'هوية الطفل',

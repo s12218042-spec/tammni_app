@@ -321,10 +321,10 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
           ChildSectionUtils.resolveSectionAndGroup(childBirthDate);
       final resolvedSection = sectionResult.section;
 
-      if (resolvedSection == 'OutOfRange') {
-        _showSnack('عمر الطفل أكبر من نطاق الحضانة/الروضة في النظام الحالي');
-        return;
-      }
+      if (resolvedSection != 'Nursery') {
+  _showSnack('عمر الطفل خارج نطاق الحضانة في النظام الحالي');
+  return;
+}
 
       final alreadyExists = await _childAlreadyExistsForParent(
         parentUid: parentUid,
@@ -340,10 +340,6 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
       final adminInfo = await _getCurrentAdminInfo();
       final childDocRef = _firestore.collection('children').doc();
 
-      final resolvedGroup =
-          ChildSectionUtils.shouldShowGroupField(resolvedSection)
-              ? (childInfo['group'] ?? '').toString().trim()
-              : '';
 
       await _firestore.runTransaction((transaction) async {
         transaction.set(childDocRef, {
@@ -353,8 +349,7 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
               (childInfo['identityNumber'] ?? '').toString().trim(),
           'gender': (childInfo['gender'] ?? '').toString().trim(),
           'birthDate': Timestamp.fromDate(childBirthDate),
-          'section': resolvedSection,
-          'group': resolvedGroup,
+          'section': 'Nursery',
           'status': 'active',
           'isActive': true,
           'hasChronicDiseases':
@@ -399,8 +394,7 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
             'reviewedAt': FieldValue.serverTimestamp(),
             'updatedAt': FieldValue.serverTimestamp(),
             'createdChildId': childDocRef.id,
-            'approvalSection': resolvedSection,
-            'approvalGroup': resolvedGroup,
+           'approvalSection': 'Nursery',
           },
         );
       });
@@ -538,12 +532,9 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
     final birthDate = _parseBirthDate(childInfo['birthDate']);
     final sectionResult = ChildSectionUtils.resolveSectionAndGroup(birthDate);
     final resolvedSection = sectionResult.section;
-    final resolvedGroup = ChildSectionUtils.shouldShowGroupField(resolvedSection)
-        ? (childInfo['group'] ?? '').toString().trim()
-        : '';
 
-    final sectionText = ChildSectionUtils.sectionArabicLabel(resolvedSection);
-    final groupText = resolvedGroup.isEmpty ? '-' : resolvedGroup;
+    final sectionText =
+    resolvedSection == 'Nursery' ? 'حضانة' : 'خارج نطاق الحضانة';
 
     final hasChronicDiseases =
         (childInfo['hasChronicDiseases'] ?? false) == true;
@@ -623,7 +614,6 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
                         '${childInfo['identityNumber'] ?? '-'}',
                       ),
                       _InfoRow('القسم', sectionText),
-                      _InfoRow('المجموعة / الصف', groupText),
                       _InfoRow(
                         'الأمراض المزمنة',
                         hasChronicDiseases
@@ -812,37 +802,28 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
     );
   }
 
-  Widget _buildSectionBadge(String section) {
-    Color color;
-    String text = ChildSectionUtils.sectionArabicLabel(section);
+ Widget _buildSectionBadge(String section) {
+  final color =
+      section == 'Nursery' ? const Color(0xFFEFA7C8) : Colors.redAccent;
 
-    switch (section) {
-      case 'Nursery':
-        color = const Color(0xFFEFA7C8);
-        break;
-      case 'Kindergarten':
-        color = const Color(0xFF7BB6FF);
-        break;
-      default:
-        color = Colors.redAccent;
-    }
+  final text = section == 'Nursery' ? 'حضانة' : 'خارج نطاق الحضانة';
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.14),
-        borderRadius: BorderRadius.circular(14),
+  return Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+    decoration: BoxDecoration(
+      color: color.withOpacity(0.14),
+      borderRadius: BorderRadius.circular(14),
+    ),
+    child: Text(
+      text,
+      style: TextStyle(
+        color: color,
+        fontWeight: FontWeight.w700,
+        fontSize: 12.5,
       ),
-      child: Text(
-        text,
-        style: TextStyle(
-          color: color,
-          fontWeight: FontWeight.w700,
-          fontSize: 12.5,
-        ),
-      ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildRequestCard(Map<String, dynamic> item) {
     final status = (item['status'] ?? 'pending').toString();

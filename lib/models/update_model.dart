@@ -2,13 +2,13 @@ class UpdateModel {
   final String id;
   final String childId;
   final String childName;
-  final String type; // أكل / نوم / نشاط / صحة / واجب / ملاحظة / كاميرا
+  final String type; 
   final String note;
   final DateTime time;
-  final String byRole; // nursery / teacher
+  final String byRole; 
 
   // محتوى كاميرا
-  final String? mediaPath; // مسار ملف صورة/فيديو محلي 
+  final String? mediaPath; 
   final String? mediaType; 
 
   UpdateModel({

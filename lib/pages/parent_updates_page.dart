@@ -29,25 +29,24 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
     setState(() {});
   }
 
-  String sectionLabel(String s) {
-    if (s == 'Nursery') return 'حضانة';
-    if (s == 'Kindergarten') return 'روضة';
-    return s;
+  String sectionLabel(String section) {
+    if (section.trim() == 'Nursery') return 'حضانة';
+    return section.trim().isEmpty ? 'حضانة' : section;
   }
 
   Color sectionColor(String section) {
-    return section == 'Nursery'
-        ? const Color(0xFFEFA7C8)
-        : const Color(0xFF7BB6FF);
+    return const Color(0xFFEFA7C8);
   }
 
   String senderLabel(String byRole) {
     final role = byRole.trim().toLowerCase();
 
-    if (role == 'nursery' || role == 'nursery_staff') {
+    if (role == 'nursery' ||
+        role == 'nursery_staff' ||
+        role == 'nursery staff') {
       return 'موظفة الحضانة';
     }
-    if (role == 'teacher') return 'المعلمة';
+
     if (role == 'admin') return 'الإدارة';
     if (role == 'parent') return 'ولي الأمر';
 
@@ -55,7 +54,7 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
   }
 
   Color typeColor(String type) {
-    switch (type) {
+    switch (type.trim()) {
       case 'وجبة':
         return Colors.orange;
       case 'نوم':
@@ -66,12 +65,9 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
         return Colors.redAccent;
       case 'نشاط':
         return Colors.green;
-      case 'واجب':
-        return Colors.deepPurple;
-      case 'تقييم':
-        return Colors.teal;
-      case 'خطة اليوم':
-        return Colors.blue;
+      case 'ملاحظة':
+        return AppColors.textLight;
+      case 'وسائط':
       case 'كاميرا':
         return Colors.pink;
       default:
@@ -80,7 +76,7 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
   }
 
   IconData typeIcon(String type) {
-    switch (type) {
+    switch (type.trim()) {
       case 'وجبة':
         return Icons.restaurant_outlined;
       case 'نوم':
@@ -91,14 +87,11 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
         return Icons.health_and_safety_outlined;
       case 'نشاط':
         return Icons.toys_outlined;
-      case 'واجب':
-        return Icons.menu_book_outlined;
-      case 'تقييم':
-        return Icons.star_outline;
-      case 'خطة اليوم':
-        return Icons.event_note_outlined;
+      case 'ملاحظة':
+        return Icons.edit_note_outlined;
+      case 'وسائط':
       case 'كاميرا':
-        return Icons.camera_alt_outlined;
+        return Icons.photo_library_outlined;
       default:
         return Icons.notifications_none;
     }
@@ -106,18 +99,22 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
 
   String timeText(Timestamp? timestamp) {
     if (timestamp == null) return '--:--';
+
     final t = timestamp.toDate();
     final h = t.hour.toString().padLeft(2, '0');
     final m = t.minute.toString().padLeft(2, '0');
+
     return '$h:$m';
   }
 
   String dateText(Timestamp? timestamp) {
     if (timestamp == null) return '--/--/----';
+
     final t = timestamp.toDate();
     final y = t.year.toString();
     final m = t.month.toString().padLeft(2, '0');
     final d = t.day.toString().padLeft(2, '0');
+
     return '$y/$m/$d';
   }
 
@@ -130,6 +127,7 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
     if (birthDate == null) return 'غير محدد';
 
     final now = DateTime.now();
+
     int years = now.year - birthDate.year;
     int months = now.month - birthDate.month;
 
@@ -151,32 +149,6 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
     }
 
     return '$years سنة و $months شهر';
-  }
-
-  String get dateKey {
-    final now = DateTime.now();
-    return '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-  }
-
-  Future<bool> fetchAttendance() async {
-    final snapshot = await _firestore
-        .collection('attendance')
-        .where('childId', isEqualTo: widget.child.id)
-        .where('dateKey', isEqualTo: dateKey)
-        .limit(1)
-        .get();
-
-    if (snapshot.docs.isEmpty) return false;
-
-    final data = snapshot.docs.first.data();
-    final directStatus = (data['status'] ?? '').toString().trim().toLowerCase();
-    final present = data['present'];
-
-    if (directStatus.isNotEmpty) {
-      return directStatus == 'present';
-    }
-
-    return present == true;
   }
 
   String _resolveType(Map<String, dynamic> data) {
@@ -237,7 +209,6 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
       data['senderName'],
       data['byName'],
       data['staffName'],
-      data['teacherName'],
     ];
 
     for (final value in candidates) {
@@ -272,13 +243,20 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
 
   String _resolveMediaUrl(Map<String, dynamic> data) {
     final directUrl = (data['mediaUrl'] ?? '').toString().trim();
-    if (_isUsableRemoteUrl(directUrl)) return directUrl;
+
+    if (_isUsableRemoteUrl(directUrl)) {
+      return directUrl;
+    }
 
     final mediaUrls = data['mediaUrls'];
+
     if (mediaUrls is List && mediaUrls.isNotEmpty) {
       for (final item in mediaUrls) {
         final candidate = item?.toString().trim() ?? '';
-        if (_isUsableRemoteUrl(candidate)) return candidate;
+
+        if (_isUsableRemoteUrl(candidate)) {
+          return candidate;
+        }
       }
     }
 
@@ -287,13 +265,20 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
 
   String _resolveMediaPath(Map<String, dynamic> data) {
     final path = (data['mediaPath'] ?? '').toString().trim();
-    if (path.startsWith('blob:')) return '';
+
+    if (path.startsWith('blob:')) {
+      return '';
+    }
+
     return path;
   }
 
   String _resolveMediaType(Map<String, dynamic> data) {
     final mediaType = (data['mediaType'] ?? '').toString().trim().toLowerCase();
-    if (mediaType.isNotEmpty) return mediaType;
+
+    if (mediaType.isNotEmpty) {
+      return mediaType;
+    }
 
     final mediaUrl = _resolveMediaUrl(data).toLowerCase();
     final mediaPath = _resolveMediaPath(data).toLowerCase();
@@ -387,6 +372,7 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
                   Center(
                     child: Text(
                       'حدث خطأ أثناء تحميل التحديثات: ${updatesSnapshot.error}',
+                      textAlign: TextAlign.center,
                     ),
                   ),
                 ],
@@ -466,13 +452,11 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
                               ),
                             ),
                             const SizedBox(width: 10),
-                            Expanded(
+                            const Expanded(
                               child: _InfoMiniCard(
-                                icon: Icons.groups_outlined,
-                                title: 'المجموعة',
-                                value: child.section == 'Nursery'
-                                    ? 'غير مطبق'
-                                    : (child.group.isEmpty ? 'غير محدد' : child.group),
+                                icon: Icons.favorite_border_rounded,
+                                title: 'نوع المتابعة',
+                                value: 'حضانة',
                               ),
                             ),
                           ],
@@ -508,26 +492,13 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
                   ),
                 ),
                 const SizedBox(height: 14),
-                if (child.section == 'Kindergarten')
-                  FutureBuilder<bool>(
-                    future: fetchAttendance(),
-                    builder: (context, attendanceSnapshot) {
-                      final present = attendanceSnapshot.data ?? false;
-                      return _StatusCard(
-                        icon: present ? Icons.check_circle : Icons.cancel_outlined,
-                        color: present ? Colors.green : Colors.redAccent,
-                        title: 'الحضور اليوم',
-                        value: present ? 'حاضر' : 'غائب',
-                      );
-                    },
-                  )
-                else
-                  const _StatusCard(
-                    icon: Icons.info_outline,
-                    color: AppColors.primary,
-                    title: 'نظام المتابعة',
-                    value: 'مرن حسب الزيارة والتحديثات، والدخول والخروج يوثّق من الإدارة',
-                  ),
+                const _StatusCard(
+                  icon: Icons.info_outline,
+                  color: AppColors.primary,
+                  title: 'نظام المتابعة',
+                  value:
+                      'مرن حسب الزيارة والتحديثات، والدخول والخروج يوثّق من الإدارة',
+                ),
                 const SizedBox(height: 18),
                 Text(
                   'كل التحديثات',
@@ -544,7 +515,8 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
                         children: [
                           CircleAvatar(
                             radius: 26,
-                            backgroundColor: AppColors.primary.withOpacity(0.12),
+                            backgroundColor:
+                                AppColors.primary.withOpacity(0.12),
                             child: const Icon(
                               Icons.notifications_none,
                               color: AppColors.primary,
@@ -561,11 +533,9 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
                             textAlign: TextAlign.center,
                           ),
                           const SizedBox(height: 6),
-                          Text(
-                            child.section == 'Nursery'
-                                ? 'ستظهر هنا تحديثات الزيارة، الأنشطة، الصور، الملاحظات، ومتابعة الرعاية الخاصة بالحضانة.'
-                                : 'ستظهر هنا تحديثات الحضور، الأنشطة، الواجبات والملاحظات الخاصة بالروضة.',
-                            style: const TextStyle(
+                          const Text(
+                            'ستظهر هنا تحديثات الزيارة، الأنشطة، الصور، الملاحظات، ومتابعة الرعاية الخاصة بالحضانة.',
+                            style: TextStyle(
                               color: AppColors.textLight,
                               fontSize: 13.5,
                             ),
@@ -578,7 +548,8 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
                 else
                   ...updates.map(
                     (u) {
-                      final Timestamp? displayTime = u['displayTime'] as Timestamp?;
+                      final Timestamp? displayTime =
+                          u['displayTime'] as Timestamp?;
 
                       return _UpdateCard(
                         type: (u['type'] ?? '').toString(),
@@ -690,7 +661,8 @@ class _StatusCard extends StatelessWidget {
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 15,
-                  color: color == AppColors.primary ? AppColors.textDark : color,
+                  color:
+                      color == AppColors.primary ? AppColors.textDark : color,
                 ),
               ),
             ),
@@ -737,8 +709,10 @@ class _UpdateCard extends StatelessWidget {
 
   bool get _hasLocalPath {
     final value = (mediaPath ?? '').trim();
+
     if (value.isEmpty) return false;
     if (value.startsWith('blob:')) return false;
+
     return true;
   }
 
@@ -751,9 +725,12 @@ class _UpdateCard extends StatelessWidget {
   }
 
   bool get _hasRemoteImage => _hasRemoteUrl && _normalizedMediaType == 'image';
+
   bool get _hasRemoteVideo => _hasRemoteUrl && _normalizedMediaType == 'video';
+
   bool get _hasLocalImage =>
       !kIsWeb && _hasLocalPath && _normalizedMediaType == 'image';
+
   bool get _hasLocalVideo =>
       !kIsWeb && _hasLocalPath && _normalizedMediaType == 'video';
 
@@ -761,6 +738,7 @@ class _UpdateCard extends StatelessWidget {
     if (creatorName.trim().isNotEmpty) {
       return '$creatorName - $senderText';
     }
+
     return senderText;
   }
 
@@ -778,7 +756,10 @@ class _UpdateCard extends StatelessWidget {
               children: [
                 CircleAvatar(
                   backgroundColor: badgeColor.withOpacity(0.14),
-                  child: Icon(icon, color: badgeColor),
+                  child: Icon(
+                    icon,
+                    color: badgeColor,
+                  ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(

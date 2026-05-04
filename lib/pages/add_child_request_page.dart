@@ -21,7 +21,6 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
   final childNameCtrl = TextEditingController();
   final childIdentityCtrl = TextEditingController();
   final birthDateCtrl = TextEditingController();
-  final groupCtrl = TextEditingController();
   final healthNotesCtrl = TextEditingController();
 
   String selectedGender = 'female';
@@ -49,7 +48,6 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
     childNameCtrl.dispose();
     childIdentityCtrl.dispose();
     birthDateCtrl.dispose();
-    groupCtrl.dispose();
     healthNotesCtrl.dispose();
     chronicDiseasesCtrl.dispose();
     allergiesCtrl.dispose();
@@ -147,16 +145,14 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
   }
 
   Color _sectionColor(String section) {
-    switch (section) {
-      case 'Nursery':
-        return const Color(0xFFEFA7C8);
-      case 'Kindergarten':
-        return const Color(0xFF7BB6FF);
-      case 'OutOfRange':
-      default:
-        return Colors.redAccent;
-    }
+  switch (section) {
+    case 'Nursery':
+      return const Color(0xFFEFA7C8);
+    case 'OutOfRange':
+    default:
+      return Colors.redAccent;
   }
+}
 
   Widget _buildSectionBadge(String section) {
     final color = _sectionColor(section);
@@ -194,15 +190,11 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
     final sectionResult = ChildSectionUtils.resolveSectionAndGroup(picked);
 
     setState(() {
-      selectedBirthDate = picked;
-      birthDateCtrl.text =
-          '${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
-      resolvedSection = sectionResult.section;
-
-      if (!ChildSectionUtils.shouldShowGroupField(resolvedSection)) {
-        groupCtrl.clear();
-      }
-    });
+  selectedBirthDate = picked;
+  birthDateCtrl.text =
+      '${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
+  resolvedSection = sectionResult.section;
+});
   }
 
   void addPickupContact() {
@@ -333,10 +325,10 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
     final sectionResult =
         ChildSectionUtils.resolveSectionAndGroup(selectedBirthDate!);
 
-    if (sectionResult.section == 'OutOfRange') {
-      _showSnack('عمر الطفل أكبر من نطاق الحضانة/الروضة في النظام الحالي');
-      return;
-    }
+    if (sectionResult.section != 'Nursery') {
+  _showSnack('عمر الطفل خارج نطاق الحضانة في النظام الحالي');
+  return;
+}
 
     for (final pickup in pickupContacts) {
       if (!pickup.isValid()) {
@@ -384,10 +376,7 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
           'identityNumber': childIdentityCtrl.text.trim(),
           'birthDate': Timestamp.fromDate(selectedBirthDate!),
           'gender': selectedGender,
-          'section': sectionResult.section,
-          'group': ChildSectionUtils.shouldShowGroupField(sectionResult.section)
-              ? groupCtrl.text.trim()
-              : '',
+          'section': 'Nursery',
           'status': 'active',
           'hasChronicDiseases': hasChronicDiseases,
           'chronicDiseases':
@@ -687,24 +676,7 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
               });
             },
           ),
-          if (ChildSectionUtils.shouldShowGroupField(resolvedSection)) ...[
-            const SizedBox(height: 14),
-            TextFormField(
-              controller: groupCtrl,
-              decoration: customDecoration(
-                label: 'المجموعة / الصف',
-                icon: Icons.groups_rounded,
-                hint: 'مثال: KG1',
-              ),
-              validator: (value) {
-                if (ChildSectionUtils.shouldShowGroupField(resolvedSection) &&
-                    (value?.trim() ?? '').isEmpty) {
-                  return 'أدخلي المجموعة / الصف';
-                }
-                return null;
-              },
-            ),
-          ],
+          
         ],
       ),
     );

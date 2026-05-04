@@ -9,7 +9,6 @@ import 'parent_handoff_log_page.dart';
 import 'parent_incident_reports_page.dart';
 import 'parent_nursery_log_page.dart';
 import 'parent_updates_page.dart';
-import 'weekly_report_page.dart';
 
 class ChildProfilePage extends StatefulWidget {
   final ChildModel child;
@@ -29,15 +28,11 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
   int selectedTabIndex = 0;
 
   String sectionLabel(String section) {
-    if (section == 'Nursery') return 'حضانة';
-    if (section == 'Kindergarten') return 'روضة';
-    return section;
+    return 'حضانة';
   }
 
   Color sectionColor(String section) {
-    if (section == 'Nursery') return const Color(0xFFEFA7C8);
-    if (section == 'Kindergarten') return const Color(0xFF7BB6FF);
-    return AppColors.primary;
+    return const Color(0xFFEFA7C8);
   }
 
   String statusLabel(String status, bool isActive) {
@@ -71,26 +66,14 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
       months += 12;
     }
 
-    if (years <= 0) {
-      return '$months شهر';
-    }
-    if (months == 0) {
-      return '$years سنة';
-    }
+    if (years <= 0) return '$months شهر';
+    if (months == 0) return '$years سنة';
     return '$years سنة و $months شهر';
   }
 
   String firstLetter(String name) {
     if (name.trim().isEmpty) return 'ط';
     return name.trim().substring(0, 1).toUpperCase();
-  }
-
-  String formatDate(dynamic raw) {
-    if (raw is Timestamp) {
-      final date = raw.toDate();
-      return '${date.year}/${date.month}/${date.day}';
-    }
-    return '-';
   }
 
   String timeText(dynamic rawTime) {
@@ -153,61 +136,61 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
   }
 
   bool _isUsableRemoteUrl(String value) {
-  final trimmed = value.trim().toLowerCase();
-  return trimmed.startsWith('http://') || trimmed.startsWith('https://');
-}
+    final trimmed = value.trim().toLowerCase();
+    return trimmed.startsWith('http://') || trimmed.startsWith('https://');
+  }
 
-String _resolveMediaUrl(Map<String, dynamic> data) {
-  final directUrl = (data['mediaUrl'] ?? '').toString().trim();
-  if (_isUsableRemoteUrl(directUrl)) return directUrl;
+  String _resolveMediaUrl(Map<String, dynamic> data) {
+    final directUrl = (data['mediaUrl'] ?? '').toString().trim();
+    if (_isUsableRemoteUrl(directUrl)) return directUrl;
 
-  final mediaUrls = data['mediaUrls'];
-  if (mediaUrls is List && mediaUrls.isNotEmpty) {
-    for (final item in mediaUrls) {
-      final candidate = item?.toString().trim() ?? '';
-      if (_isUsableRemoteUrl(candidate)) return candidate;
+    final mediaUrls = data['mediaUrls'];
+    if (mediaUrls is List && mediaUrls.isNotEmpty) {
+      for (final item in mediaUrls) {
+        final candidate = item?.toString().trim() ?? '';
+        if (_isUsableRemoteUrl(candidate)) return candidate;
+      }
     }
+
+    return '';
   }
 
-  return '';
-}
-
-String _resolveMediaPath(Map<String, dynamic> data) {
-  final path = (data['mediaPath'] ?? '').toString().trim();
-
-  if (path.startsWith('blob:')) return '';
-  return path;
-}
-
-String _resolveMediaType(Map<String, dynamic> data) {
-  final mediaType = (data['mediaType'] ?? '').toString().trim().toLowerCase();
-  if (mediaType.isNotEmpty) return mediaType;
-
-  final mediaUrl = _resolveMediaUrl(data).toLowerCase();
-  final mediaPath = _resolveMediaPath(data).toLowerCase();
-  final source = mediaUrl.isNotEmpty ? mediaUrl : mediaPath;
-
-  if (source.endsWith('.mp4') ||
-      source.endsWith('.mov') ||
-      source.endsWith('.avi') ||
-      source.endsWith('.mkv') ||
-      source.contains('video')) {
-    return 'video';
+  String _resolveMediaPath(Map<String, dynamic> data) {
+    final path = (data['mediaPath'] ?? '').toString().trim();
+    if (path.startsWith('blob:')) return '';
+    return path;
   }
 
-  if (source.endsWith('.jpg') ||
-      source.endsWith('.jpeg') ||
-      source.endsWith('.png') ||
-      source.endsWith('.webp') ||
-      source.contains('image')) {
-    return 'image';
-  }
+  String _resolveMediaType(Map<String, dynamic> data) {
+    final mediaType = (data['mediaType'] ?? '').toString().trim().toLowerCase();
+    if (mediaType.isNotEmpty) return mediaType;
 
-  return '';
-}
+    final mediaUrl = _resolveMediaUrl(data).toLowerCase();
+    final mediaPath = _resolveMediaPath(data).toLowerCase();
+    final source = mediaUrl.isNotEmpty ? mediaUrl : mediaPath;
+
+    if (source.endsWith('.mp4') ||
+        source.endsWith('.mov') ||
+        source.endsWith('.avi') ||
+        source.endsWith('.mkv') ||
+        source.contains('video')) {
+      return 'video';
+    }
+
+    if (source.endsWith('.jpg') ||
+        source.endsWith('.jpeg') ||
+        source.endsWith('.png') ||
+        source.endsWith('.webp') ||
+        source.contains('image')) {
+      return 'image';
+    }
+
+    return '';
+  }
 
   Future<Map<String, dynamic>?> fetchChildDetails() async {
-    final doc = await _firestore.collection('children').doc(widget.child.id).get();
+    final doc =
+        await _firestore.collection('children').doc(widget.child.id).get();
 
     if (!doc.exists) return null;
 
@@ -215,8 +198,7 @@ String _resolveMediaType(Map<String, dynamic> data) {
     return {
       'id': doc.id,
       'name': data['name'] ?? widget.child.name,
-      'section': data['section'] ?? widget.child.section,
-      'group': data['group'] ?? widget.child.group,
+      'section': 'Nursery',
       'birthDate': data['birthDate'] ??
           (widget.child.birthDate != null
               ? Timestamp.fromDate(widget.child.birthDate!)
@@ -260,66 +242,59 @@ String _resolveMediaType(Map<String, dynamic> data) {
   }
 
   Future<List<Map<String, dynamic>>> fetchLatestMedia() async {
-  final snapshot = await _firestore
-      .collection('updates')
-      .where('childId', isEqualTo: widget.child.id)
-      .get();
+    final snapshot = await _firestore
+        .collection('updates')
+        .where('childId', isEqualTo: widget.child.id)
+        .get();
 
-  final items = <Map<String, dynamic>>[];
+    final items = <Map<String, dynamic>>[];
 
-  for (final doc in snapshot.docs) {
-    final data = doc.data();
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
 
-    final mediaUrl = _resolveMediaUrl(data);
-    final mediaPath = _resolveMediaPath(data);
-    final mediaType = _resolveMediaType(data);
-    final displayTime = _resolveTimestamp(data);
+      final mediaUrl = _resolveMediaUrl(data);
+      final mediaPath = _resolveMediaPath(data);
+      final mediaType = _resolveMediaType(data);
+      final displayTime = _resolveTimestamp(data);
 
-    final resolvedSource = mediaUrl.isNotEmpty ? mediaUrl : mediaPath;
+      final resolvedSource = mediaUrl.isNotEmpty ? mediaUrl : mediaPath;
+      final hasAnyMedia = resolvedSource.isNotEmpty && mediaType.isNotEmpty;
 
-    final hasAnyMedia = resolvedSource.isNotEmpty && mediaType.isNotEmpty;
-
-    if (hasAnyMedia) {
-      items.add({
-        'mediaUrl': mediaUrl,
-        'mediaPath': mediaPath,
-        'resolvedSource': resolvedSource,
-        'mediaType': mediaType,
-        'note': _resolveNote(data),
-        'type': _resolveType(data),
-        'displayTime': displayTime,
-      });
+      if (hasAnyMedia) {
+        items.add({
+          'mediaUrl': mediaUrl,
+          'mediaPath': mediaPath,
+          'resolvedSource': resolvedSource,
+          'mediaType': mediaType,
+          'note': _resolveNote(data),
+          'type': _resolveType(data),
+          'displayTime': displayTime,
+        });
+      }
     }
+
+    items.sort((a, b) {
+      final aTime = a['displayTime'] as Timestamp?;
+      final bTime = b['displayTime'] as Timestamp?;
+
+      if (aTime == null && bTime == null) return 0;
+      if (aTime == null) return 1;
+      if (bTime == null) return -1;
+
+      return bTime.compareTo(aTime);
+    });
+
+    return items.take(4).toList();
   }
 
-  items.sort((a, b) {
-    final aTime = a['displayTime'] as Timestamp?;
-    final bTime = b['displayTime'] as Timestamp?;
-
-    if (aTime == null && bTime == null) return 0;
-    if (aTime == null) return 1;
-    if (bTime == null) return -1;
-
-    return bTime.compareTo(aTime);
-  });
-
-  return items.take(4).toList();
-}
-
-  List<_ProfileTabItem> getTabs(String currentSection) {
-    if (currentSection == 'Nursery') {
-      return const [
-        _ProfileTabItem(label: 'نظرة عامة', icon: Icons.dashboard_outlined),
-        _ProfileTabItem(label: 'التحديثات', icon: Icons.notifications_none_outlined),
-        _ProfileTabItem(label: 'السجلات', icon: Icons.assignment_outlined),
-        _ProfileTabItem(label: 'الوسائط', icon: Icons.photo_library_outlined),
-      ];
-    }
-
+  List<_ProfileTabItem> getTabs() {
     return const [
       _ProfileTabItem(label: 'نظرة عامة', icon: Icons.dashboard_outlined),
-      _ProfileTabItem(label: 'التحديثات', icon: Icons.notifications_none_outlined),
-      _ProfileTabItem(label: 'التقرير', icon: Icons.description_outlined),
+      _ProfileTabItem(
+        label: 'التحديثات',
+        icon: Icons.notifications_none_outlined,
+      ),
+      _ProfileTabItem(label: 'السجلات', icon: Icons.assignment_outlined),
       _ProfileTabItem(label: 'الوسائط', icon: Icons.photo_library_outlined),
     ];
   }
@@ -382,7 +357,6 @@ String _resolveMediaType(Map<String, dynamic> data) {
   Widget buildOverviewTab({
     required String currentName,
     required String currentSection,
-    required String currentGroup,
     required DateTime? currentBirthDate,
     required bool isActive,
     required String status,
@@ -401,26 +375,10 @@ String _resolveMediaType(Map<String, dynamic> data) {
             padding: const EdgeInsets.all(16),
             child: Column(
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: _ProfileInfoBox(
-                        icon: Icons.cake_outlined,
-                        title: 'العمر',
-                        value: childAgeText(currentBirthDate),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: _ProfileInfoBox(
-                        icon: Icons.groups_outlined,
-                        title: 'المجموعة الحالية',
-                        value: currentSection == 'Nursery'
-                            ? 'غير مطبق'
-                            : (currentGroup.isEmpty ? 'غير محدد' : currentGroup),
-                      ),
-                    ),
-                  ],
+                _ProfileInfoBox(
+                  icon: Icons.cake_outlined,
+                  title: 'العمر',
+                  value: childAgeText(currentBirthDate),
                 ),
                 const SizedBox(height: 10),
                 Container(
@@ -588,7 +546,8 @@ String _resolveMediaType(Map<String, dynamic> data) {
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (_) => GalleryPage(child: widget.child),
+                                builder: (_) =>
+                                    GalleryPage(child: widget.child),
                               ),
                             );
                           },
@@ -650,7 +609,8 @@ String _resolveMediaType(Map<String, dynamic> data) {
               children: [
                 const _ActionIntroBox(
                   title: 'كل التحديثات',
-                  subtitle: 'الوصول إلى جميع تحديثات الطفل اليومية بشكل منظم وواضح.',
+                  subtitle:
+                      'الوصول إلى جميع تحديثات الطفل اليومية بشكل منظم وواضح.',
                   icon: Icons.notifications_active_outlined,
                 ),
                 const SizedBox(height: 14),
@@ -792,48 +752,6 @@ String _resolveMediaType(Map<String, dynamic> data) {
     );
   }
 
-  Widget buildReportTab(ChildModel child) {
-    return ListView(
-      children: [
-        const _ProfileSectionHeader(
-          title: 'التقرير الأسبوعي',
-          icon: Icons.description_outlined,
-        ),
-        const SizedBox(height: 10),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                const _ActionIntroBox(
-                  title: 'التقرير الأسبوعي',
-                  subtitle: 'عرض ملخص أسبوعي منظم لمتابعة الطفل وأنشطته.',
-                  icon: Icons.description_outlined,
-                ),
-                const SizedBox(height: 14),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => WeeklyReportPage(child: child),
-                        ),
-                      );
-                    },
-                    icon: const Icon(Icons.open_in_new_rounded),
-                    label: const Text('فتح التقرير الأسبوعي'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget buildMediaTab(ChildModel child) {
     return ListView(
       children: [
@@ -934,7 +852,6 @@ String _resolveMediaType(Map<String, dynamic> data) {
   Widget buildCurrentTabBody({
     required String currentSection,
     required String currentName,
-    required String currentGroup,
     required DateTime? currentBirthDate,
     required bool isActive,
     required String status,
@@ -942,45 +859,11 @@ String _resolveMediaType(Map<String, dynamic> data) {
     required Color currentStatusColor,
     required ChildModel child,
   }) {
-    if (currentSection == 'Nursery') {
-      switch (selectedTabIndex) {
-        case 0:
-          return buildOverviewTab(
-            currentName: currentName,
-            currentSection: currentSection,
-            currentGroup: currentGroup,
-            currentBirthDate: currentBirthDate,
-            isActive: isActive,
-            status: status,
-            badgeColor: badgeColor,
-            currentStatusColor: currentStatusColor,
-          );
-        case 1:
-          return buildUpdatesTab(child);
-        case 2:
-          return buildNurseryRecordsTab(child);
-        case 3:
-          return buildMediaTab(child);
-        default:
-          return buildOverviewTab(
-            currentName: currentName,
-            currentSection: currentSection,
-            currentGroup: currentGroup,
-            currentBirthDate: currentBirthDate,
-            isActive: isActive,
-            status: status,
-            badgeColor: badgeColor,
-            currentStatusColor: currentStatusColor,
-          );
-      }
-    }
-
     switch (selectedTabIndex) {
       case 0:
         return buildOverviewTab(
           currentName: currentName,
           currentSection: currentSection,
-          currentGroup: currentGroup,
           currentBirthDate: currentBirthDate,
           isActive: isActive,
           status: status,
@@ -990,14 +873,13 @@ String _resolveMediaType(Map<String, dynamic> data) {
       case 1:
         return buildUpdatesTab(child);
       case 2:
-        return buildReportTab(child);
+        return buildNurseryRecordsTab(child);
       case 3:
         return buildMediaTab(child);
       default:
         return buildOverviewTab(
           currentName: currentName,
           currentSection: currentSection,
-          currentGroup: currentGroup,
           currentBirthDate: currentBirthDate,
           isActive: isActive,
           status: status,
@@ -1018,9 +900,7 @@ String _resolveMediaType(Map<String, dynamic> data) {
         builder: (context, childSnapshot) {
           final currentData = childSnapshot.data;
           final currentName = (currentData?['name'] ?? child.name).toString();
-          final currentSection =
-              (currentData?['section'] ?? child.section).toString();
-          final currentGroup = (currentData?['group'] ?? child.group).toString();
+          final currentSection = 'Nursery';
           final isActive = currentData?['isActive'] ?? true;
           final status = (currentData?['status'] ?? 'active').toString();
           final birthDateRaw = currentData?['birthDate'];
@@ -1029,7 +909,7 @@ String _resolveMediaType(Map<String, dynamic> data) {
 
           final badgeColor = sectionColor(currentSection);
           final currentStatusColor = statusColor(status, isActive);
-          final tabs = getTabs(currentSection);
+          final tabs = getTabs();
 
           if (selectedTabIndex >= tabs.length) {
             selectedTabIndex = 0;
@@ -1110,7 +990,6 @@ String _resolveMediaType(Map<String, dynamic> data) {
                 child: buildCurrentTabBody(
                   currentSection: currentSection,
                   currentName: currentName,
-                  currentGroup: currentGroup,
                   currentBirthDate: currentBirthDate,
                   isActive: isActive,
                   status: status,
@@ -1179,6 +1058,7 @@ class _ProfileInfoBox extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: AppColors.background,

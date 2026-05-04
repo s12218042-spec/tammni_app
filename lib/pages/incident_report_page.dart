@@ -252,8 +252,7 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
         'parentUid': parentInfo['parentUid'],
         'parentUsername': parentInfo['parentUsername'],
         'parentName': widget.child.parentName,
-        'section': widget.child.section,
-        'group': widget.child.group,
+        'section': 'Nursery',
 
         'title': 'تقرير حادث',
         'type': 'incident_report',

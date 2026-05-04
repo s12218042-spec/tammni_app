@@ -23,11 +23,9 @@ class _GalleryPageState extends State<GalleryPage> {
 
   String selectedFilter = 'all';
 
-  String sectionLabel(String section) {
-    if (section == 'Nursery') return 'حضانة';
-    if (section == 'Kindergarten') return 'روضة';
-    return section;
-  }
+ String sectionLabel(String section) {
+  return 'حضانة';
+}
 
   String _resolveNote(Map<String, dynamic> data) {
     final candidates = [
@@ -551,13 +549,7 @@ class _GalleryPageState extends State<GalleryPage> {
 
   @override
   Widget build(BuildContext context) {
-    final childGroup = widget.child.section == 'Nursery'
-        ? ''
-        : widget.child.group.trim();
-
-    final headerSubtitle = childGroup.isEmpty
-        ? sectionLabel(widget.child.section)
-        : '${sectionLabel(widget.child.section)} • $childGroup';
+    final headerSubtitle = sectionLabel(widget.child.section);
 
     return AppPageScaffold(
       title: 'معرض صور الطفل',

@@ -14,7 +14,6 @@ import 'force_change_password_page.dart';
 import 'nursery_staff_home_page.dart';
 import 'parent_home_page.dart';
 import 'parent_registration_request_page.dart';
-import 'teacher_home_page.dart';
 
 
 class WelcomePage extends StatefulWidget {
@@ -453,7 +452,6 @@ class _WelcomePageState extends State<WelcomePage> {
       return;
     }
 
-    // 3) لا نسمح بإنشاء حساب جديد مباشرة عبر Google
     await FirebaseAuth.instance.signOut();
     if (!kIsWeb && googleSignIn != null) {
       await googleSignIn.signOut();
@@ -546,6 +544,8 @@ class _WelcomePageState extends State<WelcomePage> {
     final normalizedRole =
         role == 'nursery' || role == 'nursery staff' ? 'nursery_staff' : role;
 
+    await NotificationService.instance.saveCurrentUserToken();
+
     if (mustChangePassword || isFirstLogin) {
       final changed = await Navigator.push<bool>(
         context,
@@ -577,8 +577,6 @@ class _WelcomePageState extends State<WelcomePage> {
       nextPage = ParentHomePage(parentUsername: username);
     } else if (normalizedRole == 'nursery_staff') {
       nextPage = const NurseryStaffHomePage();
-    } else if (normalizedRole == 'teacher') {
-      nextPage = const TeacherHomePage();
     } else if (normalizedRole == 'admin') {
       nextPage = const AdminHomePage();
     } else {
@@ -933,39 +931,7 @@ class _WelcomePageState extends State<WelcomePage> {
                               ),
                             ),
                           ),
-                        
-                          const SizedBox(height: 10),
-                          GlassContainer(
-                            padding: const EdgeInsets.all(14),
-                            borderRadius: BorderRadius.circular(20),
-                            opacity: 0.18,
-                            blur: 12,
-                            child: const Column(
-                              children: [
-                                _MiniInfoChip(
-                                  icon: Icons.admin_panel_settings_outlined,
-                                  text:
-                                      'حسابات المعلمات والموظفات والأدمن تنشئها الإدارة فقط',
-                                ),
-                                SizedBox(height: 10),
-                                _MiniInfoChip(
-                                  icon: Icons.family_restroom_outlined,
-                                  text:
-                                      'أولياء الأمور يقدّمون طلب تسجيل ثم تتم المراجعة والموافقة',
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 22),
-                          const Text(
-                            'طمّني • Nursery & Kindergarten Management',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: AppColors.textLight,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
+  
                           const SizedBox(height: 24),
                         ],
                       ),
@@ -1044,59 +1010,6 @@ class _WelcomePageState extends State<WelcomePage> {
             ),
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _MiniInfoChip extends StatelessWidget {
-  final String text;
-  final IconData icon;
-
-  const _MiniInfoChip({
-    required this.text,
-    required this.icon,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.72),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: Colors.white.withOpacity(0.55),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.primary.withOpacity(0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Icon(
-            icon,
-            size: 18,
-            color: AppColors.primary,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              text,
-              style: const TextStyle(
-                fontSize: 13.5,
-                fontWeight: FontWeight.w700,
-                color: AppColors.textDark,
-                height: 1.45,
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }

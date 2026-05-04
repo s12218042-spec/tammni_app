@@ -16,6 +16,7 @@ import 'quick_care_update_page.dart';
 import 'send_parent_notification_page.dart';
 import 'welcome_page.dart';
 import 'account_settings_page.dart';
+import 'start_live_stream_page.dart';
 import '../services/account_settings_service.dart';
 import 'account_history_page.dart';
 import 'package:image_picker/image_picker.dart';
@@ -1404,6 +1405,21 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
 
   Widget _buildQuickActions(List<ChildModel> children) {
     final actions = [
+    _QuickActionItem(
+      icon: Icons.wifi_tethering_rounded,
+      label: 'بث مباشر',
+      onTap: () async {
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const StartLiveStreamPage(),
+          ),
+        );
+
+        if (!mounted) return;
+        setState(() {});
+      },
+    ),
       _QuickActionItem(
         icon: Icons.flash_on_rounded,
         label: 'رعاية سريعة',

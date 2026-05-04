@@ -4,21 +4,19 @@ import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
+import 'account_settings_page.dart';
 import 'admin_add_child_requests_page.dart';
 import 'admin_add_user_page.dart';
-import 'admin_invoice_page.dart';
-import 'admin_registration_requests_page.dart';
-import 'admin_teacher_assignments_page.dart';
-import 'admin_updates_feed_page.dart';
-import 'manage_children_page.dart';
-import 'manage_classes_page.dart';
-import 'manage_users_page.dart';
-import 'welcome_page.dart';
 import 'admin_chats_page.dart';
 import 'admin_complaints_page.dart';
-import 'account_settings_page.dart';
+import 'admin_invoice_page.dart';
+import 'admin_registration_requests_page.dart';
+import 'admin_updates_feed_page.dart';
+import 'manage_children_page.dart';
+import 'manage_users_page.dart';
+import 'welcome_page.dart';
+import 'start_live_stream_page.dart';
 import '../services/account_settings_service.dart';
-import 'admin_account_deletion_requests_page.dart';
 
 class AdminHomePage extends StatefulWidget {
   const AdminHomePage({super.key});
@@ -29,7 +27,8 @@ class AdminHomePage extends StatefulWidget {
 
 class _AdminHomePageState extends State<AdminHomePage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final AccountSettingsService _accountSettingsService = AccountSettingsService();
+  final AccountSettingsService _accountSettingsService =
+      AccountSettingsService();
 
   int selectedIndex = 0;
   bool isArabic = true;
@@ -73,54 +72,49 @@ class _AdminHomePageState extends State<AdminHomePage> {
   Future<_AdminDashboardData> _loadDashboardData() async {
     final usersSnapshot = await _firestore.collection('users').get();
     final childrenSnapshot = await _firestore.collection('children').get();
-    final classesSnapshot = await _firestore.collection('classes').get();
+
     final updatesSnapshot = await _firestore
         .collection('updates')
         .limit(100)
         .get();
+
     final requestsSnapshot = await _firestore
         .collection('registration_requests')
         .limit(100)
         .get();
+
     final addChildRequestsSnapshot = await _firestore
         .collection('add_child_requests')
         .limit(100)
         .get();
+
     final deletionRequestsSnapshot = await _firestore
-    .collection('account_deletion_requests')
-    .limit(100)
-    .get();
+        .collection('account_deletion_requests')
+        .limit(100)
+        .get();
 
     final complaintsSnapshot = await _firestore
-    .collection('complaints')
-    .limit(200)
-    .get();
+        .collection('complaints')
+        .limit(200)
+        .get();
 
     final users = usersSnapshot.docs.map((e) => e.data()).toList();
     final children = childrenSnapshot.docs.map((e) => e.data()).toList();
-    final classes = classesSnapshot.docs.map((e) => e.data()).toList();
     final updates = updatesSnapshot.docs.map((e) => e.data()).toList();
     final requests = requestsSnapshot.docs.map((e) => e.data()).toList();
-    final addChildRequests = addChildRequestsSnapshot.docs
-        .map((e) => e.data())
-        .toList();
-    final deletionRequests = deletionRequestsSnapshot.docs
-    .map((e) => e.data())
-    .toList();
-    final complaints = complaintsSnapshot.docs
-    .map((e) => e.data())
-    .toList();
+    final addChildRequests =
+        addChildRequestsSnapshot.docs.map((e) => e.data()).toList();
+    final deletionRequests =
+        deletionRequestsSnapshot.docs.map((e) => e.data()).toList();
+    final complaints = complaintsSnapshot.docs.map((e) => e.data()).toList();
 
     int activeChildren = 0;
     int archivedChildren = 0;
     int nurseryChildren = 0;
-    int kindergartenChildren = 0;
-    int kindergartenWithoutGroup = 0;
 
     for (final child in children) {
       final isActive = (child['isActive'] ?? true) == true;
       final section = (child['section'] ?? '').toString().trim();
-      final group = (child['group'] ?? '').toString().trim();
 
       if (isActive) {
         activeChildren++;
@@ -128,25 +122,24 @@ class _AdminHomePageState extends State<AdminHomePage> {
         archivedChildren++;
       }
 
-      if (section == 'Nursery') nurseryChildren++;
-      if (section == 'Kindergarten') kindergartenChildren++;
-
-      if (isActive && section == 'Kindergarten' && group.isEmpty) {
-        kindergartenWithoutGroup++;
+      if (section == 'Nursery' || section.isEmpty) {
+        nurseryChildren++;
       }
     }
 
     int parentsCount = 0;
     int staffCount = 0;
-    int teachersCount = 0;
     int adminsCount = 0;
 
     for (final user in users) {
       final role = (user['role'] ?? '').toString().trim().toLowerCase();
 
       if (role == 'parent') parentsCount++;
-      if (role == 'nursery staff' || role == 'nursery_staff') staffCount++;
-      if (role == 'teacher') teachersCount++;
+      if (role == 'nursery' ||
+          role == 'nursery staff' ||
+          role == 'nursery_staff') {
+        staffCount++;
+      }
       if (role == 'admin') adminsCount++;
     }
 
@@ -156,6 +149,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
 
     for (final request in requests) {
       final status = (request['status'] ?? 'pending').toString().trim();
+
       if (status == 'pending') pendingRequests++;
       if (status == 'approved') approvedRequests++;
       if (status == 'rejected') rejectedRequests++;
@@ -165,9 +159,25 @@ class _AdminHomePageState extends State<AdminHomePage> {
     int approvedAddChildRequests = 0;
     int rejectedAddChildRequests = 0;
 
+    for (final request in addChildRequests) {
+      final status = (request['status'] ?? 'pending').toString().trim();
+
+      if (status == 'pending') pendingAddChildRequests++;
+      if (status == 'approved') approvedAddChildRequests++;
+      if (status == 'rejected') rejectedAddChildRequests++;
+    }
+
     int pendingDeletionRequests = 0;
     int approvedDeletionRequests = 0;
     int rejectedDeletionRequests = 0;
+
+    for (final request in deletionRequests) {
+      final status = (request['status'] ?? 'pending').toString().trim();
+
+      if (status == 'pending') pendingDeletionRequests++;
+      if (status == 'approved') approvedDeletionRequests++;
+      if (status == 'rejected') rejectedDeletionRequests++;
+    }
 
     int totalComplaints = 0;
     int pendingComplaints = 0;
@@ -175,41 +185,18 @@ class _AdminHomePageState extends State<AdminHomePage> {
     int resolvedComplaints = 0;
     int rejectedComplaints = 0;
 
-    for (final request in addChildRequests) {
-      final status = (request['status'] ?? 'pending').toString().trim();
-      if (status == 'pending') pendingAddChildRequests++;
-      if (status == 'approved') approvedAddChildRequests++;
-      if (status == 'rejected') rejectedAddChildRequests++;
-    }
-   
-    for (final request in deletionRequests) {
-      final status = (request['status'] ?? 'pending').toString().trim();
-      if (status == 'pending') pendingDeletionRequests++;
-      if (status == 'approved') approvedDeletionRequests++;
-      if (status == 'rejected') rejectedDeletionRequests++;
-    }
     for (final complaint in complaints) {
       totalComplaints++;
+
       final status = (complaint['status'] ?? 'pending').toString().trim();
 
       if (status == 'pending') pendingComplaints++;
       if (status == 'in_review') inReviewComplaints++;
       if (status == 'resolved') resolvedComplaints++;
       if (status == 'rejected') rejectedComplaints++;
-     }
-    final alerts = <_AdminAlertItem>[];
-
-    if (classes.isEmpty) {
-      alerts.add(
-        const _AdminAlertItem(
-          title: 'لا توجد صفوف أو مجموعات بعد',
-          subtitle:
-              'يفضّل إضافة الصفوف والمجموعات لبدء تنظيم الأطفال والمعلمات.',
-          icon: Icons.class_,
-          color: Colors.orange,
-        ),
-      );
     }
+
+    final alerts = <_AdminAlertItem>[];
 
     if (archivedChildren > 0) {
       alerts.add(
@@ -219,18 +206,6 @@ class _AdminHomePageState extends State<AdminHomePage> {
               'راجعي الأطفال المؤرشفين وتحققي إذا كانت حالتهم ما زالت صحيحة.',
           icon: Icons.archive_outlined,
           color: Colors.blueGrey,
-        ),
-      );
-    }
-
-    if (kindergartenWithoutGroup > 0) {
-      alerts.add(
-        _AdminAlertItem(
-          title: 'يوجد $kindergartenWithoutGroup طفل/أطفال روضة بدون مجموعة',
-          subtitle:
-              'يفضّل تعيين مجموعة لكل طفل في الروضة لتسهيل المتابعة والتقارير.',
-          icon: Icons.warning_amber_rounded,
-          color: Colors.deepOrange,
         ),
       );
     }
@@ -261,37 +236,37 @@ class _AdminHomePageState extends State<AdminHomePage> {
     }
 
     if (pendingDeletionRequests > 0) {
-  alerts.add(
-    _AdminAlertItem(
-      title:
-          'يوجد $pendingDeletionRequests طلب/طلبات حذف حساب بانتظار المراجعة',
-      subtitle:
-          'راجع طلبات حذف الحسابات وحدد الموافقة أو الرفض.',
-      icon: Icons.delete_forever_outlined,
-      color: Colors.redAccent,
-    ),
-  );
-}
-if (pendingComplaints > 0 || inReviewComplaints > 0) {
-  final openComplaints = pendingComplaints + inReviewComplaints;
+      alerts.add(
+        _AdminAlertItem(
+          title:
+              'يوجد $pendingDeletionRequests طلب/طلبات حذف حساب بانتظار المراجعة',
+          subtitle: 'راجعي طلبات حذف الحسابات وحددي الموافقة أو الرفض.',
+          icon: Icons.delete_forever_outlined,
+          color: Colors.redAccent,
+        ),
+      );
+    }
 
-  alerts.add(
-    _AdminAlertItem(
-      title: 'يوجد $openComplaints شكوى/شكاوى تحتاج متابعة',
-      subtitle:
-          'راجع شكاوى أولياء الأمور المفتوحة وحدد حالتها أو أضف ردًا إداريًا.',
-      icon: Icons.report_problem_outlined,
-      color: Colors.deepPurple,
-    ),
-  );
-}
+    if (pendingComplaints > 0 || inReviewComplaints > 0) {
+      final openComplaints = pendingComplaints + inReviewComplaints;
+
+      alerts.add(
+        _AdminAlertItem(
+          title: 'يوجد $openComplaints شكوى/شكاوى تحتاج متابعة',
+          subtitle:
+              'راجعي شكاوى أولياء الأمور المفتوحة وحددي حالتها أو أضيفي ردًا إداريًا.',
+          icon: Icons.report_problem_outlined,
+          color: Colors.deepPurple,
+        ),
+      );
+    }
 
     if (users.isEmpty) {
       alerts.add(
         const _AdminAlertItem(
           title: 'لا يوجد مستخدمون في النظام',
           subtitle:
-              'ابدأ بإضافة حسابات الأدمن والمعلمات والموظفات، ومراجعة طلبات أولياء الأمور.',
+              'ابدئي بإضافة حسابات الإدارة وموظفات الحضانة، ومراجعة طلبات أولياء الأمور.',
           icon: Icons.person_add_alt_1_rounded,
           color: Colors.redAccent,
         ),
@@ -300,13 +275,15 @@ if (pendingComplaints > 0 || inReviewComplaints > 0) {
 
     final recentActivities = updates.map((item) {
       final time = _extractDate(item);
+
       return _AdminActivityItem(
         title: _buildActivityTitle(item),
         subtitle: _buildActivitySubtitle(item),
         time: time,
         icon: _activityIcon((item['type'] ?? '').toString()),
       );
-    }).toList()..sort((a, b) => b.time.compareTo(a.time));
+    }).toList()
+      ..sort((a, b) => b.time.compareTo(a.time));
 
     return _AdminDashboardData(
       totalUsers: users.length,
@@ -314,11 +291,8 @@ if (pendingComplaints > 0 || inReviewComplaints > 0) {
       activeChildren: activeChildren,
       archivedChildren: archivedChildren,
       nurseryChildren: nurseryChildren,
-      kindergartenChildren: kindergartenChildren,
-      totalClasses: classes.length,
       parentsCount: parentsCount,
       staffCount: staffCount,
-      teachersCount: teachersCount,
       adminsCount: adminsCount,
       pendingRequests: pendingRequests,
       approvedRequests: approvedRequests,
@@ -340,7 +314,8 @@ if (pendingComplaints > 0 || inReviewComplaints > 0) {
   }
 
   static DateTime _extractDate(Map<String, dynamic> data) {
-    final dynamic value = data['time'] ?? data['createdAt'];
+    final dynamic value =
+        data['eventAt'] ?? data['time'] ?? data['createdAt'] ?? data['updatedAt'];
 
     if (value is Timestamp) return value.toDate();
     if (value is DateTime) return value;
@@ -353,35 +328,41 @@ if (pendingComplaints > 0 || inReviewComplaints > 0) {
     final childName = (item['childName'] ?? item['name'] ?? 'طفل').toString();
 
     switch (type) {
+      case 'وجبة':
       case 'meal':
         return 'تمت إضافة تحديث وجبة للطفل $childName';
+      case 'نوم':
       case 'sleep':
         return 'تمت إضافة تحديث نوم للطفل $childName';
+      case 'حفاض':
+      case 'diaper':
+        return 'تمت إضافة تحديث حفاض للطفل $childName';
+      case 'صحة':
       case 'health':
         return 'تمت إضافة تحديث صحي للطفل $childName';
+      case 'نشاط':
       case 'activity':
-        return 'تمت إضافة نشاط جديد للطفل $childName';
-      case 'attendance':
-        return 'تم تسجيل حضور للطفل $childName';
-      case 'homework':
-        return 'تمت إضافة واجب للطفل $childName';
-      case 'grade':
-        return 'تمت إضافة تقييم/علامة للطفل $childName';
+        return 'تمت إضافة نشاط للطفل $childName';
+      case 'ملاحظة':
+      case 'note':
+        return 'تمت إضافة ملاحظة للطفل $childName';
+      case 'كاميرا':
+      case 'media':
+        return 'تمت إضافة وسائط للطفل $childName';
       default:
         return 'تمت إضافة تحديث جديد للطفل $childName';
     }
   }
 
   static String _buildActivitySubtitle(Map<String, dynamic> item) {
-    final createdByName = (item['createdByName'] ?? 'مستخدم غير معروف')
-        .toString();
+    final createdByName =
+        (item['createdByName'] ?? 'مستخدم غير معروف').toString();
+
     final section = (item['section'] ?? '').toString();
-    final group = (item['group'] ?? '').toString();
 
     final details = <String>[
       'بواسطة: $createdByName',
-      if (section.isNotEmpty) 'القسم: $section',
-      if (group.isNotEmpty) 'المجموعة: $group',
+      if (section == 'Nursery') 'القسم: حضانة',
     ];
 
     return details.join(' • ');
@@ -389,20 +370,27 @@ if (pendingComplaints > 0 || inReviewComplaints > 0) {
 
   static IconData _activityIcon(String type) {
     switch (type) {
+      case 'وجبة':
       case 'meal':
         return Icons.restaurant_rounded;
+      case 'نوم':
       case 'sleep':
         return Icons.bedtime_rounded;
+      case 'حفاض':
+      case 'diaper':
+        return Icons.child_friendly_rounded;
+      case 'صحة':
       case 'health':
         return Icons.medical_services_rounded;
+      case 'نشاط':
       case 'activity':
         return Icons.extension_rounded;
-      case 'attendance':
-        return Icons.fact_check_rounded;
-      case 'homework':
-        return Icons.assignment_rounded;
-      case 'grade':
-        return Icons.grade_rounded;
+      case 'كاميرا':
+      case 'media':
+        return Icons.photo_camera_rounded;
+      case 'ملاحظة':
+      case 'note':
+        return Icons.edit_note_rounded;
       default:
         return Icons.notifications_active_rounded;
     }
@@ -543,6 +531,7 @@ if (pendingComplaints > 0 || inReviewComplaints > 0) {
     }
 
     final data = snapshot.data;
+
     if (data == null) {
       return const Center(child: Text('لا توجد بيانات متاحة حالياً'));
     }
@@ -570,16 +559,16 @@ if (pendingComplaints > 0 || inReviewComplaints > 0) {
         children: [
           Text(
             'أهلاً بكِ في لوحة الإدارة 👋',
-            style: Theme.of(
-              context,
-            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
           ),
           const SizedBox(height: 8),
           Text(
-            'هذه الصفحة الرئيسية تعرض لكِ لمحة سريعة عن حالة النظام.',
-            style: Theme.of(
-              context,
-            ).textTheme.bodyMedium?.copyWith(color: AppColors.textLight),
+            'هذه الصفحة الرئيسية تعرض لكِ لمحة سريعة عن حالة نظام الحضانة.',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: AppColors.textLight,
+                ),
           ),
           const SizedBox(height: 20),
           Wrap(
@@ -590,14 +579,13 @@ if (pendingComplaints > 0 || inReviewComplaints > 0) {
                 title: 'إجمالي المستخدمين',
                 value: '${data.totalUsers}',
                 subtitle:
-                    'أدمن ${data.adminsCount} • أولياء ${data.parentsCount}',
+                    'أدمن ${data.adminsCount} • أولياء ${data.parentsCount} • موظفات ${data.staffCount}',
                 icon: Icons.groups_rounded,
               ),
               _DashboardStatCard(
                 title: 'الأطفال النشطون',
                 value: '${data.activeChildren}',
-                subtitle:
-                    'الحضانة ${data.nurseryChildren} • الروضة ${data.kindergartenChildren}',
+                subtitle: 'أطفال الحضانة ${data.nurseryChildren}',
                 icon: Icons.child_care_rounded,
               ),
               _DashboardStatCard(
@@ -631,15 +619,8 @@ if (pendingComplaints > 0 || inReviewComplaints > 0) {
                 title: 'شكاوى أولياء الأمور',
                 value: '${data.totalComplaints}',
                 subtitle:
-                'مفتوحة ${data.pendingComplaints + data.inReviewComplaints} • محلولة ${data.resolvedComplaints}',
+                    'مفتوحة ${data.pendingComplaints + data.inReviewComplaints} • محلولة ${data.resolvedComplaints}',
                 icon: Icons.report_problem_outlined,
-              ),
-              _DashboardStatCard(
-                title: 'الصفوف / المجموعات',
-                value: '${data.totalClasses}',
-                subtitle:
-                    'معلمات ${data.teachersCount} • موظفات ${data.staffCount}',
-                icon: Icons.class_rounded,
               ),
             ],
           ),
@@ -670,9 +651,7 @@ if (pendingComplaints > 0 || inReviewComplaints > 0) {
               subtitle: 'عند إضافة تحديثات للأطفال ستظهر هنا.',
             )
           else
-            ...data.recentActivities
-                .take(4)
-                .map(
+            ...data.recentActivities.take(4).map(
                   (activity) => _ActivityCard(
                     item: activity,
                     formattedTime: _formatDateTime(activity.time),
@@ -696,7 +675,6 @@ if (pendingComplaints > 0 || inReviewComplaints > 0) {
             icon: Icons.fact_check_rounded,
           ),
           const SizedBox(height: 12),
-
           _AdminActionCard(
             icon: Icons.how_to_reg_rounded,
             title: 'طلبات تسجيل أولياء الأمور',
@@ -711,7 +689,6 @@ if (pendingComplaints > 0 || inReviewComplaints > 0) {
               setState(() {});
             },
           ),
-
           _AdminActionCard(
             icon: Icons.person_add_alt_1_outlined,
             title: 'طلبات إضافة الأطفال',
@@ -726,7 +703,6 @@ if (pendingComplaints > 0 || inReviewComplaints > 0) {
               setState(() {});
             },
           ),
-
           _AdminActionCard(
             icon: Icons.report_problem_outlined,
             title: 'شكاوى أولياء الأمور',
@@ -738,7 +714,6 @@ if (pendingComplaints > 0 || inReviewComplaints > 0) {
               );
             },
           ),
-
           _AdminActionCard(
             icon: Icons.group_rounded,
             title: 'إدارة المستخدمين',
@@ -752,22 +727,6 @@ if (pendingComplaints > 0 || inReviewComplaints > 0) {
               setState(() {});
             },
           ),
-
-          _AdminActionCard(
-  icon: Icons.delete_forever_outlined,
-  title: 'طلبات حذف الحسابات',
-  subtitle: 'مراجعة طلبات الحذف الدائم المقدمة من المستخدمين',
-  onTap: () async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => const AdminAccountDeletionRequestsPage(),
-      ),
-    );
-    setState(() {});
-  },
-),
-
           _AdminActionCard(
             icon: Icons.child_care_rounded,
             title: 'إدارة الأطفال',
@@ -780,40 +739,10 @@ if (pendingComplaints > 0 || inReviewComplaints > 0) {
               setState(() {});
             },
           ),
-
-          _AdminActionCard(
-            icon: Icons.class_rounded,
-            title: 'إدارة الصفوف والأقسام',
-            subtitle: 'تنظيم الصفوف والمجموعات وربط الأطفال بها',
-            onTap: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const ManageClassesPage()),
-              );
-              setState(() {});
-            },
-          ),
-
-          _AdminActionCard(
-            icon: Icons.assignment_ind_rounded,
-            title: 'تعيين المعلمات',
-            subtitle: 'ربط المعلمات بالمجموعات والصفوف والمواد',
-            onTap: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const AdminTeacherAssignmentsPage(),
-                ),
-              );
-              setState(() {});
-            },
-          ),
-
           _AdminActionCard(
             icon: Icons.person_add_alt_1_rounded,
             title: 'إنشاء حسابات الموظفين',
-            subtitle:
-                'إنشاء حسابات المعلمات وموظفات الحضانة والأدمن من قسم مستقل حسب نوع الموظف',
+            subtitle: 'إنشاء حسابات موظفات الحضانة والإدارة فقط',
             onTap: () async {
               final result = await Navigator.push(
                 context,
@@ -825,7 +754,6 @@ if (pendingComplaints > 0 || inReviewComplaints > 0) {
               }
             },
           ),
-
           _AdminActionCard(
             icon: Icons.receipt_long_rounded,
             title: 'إدارة الفواتير',
@@ -838,39 +766,52 @@ if (pendingComplaints > 0 || inReviewComplaints > 0) {
               setState(() {});
             },
           ),
-
           const SizedBox(height: 24),
-
           const _SectionTitle(
-            title: 'أدوات الإدارة المتقدمة',
-            icon: Icons.admin_panel_settings_rounded,
+         title: 'أدوات الإدارة المتقدمة',
+         icon: Icons.admin_panel_settings_rounded,
           ),
-          const SizedBox(height: 12),
+        const SizedBox(height: 12),
 
-          _AdminActionCard(
-            icon: Icons.dynamic_feed_rounded,
-            title: 'سجل التحديثات الإداري',
-            subtitle: 'متابعة آخر تحديثات الموظفات والمعلمات داخل النظام',
-            onTap: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const AdminUpdatesFeedPage()),
-              );
-              setState(() {});
-            },
-          ),
+        _AdminActionCard(
+       icon: Icons.wifi_tethering_rounded,
+       title: 'بث مباشر',
+       subtitle: 'بدء بث مباشر للأهل من حساب الإدارة',
+       onTap: () async {
+       await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const StartLiveStreamPage(),
+      ),
+    );
 
+    if (!mounted) return;
+    setState(() {});
+  },
+),
+
+_AdminActionCard(
+  icon: Icons.dynamic_feed_rounded,
+  title: 'سجل التحديثات الإداري',
+  subtitle: 'متابعة آخر تحديثات موظفات الحضانة داخل النظام',
+  onTap: () async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const AdminUpdatesFeedPage()),
+    );
+    setState(() {});
+  },
+),
           _AdminActionCard(
             icon: Icons.bar_chart_rounded,
             title: 'التقارير العامة',
             subtitle: 'تجهيز صفحة تقارير أوسع لاحقًا',
             onTap: () {
-              ScaffoldMessenger.of(
-                context,
-              ).showSnackBar(const SnackBar(content: Text('قيد العمل')));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('قيد العمل')),
+              );
             },
           ),
-
           const SizedBox(height: 12),
         ],
       ),
@@ -885,89 +826,99 @@ if (pendingComplaints > 0 || inReviewComplaints > 0) {
     return ListView(
       children: [
         Card(
-  child: FutureBuilder<AccountSettingsData>(
-    future: _accountSettingsService.getCurrentUserData(),
-    builder: (context, snapshot) {
-      final data = snapshot.data;
+          child: FutureBuilder<AccountSettingsData>(
+            future: _accountSettingsService.getCurrentUserData(),
+            builder: (context, snapshot) {
+              final data = snapshot.data;
 
-      final displayName = data?.name.trim().isNotEmpty == true
-          ? data!.name
-          : 'الأدمن';
+              final displayName = data?.name.trim().isNotEmpty == true
+                  ? data!.name
+                  : 'الأدمن';
 
-      final subtitle = data == null
-          ? 'إدارة النظام'
-          : '${data.roleLabel} • ${data.username.isNotEmpty ? data.username : "بدون اسم مستخدم"}';
+              final subtitle = data == null
+                  ? 'إدارة النظام'
+                  : '${data.roleLabel} • ${data.username.isNotEmpty ? data.username : "بدون اسم مستخدم"}';
 
-      return ListTile(
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 10,
-        ),
-        leading: CircleAvatar(
-          radius: 28,
-          backgroundColor: AppColors.primary.withOpacity(0.10),
-          child: Text(
-            displayName.trim().isNotEmpty ? displayName.trim()[0] : 'أ',
-            style: const TextStyle(
-              color: AppColors.primary,
-              fontWeight: FontWeight.bold,
-              fontSize: 22,
-            ),
+              return ListTile(
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                leading: CircleAvatar(
+                  radius: 28,
+                  backgroundColor: AppColors.primary.withOpacity(0.10),
+                  child: Text(
+                    displayName.trim().isNotEmpty ? displayName.trim()[0] : 'أ',
+                    style: const TextStyle(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 22,
+                    ),
+                  ),
+                ),
+                title: Text(
+                  displayName,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                subtitle: Text(subtitle),
+                trailing: CircleAvatar(
+                  radius: 18,
+                  backgroundColor: AppColors.primary.withOpacity(0.12),
+                  child: const Icon(
+                    Icons.edit,
+                    size: 18,
+                    color: AppColors.primary,
+                  ),
+                ),
+                onTap: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const AccountSettingsPage(),
+                    ),
+                  );
+
+                  if (!mounted) return;
+                  setState(() {});
+                },
+              );
+            },
           ),
         ),
-        title: Text(
-          displayName,
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
-        subtitle: Text(subtitle),
-        trailing: CircleAvatar(
-          radius: 18,
-          backgroundColor: AppColors.primary.withOpacity(0.12),
-          child: const Icon(Icons.edit, size: 18, color: AppColors.primary),
-        ),
-        onTap: () async {
-          await Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const AccountSettingsPage()),
-          );
-          if (!mounted) return;
-          setState(() {});
-        },
-      );
-    },
-  ),
-),
         const SizedBox(height: 18),
         Text(
           'الإعدادات العامة',
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            color: AppColors.textLight,
-            fontWeight: FontWeight.w700,
-          ),
+                color: AppColors.textLight,
+                fontWeight: FontWeight.w700,
+              ),
         ),
         const SizedBox(height: 8),
         Card(
           child: Column(
             children: [
               ListTile(
-  leading: CircleAvatar(
-    backgroundColor: Colors.orange.withOpacity(0.12),
-    child: const Icon(
-      Icons.person_outline_rounded,
-      color: Colors.orange,
-    ),
-  ),
-  title: const Text('تعديل الملف الشخصي'),
-  subtitle: const Text('تعديل الاسم، كلمة المرور، وإدارة الحساب'),
-  onTap: () async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const AccountSettingsPage()),
-    );
-    if (!mounted) return;
-    setState(() {});
-  },
-),
+                leading: CircleAvatar(
+                  backgroundColor: Colors.orange.withOpacity(0.12),
+                  child: const Icon(
+                    Icons.person_outline_rounded,
+                    color: Colors.orange,
+                  ),
+                ),
+                title: const Text('تعديل الملف الشخصي'),
+                subtitle: const Text('تعديل الاسم، كلمة المرور، وإدارة الحساب'),
+                onTap: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const AccountSettingsPage(),
+                    ),
+                  );
+
+                  if (!mounted) return;
+                  setState(() {});
+                },
+              ),
               const Divider(height: 1),
               SwitchListTile(
                 secondary: CircleAvatar(
@@ -996,7 +947,9 @@ if (pendingComplaints > 0 || inReviewComplaints > 0) {
                 subtitle: const Text('عرض وإدارة التنبيهات'),
                 onTap: () async {
                   final data = await _loadDashboardData();
+
                   if (!mounted) return;
+
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -1013,9 +966,9 @@ if (pendingComplaints > 0 || inReviewComplaints > 0) {
         Text(
           'المظهر',
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            color: AppColors.textLight,
-            fontWeight: FontWeight.w700,
-          ),
+                color: AppColors.textLight,
+                fontWeight: FontWeight.w700,
+              ),
         ),
         const SizedBox(height: 8),
         Card(
@@ -1037,9 +990,9 @@ if (pendingComplaints > 0 || inReviewComplaints > 0) {
         Text(
           'المساعدة والدعم',
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            color: AppColors.textLight,
-            fontWeight: FontWeight.w700,
-          ),
+                color: AppColors.textLight,
+                fontWeight: FontWeight.w700,
+              ),
         ),
         const SizedBox(height: 8),
         Card(
@@ -1078,9 +1031,9 @@ if (pendingComplaints > 0 || inReviewComplaints > 0) {
         Center(
           child: Text(
             'إصدار النظام V1.0.0',
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: AppColors.textLight),
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AppColors.textLight,
+                ),
           ),
         ),
         const SizedBox(height: 12),
@@ -1093,7 +1046,10 @@ class _SectionTitle extends StatelessWidget {
   final String title;
   final IconData icon;
 
-  const _SectionTitle({required this.title, required this.icon});
+  const _SectionTitle({
+    required this.title,
+    required this.icon,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1104,9 +1060,9 @@ class _SectionTitle extends StatelessWidget {
         Expanded(
           child: Text(
             title,
-            style: Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
           ),
         ),
       ],
@@ -1352,7 +1308,10 @@ class _ActivityCard extends StatelessWidget {
   final _AdminActivityItem item;
   final String formattedTime;
 
-  const _ActivityCard({required this.item, required this.formattedTime});
+  const _ActivityCard({
+    required this.item,
+    required this.formattedTime,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1381,12 +1340,18 @@ class _ActivityCard extends StatelessWidget {
                   const SizedBox(height: 4),
                   Text(
                     item.subtitle,
-                    style: const TextStyle(color: Colors.black54, height: 1.35),
+                    style: const TextStyle(
+                      color: Colors.black54,
+                      height: 1.35,
+                    ),
                   ),
                   const SizedBox(height: 6),
                   Text(
                     formattedTime,
-                    style: const TextStyle(fontSize: 12, color: Colors.black45),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Colors.black45,
+                    ),
                   ),
                 ],
               ),
@@ -1401,7 +1366,9 @@ class _ActivityCard extends StatelessWidget {
 class _AdminNotificationsPage extends StatelessWidget {
   final List<_AdminAlertItem> alerts;
 
-  const _AdminNotificationsPage({required this.alerts});
+  const _AdminNotificationsPage({
+    required this.alerts,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1459,11 +1426,8 @@ class _AdminDashboardData {
   final int activeChildren;
   final int archivedChildren;
   final int nurseryChildren;
-  final int kindergartenChildren;
-  final int totalClasses;
   final int parentsCount;
   final int staffCount;
-  final int teachersCount;
   final int adminsCount;
 
   final int pendingRequests;
@@ -1493,11 +1457,8 @@ class _AdminDashboardData {
     required this.activeChildren,
     required this.archivedChildren,
     required this.nurseryChildren,
-    required this.kindergartenChildren,
-    required this.totalClasses,
     required this.parentsCount,
     required this.staffCount,
-    required this.teachersCount,
     required this.adminsCount,
     required this.pendingRequests,
     required this.approvedRequests,

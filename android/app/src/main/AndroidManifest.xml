@@ -1,19 +1,32 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Notifications permission for Android 13+ -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Internet -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Live stream / WebRTC -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+    <!-- Media picker -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
 
     <application
-        android:label="tammni_app"
+        android:label="طمّني"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
 
+        <!-- Default FCM notification channel -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
-            android:value="tammni_updates_channel" />
+            android:value="tammni_high_importance_channel" />
 
         <activity
             android:name=".MainActivity"
@@ -46,4 +59,5 @@
             <data android:mimeType="text/plain" />
         </intent>
     </queries>
+
 </manifest>

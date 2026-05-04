@@ -15,7 +15,6 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
   final editDisplayNameCtrl = TextEditingController();
   final editUsernameCtrl = TextEditingController();
   final editPhoneCtrl = TextEditingController();
-  final editSectionCtrl = TextEditingController();
   final editNotesCtrl = TextEditingController();
   final TextEditingController _searchCtrl = TextEditingController();
 
@@ -30,7 +29,6 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
     editDisplayNameCtrl.dispose();
     editUsernameCtrl.dispose();
     editPhoneCtrl.dispose();
-    editSectionCtrl.dispose();
     editNotesCtrl.dispose();
     _searchCtrl.dispose();
     super.dispose();
@@ -48,8 +46,6 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
         return 'ولي أمر';
       case 'nursery_staff':
         return 'موظف/ة حضانة';
-      case 'teacher':
-        return 'معلمة روضة';
       case 'admin':
         return 'مدير النظام';
       default:
@@ -63,8 +59,6 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
         return Colors.teal;
       case 'nursery_staff':
         return Colors.orange;
-      case 'teacher':
-        return Colors.indigo;
       case 'admin':
         return Colors.redAccent;
       default:
@@ -78,8 +72,6 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
         return Icons.family_restroom;
       case 'nursery_staff':
         return Icons.child_friendly;
-      case 'teacher':
-        return Icons.school;
       case 'admin':
         return Icons.admin_panel_settings;
       default:
@@ -93,33 +85,15 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
     final deletionRequested = (data['deletionRequested'] ?? false) == true;
     final deletionApproved = (data['deletionApproved'] ?? false) == true;
 
-    if (raw == 'pending_deletion' || deletionApproved) {
-      return 'حذف مقبول';
-    }
-
+    if (raw == 'pending_deletion' || deletionApproved) return 'حذف مقبول';
     if (deletionRequested && raw != 'pending_deletion') {
       return 'طلب حذف قيد المراجعة';
     }
-
-    if (raw == 'deactivated') {
-      return 'معطّل مؤقتًا';
-    }
-
-    if (raw == 'inactive' || !isActive) {
-      return 'غير نشط';
-    }
-
-    if (raw == 'suspended') {
-      return 'موقوف';
-    }
-
-    if (raw == 'archived') {
-      return 'مؤرشف';
-    }
-
-    if (raw == 'pending') {
-      return 'قيد المراجعة';
-    }
+    if (raw == 'deactivated') return 'معطّل مؤقتًا';
+    if (raw == 'inactive' || !isActive) return 'غير نشط';
+    if (raw == 'suspended') return 'موقوف';
+    if (raw == 'archived') return 'مؤرشف';
+    if (raw == 'pending') return 'قيد المراجعة';
 
     return 'نشط';
   }
@@ -130,33 +104,15 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
     final deletionRequested = (data['deletionRequested'] ?? false) == true;
     final deletionApproved = (data['deletionApproved'] ?? false) == true;
 
-    if (raw == 'pending_deletion' || deletionApproved) {
-      return Colors.redAccent;
-    }
-
+    if (raw == 'pending_deletion' || deletionApproved) return Colors.redAccent;
     if (deletionRequested && raw != 'pending_deletion') {
       return Colors.amber.shade800;
     }
-
-    if (raw == 'deactivated') {
-      return Colors.orange;
-    }
-
-    if (raw == 'inactive' || !isActive) {
-      return Colors.grey;
-    }
-
-    if (raw == 'suspended') {
-      return Colors.deepOrange;
-    }
-
-    if (raw == 'archived') {
-      return Colors.blueGrey;
-    }
-
-    if (raw == 'pending') {
-      return Colors.amber.shade700;
-    }
+    if (raw == 'deactivated') return Colors.orange;
+    if (raw == 'inactive' || !isActive) return Colors.grey;
+    if (raw == 'suspended') return Colors.deepOrange;
+    if (raw == 'archived') return Colors.blueGrey;
+    if (raw == 'pending') return Colors.amber.shade700;
 
     return Colors.green;
   }
@@ -192,19 +148,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
 
   String extractAlternatePhone(Map<String, dynamic> data) {
     final parentInfo = _mapField(data, 'parentInfo');
-
-    return _firstNonEmpty([
-      _fieldAsString(parentInfo['alternatePhone']),
-    ]);
-  }
-
-  String extractSection(Map<String, dynamic> data) {
-    final professionalInfo = _mapField(data, 'professionalInfo');
-
-    return _firstNonEmpty([
-      _fieldAsString(data['section']),
-      _fieldAsString(professionalInfo['section']),
-    ]);
+    return _fieldAsString(parentInfo['alternatePhone']);
   }
 
   String extractNotes(Map<String, dynamic> data) {
@@ -279,7 +223,6 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
   String extractBirthDate(Map<String, dynamic> data) {
     final parentInfo = _mapField(data, 'parentInfo');
     final personalInfo = _mapField(data, 'personalInfo');
-
     final raw =
         parentInfo['birthDate'] ?? personalInfo['birthDate'] ?? data['birthDate'];
 
@@ -364,32 +307,6 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
     ]);
   }
 
-  List<String> extractAssignedGroups(Map<String, dynamic> data) {
-    final professionalInfo = _mapField(data, 'professionalInfo');
-    final raw = professionalInfo['assignedGroups'] ?? data['assignedGroups'];
-
-    if (raw is List) {
-      return raw
-          .map((e) => e.toString().trim())
-          .where((e) => e.isNotEmpty)
-          .toList();
-    }
-    return [];
-  }
-
-  List<String> extractSubjects(Map<String, dynamic> data) {
-    final professionalInfo = _mapField(data, 'professionalInfo');
-    final raw = professionalInfo['subjects'] ?? data['subjects'];
-
-    if (raw is List) {
-      return raw
-          .map((e) => e.toString().trim())
-          .where((e) => e.isNotEmpty)
-          .toList();
-    }
-    return [];
-  }
-
   String extractQualification(Map<String, dynamic> data) {
     final professionalInfo = _mapField(data, 'professionalInfo');
     return _fieldAsString(professionalInfo['qualification']);
@@ -431,7 +348,6 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
   List<String> extractPermissions(Map<String, dynamic> data) {
     final professionalInfo = _mapField(data, 'professionalInfo');
     final adminNotes = _mapField(data, 'adminNotes');
-
     final raw = professionalInfo['permissions'] ?? adminNotes['extraPermissions'];
 
     if (raw is List) {
@@ -445,13 +361,16 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
 
   String formatAnyDate(dynamic raw) {
     if (raw == null) return '';
+
     if (raw is Timestamp) {
       final date = raw.toDate();
       return '${date.year}/${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}';
     }
+
     if (raw is DateTime) {
       return '${raw.year}/${raw.month.toString().padLeft(2, '0')}/${raw.day.toString().padLeft(2, '0')}';
     }
+
     final text = raw.toString().trim();
     if (text.isEmpty) return '';
     return text;
@@ -521,8 +440,6 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
         return 'كل النظام';
       case 'nursery':
         return 'الحضانة فقط';
-      case 'kindergarten':
-        return 'الروضة فقط';
       default:
         return value.isEmpty ? '-' : value;
     }
@@ -598,7 +515,6 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
               .trim();
       final username = (data['username'] ?? '').toString().toLowerCase().trim();
       final email = (data['email'] ?? '').toString().toLowerCase().trim();
-      final section = extractSection(data).toLowerCase();
       final phone = extractPhone(data).toLowerCase();
       final statusLabelText = accountStatusLabel(data).toLowerCase();
 
@@ -609,11 +525,11 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
           selectedStatusFilters.contains(statusLabelText);
 
       final query = searchText.trim().toLowerCase();
+
       final matchesSearch = query.isEmpty ||
           name.contains(query) ||
           username.contains(query) ||
           email.contains(query) ||
-          section.contains(query) ||
           phone.contains(query);
 
       return matchesRole && matchesStatus && matchesSearch;
@@ -677,7 +593,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
     required String userName,
   }) async {
     if (!currentValue) {
-      final updates = <String, dynamic>{
+      await _firestore.collection('users').doc(uid).update({
         'isActive': true,
         'accountStatus': 'active',
         'updatedAt': FieldValue.serverTimestamp(),
@@ -685,9 +601,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
         'deletionRequestType': '',
         'deletionApproved': false,
         'deactivationReason': '',
-      };
-
-      await _firestore.collection('users').doc(uid).update(updates);
+      });
 
       await _logAccountAction(
         targetUid: uid,
@@ -797,6 +711,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
     for (final doc in byUsername.docs) {
       map[doc.id] = doc;
     }
+
     for (final doc in byUid.docs) {
       map[doc.id] = doc;
     }
@@ -810,6 +725,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
   }) async {
     final normalizedRole = normalizeRole((userData['role'] ?? '').toString());
     final username = (userData['username'] ?? '').toString();
+
     final linkedChildren = normalizedRole == 'parent'
         ? await _findChildrenLinkedToParent(
             username: username,
@@ -866,10 +782,6 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                         value: accountStatusLabel(userData),
                       ),
                       _DetailItem(
-                        label: 'القسم',
-                        value: extractSection(userData),
-                      ),
-                      _DetailItem(
                         label: 'سبب التعطيل',
                         value: _fieldAsString(userData['deactivationReason']),
                       ),
@@ -892,7 +804,8 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                       ),
                       _DetailItem(
                         label: 'الحالة الاجتماعية',
-                        value: maritalStatusLabel(extractMaritalStatus(userData)),
+                        value:
+                            maritalStatusLabel(extractMaritalStatus(userData)),
                       ),
                       _DetailItem(
                         label: 'رقم الجوال',
@@ -946,8 +859,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                         ),
                       ],
                     ),
-                  if (normalizedRole == 'teacher' ||
-                      normalizedRole == 'nursery_staff' ||
+                  if (normalizedRole == 'nursery_staff' ||
                       normalizedRole == 'admin')
                     _DetailsSection(
                       title: 'البيانات المهنية',
@@ -980,21 +892,6 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                           label: 'تاريخ التعيين',
                           value: extractHireDate(userData),
                         ),
-                        if (normalizedRole == 'teacher')
-                          _DetailItem(
-                            label: 'المواد',
-                            value: extractSubjects(userData).join(' • '),
-                          ),
-                        if (normalizedRole == 'teacher')
-                          _DetailItem(
-                            label: 'المجموعات',
-                            value: extractAssignedGroups(userData).join(' • '),
-                          ),
-                        if (normalizedRole == 'nursery_staff')
-                          _DetailItem(
-                            label: 'المجموعة',
-                            value: _fieldAsString(userData['group']),
-                          ),
                         if (normalizedRole == 'admin')
                           _DetailItem(
                             label: 'نطاق الإدارة',
@@ -1074,7 +971,6 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
         (userData['displayName'] ?? userData['name'] ?? '').toString();
     editUsernameCtrl.text = (userData['username'] ?? '').toString();
     editPhoneCtrl.text = extractPhone(userData);
-    editSectionCtrl.text = extractSection(userData);
     editNotesCtrl.text = extractNotes(userData);
 
     bool isSaving = false;
@@ -1129,14 +1025,6 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    TextField(
-                      controller: editSectionCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'القسم',
-                        prefixIcon: Icon(Icons.apartment_outlined),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
                     TextFormField(
                       initialValue: roleLabel(originalRole),
                       enabled: false,
@@ -1175,11 +1063,11 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                   onPressed: isSaving
                       ? null
                       : () async {
-                          final newDisplayName = editDisplayNameCtrl.text.trim();
+                          final newDisplayName =
+                              editDisplayNameCtrl.text.trim();
                           final newUsername =
                               editUsernameCtrl.text.trim().toLowerCase();
                           final newPhone = editPhoneCtrl.text.trim();
-                          final newSection = editSectionCtrl.text.trim();
                           final newNotes = editNotesCtrl.text.trim();
 
                           if (newDisplayName.isEmpty || newUsername.isEmpty) {
@@ -1234,24 +1122,17 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                               return;
                             }
 
-                            final updates = <String, dynamic>{
+                            await _firestore.collection('users').doc(docId).update({
                               'displayName': newDisplayName,
                               'name': newDisplayName,
                               'username': newUsername,
-                              'section': newSection,
                               'updatedAt': FieldValue.serverTimestamp(),
                               'phone': newPhone,
                               'notes': newNotes,
                               'adminNotes.internalNotes': newNotes,
                               'personalInfo.phone': newPhone,
-                              'professionalInfo.section': newSection,
                               'parentInfo.phone': newPhone,
-                            };
-
-                            await _firestore
-                                .collection('users')
-                                .doc(docId)
-                                .update(updates);
+                            });
 
                             if (!mounted) return;
 
@@ -1446,9 +1327,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'تم حذف ولي الأمر وفك ربط الأطفال المرتبطين به ✅',
-          ),
+          content: Text('تم حذف ولي الأمر وفك ربط الأطفال المرتبطين به ✅'),
         ),
       );
       return;
@@ -1461,9 +1340,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'تم حذف ولي الأمر وأرشفة الأطفال المرتبطين به ✅',
-          ),
+          content: Text('تم حذف ولي الأمر وأرشفة الأطفال المرتبطين به ✅'),
         ),
       );
     }
@@ -1484,8 +1361,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
               controller: _searchCtrl,
               textAlign: TextAlign.right,
               decoration: InputDecoration(
-                hintText:
-                    'ابحثي بالاسم أو اسم المستخدم أو الإيميل أو الجوال أو القسم',
+                hintText: 'ابحثي بالاسم أو اسم المستخدم أو الإيميل أو الجوال',
                 prefixIcon: const Icon(Icons.search_rounded),
                 suffixIcon: searchText.trim().isEmpty
                     ? null
@@ -1527,12 +1403,6 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                   selected: selectedRoleFilters.contains('parent'),
                   onTap: () => toggleRoleFilter('parent'),
                   selectedColor: Colors.teal,
-                ),
-                buildFilterChip(
-                  label: 'المعلمات',
-                  selected: selectedRoleFilters.contains('teacher'),
-                  onTap: () => toggleRoleFilter('teacher'),
-                  selectedColor: Colors.indigo,
                 ),
                 buildFilterChip(
                   label: 'موظفات الحضانة',
@@ -1599,7 +1469,8 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                 ),
                 buildFilterChip(
                   label: 'موقوف',
-                  selected: selectedStatusFilters.contains('موقوف'.toLowerCase()),
+                  selected:
+                      selectedStatusFilters.contains('موقوف'.toLowerCase()),
                   onTap: () => toggleStatusFilter('موقوف'.toLowerCase()),
                   selectedColor: Colors.deepOrange,
                 ),
@@ -1644,15 +1515,11 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
         stream: usersStream(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(
-              child: CircularProgressIndicator(),
-            );
+            return const Center(child: CircularProgressIndicator());
           }
 
           if (snapshot.hasError) {
-            return Center(
-              child: Text('حدث خطأ: ${snapshot.error}'),
-            );
+            return Center(child: Text('حدث خطأ: ${snapshot.error}'));
           }
 
           final docs = snapshot.data?.docs ?? [];
@@ -1682,7 +1549,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                   border: Border.all(color: AppColors.border),
                 ),
                 child: const Text(
-                  'ملاحظة: إنشاء الحسابات الجديدة لم يعد من هذه الصفحة. الموظفون يتم إنشاؤهم من قسم "إنشاء حسابات الموظفين"، وأولياء الأمور عبر طلبات التسجيل وموافقة الإدارة.',
+                  'ملاحظة: إنشاء الحسابات الجديدة لم يعد من هذه الصفحة. الموظفون يتم إنشاؤهم من قسم إنشاء حسابات الموظفين، وأولياء الأمور عبر طلبات التسجيل وموافقة الإدارة.',
                   style: TextStyle(
                     fontSize: 13,
                     color: AppColors.textDark,
@@ -1714,7 +1581,6 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                       (u['displayName'] ?? u['name'] ?? 'بدون اسم').toString();
                   final username = (u['username'] ?? '').toString();
                   final email = (u['email'] ?? '').toString();
-                  final section = extractSection(u);
                   final phone = extractPhone(u);
                   final statusText = accountStatusLabel(u);
                   final isActive = (u['isActive'] ?? true) == true;
@@ -1728,7 +1594,6 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                     roleColor: roleColor(userRole),
                     icon: roleIcon(userRole),
                     username: username,
-                    section: section,
                     phone: phone,
                     statusText: statusText,
                     statusColor: accountStatusColor(u),
@@ -1778,7 +1643,6 @@ class _UserCard extends StatelessWidget {
   final String roleText;
   final Color roleColor;
   final IconData icon;
-  final String section;
   final String phone;
   final String statusText;
   final Color statusColor;
@@ -1796,7 +1660,6 @@ class _UserCard extends StatelessWidget {
     required this.roleText,
     required this.roleColor,
     required this.icon,
-    required this.section,
     required this.phone,
     required this.statusText,
     required this.statusColor,
@@ -1885,8 +1748,6 @@ class _UserCard extends StatelessWidget {
               children: [
                 buildChip(label: roleText, color: roleColor),
                 buildChip(label: statusText, color: statusColor),
-                if (section.isNotEmpty)
-                  buildChip(label: 'القسم: $section', color: AppColors.primary),
               ],
             ),
             const SizedBox(height: 12),
@@ -1993,9 +1854,7 @@ class _DetailsSection extends StatelessWidget {
       return true;
     }).toList();
 
-    if (visibleChildren.isEmpty) {
-      return const SizedBox.shrink();
-    }
+    if (visibleChildren.isEmpty) return const SizedBox.shrink();
 
     return Container(
       margin: const EdgeInsets.only(bottom: 14),

@@ -98,9 +98,6 @@ class ParentIncidentReportsPage extends StatelessWidget {
     if (clean == 'nursery' || clean == 'nursery_staff') {
       return 'موظفة الحضانة';
     }
-    if (clean == 'teacher') {
-      return 'المعلمة';
-    }
     if (clean == 'admin') {
       return 'الإدارة';
     }

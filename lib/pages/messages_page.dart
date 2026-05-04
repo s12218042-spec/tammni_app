@@ -73,63 +73,106 @@ class _MessagesPageState extends State<MessagesPage> {
 
   MessageModel? replyingToMessage;
 
+  bool get hasChildContext => widget.child != null;
+
   String get targetDisplayName =>
       widget.targetUserName.trim().isEmpty ? 'بدون اسم' : widget.targetUserName;
 
-  bool get hasChildContext => widget.child != null;
+  String get conversationChildId {
+    if (hasChildContext) return widget.child!.id;
 
-  IconData get targetIcon {
-    if (widget.targetRole == 'teacher') return Icons.school_outlined;
-    if (widget.targetRole == 'nursery' ||
-        widget.targetRole == 'nursery_staff') {
-      return Icons.child_care_outlined;
-    }
-    if (widget.targetRole == 'parent') return Icons.person_outline;
-    if (widget.targetRole == 'admin') return Icons.business_outlined;
-    return Icons.send_outlined;
+    final ids = [
+      currentUserId ?? '',
+      widget.targetUserId,
+    ]..sort();
+
+    return 'direct_${ids.join('_')}';
   }
+
+  String get conversationChildName {
+    if (hasChildContext) return widget.child!.name;
+    return 'محادثة مباشرة';
+  }
+
+ IconData get targetIcon {
+  if (widget.targetRole == 'nursery' ||
+      widget.targetRole == 'nursery_staff' ||
+      widget.targetRole == 'nursery staff') {
+    return Icons.child_care_outlined;
+  }
+
+  if (widget.targetRole == 'parent') return Icons.person_outline;
+  if (widget.targetRole == 'admin') return Icons.business_outlined;
+
+  return Icons.send_outlined;
+}
 
   Color get targetColor {
-    if (widget.targetRole == 'teacher') return const Color(0xFF7BB6FF);
-    if (widget.targetRole == 'nursery' ||
-        widget.targetRole == 'nursery_staff') {
-      return const Color(0xFFEFA7C8);
-    }
-    if (widget.targetRole == 'parent') return AppColors.secondary;
-    if (widget.targetRole == 'admin') return AppColors.secondary;
-    return AppColors.primary;
+  if (widget.targetRole == 'nursery' ||
+      widget.targetRole == 'nursery_staff' ||
+      widget.targetRole == 'nursery staff') {
+    return const Color(0xFFEFA7C8);
   }
 
-  String sectionLabel(String section) {
-    if (section == 'Nursery') return 'حضانة';
-    if (section == 'Kindergarten') return 'روضة';
-    return section;
-  }
+  if (widget.targetRole == 'parent') return AppColors.secondary;
+  if (widget.targetRole == 'admin') return AppColors.secondary;
 
-  String roleLabel(String role) {
-    if (role == 'teacher') return 'معلمة';
-    if (role == 'nursery' || role == 'nursery_staff') return 'موظفة حضانة';
-    if (role == 'parent') return 'ولي أمر';
-    if (role == 'admin') return 'الإدارة';
-    return role;
-  }
-
-  String headerSubtitle() {
-    final roleText = roleLabel(widget.targetRole);
-
-    if (widget.targetRole == 'admin' || widget.targetSection.trim().isEmpty) {
-      return hasChildContext
-          ? '$roleText • متابعة بخصوص الطفل'
-          : '$roleText • محادثة مباشرة';
-    }
-
-    return '$roleText • ${sectionLabel(widget.targetSection)}';
-  }
+  return AppColors.primary;
+}
 
   @override
   void initState() {
     super.initState();
     loadCurrentUserIdentity();
+  }
+
+  @override
+  void dispose() {
+    messageCtrl.dispose();
+    _scrollController.dispose();
+    _messageFocusNode.dispose();
+    super.dispose();
+  }
+
+  String sectionLabel(String section) {
+    if (section == 'Nursery') return 'حضانة';
+    if (section == 'Kindergarten') return 'روضة';
+    if (section == 'all') return 'كل الأقسام';
+    return section;
+  }
+
+  String roleLabel(String role) {
+  final clean = role.trim().toLowerCase();
+
+  if (clean == 'nursery' ||
+      clean == 'nursery_staff' ||
+      clean == 'nursery staff') {
+    return 'موظفة حضانة';
+  }
+
+  if (clean == 'parent') return 'ولي أمر';
+  if (clean == 'admin') return 'الإدارة';
+
+  return role.trim().isEmpty ? 'مستخدم' : role;
+}
+
+  String headerSubtitle() {
+    final roleText = roleLabel(widget.targetRole);
+    final section = widget.targetSection.trim();
+
+    if (hasChildContext) {
+      if (widget.targetRole == 'admin' || section.isEmpty) {
+        return '$roleText • متابعة بخصوص الطفل';
+      }
+
+      return '$roleText • ${sectionLabel(section)}';
+    }
+
+    if (section.isNotEmpty && section != 'all') {
+      return '$roleText • ${sectionLabel(section)} • محادثة مباشرة';
+    }
+
+    return '$roleText • محادثة مباشرة';
   }
 
   Future<void> loadCurrentUserIdentity() async {
@@ -138,9 +181,11 @@ class _MessagesPageState extends State<MessagesPage> {
 
       if (user == null) {
         if (!mounted) return;
+
         setState(() {
           loadingIdentity = false;
         });
+
         return;
       }
 
@@ -157,48 +202,45 @@ class _MessagesPageState extends State<MessagesPage> {
               .toString();
       currentUserRole = (data['role'] ?? '').toString();
 
-      if (hasChildContext) {
-        await _messageService.markConversationAsRead(
-          childId: widget.child!.id,
-          currentUserId: user.uid,
-          targetUserId: widget.targetUserId,
-        );
-      }
+      await _messageService.markConversationAsRead(
+        childId: conversationChildId,
+        currentUserId: user.uid,
+        targetUserId: widget.targetUserId,
+      );
 
       if (!mounted) return;
+
       setState(() {
         loadingIdentity = false;
       });
     } catch (_) {
       if (!mounted) return;
+
       setState(() {
         loadingIdentity = false;
       });
     }
   }
 
-  @override
-  void dispose() {
-    messageCtrl.dispose();
-    _scrollController.dispose();
-    _messageFocusNode.dispose();
-    super.dispose();
-  }
-
   String formatTime(Timestamp timestamp) {
     final date = timestamp.toDate();
+
     final hour = date.hour > 12
         ? date.hour - 12
         : (date.hour == 0 ? 12 : date.hour);
+
     final minute = date.minute.toString().padLeft(2, '0');
     final period = date.hour >= 12 ? 'م' : 'ص';
+
     return '$hour:$minute $period';
   }
 
   String safeMessagePreview(String text) {
     final clean = text.trim();
+
     if (clean.isEmpty) return 'رسالة';
     if (clean.length <= 45) return clean;
+
     return '${clean.substring(0, 45)}...';
   }
 
@@ -226,6 +268,7 @@ class _MessagesPageState extends State<MessagesPage> {
     if (text.isEmpty || currentUserId == null || currentUserRole.isEmpty) {
       return;
     }
+
     if (isSending) return;
 
     setState(() {
@@ -234,8 +277,8 @@ class _MessagesPageState extends State<MessagesPage> {
 
     try {
       await _messageService.sendMessage(
-        childId: hasChildContext ? widget.child!.id : '',
-        childName: hasChildContext ? widget.child!.name : '',
+        childId: conversationChildId,
+        childName: conversationChildName,
         senderId: currentUserId!,
         senderName: currentUserName,
         senderRole: currentUserRole,
@@ -252,6 +295,7 @@ class _MessagesPageState extends State<MessagesPage> {
       messageCtrl.clear();
 
       if (!mounted) return;
+
       setState(() {
         replyingToMessage = null;
       });
@@ -259,6 +303,7 @@ class _MessagesPageState extends State<MessagesPage> {
       await scrollToBottom();
     } finally {
       if (!mounted) return;
+
       setState(() {
         isSending = false;
       });
@@ -275,8 +320,11 @@ class _MessagesPageState extends State<MessagesPage> {
     final sortedEntries = counts.entries.toList()
       ..sort((a, b) {
         final compareCount = b.value.compareTo(a.value);
+
         if (compareCount != 0) return compareCount;
-        return allMessageReactions.indexOf(a.key)
+
+        return allMessageReactions
+            .indexOf(a.key)
             .compareTo(allMessageReactions.indexOf(b.key));
       });
 
@@ -286,36 +334,38 @@ class _MessagesPageState extends State<MessagesPage> {
   }
 
   Future<void> onReactionSelected(MessageModel message, String emoji) async {
-  if (currentUserId == null || message.isDeletedForEveryone) return;
+    if (currentUserId == null || message.isDeletedForEveryone) return;
 
-  try {
-    await _messageService.toggleMessageReaction(
-      messageId: message.id,
-      userId: currentUserId!,
-      emoji: emoji,
-    );
-  } on FirebaseException catch (e) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          e.message ?? 'تعذر تنفيذ التفاعل على الرسالة',
-          textAlign: TextAlign.center,
+    try {
+      await _messageService.toggleMessageReaction(
+        messageId: message.id,
+        userId: currentUserId!,
+        emoji: emoji,
+      );
+    } on FirebaseException catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            e.message ?? 'تعذر تنفيذ التفاعل على الرسالة',
+            textAlign: TextAlign.center,
+          ),
         ),
-      ),
-    );
-  } catch (e) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'حدث خطأ أثناء تنفيذ التفاعل: $e',
-          textAlign: TextAlign.center,
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'حدث خطأ أثناء تنفيذ التفاعل: $e',
+            textAlign: TextAlign.center,
+          ),
         ),
-      ),
-    );
+      );
+    }
   }
-}
 
   Future<void> copyMessageText(MessageModel message) async {
     if (message.text.trim().isEmpty) return;
@@ -325,6 +375,7 @@ class _MessagesPageState extends State<MessagesPage> {
     );
 
     if (!mounted) return;
+
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('تم نسخ الرسالة'),
@@ -399,6 +450,7 @@ class _MessagesPageState extends State<MessagesPage> {
                   ),
                   onTap: () async {
                     Navigator.pop(context);
+
                     await _messageService.deleteMessageForMe(
                       messageId: message.id,
                       userId: currentUserId!,
@@ -426,6 +478,7 @@ class _MessagesPageState extends State<MessagesPage> {
                     ),
                     onTap: () async {
                       Navigator.pop(context);
+
                       await _messageService.deleteMessageForEveryone(
                         messageId: message.id,
                         currentUserId: currentUserId!,
@@ -478,7 +531,8 @@ class _MessagesPageState extends State<MessagesPage> {
                   spacing: 10,
                   runSpacing: 10,
                   children: allMessageReactions.map((emoji) {
-                    final isSelected = message.reactions[currentUserId] == emoji;
+                    final isSelected =
+                        message.reactions[currentUserId] == emoji;
 
                     return InkWell(
                       borderRadius: BorderRadius.circular(18),
@@ -554,7 +608,8 @@ class _MessagesPageState extends State<MessagesPage> {
                   alignment: WrapAlignment.center,
                   children: [
                     ...topMessageReactions.map((emoji) {
-                      final isSelected = message.reactions[currentUserId] == emoji;
+                      final isSelected =
+                          message.reactions[currentUserId] == emoji;
 
                       return InkWell(
                         borderRadius: BorderRadius.circular(14),
@@ -673,6 +728,7 @@ class _MessagesPageState extends State<MessagesPage> {
     if (message.isDeletedForEveryone) return const SizedBox.shrink();
 
     final counts = buildReactionCounts(message.reactions);
+
     if (counts.isEmpty) return const SizedBox.shrink();
 
     final alignment = isMe ? WrapAlignment.end : WrapAlignment.start;
@@ -733,6 +789,7 @@ class _MessagesPageState extends State<MessagesPage> {
 
   Widget buildReplyPreviewInsideBubble(MessageModel message, bool isMe) {
     final replyText = (message.replyToText ?? '').trim();
+
     if (replyText.isEmpty) return const SizedBox.shrink();
 
     final replySenderName = (message.replyToSenderName ?? '').trim().isEmpty
@@ -786,7 +843,8 @@ class _MessagesPageState extends State<MessagesPage> {
       constraints: const BoxConstraints(maxWidth: 290, minWidth: 110),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: isMe ? AppColors.secondary.withOpacity(0.22) : Colors.grey.shade100,
+        color:
+            isMe ? AppColors.secondary.withOpacity(0.22) : Colors.grey.shade100,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
           color: Colors.grey.shade300,
@@ -794,14 +852,14 @@ class _MessagesPageState extends State<MessagesPage> {
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
-        children: [
+        children: const [
           Icon(
             Icons.block_outlined,
             size: 16,
             color: AppColors.textLight,
           ),
-          const SizedBox(width: 8),
-          const Flexible(
+          SizedBox(width: 8),
+          Flexible(
             child: Text(
               'تم حذف هذه الرسالة',
               style: TextStyle(
@@ -971,6 +1029,7 @@ class _MessagesPageState extends State<MessagesPage> {
     if (replyingToMessage == null) return const SizedBox.shrink();
 
     final isReplyingToMe = replyingToMessage!.senderId == currentUserId;
+
     final replyName = isReplyingToMe
         ? 'نفسك'
         : (replyingToMessage!.senderName.trim().isEmpty
@@ -1075,7 +1134,6 @@ class _MessagesPageState extends State<MessagesPage> {
                   onChanged: (_) {
                     setState(() {});
                   },
-                  onSubmitted: (_) {},
                 ),
               ),
               const SizedBox(width: 8),
@@ -1109,52 +1167,70 @@ class _MessagesPageState extends State<MessagesPage> {
     );
   }
 
+  Widget buildEmptyConversationBox() {
+    return Center(
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              targetIcon,
+              size: 54,
+              color: AppColors.textLight,
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'لا توجد رسائل بعد',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: AppColors.textDark,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              hasChildContext
+                  ? 'ابدأ أول رسالة الآن للتواصل مع $targetDisplayName بخصوص الطفل'
+                  : 'ابدأ أول رسالة الآن للتواصل مع $targetDisplayName',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 14,
+                color: AppColors.textLight,
+                height: 1.5,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (loadingIdentity) {
       return const Directionality(
         textDirection: TextDirection.rtl,
-        child: Scaffold(body: Center(child: CircularProgressIndicator())),
+        child: Scaffold(
+          body: Center(
+            child: CircularProgressIndicator(),
+          ),
+        ),
       );
     }
 
     if (currentUserId == null) {
       return const Directionality(
         textDirection: TextDirection.rtl,
-        child: Scaffold(body: Center(child: Text('تعذر تحميل هوية المستخدم'))),
-      );
-    }
-
-    if (!hasChildContext) {
-      return AppPageScaffold(
-        title: 'المحادثة',
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-        child: Column(
-          children: [
-            buildHeaderCard(),
-            const SizedBox(height: 14),
-            Expanded(
-              child: Center(
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(24),
-                  ),
-                  child: const Text(
-                    'هذه المحادثة لا تحتوي على سياق طفل في هذه النسخة بعد.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textDark,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
+        child: Scaffold(
+          body: Center(
+            child: Text('تعذر تحميل هوية المستخدم'),
+          ),
         ),
       );
     }
@@ -1173,13 +1249,15 @@ class _MessagesPageState extends State<MessagesPage> {
             Expanded(
               child: StreamBuilder<List<MessageModel>>(
                 stream: _messageService.getConversationMessages(
-                  childId: widget.child!.id,
+                  childId: conversationChildId,
                   currentUserId: currentUserId!,
                   targetUserId: widget.targetUserId,
                 ),
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
+                    return const Center(
+                      child: CircularProgressIndicator(),
+                    );
                   }
 
                   if (snapshot.hasError) {
@@ -1204,45 +1282,7 @@ class _MessagesPageState extends State<MessagesPage> {
                   }
 
                   if (messages.isEmpty) {
-                    return Center(
-                      child: Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(24),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(24),
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              targetIcon,
-                              size: 54,
-                              color: AppColors.textLight,
-                            ),
-                            const SizedBox(height: 12),
-                            const Text(
-                              'لا توجد رسائل بعد',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w800,
-                                color: AppColors.textDark,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'ابدأ أول رسالة الآن للتواصل مع $targetDisplayName بخصوص الطفل',
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                fontSize: 14,
-                                color: AppColors.textLight,
-                                height: 1.5,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
+                    return buildEmptyConversationBox();
                   }
 
                   return ListView.builder(

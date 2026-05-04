@@ -16,8 +16,8 @@ import 'parent_complaints_page.dart';
 import 'parent_invoice_page.dart';
 import 'parent_notifications_page.dart';
 import 'parent_updates_page.dart';
-import 'weekly_report_page.dart';
 import 'welcome_page.dart';
+import 'live_stream_viewer_page.dart';
 import '../services/account_settings_service.dart';
 
 class ParentHomePage extends StatefulWidget {
@@ -50,13 +50,11 @@ class _ParentHomePageState extends State<ParentHomePage> {
   }
 
   String sectionLabel(String section) {
-    return section == 'Nursery' ? 'حضانة' : 'روضة';
+    return 'حضانة';
   }
 
   Color sectionColor(String section) {
-    return section == 'Nursery'
-        ? const Color(0xFFEFA7C8)
-        : const Color(0xFF7BB6FF);
+    return const Color(0xFFEFA7C8);
   }
 
   String childAgeText(DateTime? birthDate) {
@@ -75,13 +73,8 @@ class _ParentHomePageState extends State<ParentHomePage> {
       months += 12;
     }
 
-    if (years <= 0) {
-      return '$months شهر';
-    }
-
-    if (months == 0) {
-      return '$years سنة';
-    }
+    if (years <= 0) return '$months شهر';
+    if (months == 0) return '$years سنة';
 
     return '$years سنة و $months شهر';
   }
@@ -101,8 +94,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
 
       if (snapshot.docs.isNotEmpty) {
         final children = snapshot.docs.map((doc) {
-          final data = doc.data();
-          return ChildModel.fromMap(data, docId: doc.id);
+          return ChildModel.fromMap(doc.data(), docId: doc.id);
         }).toList();
 
         children.sort((a, b) => a.name.compareTo(b.name));
@@ -117,8 +109,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
         .get();
 
     final children = snapshot.docs.map((doc) {
-      final data = doc.data();
-      return ChildModel.fromMap(data, docId: doc.id);
+      return ChildModel.fromMap(doc.data(), docId: doc.id);
     }).toList();
 
     children.sort((a, b) => a.name.compareTo(b.name));
@@ -195,16 +186,6 @@ class _ParentHomePageState extends State<ParentHomePage> {
     setState(() {});
   }
 
-  Future<void> _openWeeklyReport(ChildModel child) async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => WeeklyReportPage(child: child)),
-    );
-
-    if (!mounted) return;
-    setState(() {});
-  }
-
   Future<void> _openChats(List<ChildModel> children) async {
     if (children.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -272,6 +253,33 @@ class _ParentHomePageState extends State<ParentHomePage> {
     setState(() {});
   }
 
+Future<void> _openLiveStream(Map<String, dynamic> streamData) async {
+  final roomId = (streamData['roomId'] ?? '').toString();
+  final title = (streamData['title'] ?? 'بث مباشر من الحضانة').toString();
+  final startedByName = (streamData['startedByName'] ?? '').toString();
+
+  if (roomId.trim().isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('بيانات البث غير مكتملة')),
+    );
+    return;
+  }
+
+  await Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => LiveStreamViewerPage(
+        roomId: roomId,
+        title: title,
+        startedByName: startedByName,
+      ),
+    ),
+  );
+
+  if (!mounted) return;
+  setState(() {});
+}
+
   Future<void> _openComplaints() async {
     await Navigator.push(
       context,
@@ -337,25 +345,27 @@ class _ParentHomePageState extends State<ParentHomePage> {
   }
 
   Widget _buildDashboardTab(List<ChildModel> children) {
-    final nurseryChildren =
-        children.where((c) => c.section == 'Nursery').length;
-    final kgChildren =
-        children.where((c) => c.section == 'Kindergarten').length;
+    final nurseryChildren = children.length;
 
     return RefreshIndicator(
       onRefresh: _refreshPage,
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         children: [
-          _WelcomeHeader(
-            parentUsername: widget.parentUsername.trim().toLowerCase(),
-          ),
-          const SizedBox(height: 16),
-          _SummaryCard(
-            totalChildren: children.length,
-            nurseryCount: nurseryChildren,
-            kgCount: kgChildren,
-          ),
+  _WelcomeHeader(
+    parentUsername: widget.parentUsername.trim().toLowerCase(),
+  ),
+  const SizedBox(height: 16),
+
+  _ParentLiveStreamSection(
+    onOpenLiveStream: _openLiveStream,
+  ),
+
+  const SizedBox(height: 16),
+  _SummaryCard(
+    totalChildren: children.length,
+    nurseryCount: nurseryChildren,
+  ),
           const SizedBox(height: 20),
           const _SectionTitle(
             title: 'إجراءات سريعة',
@@ -417,18 +427,18 @@ class _ParentHomePageState extends State<ParentHomePage> {
             )
           else
             ...children.take(2).map(
-              (child) => Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: _ChildPreviewCard(
-                  childModel: child,
-                  sectionText: sectionLabel(child.section),
-                  sectionBadgeColor: sectionColor(child.section),
-                  ageText: childAgeText(child.birthDate),
-                  letter: firstLetter(child.name),
-                  onOpenProfile: () => _openChildProfile(child),
+                  (child) => Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _ChildPreviewCard(
+                      childModel: child,
+                      sectionText: sectionLabel(child.section),
+                      sectionBadgeColor: sectionColor(child.section),
+                      ageText: childAgeText(child.birthDate),
+                      letter: firstLetter(child.name),
+                      onOpenProfile: () => _openChildProfile(child),
+                    ),
+                  ),
                 ),
-              ),
-            ),
           if (children.length > 2) ...[
             const SizedBox(height: 8),
             OutlinedButton.icon(
@@ -488,9 +498,6 @@ class _ParentHomePageState extends State<ParentHomePage> {
                       updatesFuture: fetchLastUpdates(child.id),
                       onOpenProfile: () => _openChildProfile(child),
                       onOpenUpdates: () => _openUpdates(child),
-                      onOpenWeeklyReport: child.section == 'Kindergarten'
-                          ? () => _openWeeklyReport(child)
-                          : null,
                     ),
                   ),
                 ),
@@ -573,7 +580,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
             icon: Icons.info_outline_rounded,
             title: 'تنظيم الرسائل',
             message:
-                'من هنا يمكنكِ الوصول إلى محادثاتك مع الإدارة أو الكادر المرتبط بأطفالك حسب القسم.',
+                'من هنا يمكنكِ الوصول إلى محادثاتك مع الإدارة أو كادر الحضانة المرتبط بأطفالك.',
           ),
         ],
       ),
@@ -606,9 +613,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
                   radius: 28,
                   backgroundColor: AppColors.primary.withOpacity(0.10),
                   child: Text(
-                    displayName.trim().isNotEmpty
-                        ? displayName.trim()[0]
-                        : 'و',
+                    displayName.trim().isNotEmpty ? displayName.trim()[0] : 'و',
                     style: const TextStyle(
                       color: AppColors.primary,
                       fontWeight: FontWeight.bold,
@@ -919,7 +924,8 @@ class _ParentHomePageState extends State<ParentHomePage> {
                     : selectedIndex == 3
                         ? [
                             IconButton(
-                              icon: const Icon(Icons.notifications_none_rounded),
+                              icon:
+                                  const Icon(Icons.notifications_none_rounded),
                               tooltip: 'الإشعارات',
                               onPressed: _openNotifications,
                             ),
@@ -1034,12 +1040,10 @@ class _WelcomeHeader extends StatelessWidget {
 class _SummaryCard extends StatelessWidget {
   final int totalChildren;
   final int nurseryCount;
-  final int kgCount;
 
   const _SummaryCard({
     required this.totalChildren,
     required this.nurseryCount,
-    required this.kgCount,
   });
 
   @override
@@ -1061,13 +1065,6 @@ class _SummaryCard extends StatelessWidget {
                 title: 'الحضانة',
                 value: '$nurseryCount',
                 icon: Icons.baby_changing_station,
-              ),
-            ),
-            Expanded(
-              child: _MiniStatItem(
-                title: 'الروضة',
-                value: '$kgCount',
-                icon: Icons.menu_book_rounded,
               ),
             ),
           ],
@@ -1304,7 +1301,6 @@ class _ChildFollowUpCard extends StatelessWidget {
   final Future<List<Map<String, dynamic>>> updatesFuture;
   final VoidCallback onOpenProfile;
   final VoidCallback onOpenUpdates;
-  final VoidCallback? onOpenWeeklyReport;
 
   const _ChildFollowUpCard({
     required this.childModel,
@@ -1315,13 +1311,10 @@ class _ChildFollowUpCard extends StatelessWidget {
     required this.updatesFuture,
     required this.onOpenProfile,
     required this.onOpenUpdates,
-    required this.onOpenWeeklyReport,
   });
 
   @override
   Widget build(BuildContext context) {
-    final showGroup = childModel.section != 'Nursery';
-
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -1382,14 +1375,6 @@ class _ChildFollowUpCard extends StatelessWidget {
                   ),
                 ),
               ],
-            ),
-            const SizedBox(height: 14),
-            _CompactInfoRow(
-              icon: Icons.groups_2_outlined,
-              label: 'المجموعة',
-              value: showGroup
-                  ? (childModel.group.isEmpty ? 'غير محدد' : childModel.group)
-                  : 'غير مطبق',
             ),
             const SizedBox(height: 14),
             Align(
@@ -1506,23 +1491,6 @@ class _ChildFollowUpCard extends StatelessWidget {
                 ),
               ],
             ),
-            if (onOpenWeeklyReport != null) ...[
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: onOpenWeeklyReport,
-                  icon: const Icon(Icons.description_outlined),
-                  label: const Text('التقرير الأسبوعي'),
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(double.infinity, 50),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                  ),
-                ),
-              ),
-            ],
           ],
         ),
       ),
@@ -1537,48 +1505,6 @@ class _ChildFollowUpCard extends StatelessWidget {
       return '$h:$m';
     }
     return '--:--';
-  }
-}
-
-class _CompactInfoRow extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-
-  const _CompactInfoRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-      decoration: BoxDecoration(
-        color: AppColors.background,
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: AppColors.primary, size: 18),
-          const SizedBox(width: 8),
-          Text(
-            '$label: ',
-            style: const TextStyle(
-              color: AppColors.textLight,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(fontWeight: FontWeight.w700),
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }
 
@@ -1685,6 +1611,184 @@ class _InfoMessageBox extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+class _ParentLiveStreamSection extends StatelessWidget {
+  final Future<void> Function(Map<String, dynamic> streamData) onOpenLiveStream;
+
+  const _ParentLiveStreamSection({
+    required this.onOpenLiveStream,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('live_streams')
+          .where('status', isEqualTo: 'active')
+          .orderBy('startedAt', descending: true)
+          .limit(1)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const SizedBox.shrink();
+        }
+
+        final docs = snapshot.data?.docs ?? [];
+
+        if (docs.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        final data = docs.first.data();
+
+        final title = (data['title'] ?? 'بث مباشر من الحضانة').toString();
+        final startedByName = (data['startedByName'] ?? '').toString();
+        final startedByRole = (data['startedByRole'] ?? '').toString();
+        final photoUrl = (data['startedByPhotoUrl'] ?? '').toString();
+
+        return Card(
+          elevation: 0,
+          color: Colors.red.withOpacity(0.045),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+            side: BorderSide(
+              color: Colors.red.withOpacity(0.22),
+            ),
+          ),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(22),
+            onTap: () => onOpenLiveStream(data),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(3),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: Colors.red,
+                            width: 2.5,
+                          ),
+                        ),
+                        child: CircleAvatar(
+                          radius: 31,
+                          backgroundColor: Colors.red.withOpacity(0.12),
+                          backgroundImage: photoUrl.trim().isNotEmpty
+                              ? NetworkImage(photoUrl)
+                              : null,
+                          child: photoUrl.trim().isEmpty
+                              ? const Icon(
+                                  Icons.person_rounded,
+                                  color: Colors.red,
+                                  size: 32,
+                                )
+                              : null,
+                        ),
+                      ),
+                      Positioned(
+                        bottom: -4,
+                        left: -4,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.red,
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(color: Colors.white, width: 2),
+                          ),
+                          child: const Text(
+                            'LIVE',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(
+                              Icons.wifi_tethering_rounded,
+                              color: Colors.red,
+                              size: 18,
+                            ),
+                            SizedBox(width: 6),
+                            Text(
+                              'بث مباشر الآن',
+                              style: TextStyle(
+                                color: Colors.red,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 15.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          title.trim().isEmpty
+                              ? 'بث مباشر من الحضانة'
+                              : title,
+                          style: const TextStyle(
+                            color: AppColors.textDark,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 14.5,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          startedByName.trim().isEmpty
+                              ? 'اضغطي لمشاهدة البث'
+                              : 'بواسطة: $startedByName',
+                          style: const TextStyle(
+                            color: AppColors.textLight,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                        if (startedByRole.trim().isNotEmpty) ...[
+                          const SizedBox(height: 3),
+                          Text(
+                            'الدور: $startedByRole',
+                            style: const TextStyle(
+                              color: AppColors.textLight,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  const CircleAvatar(
+                    radius: 18,
+                    backgroundColor: Colors.red,
+                    child: Icon(
+                      Icons.play_arrow_rounded,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

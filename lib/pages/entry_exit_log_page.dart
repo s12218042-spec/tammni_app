@@ -64,28 +64,34 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
 
   Future<void> loadCurrentUserRole() async {
     if (!mounted) return;
+
     setState(() {
       isLoadingRole = true;
     });
 
     try {
       final currentUser = _auth.currentUser;
+
       if (currentUser == null) {
         if (!mounted) return;
+
         setState(() {
           currentUserRole = '';
           isAdminUser = false;
           isLoadingRole = false;
         });
+
         return;
       }
 
       final userDoc =
           await _firestore.collection('users').doc(currentUser.uid).get();
+
       final data = userDoc.data() ?? {};
       final role = (data['role'] ?? '').toString().trim().toLowerCase();
 
       if (!mounted) return;
+
       setState(() {
         currentUserRole = role;
         isAdminUser = role == 'admin';
@@ -93,6 +99,7 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
       });
     } catch (e) {
       if (!mounted) return;
+
       setState(() {
         currentUserRole = '';
         isAdminUser = false;
@@ -109,6 +116,7 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
 
   Future<void> loadCurrentState() async {
     if (!mounted) return;
+
     setState(() {
       isLoadingCurrentState = true;
     });
@@ -150,6 +158,7 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
       }
 
       if (!mounted) return;
+
       setState(() {
         lastEventType = tempLastEventType;
         lastEventTime = tempLastTime;
@@ -160,6 +169,7 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
       });
     } catch (e) {
       if (!mounted) return;
+
       setState(() {
         isLoadingCurrentState = false;
       });
@@ -185,18 +195,28 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
 
     final userDoc =
         await _firestore.collection('users').doc(currentUser.uid).get();
+
     final data = userDoc.data() ?? {};
 
     return {
       'uid': currentUser.uid,
-      'name': (data['displayName'] ?? data['username'] ?? 'مستخدم').toString(),
+      'name': (data['displayName'] ??
+              data['name'] ??
+              data['fullName'] ??
+              data['username'] ??
+              'مستخدم')
+          .toString(),
       'role': (data['role'] ?? '').toString(),
     };
   }
 
-  Future<Map<String, String>> fetchParentLinkInfo() async {
+  Future<Map<String, String>> fetchChildLinkInfo() async {
     String parentUid = '';
     String parentUsername = widget.child.parentUsername.trim().toLowerCase();
+    String parentName = widget.child.parentName.trim();
+    String section = widget.child.section.trim();
+    String group = widget.child.group.trim();
+    String childName = widget.child.name.trim();
 
     try {
       final childDoc =
@@ -210,8 +230,30 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
         final docParentUsername =
             (data['parentUsername'] ?? '').toString().trim().toLowerCase();
 
+        final docParentName = (data['parentName'] ?? '').toString().trim();
+        final docSection = (data['section'] ?? '').toString().trim();
+        final docGroup = (data['group'] ?? '').toString().trim();
+        final docChildName =
+            (data['fullName'] ?? data['name'] ?? '').toString().trim();
+
         if (docParentUsername.isNotEmpty) {
           parentUsername = docParentUsername;
+        }
+
+        if (docParentName.isNotEmpty) {
+          parentName = docParentName;
+        }
+
+        if (docSection.isNotEmpty) {
+          section = docSection;
+        }
+
+        if (docGroup.isNotEmpty) {
+          group = docGroup;
+        }
+
+        if (docChildName.isNotEmpty) {
+          childName = docChildName;
         }
       }
     } catch (_) {}
@@ -219,7 +261,51 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
     return {
       'parentUid': parentUid,
       'parentUsername': parentUsername,
+      'parentName': parentName,
+      'section': section,
+      'group': group,
+      'childName': childName,
     };
+  }
+
+  Future<void> createParentNotification({
+    required Map<String, String> childInfo,
+    required Map<String, String> userInfo,
+    required String eventType,
+    required String note,
+  }) async {
+    final parentUid = (childInfo['parentUid'] ?? '').trim();
+    final parentUsername = (childInfo['parentUsername'] ?? '').trim();
+    final childName = (childInfo['childName'] ?? widget.child.name).trim();
+
+    if (parentUid.isEmpty && parentUsername.isEmpty) return;
+
+    final isEntry = eventType == 'entry';
+
+    await _firestore.collection('notifications').add({
+      'uid': parentUid,
+      'targetUid': parentUid,
+      'parentUid': parentUid,
+      'parentUsername': parentUsername,
+      'childId': widget.child.id,
+      'childName': childName,
+      'title': isEntry ? 'تم توثيق دخول الطفل' : 'تم توثيق خروج الطفل',
+      'body': isEntry
+          ? 'تم تسجيل دخول الطفل $childName إلى الحضانة.'
+          : 'تم تسجيل خروج الطفل $childName من الحضانة.',
+      'message': isEntry
+          ? 'تم تسجيل دخول الطفل $childName إلى الحضانة.'
+          : 'تم تسجيل خروج الطفل $childName من الحضانة.',
+      'type': isEntry ? 'entry' : 'exit',
+      'eventType': eventType,
+      'note': note,
+      'isRead': false,
+      'createdAt': FieldValue.serverTimestamp(),
+      'time': FieldValue.serverTimestamp(),
+      'createdByUid': userInfo['uid'],
+      'createdByName': userInfo['name'],
+      'createdByRole': userInfo['role'],
+    });
   }
 
   Future<void> saveEntryExitEvent() async {
@@ -262,6 +348,7 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
 
       if (latestType == selectedEventType) {
         if (!mounted) return;
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -275,27 +362,38 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
         setState(() {
           isSaving = false;
         });
+
         return;
       }
 
       final userInfo = await fetchCurrentUserInfo();
-      final parentInfo = await fetchParentLinkInfo();
+      final childInfo = await fetchChildLinkInfo();
+      final note = _noteCtrl.text.trim();
 
       await _firestore.collection('entry_exit_logs').add({
         'childId': widget.child.id,
-        'childName': widget.child.name,
-        'parentUid': parentInfo['parentUid'],
-        'parentUsername': parentInfo['parentUsername'],
-        'section': widget.child.section,
-        'group': widget.child.group,
+        'childName': childInfo['childName'] ?? widget.child.name,
+        'parentUid': childInfo['parentUid'],
+        'parentUsername': childInfo['parentUsername'],
+        'parentName': childInfo['parentName'],
+        'section': childInfo['section'],
+        'group': childInfo['group'],
         'eventType': selectedEventType,
-        'note': _noteCtrl.text.trim(),
+        'note': note,
         'createdAt': FieldValue.serverTimestamp(),
         'time': FieldValue.serverTimestamp(),
+        'eventAt': FieldValue.serverTimestamp(),
         'createdByUid': userInfo['uid'],
         'createdByName': userInfo['name'],
         'createdByRole': userInfo['role'],
       });
+
+      await createParentNotification(
+        childInfo: childInfo,
+        userInfo: userInfo,
+        eventType: selectedEventType,
+        note: note,
+      );
 
       if (!mounted) return;
 
@@ -321,6 +419,7 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
       );
     } finally {
       if (!mounted) return;
+
       setState(() {
         isSaving = false;
       });
@@ -328,29 +427,44 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
   }
 
   Timestamp? extractTimestamp(Map data) {
-    final dynamic primary = data['time'];
-    final dynamic fallback = data['createdAt'];
+    final candidates = [
+      data['time'],
+      data['eventAt'],
+      data['createdAt'],
+      data['timestamp'],
+      data['updatedAt'],
+    ];
 
-    if (primary is Timestamp) return primary;
-    if (fallback is Timestamp) return fallback;
+    for (final value in candidates) {
+      if (value is Timestamp) return value;
+    }
+
     return null;
   }
 
   String formatDateTime(dynamic time) {
     if (time is Timestamp) {
       final date = time.toDate();
+
+      final year = date.year.toString();
+      final month = date.month.toString().padLeft(2, '0');
+      final day = date.day.toString().padLeft(2, '0');
+
       final hour = date.hour > 12
           ? date.hour - 12
           : (date.hour == 0 ? 12 : date.hour);
+
       final minute = date.minute.toString().padLeft(2, '0');
       final period = date.hour >= 12 ? 'م' : 'ص';
-      return '${date.year}/${date.month}/${date.day} - $hour:$minute $period';
+
+      return '$year/$month/$day - $hour:$minute $period';
     }
+
     return 'غير محدد';
   }
 
   String eventLabel(String value) {
-    switch (value) {
+    switch (value.trim().toLowerCase()) {
       case 'entry':
         return 'دخول';
       case 'exit':
@@ -361,7 +475,7 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
   }
 
   Color eventColor(String value) {
-    switch (value) {
+    switch (value.trim().toLowerCase()) {
       case 'entry':
         return Colors.green;
       case 'exit':
@@ -372,7 +486,7 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
   }
 
   IconData eventIcon(String value) {
-    switch (value) {
+    switch (value.trim().toLowerCase()) {
       case 'entry':
         return Icons.login_rounded;
       case 'exit':
@@ -425,20 +539,24 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
         : Icons.logout_rounded;
   }
 
-  List<QueryDocumentSnapshot> applyFilters(List<QueryDocumentSnapshot> docs) {
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> applyFilters(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
     final now = DateTime.now();
+    final query = searchText.trim().toLowerCase();
 
     return docs.where((doc) {
-      final data = doc.data() as Map<String, dynamic>;
+      final data = doc.data();
+
       final eventType = (data['eventType'] ?? '').toString().trim();
       final note = (data['note'] ?? '').toString().toLowerCase().trim();
       final createdByName =
           (data['createdByName'] ?? '').toString().toLowerCase().trim();
+
       final time = extractTimestamp(data);
 
-      final matchesSearch = searchText.trim().isEmpty ||
-          note.contains(searchText.trim().toLowerCase()) ||
-          createdByName.contains(searchText.trim().toLowerCase());
+      final matchesSearch =
+          query.isEmpty || note.contains(query) || createdByName.contains(query);
 
       bool matchesFilter = true;
 
@@ -451,6 +569,7 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
           matchesFilter = false;
         } else {
           final date = time.toDate();
+
           matchesFilter = date.year == now.year &&
               date.month == now.month &&
               date.day == now.day;
@@ -510,7 +629,7 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
           _buildFiltersCard(),
           const SizedBox(height: 16),
           Expanded(
-            child: StreamBuilder<QuerySnapshot>(
+            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: _firestore
                   .collection('entry_exit_logs')
                   .where('childId', isEqualTo: widget.child.id)
@@ -547,18 +666,11 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
                   );
                 }
 
-                final items = docs.map((doc) {
-                  final data = doc.data() as Map<String, dynamic>;
-                  return {
-                    'data': data,
-                    'sortTime': extractTimestamp(data),
-                    'doc': doc,
-                  };
-                }).toList();
+                final sortedDocs = docs.toList();
 
-                items.sort((a, b) {
-                  final aTime = a['sortTime'] as Timestamp?;
-                  final bTime = b['sortTime'] as Timestamp?;
+                sortedDocs.sort((a, b) {
+                  final aTime = extractTimestamp(a.data());
+                  final bTime = extractTimestamp(b.data());
 
                   if (aTime == null && bTime == null) return 0;
                   if (aTime == null) return 1;
@@ -567,9 +679,7 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
                   return bTime.compareTo(aTime);
                 });
 
-                final filteredDocs = applyFilters(
-                  items.map((e) => e['doc'] as QueryDocumentSnapshot).toList(),
-                );
+                final filteredDocs = applyFilters(sortedDocs);
 
                 if (filteredDocs.isEmpty) {
                   return ListView(
@@ -588,14 +698,15 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
                     itemCount: filteredDocs.length,
                     separatorBuilder: (_, __) => const SizedBox(height: 12),
                     itemBuilder: (context, index) {
-                      final data =
-                          filteredDocs[index].data() as Map<String, dynamic>;
+                      final data = filteredDocs[index].data();
+
                       final eventType = (data['eventType'] ?? '').toString();
                       final note = (data['note'] ?? '').toString();
                       final createdByName =
                           (data['createdByName'] ?? '').toString();
                       final createdByRole =
                           (data['createdByRole'] ?? '').toString();
+
                       final time = extractTimestamp(data);
 
                       return _EntryExitLogCard(
@@ -678,7 +789,7 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
           SizedBox(width: 10),
           Expanded(
             child: Text(
-              'هذه الصفحة مخصصة للإدارة فقط. يمكن لموظفة الحضانة الاطلاع على السجل، لكن لا يمكنها تسجيل دخول أو خروج من هنا.',
+              'هذه الصفحة مخصصة للإدارة فقط. يمكن لباقي الأدوار الاطلاع على السجل إذا كانت الصلاحيات تسمح، لكن لا يمكنهم تسجيل دخول أو خروج من هنا.',
               style: TextStyle(
                 color: AppColors.textDark,
                 height: 1.5,
@@ -1033,14 +1144,18 @@ class _EntryExitLogCard extends StatelessWidget {
 
   String roleLabel(String value) {
     final role = value.trim().toLowerCase();
+
     if (role == 'admin') return 'الإدارة';
-    if (role == 'teacher') return 'معلمة';
+   
+
     if (role == 'nursery_staff' ||
         role == 'nursery staff' ||
         role == 'nursery') {
       return 'موظفة حضانة';
     }
+
     if (role == 'parent') return 'ولي أمر';
+
     return value;
   }
 

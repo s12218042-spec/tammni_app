@@ -2,7 +2,7 @@ class AccountModel {
   final String id;
   final String username;
   final String password;
-  final String role; // parent / nursery / teacher / admin
+  final String role; 
   final String displayName;
   final String? email;
   final bool invitationVerified;

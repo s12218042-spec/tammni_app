@@ -46,55 +46,32 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
 
   bool isNurseryRole(String role) {
     final value = role.trim().toLowerCase();
-    return value == 'nursery' || value == 'nursery_staff';
+    return value == 'nursery' ||
+        value == 'nursery_staff' ||
+        value == 'nursery staff';
   }
 
-  Set<String> get allowedSections {
-    final sections = <String>{};
-
-    for (final child in activeChildren) {
-      if (child.section.trim().isNotEmpty) {
-        sections.add(child.section.trim());
-      }
-    }
-
-    return sections;
-  }
-
-  bool get hasNursery => allowedSections.contains('Nursery');
-  bool get hasKg => allowedSections.contains('Kindergarten');
-
-  List<ChildModel> get nurseryChildren =>
-      activeChildren.where((c) => c.section == 'Nursery').toList();
-
-  List<ChildModel> get kgChildren =>
-      activeChildren.where((c) => c.section == 'Kindergarten').toList();
+  List<ChildModel> get nurseryChildren => activeChildren;
 
   String sectionLabel(String section) {
-    if (section == 'Nursery') return 'حضانة';
-    if (section == 'Kindergarten') return 'روضة';
-    return section;
+    return 'حضانة';
   }
 
   String roleLabel(String role) {
     if (isNurseryRole(role)) return 'موظفة حضانة';
-    if (role == 'teacher') return 'معلمة';
-    if (role == 'admin') return 'الإدارة';
-    if (role == 'parent') return 'ولي أمر';
+    if (role.trim().toLowerCase() == 'admin') return 'الإدارة';
+    if (role.trim().toLowerCase() == 'parent') return 'ولي أمر';
     return role;
   }
 
   Color sectionColor(String section) {
-    if (section == 'Nursery') return const Color(0xFFEFA7C8);
-    if (section == 'Kindergarten') return const Color(0xFF7BB6FF);
-    return AppColors.primary;
+    return const Color(0xFFEFA7C8);
   }
 
   IconData roleIcon(String role) {
     if (isNurseryRole(role)) return Icons.child_care_outlined;
-    if (role == 'teacher') return Icons.school_outlined;
-    if (role == 'admin') return Icons.business_outlined;
-    if (role == 'parent') return Icons.person_outline;
+    if (role.trim().toLowerCase() == 'admin') return Icons.business_outlined;
+    if (role.trim().toLowerCase() == 'parent') return Icons.person_outline;
     return Icons.person_outline;
   }
 
@@ -119,9 +96,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
   }
 
   Future<List<Map<String, dynamic>>> fetchAllowedPeople() async {
-    final sections = allowedSections.toList();
-
-    if (sections.isEmpty) return [];
+    if (activeChildren.isEmpty) return [];
 
     final snapshot = await _firestore.collection('users').get();
     final searchText = searchCtrl.text.trim().toLowerCase();
@@ -136,38 +111,27 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
         'email': data['email'] ?? '',
         'role': data['role'] ?? '',
         'section': data['section'] ?? '',
-        'group': data['group'] ?? '',
+        'isActive': data['isActive'] ?? true,
       };
     }).where((person) {
       final id = (person['id'] ?? '').toString();
       final role = (person['role'] ?? '').toString().trim().toLowerCase();
-      final section = (person['section'] ?? '').toString();
+      final section = (person['section'] ?? '').toString().trim();
       final name = (person['displayName'] ?? '').toString().toLowerCase();
       final username = (person['username'] ?? '').toString().toLowerCase();
+      final isActive = (person['isActive'] ?? true) == true;
 
+      if (!isActive) return false;
       if (id == currentUserId) return false;
 
-      final allowedRole = role == 'teacher' ||
-          isNurseryRole(role) ||
-          role == 'admin';
-
+      final allowedRole = isNurseryRole(role) || role == 'admin';
       if (!allowedRole) return false;
 
       if (role == 'admin') {
-        if (section.isNotEmpty && section != 'all' && !sections.contains(section)) {
-          return false;
-        }
+        if (selectedFilter == 'nursery') return false;
       } else {
-        if (!sections.contains(section)) {
-          return false;
-        }
-      }
-
-      if (selectedFilter == 'nursery' && section != 'Nursery') return false;
-      if (selectedFilter == 'kg' && section != 'Kindergarten') return false;
-      if (selectedFilter == 'admin' && role != 'admin') return false;
-      if (selectedFilter != 'admin' && selectedFilter != 'all' && role == 'admin') {
-        return false;
+        if (section.isNotEmpty && section != 'Nursery') return false;
+        if (selectedFilter == 'admin') return false;
       }
 
       if (searchText.isEmpty) return true;
@@ -176,6 +140,14 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
     }).toList();
 
     results.sort((a, b) {
+      final roleA = (a['role'] ?? '').toString().trim().toLowerCase();
+      final roleB = (b['role'] ?? '').toString().trim().toLowerCase();
+
+      if (roleA != roleB) {
+        if (roleA == 'admin') return -1;
+        if (roleB == 'admin') return 1;
+      }
+
       final nameA = (a['displayName'] ?? '').toString();
       final nameB = (b['displayName'] ?? '').toString();
       return nameA.compareTo(nameB);
@@ -185,14 +157,8 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
   }
 
   ChildModel pickChildForPerson(Map<String, dynamic> person) {
-    final personSection = (person['section'] ?? '').toString();
-
-    if (personSection == 'Nursery' && nurseryChildren.isNotEmpty) {
+    if (nurseryChildren.isNotEmpty) {
       return nurseryChildren.first;
-    }
-
-    if (personSection == 'Kindergarten' && kgChildren.isNotEmpty) {
-      return kgChildren.first;
     }
 
     return activeChildren.first;
@@ -207,15 +173,17 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
   }
 
   bool matchesRecentFilter(MessageModel message) {
-    final child = pickChildForMessage(message);
-
     if (selectedFilter == 'all') return true;
-    if (selectedFilter == 'nursery') return child.section == 'Nursery';
-    if (selectedFilter == 'kg') return child.section == 'Kindergarten';
+
+    final otherRole =
+        message.senderRole == 'parent' ? message.receiverRole : message.senderRole;
+
     if (selectedFilter == 'admin') {
-      final otherRole =
-          message.senderRole == 'parent' ? message.receiverRole : message.senderRole;
-      return otherRole == 'admin';
+      return otherRole.trim().toLowerCase() == 'admin';
+    }
+
+    if (selectedFilter == 'nursery') {
+      return isNurseryRole(otherRole);
     }
 
     return true;
@@ -298,24 +266,13 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
   }
 
   List<Widget> buildDynamicFilterChips() {
-    final chips = <Widget>[
+    return [
       buildFilterChip(label: 'الكل', value: 'all'),
+      const SizedBox(width: 8),
+      buildFilterChip(label: 'الحضانة', value: 'nursery'),
+      const SizedBox(width: 8),
+      buildFilterChip(label: 'الإدارة', value: 'admin'),
     ];
-
-    if (hasNursery) {
-      chips.add(const SizedBox(width: 8));
-      chips.add(buildFilterChip(label: 'الحضانة', value: 'nursery'));
-    }
-
-    if (hasKg) {
-      chips.add(const SizedBox(width: 8));
-      chips.add(buildFilterChip(label: 'الروضة', value: 'kg'));
-    }
-
-    chips.add(const SizedBox(width: 8));
-    chips.add(buildFilterChip(label: 'الإدارة', value: 'admin'));
-
-    return chips;
   }
 
   Widget buildRecentChatCard(MessageModel message) {
@@ -327,7 +284,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
         isParentSender ? message.receiverName : message.senderName;
     final targetRole =
         isParentSender ? message.receiverRole : message.senderRole;
-    final targetSection = childForChat.section;
+    const targetSection = 'Nursery';
 
     final color = sectionColor(targetSection);
 
@@ -437,9 +394,8 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
 
   Widget buildPersonCard(Map<String, dynamic> person) {
     final name = (person['displayName'] ?? '').toString();
-    final role = (person['role'] ?? '').toString();
-    final section = (person['section'] ?? '').toString();
-    final group = (person['group'] ?? '').toString();
+    final role = (person['role'] ?? '').toString().trim().toLowerCase();
+    const section = 'Nursery';
 
     final color = sectionColor(section);
     final childForChat = pickChildForPerson(person);
@@ -483,23 +439,13 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '${roleLabel(role)} • ${role == 'admin' ? 'الإدارة' : sectionLabel(section)}',
+                  role == 'admin' ? 'الإدارة' : 'موظفة حضانة',
                   style: const TextStyle(
                     fontSize: 13,
                     color: AppColors.textLight,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                if (group.isNotEmpty && role != 'admin') ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    'المجموعة: $group',
-                    style: const TextStyle(
-                      fontSize: 12.5,
-                      color: AppColors.textLight,
-                    ),
-                  ),
-                ],
                 const SizedBox(height: 6),
                 Text(
                   'سيتم فتح المحادثة عبر الطفل: ${childForChat.name}',
@@ -594,10 +540,14 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
               final chats = (snapshot.data ?? [])
                   .where((m) =>
                       m.senderRole == 'parent' || m.receiverRole == 'parent')
+                  .where((m) => activeChildren.isNotEmpty)
                   .where((m) {
-                    if (activeChildren.isEmpty) return false;
-                    final child = pickChildForMessage(m);
-                    return allowedSections.contains(child.section);
+                    final otherRole = m.senderRole == 'parent'
+                        ? m.receiverRole
+                        : m.senderRole;
+
+                    return isNurseryRole(otherRole) ||
+                        otherRole.trim().toLowerCase() == 'admin';
                   })
                   .where(matchesRecentFilter)
                   .toList();
@@ -700,7 +650,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
                         ),
                         SizedBox(height: 4),
                         Text(
-                          'تظهر لك الجهات المسموح لك بالتواصل معها حسب أطفالك',
+                          'تظهر لك الإدارة وموظفات الحضانة المسموح لك بالتواصل معهم',
                           style: TextStyle(
                             fontSize: 13,
                             color: AppColors.textLight,

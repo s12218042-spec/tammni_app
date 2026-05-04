@@ -10,6 +10,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+
   flutter_localizations:
     sdk: flutter
 
@@ -30,9 +31,13 @@ dependencies:
 
   supabase_flutter: ^2.5.6
 
+  # Live streaming / WebRTC
+  flutter_webrtc: ^0.14.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
+
   flutter_lints: ^6.0.0
 
 flutter:

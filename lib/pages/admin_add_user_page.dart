@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
-import 'add_teacher_page.dart';
 import 'add_nursery_staff_page.dart';
 import 'add_admin_page.dart';
 
@@ -29,33 +28,13 @@ class AdminAddUserPage extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            'اختاري نوع الموظف الذي تريد الإدارة إنشاء حساب له، وسيتم فتح نموذج مخصص لكل نوع.',
+           'اختار نوع الحساب الذي تريد الإدارة إنشاءه، وسيتم فتح النموذج المناسب.',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: AppColors.textLight,
                   height: 1.5,
                 ),
           ),
           const SizedBox(height: 16),
-
-          _AccountTypeCard(
-            title: 'إضافة معلمة',
-            subtitle:
-                'إنشاء حساب معلمة مع بياناتها الشخصية والمهنية والمواد والصفوف المسؤولة عنها.',
-            icon: Icons.menu_book_rounded,
-            color: AppColors.kindergarten,
-            onTap: () async {
-  final result = await Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (_) => const AddTeacherPage(),
-    ),
-  );
-
-  if (context.mounted && result == true) {
-    Navigator.pop(context, true);
-  }
-},
-          ),
           _AccountTypeCard(
             title: 'إضافة موظفة حضانة',
             subtitle:
@@ -129,9 +108,6 @@ class AdminAddUserPage extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 _bullet('هذه الصفحة مخصصة لحسابات الموظفين فقط.'),
-                _bullet('أولياء الأمور لا يتم إنشاؤهم من هنا، بل عبر طلب تسجيل وموافقة الإدارة.'),
-                _bullet('إدارة المستخدمين ستكون للمراجعة والتعديل فقط، وليس للإضافة.'),
-                _bullet('سيكون لكل نوع موظف فورم مستقل لأن البيانات المطلوبة مختلفة.'),
               ],
             ),
           ),

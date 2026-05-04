@@ -1,7 +1,6 @@
 enum UserRole {
   parent,
   nurseryStaff,
-  teacher,
   admin,
 }
 
@@ -17,9 +16,6 @@ UserRole roleFromString(String s) {
     case 'nursery':
       return UserRole.nurseryStaff;
 
-    case 'teacher':
-      return UserRole.teacher;
-
     case 'admin':
     default:
       return UserRole.admin;
@@ -32,8 +28,6 @@ String roleToString(UserRole role) {
       return 'parent';
     case UserRole.nurseryStaff:
       return 'nursery_staff';
-    case UserRole.teacher:
-      return 'teacher';
     case UserRole.admin:
       return 'admin';
   }
@@ -45,15 +39,12 @@ String roleLabel(UserRole role) {
       return 'ولي أمر';
     case UserRole.nurseryStaff:
       return 'موظف/ة حضانة';
-    case UserRole.teacher:
-      return 'معلمة روضة';
     case UserRole.admin:
       return 'مدير النظام';
   }
 }
 
 bool isEmployeeRole(UserRole role) {
-  return role == UserRole.teacher ||
-      role == UserRole.nurseryStaff ||
+  return role == UserRole.nurseryStaff ||
       role == UserRole.admin;
 }

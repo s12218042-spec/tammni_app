@@ -28,55 +28,12 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
     'note',
   ];
 
-  final List<String> kindergartenTypes = [
-    'attendance',
-    'activity',
-    'homework',
-    'grade',
-    'note',
-  ];
 
-  List<String> get availableTypes {
-    if (selectedSections.isEmpty) {
-      return [
-        'meal',
-        'sleep',
-        'health',
-        'activity',
-        'attendance',
-        'homework',
-        'grade',
-        'entry',
-        'exit',
-        'note',
-      ];
-    }
-
-    final types = <String>{};
-
-    if (selectedSections.contains('Nursery')) {
-      types.addAll(nurseryTypes);
-    }
-
-    if (selectedSections.contains('Kindergarten')) {
-      types.addAll(kindergartenTypes);
-    }
-
-    final result = types.toList();
-    result.sort();
-    return result;
-  }
+ List<String> get availableTypes => nurseryTypes;
 
   String sectionLabel(String value) {
-    switch (value) {
-      case 'Nursery':
-        return 'الحضانة';
-      case 'Kindergarten':
-        return 'الروضة';
-      default:
-        return value;
-    }
-  }
+  return 'الحضانة';
+}
 
   String typeLabel(String value) {
     switch (value) {
@@ -88,12 +45,6 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
         return 'صحة';
       case 'activity':
         return 'نشاط';
-      case 'attendance':
-        return 'حضور';
-      case 'homework':
-        return 'واجب';
-      case 'grade':
-        return 'علامة';
       case 'entry':
         return 'دخول';
       case 'exit':
@@ -115,12 +66,6 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
         return Icons.medical_services_rounded;
       case 'activity':
         return Icons.extension_rounded;
-      case 'attendance':
-        return Icons.fact_check_rounded;
-      case 'homework':
-        return Icons.assignment_rounded;
-      case 'grade':
-        return Icons.grade_rounded;
       case 'entry':
         return Icons.login_rounded;
       case 'exit':
@@ -142,12 +87,6 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
         return Colors.redAccent;
       case 'activity':
         return Colors.green;
-      case 'attendance':
-        return Colors.teal;
-      case 'homework':
-        return Colors.deepPurple;
-      case 'grade':
-        return Colors.blue;
       case 'entry':
         return Colors.green;
       case 'exit':
@@ -160,10 +99,8 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
   }
 
   Color sectionColor(String section) {
-    if (section == 'Nursery') return const Color(0xFFEFA7C8);
-    if (section == 'Kindergarten') return const Color(0xFF7BB6FF);
-    return AppColors.primary;
-  }
+  return const Color(0xFFEFA7C8);
+}
 
   DateTime extractDate(Map<String, dynamic> data) {
     final value = data['time'] ?? data['createdAt'];
@@ -229,7 +166,6 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
       final type = (data['type'] ?? '').toString().trim();
       final childName = (data['childName'] ?? data['name'] ?? '').toString();
       final createdByName = (data['createdByName'] ?? '').toString();
-      final group = (data['group'] ?? '').toString();
       final notes = (data['notes'] ??
               data['description'] ??
               data['text'] ??
@@ -237,8 +173,7 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
               '')
           .toString();
 
-      final matchesSection =
-          selectedSections.isEmpty || selectedSections.contains(section);
+      final matchesSection = section == 'Nursery';
 
       final matchesType = selectedTypes.isEmpty || selectedTypes.contains(type);
 
@@ -246,7 +181,6 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
       final matchesSearch = query.isEmpty ||
           childName.toLowerCase().contains(query) ||
           createdByName.toLowerCase().contains(query) ||
-          group.toLowerCase().contains(query) ||
           notes.toLowerCase().contains(query);
 
       return matchesSection && matchesType && matchesSearch;
@@ -337,7 +271,7 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
                   TextField(
                     textAlign: TextAlign.right,
                     decoration: InputDecoration(
-                      hintText: 'ابحثي باسم الطفل أو المنشئ أو المجموعة',
+                     hintText: 'ابحثي باسم الطفل أو المنشئ',
                       prefixIcon: const Icon(Icons.search_rounded),
                       suffixIcon: searchText.trim().isEmpty
                           ? null
@@ -358,30 +292,6 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
                         searchText = value;
                       });
                     },
-                  ),
-                  const SizedBox(height: 14),
-                  const Text(
-                    'القسم',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.textDark,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      buildSectionChip(
-                        label: 'الحضانة',
-                        value: 'Nursery',
-                      ),
-                      buildSectionChip(
-                        label: 'الروضة',
-                        value: 'Kindergarten',
-                      ),
-                    ],
                   ),
                   const SizedBox(height: 14),
                   const Text(
@@ -500,7 +410,6 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
                     final createdByRole =
                         (data['createdByRole'] ?? '').toString();
                     final section = (data['section'] ?? '').toString();
-                    final group = (data['group'] ?? '').toString();
                     final details = (data['notes'] ??
                             data['description'] ??
                             data['text'] ??
@@ -555,12 +464,6 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
                                               label: sectionLabel(section),
                                               icon: Icons.apartment_rounded,
                                               color: AppColors.primary,
-                                            ),
-                                          if (group.isNotEmpty)
-                                            _InfoChip(
-                                              label: 'المجموعة: $group',
-                                              icon: Icons.groups_rounded,
-                                              color: Colors.teal,
                                             ),
                                         ],
                                       ),

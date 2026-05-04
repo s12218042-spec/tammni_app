@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../theme/app_theme.dart';
-import '../utils/child_section_utils.dart';
 import '../widgets/app_page_scaffold.dart';
 
 class ParentRegistrationRequestPage extends StatefulWidget {
@@ -62,8 +61,6 @@ class _ParentRegistrationRequestPageState
   String authUid = '';
   String hiddenTempPassword = '';
 
-  final List<_ChildDraft> children = [_ChildDraft()];
-
   @override
   void initState() {
     super.initState();
@@ -71,17 +68,9 @@ class _ParentRegistrationRequestPageState
     usernameCtrl.addListener(() {
       final lower = usernameCtrl.text.toLowerCase();
       if (usernameCtrl.text != lower) {
-        final oldSelection = usernameCtrl.selection;
         usernameCtrl.value = TextEditingValue(
           text: lower,
-          selection: oldSelection.copyWith(
-            baseOffset: lower.length < oldSelection.baseOffset
-                ? lower.length
-                : oldSelection.baseOffset,
-            extentOffset: lower.length < oldSelection.extentOffset
-                ? lower.length
-                : oldSelection.extentOffset,
-          ),
+          selection: TextSelection.collapsed(offset: lower.length),
         );
       }
     });
@@ -106,10 +95,6 @@ class _ParentRegistrationRequestPageState
     emergencyRelationCtrl.dispose();
     emergencyPhoneCtrl.dispose();
     notesCtrl.dispose();
-
-    for (final child in children) {
-      child.dispose();
-    }
     super.dispose();
   }
 
@@ -211,7 +196,7 @@ class _ParentRegistrationRequestPageState
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'املئي البيانات بدقة، ثم تحققي من البريد الإلكتروني في الخطوة الأخيرة قبل إرسال الطلب ليتم مراجعته من الإدارة.',
+                  'املئي بيانات ولي الأمر فقط، ثم تحققي من البريد الإلكتروني قبل إرسال الطلب للإدارة.',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: AppColors.textLight,
                         height: 1.45,
@@ -236,14 +221,14 @@ class _ParentRegistrationRequestPageState
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
+          const Icon(
             Icons.info_outline_rounded,
             color: AppColors.secondary,
           ),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              'هذا النموذج مخصص لإرسال طلب إنشاء حساب. بعد موافقة الإدارة سيتم إرسال رابط تعيين كلمة المرور إلى البريد نفسه. يتم تحديد القسم تلقائيًا من عمر الطفل، أما المجموعة فتُحدد لاحقًا من الإدارة.',
+              'هذا النموذج مخصص لإنشاء حساب ولي أمر فقط. بعد موافقة الإدارة سيتم إرسال رابط تعيين كلمة المرور إلى البريد الإلكتروني. بعد تسجيل الدخول يمكن لولي الأمر إرسال طلب إضافة طفل من الصفحة الرئيسية.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: AppColors.textDark,
                     height: 1.5,
@@ -345,6 +330,7 @@ class _ParentRegistrationRequestPageState
       label: 'رقم الجوال البديل',
       requiredField: false,
     );
+
     if (validation != null) return validation;
 
     if (mainPhone.isNotEmpty && clean == mainPhone) {
@@ -366,7 +352,14 @@ class _ParentRegistrationRequestPageState
       return 'تاريخ الميلاد غير صالح';
     }
 
-    final age = ChildSectionUtils.calculateAgeInYears(birthDate);
+    final now = DateTime.now();
+    int age = now.year - birthDate.year;
+
+    if (now.month < birthDate.month ||
+        (now.month == birthDate.month && now.day < birthDate.day)) {
+      age--;
+    }
+
     if (age < 18) {
       return 'يجب أن يكون عمر ولي الأمر 18 سنة أو أكثر';
     }
@@ -407,6 +400,10 @@ class _ParentRegistrationRequestPageState
     ).hasMatch(clean);
   }
 
+  bool _isValidEmail(String value) {
+    return _isValidEmailFormat(value.trim().toLowerCase());
+  }
+
   Future<bool> _usernameExistsAnywhere(String username) async {
     final clean = normalizeUsername(username);
 
@@ -428,12 +425,9 @@ class _ParentRegistrationRequestPageState
     return snapshot.docs.isNotEmpty;
   }
 
-  bool _isValidEmail(String value) {
-    return _isValidEmailFormat(value.trim().toLowerCase());
-  }
-
   Future<void> _pickParentBirthDate() async {
     final now = DateTime.now();
+
     final picked = await showDatePicker(
       context: context,
       initialDate: DateTime(now.year - 30),
@@ -445,57 +439,6 @@ class _ParentRegistrationRequestPageState
 
     birthDateCtrl.text =
         '${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
-  }
-
-  Future<void> _pickChildBirthDate(_ChildDraft child) async {
-    final now = DateTime.now();
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: DateTime(now.year - 4),
-      firstDate: DateTime(2015),
-      lastDate: now,
-    );
-
-    if (picked == null) return;
-
-    final sectionResult = ChildSectionUtils.resolveSectionAndGroup(picked);
-
-    setState(() {
-      child.birthDate = picked;
-      child.birthDateCtrl.text =
-          '${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
-      child.section = sectionResult.section;
-    });
-  }
-
-  void addChild() {
-    setState(() {
-      children.add(_ChildDraft());
-    });
-  }
-
-  void removeChild(int index) {
-    if (children.length == 1) return;
-
-    setState(() {
-      children[index].dispose();
-      children.removeAt(index);
-    });
-  }
-
-  void addPickupContact(_ChildDraft child) {
-    setState(() {
-      child.pickupContacts.add(_PickupContactDraft());
-    });
-  }
-
-  void removePickupContact(_ChildDraft child, int index) {
-    if (child.pickupContacts.length == 1) return;
-
-    setState(() {
-      child.pickupContacts[index].dispose();
-      child.pickupContacts.removeAt(index);
-    });
   }
 
   void _resetVerificationState() {
@@ -510,13 +453,6 @@ class _ParentRegistrationRequestPageState
 
   Future<void> sendEmailVerificationLink() async {
     if (!_formKey.currentState!.validate()) return;
-
-    for (final child in children) {
-      if (!child.isValid()) {
-        _showSnack('تأكدي من تعبئة بيانات جميع الأطفال والمخولين بالاستلام');
-        return;
-      }
-    }
 
     FocusScope.of(context).unfocus();
 
@@ -533,12 +469,12 @@ class _ParentRegistrationRequestPageState
 
       final usernameTaken = await _usernameExistsAnywhere(cleanUsername);
       if (usernameTaken) {
-        throw Exception('اسم المستخدم مستخدم مسبقًا أو يوجد طلب معلق بنفس الاسم');
+        throw Exception('اسم المستخدم مستخدم مسبقًا');
       }
 
       final emailTaken = await _emailExistsAnywhere(cleanEmail);
       if (emailTaken) {
-        throw Exception('البريد الإلكتروني مستخدم مسبقًا أو يوجد طلب معلق بنفس البريد');
+        throw Exception('البريد الإلكتروني مستخدم مسبقًا');
       }
 
       final currentUser = _auth.currentUser;
@@ -578,16 +514,16 @@ class _ParentRegistrationRequestPageState
       }
 
       if (authUser == null) {
-  throw Exception('تعذر إنشاء حساب التحقق بالبريد');
-}
+        throw Exception('تعذر إنشاء حساب التحقق بالبريد');
+      }
 
-final actionCodeSettings = ActionCodeSettings(
-  url: 'https://daycare-app-220c0.web.app/auth_action.html',
-  handleCodeInApp: false,
-);
+      final actionCodeSettings = ActionCodeSettings(
+        url: 'https://daycare-app-220c0.web.app/auth_action.html',
+        handleCodeInApp: false,
+      );
 
-await authUser.sendEmailVerification(actionCodeSettings);
-await authUser.reload();
+      await authUser.sendEmailVerification(actionCodeSettings);
+      await authUser.reload();
 
       final refreshedUser = _auth.currentUser;
 
@@ -666,13 +602,6 @@ await authUser.reload();
   Future<void> submitRequest() async {
     if (!_formKey.currentState!.validate()) return;
 
-    for (final child in children) {
-      if (!child.isValid()) {
-        _showSnack('تأكدي من تعبئة بيانات جميع الأطفال والمخولين بالاستلام');
-        return;
-      }
-    }
-
     if (!emailVerificationSent) {
       _showSnack('يجب إرسال رابط التحقق إلى البريد الإلكتروني أولًا');
       return;
@@ -690,9 +619,8 @@ await authUser.reload();
     }
 
     await currentUser.reload();
-    final refreshedUser = _auth.currentUser;
+    final verifiedUser = _auth.currentUser;
 
-    final verifiedUser = refreshedUser;
     final cleanEmail = emailCtrl.text.trim().toLowerCase();
     final cleanUsername = normalizeUsername(usernameCtrl.text);
 
@@ -701,7 +629,7 @@ await authUser.reload();
       return;
     }
 
-    if (!(verifiedUser.emailVerified)) {
+    if (!verifiedUser.emailVerified) {
       _showSnack('البريد الحالي غير موثّق بعد');
       return;
     }
@@ -729,23 +657,12 @@ await authUser.reload();
 
       final usernameTaken = await _usernameExistsAnywhere(cleanUsername);
       if (usernameTaken) {
-        throw Exception('اسم المستخدم مستخدم مسبقًا أو يوجد طلب معلق بنفس الاسم');
+        throw Exception('اسم المستخدم مستخدم مسبقًا');
       }
 
       final emailTaken = await _emailExistsAnywhere(cleanEmail);
       if (emailTaken) {
-        throw Exception('البريد الإلكتروني مستخدم مسبقًا أو يوجد طلب معلق بنفس البريد');
-      }
-
-      for (final child in children) {
-        final sectionResult =
-            ChildSectionUtils.resolveSectionAndGroup(child.birthDate);
-
-        if (sectionResult.section == 'OutOfRange') {
-          throw Exception(
-            'يوجد طفل عمره أكبر من نطاق الحضانة/الروضة في النظام الحالي',
-          );
-        }
+        throw Exception('البريد الإلكتروني مستخدم مسبقًا');
       }
 
       final requestAuthUid = verifiedUser.uid.trim();
@@ -756,7 +673,6 @@ await authUser.reload();
         'requestType': 'parent_registration',
         'status': 'pending',
 
-        // حقول علوية مهمة للربط والقواعد
         'authUid': requestAuthUid,
         'authPreCreated': true,
         'authAccountCreated': true,
@@ -776,7 +692,6 @@ await authUser.reload();
         'processedToUserDoc': false,
         'processedChildrenCount': 0,
 
-        // توثيق المُنشئ
         'createdByUid': requestAuthUid,
         'createdByName': fullName.isEmpty ? 'ولي أمر' : fullName,
         'createdByRole': 'parent',
@@ -789,8 +704,9 @@ await authUser.reload();
           'alternatePhone': alternatePhoneCtrl.text.trim(),
           'identityNumber': nationalIdCtrl.text.trim(),
           'gender': selectedGender,
-          'birthDate':
-              birthDateCtrl.text.trim().isEmpty ? null : birthDateCtrl.text.trim(),
+          'birthDate': birthDateCtrl.text.trim().isEmpty
+              ? null
+              : birthDateCtrl.text.trim(),
           'relationship': selectedRelationship,
           'maritalStatus': selectedMaritalStatus,
           'city': cityCtrl.text.trim(),
@@ -806,7 +722,8 @@ await authUser.reload();
           'notes': notesCtrl.text.trim(),
         },
 
-        'childrenInfo': children.map((child) => child.toMap()).toList(),
+        // مهم: لم نعد نضيف أطفال داخل طلب التسجيل
+        'childrenInfo': [],
 
         'reviewNote': '',
         'reviewedByUid': '',
@@ -908,29 +825,26 @@ await authUser.reload();
             ),
           ),
           const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed:
-                      isSendingVerification ? null : sendEmailVerificationLink,
-                  icon: isSendingVerification
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2.2),
-                        )
-                      : const Icon(Icons.mark_email_unread_outlined),
-                  label: Text(
-                    isSendingVerification
-                        ? 'جارٍ الإرسال...'
-                        : (emailVerificationSent
-                            ? 'إعادة إرسال رابط التحقق'
-                            : 'إرسال رابط التحقق'),
-                  ),
-                ),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed:
+                  isSendingVerification ? null : sendEmailVerificationLink,
+              icon: isSendingVerification
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2.2),
+                    )
+                  : const Icon(Icons.mark_email_unread_outlined),
+              label: Text(
+                isSendingVerification
+                    ? 'جارٍ الإرسال...'
+                    : (emailVerificationSent
+                        ? 'إعادة إرسال رابط التحقق'
+                        : 'إرسال رابط التحقق'),
               ),
-            ],
+            ),
           ),
           const SizedBox(height: 10),
           SizedBox(
@@ -1310,9 +1224,11 @@ await authUser.reload();
             ),
             validator: (value) {
               final clean = (value ?? '').trim();
+
               if (clean.isEmpty) {
                 return 'أدخلي رقم هاتف الطوارئ';
               }
+
               return _validatePalestinianMobile(
                 clean,
                 label: 'رقم هاتف الطوارئ',
@@ -1327,426 +1243,6 @@ await authUser.reload();
               label: 'ملاحظات عامة',
               icon: Icons.notes_rounded,
               hint: 'أي ظروف خاصة أو تنبيهات مهمة...',
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget buildChildSection(int index, _ChildDraft child) {
-    return buildMainCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: buildSectionTitle(
-                  'بيانات الطفل ${index + 1}',
-                  'أدخلي بيانات الطفل والمخولين باستلامه.',
-                ),
-              ),
-              if (children.length > 1)
-                IconButton(
-                  onPressed: () => removeChild(index),
-                  icon: const Icon(Icons.delete_outline_rounded),
-                  color: Colors.redAccent,
-                  tooltip: 'حذف الطفل',
-                ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          TextFormField(
-            controller: child.fullNameCtrl,
-            decoration: customDecoration(
-              label: 'الاسم الكامل للطفل',
-              icon: Icons.child_care_rounded,
-            ),
-            validator: (value) {
-              if ((value?.trim() ?? '').isEmpty) {
-                return 'أدخلي اسم الطفل';
-              }
-              return null;
-            },
-          ),
-          const SizedBox(height: 14),
-          TextFormField(
-            controller: child.childNationalIdCtrl,
-            keyboardType: TextInputType.number,
-            inputFormatters: [
-              FilteringTextInputFormatter.digitsOnly,
-              LengthLimitingTextInputFormatter(9),
-            ],
-            decoration: customDecoration(
-              label: 'رقم هوية الطفل',
-              icon: Icons.badge_outlined,
-            ),
-            validator: (value) => _validatePalestinianId(value ?? ''),
-          ),
-          const SizedBox(height: 14),
-          TextFormField(
-            controller: child.birthDateCtrl,
-            readOnly: true,
-            onTap: () => _pickChildBirthDate(child),
-            decoration: customDecoration(
-              label: 'تاريخ الميلاد',
-              icon: Icons.calendar_month_rounded,
-            ),
-            validator: (value) {
-              if ((value?.trim() ?? '').isEmpty) {
-                return 'اختاري تاريخ الميلاد';
-              }
-              return null;
-            },
-          ),
-          if (child.section == 'OutOfRange') ...[
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.red.withOpacity(0.08),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: Colors.red.withOpacity(0.25)),
-              ),
-              child: const Text(
-                'عمر الطفل أكبر من نطاق الحضانة/الروضة في النظام الحالي.',
-                style: TextStyle(
-                  color: Colors.redAccent,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ],
-          const SizedBox(height: 14),
-          DropdownButtonFormField<String>(
-            value: child.gender,
-            decoration: customDecoration(
-              label: 'الجنس',
-              icon: Icons.wc_rounded,
-            ),
-            items: const [
-              DropdownMenuItem(value: 'female', child: Text('أنثى')),
-              DropdownMenuItem(value: 'male', child: Text('ذكر')),
-            ],
-            onChanged: (value) {
-              setState(() {
-                child.gender = value ?? 'female';
-              });
-            },
-          ),
-          const SizedBox(height: 14),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: Row(
-              children: [
-                const Icon(
-                  Icons.apartment_rounded,
-                  color: AppColors.textLight,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'القسم',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: AppColors.textLight,
-                              fontWeight: FontWeight.w600,
-                            ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        ChildSectionUtils.sectionArabicLabel(child.section),
-                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                              color: AppColors.textDark,
-                              fontWeight: FontWeight.w700,
-                            ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'يتم تحديد المجموعة لاحقًا من قبل الإدارة بعد اعتماد الطلب.',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: AppColors.textLight,
-                  height: 1.4,
-                ),
-          ),
-          const SizedBox(height: 18),
-          Text(
-            'البيانات الصحية',
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.textDark,
-                ),
-          ),
-          const SizedBox(height: 12),
-          SwitchListTile(
-            value: child.hasChronicDiseases,
-            onChanged: (value) {
-              setState(() {
-                child.hasChronicDiseases = value;
-                if (!value) child.chronicDiseasesCtrl.clear();
-              });
-            },
-            title: const Text('هل لدى الطفل أمراض مزمنة؟'),
-            contentPadding: EdgeInsets.zero,
-          ),
-          if (child.hasChronicDiseases) ...[
-            TextFormField(
-              controller: child.chronicDiseasesCtrl,
-              maxLines: 2,
-              decoration: customDecoration(
-                label: 'تفاصيل الأمراض المزمنة',
-                icon: Icons.monitor_heart_outlined,
-              ),
-              validator: (value) {
-                if (child.hasChronicDiseases &&
-                    (value?.trim() ?? '').isEmpty) {
-                  return 'أدخلي تفاصيل الأمراض المزمنة';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 14),
-          ],
-          SwitchListTile(
-            value: child.hasAllergies,
-            onChanged: (value) {
-              setState(() {
-                child.hasAllergies = value;
-                if (!value) child.allergiesCtrl.clear();
-              });
-            },
-            title: const Text('هل لدى الطفل حساسية؟'),
-            contentPadding: EdgeInsets.zero,
-          ),
-          if (child.hasAllergies) ...[
-            TextFormField(
-              controller: child.allergiesCtrl,
-              maxLines: 2,
-              decoration: customDecoration(
-                label: 'تفاصيل الحساسية',
-                icon: Icons.warning_amber_rounded,
-              ),
-              validator: (value) {
-                if (child.hasAllergies && (value?.trim() ?? '').isEmpty) {
-                  return 'أدخلي تفاصيل الحساسية';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 14),
-          ],
-          SwitchListTile(
-            value: child.takesMedications,
-            onChanged: (value) {
-              setState(() {
-                child.takesMedications = value;
-                if (!value) child.medicationsCtrl.clear();
-              });
-            },
-            title: const Text('هل يتناول الطفل أدوية بشكل مستمر؟'),
-            contentPadding: EdgeInsets.zero,
-          ),
-          if (child.takesMedications) ...[
-            TextFormField(
-              controller: child.medicationsCtrl,
-              maxLines: 2,
-              decoration: customDecoration(
-                label: 'تفاصيل الأدوية',
-                icon: Icons.medication_outlined,
-              ),
-              validator: (value) {
-                if (child.takesMedications && (value?.trim() ?? '').isEmpty) {
-                  return 'أدخلي تفاصيل الأدوية';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 14),
-          ],
-          SwitchListTile(
-            value: child.hasDietaryRestrictions,
-            onChanged: (value) {
-              setState(() {
-                child.hasDietaryRestrictions = value;
-                if (!value) child.dietaryRestrictionsCtrl.clear();
-              });
-            },
-            title: const Text('هل لدى الطفل قيود غذائية؟'),
-            contentPadding: EdgeInsets.zero,
-          ),
-          if (child.hasDietaryRestrictions) ...[
-            TextFormField(
-              controller: child.dietaryRestrictionsCtrl,
-              maxLines: 2,
-              decoration: customDecoration(
-                label: 'تفاصيل القيود الغذائية',
-                icon: Icons.restaurant_menu_rounded,
-              ),
-              validator: (value) {
-                if (child.hasDietaryRestrictions &&
-                    (value?.trim() ?? '').isEmpty) {
-                  return 'أدخلي تفاصيل القيود الغذائية';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 14),
-          ],
-          SwitchListTile(
-            value: child.hasSpecialNeeds,
-            onChanged: (value) {
-              setState(() {
-                child.hasSpecialNeeds = value;
-                if (!value) child.specialNeedsCtrl.clear();
-              });
-            },
-            title: const Text('هل لدى الطفل احتياجات خاصة؟'),
-            contentPadding: EdgeInsets.zero,
-          ),
-          if (child.hasSpecialNeeds) ...[
-            TextFormField(
-              controller: child.specialNeedsCtrl,
-              maxLines: 2,
-              decoration: customDecoration(
-                label: 'تفاصيل الاحتياجات الخاصة',
-                icon: Icons.accessible_rounded,
-              ),
-              validator: (value) {
-                if (child.hasSpecialNeeds && (value?.trim() ?? '').isEmpty) {
-                  return 'أدخلي تفاصيل الاحتياجات الخاصة';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 14),
-          ],
-          TextFormField(
-            controller: child.healthNotesCtrl,
-            maxLines: 3,
-            decoration: customDecoration(
-              label: 'ملاحظات صحية عامة',
-              icon: Icons.health_and_safety_rounded,
-              hint: 'اختياري',
-            ),
-          ),
-          const SizedBox(height: 18),
-          Text(
-            'المخولون بالاستلام',
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.textDark,
-                ),
-          ),
-          const SizedBox(height: 10),
-          ...List.generate(child.pickupContacts.length, (pickupIndex) {
-            final pickup = child.pickupContacts[pickupIndex];
-
-            return Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppColors.border),
-              ),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'الشخص ${pickupIndex + 1}',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.textDark,
-                          ),
-                        ),
-                      ),
-                      if (child.pickupContacts.length > 1)
-                        IconButton(
-                          onPressed: () =>
-                              removePickupContact(child, pickupIndex),
-                          icon: const Icon(Icons.close_rounded),
-                          color: Colors.redAccent,
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  TextFormField(
-                    controller: pickup.nameCtrl,
-                    decoration: customDecoration(
-                      label: 'الاسم',
-                      icon: Icons.person_outline_rounded,
-                    ),
-                    validator: (value) {
-                      if ((value?.trim() ?? '').isEmpty) {
-                        return 'أدخلي الاسم';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: pickup.relationCtrl,
-                    decoration: customDecoration(
-                      label: 'صلة القرابة',
-                      icon: Icons.family_restroom_rounded,
-                    ),
-                    validator: (value) {
-                      if ((value?.trim() ?? '').isEmpty) {
-                        return 'أدخلي صلة القرابة';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: pickup.phoneCtrl,
-                    keyboardType: TextInputType.phone,
-                    inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly,
-                      LengthLimitingTextInputFormatter(10),
-                    ],
-                    decoration: customDecoration(
-                      label: 'رقم الجوال',
-                      icon: Icons.phone_rounded,
-                    ),
-                    validator: (value) {
-                      final clean = (value ?? '').trim();
-                      if (clean.isEmpty) {
-                        return 'أدخلي رقم الجوال';
-                      }
-                      return _validatePalestinianMobile(
-                        clean,
-                        label: 'رقم الجوال',
-                      );
-                    },
-                  ),
-                ],
-              ),
-            );
-          }),
-          Align(
-            alignment: Alignment.centerRight,
-            child: OutlinedButton.icon(
-              onPressed: () => addPickupContact(child),
-              icon: const Icon(Icons.add),
-              label: const Text('إضافة شخص مخوّل آخر'),
             ),
           ),
         ],
@@ -1828,21 +1324,6 @@ await authUser.reload();
             buildContactSection(),
             const SizedBox(height: 14),
             buildEmergencySection(),
-            const SizedBox(height: 14),
-            ...List.generate(children.length, (index) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 14),
-                child: buildChildSection(index, children[index]),
-              );
-            }),
-            Align(
-              alignment: Alignment.centerRight,
-              child: OutlinedButton.icon(
-                onPressed: addChild,
-                icon: const Icon(Icons.add_circle_outline_rounded),
-                label: const Text('إضافة طفل آخر'),
-              ),
-            ),
             const SizedBox(height: 18),
             buildVerificationCard(),
             const SizedBox(height: 14),
@@ -1852,146 +1333,5 @@ await authUser.reload();
         ),
       ),
     );
-  }
-}
-
-class _ChildDraft {
-  final fullNameCtrl = TextEditingController();
-  final childNationalIdCtrl = TextEditingController();
-  final birthDateCtrl = TextEditingController();
-
-  final chronicDiseasesCtrl = TextEditingController();
-  final allergiesCtrl = TextEditingController();
-  final medicationsCtrl = TextEditingController();
-  final dietaryRestrictionsCtrl = TextEditingController();
-  final specialNeedsCtrl = TextEditingController();
-  final healthNotesCtrl = TextEditingController();
-
-  DateTime? birthDate;
-  String gender = 'female';
-  String section = 'Nursery';
-
-  bool hasChronicDiseases = false;
-  bool hasAllergies = false;
-  bool takesMedications = false;
-  bool hasDietaryRestrictions = false;
-  bool hasSpecialNeeds = false;
-
-  final List<_PickupContactDraft> pickupContacts = [_PickupContactDraft()];
-
-  bool isValid() {
-    if (fullNameCtrl.text.trim().isEmpty) return false;
-    if (childNationalIdCtrl.text.trim().isEmpty) return false;
-    if (birthDateCtrl.text.trim().isEmpty) return false;
-
-    if (hasChronicDiseases && chronicDiseasesCtrl.text.trim().isEmpty) {
-      return false;
-    }
-    if (hasAllergies && allergiesCtrl.text.trim().isEmpty) {
-      return false;
-    }
-    if (takesMedications && medicationsCtrl.text.trim().isEmpty) {
-      return false;
-    }
-    if (hasDietaryRestrictions &&
-        dietaryRestrictionsCtrl.text.trim().isEmpty) {
-      return false;
-    }
-    if (hasSpecialNeeds && specialNeedsCtrl.text.trim().isEmpty) {
-      return false;
-    }
-
-    if (pickupContacts.isEmpty) return false;
-
-    for (final pickup in pickupContacts) {
-      if (!pickup.isValid()) return false;
-    }
-    return true;
-  }
-
-  Map<String, dynamic> toMap() {
-    String resolvedSection = section;
-
-    if (birthDate != null) {
-      final sectionResult =
-          ChildSectionUtils.resolveSectionAndGroup(birthDate!);
-      resolvedSection = sectionResult.section;
-    }
-
-    return {
-      'fullName': fullNameCtrl.text.trim(),
-      'identityNumber': childNationalIdCtrl.text.trim(),
-      'birthDate': birthDate == null ? null : Timestamp.fromDate(birthDate!),
-      'gender': gender,
-      'section': resolvedSection,
-      'group': '',
-      'status': 'active',
-      'hasChronicDiseases': hasChronicDiseases,
-      'chronicDiseases':
-          hasChronicDiseases ? chronicDiseasesCtrl.text.trim() : '',
-      'hasAllergies': hasAllergies,
-      'allergies': hasAllergies ? allergiesCtrl.text.trim() : '',
-      'takesMedications': takesMedications,
-      'medications': takesMedications ? medicationsCtrl.text.trim() : '',
-      'hasDietaryRestrictions': hasDietaryRestrictions,
-      'dietaryRestrictions':
-          hasDietaryRestrictions ? dietaryRestrictionsCtrl.text.trim() : '',
-      'hasSpecialNeeds': hasSpecialNeeds,
-      'specialNeeds': hasSpecialNeeds ? specialNeedsCtrl.text.trim() : '',
-      'healthNotes': healthNotesCtrl.text.trim(),
-      'bloodType': '',
-      'dietInstructions':
-          hasDietaryRestrictions ? dietaryRestrictionsCtrl.text.trim() : '',
-      'specialInstructions':
-          hasSpecialNeeds ? specialNeedsCtrl.text.trim() : '',
-      'authorizedPickupContacts':
-          pickupContacts.map((e) => e.toMap()).toList(),
-    };
-  }
-
-  void dispose() {
-    fullNameCtrl.dispose();
-    childNationalIdCtrl.dispose();
-    birthDateCtrl.dispose();
-    chronicDiseasesCtrl.dispose();
-    allergiesCtrl.dispose();
-    medicationsCtrl.dispose();
-    dietaryRestrictionsCtrl.dispose();
-    specialNeedsCtrl.dispose();
-    healthNotesCtrl.dispose();
-
-    for (final pickup in pickupContacts) {
-      pickup.dispose();
-    }
-  }
-}
-
-class _PickupContactDraft {
-  final nameCtrl = TextEditingController();
-  final relationCtrl = TextEditingController();
-  final phoneCtrl = TextEditingController();
-
-  bool isValid() {
-    final phone = phoneCtrl.text.trim();
-    final isValidPhone = RegExp(r'^(059|056|052)\d{7}$').hasMatch(phone);
-
-    return nameCtrl.text.trim().isNotEmpty &&
-        relationCtrl.text.trim().isNotEmpty &&
-        phone.isNotEmpty &&
-        isValidPhone;
-  }
-
-  Map<String, dynamic> toMap() {
-    return {
-      'name': nameCtrl.text.trim(),
-      'relation': relationCtrl.text.trim(),
-      'phone': phoneCtrl.text.trim(),
-    };
-  }
-
-  void dispose() {
-    nameCtrl.dispose();
-    relationCtrl.dispose();
-    phoneCtrl.dispose();
   }
 }

@@ -43,3 +43,21 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Secrets / private keys
+.env
+.env.*
+*.env
+
+serviceAccountKey.json
+firebase-adminsdk*.json
+*adminsdk*.json
+*service-account*.json
+*private*.json
+
+secrets/
+keys/
+private/
+
+# Supabase local temp/config generated files
+supabase/.temp/

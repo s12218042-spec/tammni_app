@@ -50,30 +50,30 @@ class AccountSettingsData {
     );
   }
 
-  static String _normalizeRole(String rawRole) {
-    final role = rawRole.trim().toLowerCase();
+ static String _normalizeRole(String rawRole) {
+  final role = rawRole.trim().toLowerCase();
 
-    if (role == 'nursery' || role == 'nursery staff') {
-      return 'nursery_staff';
-    }
-
-    return role;
+  if (role == 'nursery' ||
+      role == 'nursery staff' ||
+      role == 'nursery_staff') {
+    return 'nursery_staff';
   }
+
+  return role;
+}
 
   String get roleLabel {
-    switch (role) {
-      case 'parent':
-        return 'وليّ أمر';
-      case 'nursery_staff':
-        return 'موظفة الحضانة';
-      case 'teacher':
-        return 'المعلمة';
-      case 'admin':
-        return 'الأدمن';
-      default:
-        return 'مستخدم';
-    }
+  switch (role) {
+    case 'parent':
+      return 'وليّ أمر';
+    case 'nursery_staff':
+      return 'موظفة الحضانة';
+    case 'admin':
+      return 'الأدمن';
+    default:
+      return 'مستخدم';
   }
+}
 
   bool get hasPendingEmailChange => pendingEmail.isNotEmpty;
 }
