@@ -120,36 +120,64 @@ class _ParentHomePageState extends State<ParentHomePage> {
     return children;
   }
 
-  Future<List<Map<String, dynamic>>> fetchLastUpdates(String childId) async {
-    final snapshot = await _firestore
-        .collection('updates')
-        .where('childId', isEqualTo: childId)
-        .get();
+ Future<List<Map<String, dynamic>>> fetchLastUpdates(String childId) async {
+  final snapshot = await _firestore
+      .collection('updates')
+      .where('childId', isEqualTo: childId)
+      .get();
 
-    final items = snapshot.docs.map((doc) {
-      final data = doc.data();
+  final items = snapshot.docs.map((doc) {
+    final data = doc.data();
 
-      return {
-        'type': data['type'] ?? '',
-        'note': data['note'] ?? '',
-        'time': data['time'],
-        'createdAt': data['createdAt'],
-      };
-    }).toList();
+    final isGroupUpdate =
+        data['isGroupUpdate'] == true ||
+        data['source'] == 'group_update' ||
+        data['type'] == 'group_update' ||
+        data['updateSource'] == 'group_update' ||
+        data['groupUpdateId'] != null;
 
-    items.sort((a, b) {
-      final aTime = (a['time'] as Timestamp?) ?? (a['createdAt'] as Timestamp?);
-      final bTime = (b['time'] as Timestamp?) ?? (b['createdAt'] as Timestamp?);
+    return {
+      'id': doc.id,
+      'type': data['type'] ?? '',
+      'note': data['note'] ??
+          data['description'] ??
+          data['body'] ??
+          data['message'] ??
+          '',
+      'time': data['time'],
+      'createdAt': data['createdAt'],
+      'eventAt': data['eventAt'],
+      'updatedAt': data['updatedAt'],
 
-      if (aTime == null && bTime == null) return 0;
-      if (aTime == null) return 1;
-      if (bTime == null) return -1;
+      // مهم للتحديث الجماعي
+      'isGroupUpdate': isGroupUpdate,
+      'groupUpdateId': data['groupUpdateId'],
+      'groupId': data['groupId'],
+      'groupName': data['groupName'],
+      'updateScope': data['updateScope'] ?? data['scope'] ?? '',
+    };
+  }).toList();
 
-      return bTime.compareTo(aTime);
-    });
+  items.sort((a, b) {
+    final aTime = (a['eventAt'] as Timestamp?) ??
+        (a['time'] as Timestamp?) ??
+        (a['createdAt'] as Timestamp?) ??
+        (a['updatedAt'] as Timestamp?);
 
-    return items.take(2).toList();
-  }
+    final bTime = (b['eventAt'] as Timestamp?) ??
+        (b['time'] as Timestamp?) ??
+        (b['createdAt'] as Timestamp?) ??
+        (b['updatedAt'] as Timestamp?);
+
+    if (aTime == null && bTime == null) return 0;
+    if (aTime == null) return 1;
+    if (bTime == null) return -1;
+
+    return bTime.compareTo(aTime);
+  });
+
+  return items.take(2).toList();
+}
 
   String firstLetter(String name) {
     if (name.trim().isEmpty) return 'ط';
@@ -1652,50 +1680,135 @@ class _ChildFollowUpCard extends StatelessWidget {
                   );
                 }
 
-                final latest = updates.first;
-                final latestType = (latest['type'] ?? '').toString().trim();
-                final latestNote = (latest['note'] ?? '').toString().trim();
-                final latestText = latestNote.isEmpty
-                    ? (latestType.isEmpty ? 'تحديث جديد' : latestType)
-                    : '${latestType.isEmpty ? 'تحديث' : latestType}: $latestNote';
+               final latest = updates.first;
+               final latestType = (latest['type'] ?? '').toString().trim();
+               final latestNote = (latest['note'] ?? '').toString().trim();
 
+               final isGroupUpdate =
+                latest['isGroupUpdate'] == true ||
+                (latest['groupUpdateId'] ?? '').toString().trim().isNotEmpty ||
+                latestType == 'group_update';
+
+               final cleanType = latestType == 'group_update' ? 'تحديث' : latestType;
+
+               final latestText = latestNote.isEmpty
+                ? (cleanType.isEmpty ? 'تحديث جديد' : cleanType)
+                : '${cleanType.isEmpty ? 'تحديث' : cleanType}: $latestNote';
                 return Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: AppColors.background,
-                    borderRadius: BorderRadius.circular(14),
+  width: double.infinity,
+  padding: const EdgeInsets.all(12),
+  decoration: BoxDecoration(
+    color: isGroupUpdate
+        ? Colors.purple.withOpacity(0.055)
+        : AppColors.background,
+    borderRadius: BorderRadius.circular(14),
+    border: isGroupUpdate
+        ? Border.all(color: Colors.purple.withOpacity(0.22))
+        : null,
+  ),
+  child: Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 10,
+              vertical: 6,
+            ),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              _timeText(
+                latest['eventAt'] ??
+                    latest['time'] ??
+                    latest['createdAt'] ??
+                    latest['updatedAt'],
+              ),
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 12,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              latestText,
+              style: const TextStyle(fontSize: 13.5),
+            ),
+          ),
+        ],
+      ),
+      if (isGroupUpdate) ...[
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 5,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.purple.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: Colors.purple.withOpacity(0.28),
+                ),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.groups_2_rounded,
+                    size: 15,
+                    color: Colors.purple,
                   ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.primary.withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(
-                          _timeText(latest['time'] ?? latest['createdAt']),
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          latestText,
-                          style: const TextStyle(fontSize: 13.5),
-                        ),
-                      ),
-                    ],
+                  SizedBox(width: 5),
+                  Text(
+                    'تحديث جماعي',
+                    style: TextStyle(
+                      color: Colors.purple,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
                   ),
-                );
+                ],
+              ),
+            ),
+            if ((latest['groupName'] ?? '').toString().trim().isNotEmpty)
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: Colors.purple.withOpacity(0.18),
+                  ),
+                ),
+                child: Text(
+                  'المجموعة: ${latest['groupName']}',
+                  style: const TextStyle(
+                    color: Colors.purple,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ],
+    ],
+  ),
+);
               },
             ),
             const SizedBox(height: 14),

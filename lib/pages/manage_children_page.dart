@@ -74,6 +74,12 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
         'parentName': data['parentName'] ?? '',
         'parentUsername': data['parentUsername'] ?? '',
         'parentUid': data['parentUid'] ?? '',
+        'groupId': data['groupId'] ?? '',
+        'groupName': data['groupName'] ?? '',
+        'assignedStaffUid': data['assignedStaffUid'] ?? '',
+        'assignedStaffName': data['assignedStaffName'] ?? '',
+        'assignedStaffUsername': data['assignedStaffUsername'] ?? '',
+        'childStatus': data['childStatus'] ?? data['status'] ?? 'active',
         'hasChronicDiseases': data['hasChronicDiseases'] ?? false,
         'chronicDiseases': data['chronicDiseases'] ?? '',
         'hasAllergies': data['hasAllergies'] ?? false,
@@ -107,13 +113,17 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
       final parentName = (child['parentName'] ?? '').toString().toLowerCase();
       final parentUsername =
           (child['parentUsername'] ?? '').toString().toLowerCase();
-
+      final groupName = (child['groupName'] ?? '').toString().toLowerCase();
+      final assignedStaffName =
+    (child['assignedStaffName'] ?? '').toString().toLowerCase();
       return query.isEmpty ||
-          name.contains(query) ||
-          identity.contains(query) ||
-          section.contains(query) ||
-          parentName.contains(query) ||
-          parentUsername.contains(query);
+    name.contains(query) ||
+    identity.contains(query) ||
+    section.contains(query) ||
+    parentName.contains(query) ||
+    parentUsername.contains(query) ||
+    groupName.contains(query) ||
+    assignedStaffName.contains(query);
     }).toList();
 
     filtered.sort((a, b) {
@@ -838,6 +848,153 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
     );
   }
 
+  Future<void> openAssignGroupDialog(Map<String, dynamic> child) async {
+  final groupsSnapshot = await _firestore
+      .collection('groups')
+      .where('isActive', isEqualTo: true)
+      .get();
+
+  if (!mounted) return;
+
+  final groups = groupsSnapshot.docs;
+
+  if (groups.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('لا توجد مجموعات مفعّلة. أنشئي مجموعة أولاً من إدارة المجموعات.'),
+      ),
+    );
+    return;
+  }
+
+  String selectedGroupId = (child['groupId'] ?? '').toString();
+
+  await showDialog(
+    context: context,
+    builder: (dialogContext) {
+      return StatefulBuilder(
+        builder: (context, setLocalState) {
+          return Directionality(
+            textDirection: TextDirection.rtl,
+            child: AlertDialog(
+              title: const Text('تحديد مجموعة الطفل'),
+              content: SizedBox(
+                width: 430,
+                child: DropdownButtonFormField<String>(
+                  value: selectedGroupId.trim().isEmpty ? null : selectedGroupId,
+                  decoration: const InputDecoration(
+                    labelText: 'اختاري المجموعة',
+                    prefixIcon: Icon(Icons.groups_2_outlined),
+                  ),
+                  items: groups.map((doc) {
+                    final data = doc.data();
+
+                    final groupName =
+                        (data['groupName'] ?? 'مجموعة بدون اسم').toString();
+
+                    final staffName =
+                        (data['assignedStaffName'] ?? 'موظفة غير محددة')
+                            .toString();
+
+                    final currentChildren =
+                        (data['currentChildrenCount'] as num?)?.toInt() ?? 0;
+
+                    final maxChildren =
+                        (data['maxChildren'] as num?)?.toInt() ?? 12;
+
+                    return DropdownMenuItem<String>(
+                      value: doc.id,
+                      child: Text(
+                        '$groupName • $staffName • $currentChildren/$maxChildren',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: (value) {
+                    setLocalState(() {
+                      selectedGroupId = value ?? '';
+                    });
+                  },
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('إلغاء'),
+                ),
+                ElevatedButton(
+                  onPressed: selectedGroupId.trim().isEmpty
+                      ? null
+                      : () async {
+                          final selectedGroupDoc = groups.firstWhere(
+                            (doc) => doc.id == selectedGroupId,
+                          );
+
+                          final groupData = selectedGroupDoc.data();
+
+                          final oldGroupId = (child['groupId'] ?? '').toString();
+
+                          await _firestore
+                              .collection('children')
+                              .doc(child['id'])
+                              .update({
+                            'groupId': selectedGroupDoc.id,
+                            'groupName': groupData['groupName'] ?? '',
+                            'assignedStaffUid':
+                                groupData['assignedStaffUid'] ?? '',
+                            'assignedStaffName':
+                                groupData['assignedStaffName'] ?? '',
+                            'assignedStaffUsername':
+                                groupData['assignedStaffUsername'] ?? '',
+                            'childStatus':
+                                child['childStatus'] ?? child['status'] ?? 'active',
+                            'updatedAt': FieldValue.serverTimestamp(),
+                          });
+
+                          await _refreshGroupChildrenCount(selectedGroupDoc.id);
+
+                          if (oldGroupId.trim().isNotEmpty &&
+                              oldGroupId != selectedGroupDoc.id) {
+                            await _refreshGroupChildrenCount(oldGroupId);
+                          }
+
+                          if (!mounted) return;
+
+                          Navigator.pop(dialogContext);
+                          setState(() {});
+
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('تم ربط الطفل بالمجموعة بنجاح'),
+                            ),
+                          );
+                        },
+                  child: const Text('حفظ'),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    },
+  );
+}
+
+Future<void> _refreshGroupChildrenCount(String groupId) async {
+  if (groupId.trim().isEmpty) return;
+
+  final childrenSnapshot = await _firestore
+      .collection('children')
+      .where('groupId', isEqualTo: groupId)
+      .where('isActive', isEqualTo: true)
+      .get();
+
+  await _firestore.collection('groups').doc(groupId).update({
+    'currentChildrenCount': childrenSnapshot.docs.length,
+    'updatedAt': FieldValue.serverTimestamp(),
+  });
+}
+
   Widget buildChildCard(Map<String, dynamic> child) {
     final name = (child['name'] ?? '').toString();
     final section = (child['section'] ?? '').toString();
@@ -846,6 +1003,8 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
     final isActive = child['isActive'] == true;
     final color = sectionColor(section);
     final age = calculateAge(child['birthDate']);
+    final groupName = (child['groupName'] ?? '').toString();
+    final assignedStaffName = (child['assignedStaffName'] ?? '').toString();
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -942,6 +1101,21 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
             'الحالة الصحية',
             healthSummary(child),
           ),
+
+          const SizedBox(height: 8),
+           _infoRow(
+           Icons.groups_2_outlined,
+            'المجموعة',
+           groupName.trim().isEmpty ? 'غير محددة' : groupName,
+           ),
+           if (assignedStaffName.trim().isNotEmpty) ...[
+           const SizedBox(height: 8),
+            _infoRow(
+             Icons.badge_outlined,
+             'الموظفة المسؤولة',
+             assignedStaffName,
+            ),
+          ],
           const SizedBox(height: 14),
           SizedBox(
             width: double.infinity,
@@ -957,6 +1131,21 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
               ),
             ),
           ),
+          const SizedBox(height: 10),
+           SizedBox(
+           width: double.infinity,
+           child: OutlinedButton.icon(
+           onPressed: () => openAssignGroupDialog(child),
+           icon: const Icon(Icons.groups_2_outlined),
+           label: const Text('تحديد / نقل المجموعة'),
+           style: OutlinedButton.styleFrom(
+           minimumSize: const Size(double.infinity, 50),
+           shape: RoundedRectangleBorder(
+           borderRadius: BorderRadius.circular(14),
+          ),
+           ),
+          ),
+         ),
           const SizedBox(height: 10),
           Row(
             children: [

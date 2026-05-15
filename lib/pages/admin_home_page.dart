@@ -10,6 +10,7 @@ import 'admin_add_child_requests_page.dart';
 import 'admin_add_user_page.dart';
 import 'admin_chats_page.dart';
 import 'admin_complaints_page.dart';
+import 'admin_groups_page.dart';
 import 'admin_invoice_page.dart';
 import 'admin_registration_requests_page.dart';
 import 'admin_updates_feed_page.dart';
@@ -790,6 +791,20 @@ class _AdminHomePageState extends State<AdminHomePage> {
             },
           ),
           _AdminActionCard(
+            icon: Icons.groups_2_rounded,
+            title: 'إدارة المجموعات',
+            subtitle: 'إنشاء مجموعات الحضانة وربطها بالموظفات ومتابعة عدد الأطفال داخل كل مجموعة',
+            onTap: () async {
+            await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const AdminGroupsPage()),
+            );
+
+    if (!mounted) return;
+    setState(() {});
+  },
+),
+          _AdminActionCard(
             icon: Icons.person_add_alt_1_rounded,
             title: 'إنشاء حسابات الموظفين',
             subtitle: 'إنشاء حسابات موظفات الحضانة والإدارة فقط',
@@ -822,22 +837,6 @@ class _AdminHomePageState extends State<AdminHomePage> {
          icon: Icons.admin_panel_settings_rounded,
           ),
         const SizedBox(height: 12),
-        _AdminActionCard(
-         icon: Icons.video_call_outlined,
-         title: 'طلبات البث المباشر',
-         subtitle: 'مراجعة طلبات أولياء الأمور ومتابعة قائمة الانتظار',
-         onTap: () async {
-         await Navigator.push(
-         context,
-         MaterialPageRoute(
-         builder: (_) => const AdminLiveStreamRequestsPage(),
-        ),
-    );
-
-    if (!mounted) return;
-    setState(() {});
-  },
-),
         _AdminActionCard(
   icon: Icons.video_call_rounded,
   title: 'طلبات البث المباشر',

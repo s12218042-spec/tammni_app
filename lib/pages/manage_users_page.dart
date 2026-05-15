@@ -17,6 +17,26 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
   final editDisplayNameCtrl = TextEditingController();
   final editUsernameCtrl = TextEditingController();
   final editPhoneCtrl = TextEditingController();
+  final editAlternatePhoneCtrl = TextEditingController();
+  final editNationalIdCtrl = TextEditingController();
+  final editGenderCtrl = TextEditingController();
+  final editRelationshipCtrl = TextEditingController();
+  final editCityCtrl = TextEditingController();
+  final editAddressCtrl = TextEditingController();
+
+  final editJobTitleCtrl = TextEditingController();
+  final editQualificationCtrl = TextEditingController();
+  final editUniversityCtrl = TextEditingController();
+  final editCollegeCtrl = TextEditingController();
+  final editSpecializationCtrl = TextEditingController();
+  final editGraduationYearCtrl = TextEditingController();
+  final editYearsOfExperienceCtrl = TextEditingController();
+  final editEmploymentTypeCtrl = TextEditingController();
+  final editPermissionsCtrl = TextEditingController();
+  final editResponsibilitiesCtrl = TextEditingController();
+  final editCertificationsCtrl = TextEditingController();
+  final editCvNotesCtrl = TextEditingController();
+
   final editNotesCtrl = TextEditingController();
   final TextEditingController _searchCtrl = TextEditingController();
 
@@ -31,6 +51,26 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
     editDisplayNameCtrl.dispose();
     editUsernameCtrl.dispose();
     editPhoneCtrl.dispose();
+    editAlternatePhoneCtrl.dispose();
+    editNationalIdCtrl.dispose();
+    editGenderCtrl.dispose();
+    editRelationshipCtrl.dispose();
+    editCityCtrl.dispose();
+    editAddressCtrl.dispose();
+
+    editJobTitleCtrl.dispose();
+    editQualificationCtrl.dispose();
+    editUniversityCtrl.dispose();
+    editCollegeCtrl.dispose();
+    editSpecializationCtrl.dispose();
+    editGraduationYearCtrl.dispose();
+    editYearsOfExperienceCtrl.dispose();
+    editEmploymentTypeCtrl.dispose();
+    editPermissionsCtrl.dispose();
+    editResponsibilitiesCtrl.dispose();
+    editCertificationsCtrl.dispose();
+    editCvNotesCtrl.dispose();
+
     editNotesCtrl.dispose();
     _searchCtrl.dispose();
     super.dispose();
@@ -141,6 +181,15 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
     return '';
   }
 
+  List<String> _splitCommaValues(String value) {
+    return value
+        .split(',')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toSet()
+        .toList();
+  }
+
   String extractPhone(Map<String, dynamic> data) {
     final parentInfo = _mapField(data, 'parentInfo');
     final personalInfo = _mapField(data, 'personalInfo');
@@ -154,17 +203,24 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
 
   String extractAlternatePhone(Map<String, dynamic> data) {
     final parentInfo = _mapField(data, 'parentInfo');
-    return _fieldAsString(parentInfo['alternatePhone']);
+    final personalInfo = _mapField(data, 'personalInfo');
+
+    return _firstNonEmpty([
+      _fieldAsString(parentInfo['alternatePhone']),
+      _fieldAsString(parentInfo['alternativePhone']),
+      _fieldAsString(personalInfo['alternativePhone']),
+      _fieldAsString(personalInfo['alternatePhone']),
+      _fieldAsString(data['alternativePhone']),
+      _fieldAsString(data['alternatePhone']),
+    ]);
   }
 
   String extractNotes(Map<String, dynamic> data) {
     final adminNotes = _mapField(data, 'adminNotes');
-    final parentInfo = _mapField(data, 'parentInfo');
 
     return _firstNonEmpty([
       _fieldAsString(adminNotes['internalNotes']),
       _fieldAsString(data['notes']),
-      _fieldAsString(parentInfo['notes']),
     ]);
   }
 
@@ -205,16 +261,6 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
     return _fieldAsString(parentInfo['relationship']);
   }
 
-  String extractMaritalStatus(Map<String, dynamic> data) {
-    final parentInfo = _mapField(data, 'parentInfo');
-    final personalInfo = _mapField(data, 'personalInfo');
-
-    return _firstNonEmpty([
-      _fieldAsString(parentInfo['maritalStatus']),
-      _fieldAsString(personalInfo['maritalStatus']),
-    ]);
-  }
-
   String extractGender(Map<String, dynamic> data) {
     final parentInfo = _mapField(data, 'parentInfo');
     final personalInfo = _mapField(data, 'personalInfo');
@@ -227,89 +273,18 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
   }
 
   String extractBirthDate(Map<String, dynamic> data) {
-    final parentInfo = _mapField(data, 'parentInfo');
     final personalInfo = _mapField(data, 'personalInfo');
-    final raw =
-        parentInfo['birthDate'] ?? personalInfo['birthDate'] ?? data['birthDate'];
+    final raw = personalInfo['birthDate'] ?? data['birthDate'];
 
     return formatAnyDate(raw);
   }
 
   String extractJobTitle(Map<String, dynamic> data) {
-    final parentInfo = _mapField(data, 'parentInfo');
     final professionalInfo = _mapField(data, 'professionalInfo');
 
     return _firstNonEmpty([
-      _fieldAsString(parentInfo['jobTitle']),
       _fieldAsString(professionalInfo['jobTitle']),
       _fieldAsString(data['jobTitle']),
-    ]);
-  }
-
-  String extractWorkPlace(Map<String, dynamic> data) {
-    final parentInfo = _mapField(data, 'parentInfo');
-
-    return _firstNonEmpty([
-      _fieldAsString(parentInfo['workplace']),
-      _fieldAsString(data['workplace']),
-    ]);
-  }
-
-  String extractWorkPhone(Map<String, dynamic> data) {
-    final parentInfo = _mapField(data, 'parentInfo');
-
-    return _firstNonEmpty([
-      _fieldAsString(parentInfo['workPhone']),
-      _fieldAsString(data['workPhone']),
-    ]);
-  }
-
-  String extractPreferredContactTime(Map<String, dynamic> data) {
-    final parentInfo = _mapField(data, 'parentInfo');
-
-    return _firstNonEmpty([
-      _fieldAsString(parentInfo['bestContactTime']),
-      _fieldAsString(data['preferredContactTime']),
-    ]);
-  }
-
-  String extractEmploymentStatus(Map<String, dynamic> data) {
-    final parentInfo = _mapField(data, 'parentInfo');
-    final professionalInfo = _mapField(data, 'professionalInfo');
-
-    return _firstNonEmpty([
-      _fieldAsString(parentInfo['employmentStatus']),
-      _fieldAsString(professionalInfo['employmentStatus']),
-    ]);
-  }
-
-  String extractEmergencyName(Map<String, dynamic> data) {
-    final parentInfo = _mapField(data, 'parentInfo');
-    final emergency = _mapField(data, 'emergencyContact');
-
-    return _firstNonEmpty([
-      _fieldAsString(parentInfo['emergencyContactName']),
-      _fieldAsString(emergency['name']),
-    ]);
-  }
-
-  String extractEmergencyRelation(Map<String, dynamic> data) {
-    final parentInfo = _mapField(data, 'parentInfo');
-    final emergency = _mapField(data, 'emergencyContact');
-
-    return _firstNonEmpty([
-      _fieldAsString(parentInfo['emergencyContactRelation']),
-      _fieldAsString(emergency['relation']),
-    ]);
-  }
-
-  String extractEmergencyPhone(Map<String, dynamic> data) {
-    final parentInfo = _mapField(data, 'parentInfo');
-    final emergency = _mapField(data, 'emergencyContact');
-
-    return _firstNonEmpty([
-      _fieldAsString(parentInfo['emergencyContactPhone']),
-      _fieldAsString(emergency['phone']),
     ]);
   }
 
@@ -328,6 +303,11 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
     return _fieldAsString(professionalInfo['university']);
   }
 
+  String extractCollege(Map<String, dynamic> data) {
+    final professionalInfo = _mapField(data, 'professionalInfo');
+    return _fieldAsString(professionalInfo['college']);
+  }
+
   String extractGraduationYear(Map<String, dynamic> data) {
     final professionalInfo = _mapField(data, 'professionalInfo');
     return _fieldAsString(professionalInfo['graduationYear']);
@@ -341,6 +321,16 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
   String extractHireDate(Map<String, dynamic> data) {
     final professionalInfo = _mapField(data, 'professionalInfo');
     return formatAnyDate(professionalInfo['hireDate']);
+  }
+
+  String extractEmploymentType(Map<String, dynamic> data) {
+    final professionalInfo = _mapField(data, 'professionalInfo');
+    return _fieldAsString(professionalInfo['employmentType']);
+  }
+
+  String extractCvNotes(Map<String, dynamic> data) {
+    final professionalInfo = _mapField(data, 'professionalInfo');
+    return _fieldAsString(professionalInfo['cvNotes']);
   }
 
   String extractAdminScope(Map<String, dynamic> data) {
@@ -362,6 +352,35 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
           .where((e) => e.isNotEmpty)
           .toList();
     }
+
+    return [];
+  }
+
+  List<String> extractResponsibilities(Map<String, dynamic> data) {
+    final professionalInfo = _mapField(data, 'professionalInfo');
+    final raw = professionalInfo['responsibilities'];
+
+    if (raw is List) {
+      return raw
+          .map((e) => e.toString().trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+    }
+
+    return [];
+  }
+
+  List<String> extractCertifications(Map<String, dynamic> data) {
+    final professionalInfo = _mapField(data, 'professionalInfo');
+    final raw = professionalInfo['certifications'];
+
+    if (raw is List) {
+      return raw
+          .map((e) => e.toString().trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+    }
+
     return [];
   }
 
@@ -403,38 +422,6 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
         return 'أب';
       case 'guardian':
         return 'ولي أمر قانوني';
-      case 'other':
-        return 'أخرى';
-      default:
-        return value.isEmpty ? '-' : value;
-    }
-  }
-
-  String maritalStatusLabel(String value) {
-    switch (value.trim().toLowerCase()) {
-      case 'married':
-        return 'متزوج/ة';
-      case 'single':
-        return 'أعزب/عزباء';
-      case 'divorced':
-        return 'مطلق/ة';
-      case 'widowed':
-        return 'أرمل/ة';
-      default:
-        return value.isEmpty ? '-' : value;
-    }
-  }
-
-  String employmentStatusLabel(String value) {
-    switch (value.trim().toLowerCase()) {
-      case 'working':
-        return 'يعمل/تعمل';
-      case 'not_working':
-        return 'لا يعمل/لا تعمل';
-      case 'active':
-        return 'نشط';
-      case 'inactive':
-        return 'غير نشط';
       default:
         return value.isEmpty ? '-' : value;
     }
@@ -455,12 +442,26 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
     required String username,
     required String currentDocId,
   }) async {
-    final result = await _firestore
+    final cleanUsername = username.trim().toLowerCase();
+
+    final usersResult = await _firestore
         .collection('users')
-        .where('username', isEqualTo: username)
+        .where('username', isEqualTo: cleanUsername)
         .get();
 
-    return result.docs.any((doc) => doc.id != currentDocId);
+    final existsInUsers = usersResult.docs.any((doc) => doc.id != currentDocId);
+
+    if (existsInUsers) return true;
+
+    final loginDoc =
+        await _firestore.collection('login_usernames').doc(cleanUsername).get();
+
+    if (!loginDoc.exists) return false;
+
+    final data = loginDoc.data() ?? {};
+    final uid = (data['uid'] ?? '').toString();
+
+    return uid.isNotEmpty && uid != currentDocId;
   }
 
   bool isValidUsername(String value) {
@@ -522,6 +523,8 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
       final username = (data['username'] ?? '').toString().toLowerCase().trim();
       final email = (data['email'] ?? '').toString().toLowerCase().trim();
       final phone = extractPhone(data).toLowerCase();
+      final alternatePhone = extractAlternatePhone(data).toLowerCase();
+      final nationalId = extractNationalId(data).toLowerCase();
       final statusLabelText = accountStatusLabel(data).toLowerCase();
 
       final matchesRole =
@@ -536,7 +539,9 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
           name.contains(query) ||
           username.contains(query) ||
           email.contains(query) ||
-          phone.contains(query);
+          phone.contains(query) ||
+          alternatePhone.contains(query) ||
+          nationalId.contains(query);
 
       return matchesRole && matchesStatus && matchesSearch;
     }).toList();
@@ -880,7 +885,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                 ),
           ),
           content: SizedBox(
-            width: 520,
+            width: 560,
             child: SingleChildScrollView(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -928,21 +933,17 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                         label: 'الجنس',
                         value: genderLabel(extractGender(userData)),
                       ),
-                      _DetailItem(
-                        label: 'تاريخ الميلاد',
-                        value: extractBirthDate(userData),
-                      ),
-                      _DetailItem(
-                        label: 'الحالة الاجتماعية',
-                        value:
-                            maritalStatusLabel(extractMaritalStatus(userData)),
-                      ),
+                      if (normalizedRole != 'parent')
+                        _DetailItem(
+                          label: 'تاريخ الميلاد',
+                          value: extractBirthDate(userData),
+                        ),
                       _DetailItem(
                         label: 'رقم الجوال',
                         value: extractPhone(userData),
                       ),
                       _DetailItem(
-                        label: 'رقم بديل',
+                        label: 'رقم جوال بديل',
                         value: extractAlternatePhone(userData),
                       ),
                       _DetailItem(
@@ -965,34 +966,12 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                             extractRelationship(userData),
                           ),
                         ),
-                        _DetailItem(
-                          label: 'حالة العمل',
-                          value: employmentStatusLabel(
-                            extractEmploymentStatus(userData),
-                          ),
-                        ),
-                        _DetailItem(
-                          label: 'المهنة',
-                          value: extractJobTitle(userData),
-                        ),
-                        _DetailItem(
-                          label: 'جهة العمل',
-                          value: extractWorkPlace(userData),
-                        ),
-                        _DetailItem(
-                          label: 'هاتف العمل',
-                          value: extractWorkPhone(userData),
-                        ),
-                        _DetailItem(
-                          label: 'أفضل وقت للتواصل',
-                          value: extractPreferredContactTime(userData),
-                        ),
                       ],
                     ),
                   if (normalizedRole == 'nursery_staff' ||
                       normalizedRole == 'admin')
                     _DetailsSection(
-                      title: 'البيانات المهنية',
+                      title: 'البيانات المهنية والتعليمية',
                       children: [
                         _DetailItem(
                           label: 'المسمى الوظيفي',
@@ -1003,12 +982,16 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                           value: extractQualification(userData),
                         ),
                         _DetailItem(
-                          label: 'التخصص',
-                          value: extractSpecialization(userData),
+                          label: 'الجامعة',
+                          value: extractUniversity(userData),
                         ),
                         _DetailItem(
-                          label: 'الجامعة / الكلية',
-                          value: extractUniversity(userData),
+                          label: 'الكلية',
+                          value: extractCollege(userData),
+                        ),
+                        _DetailItem(
+                          label: 'التخصص',
+                          value: extractSpecialization(userData),
                         ),
                         _DetailItem(
                           label: 'سنة التخرج',
@@ -1019,38 +1002,42 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                           value: extractYearsOfExperience(userData),
                         ),
                         _DetailItem(
+                          label: 'نوع الدوام',
+                          value: extractEmploymentType(userData),
+                        ),
+                        _DetailItem(
                           label: 'تاريخ التعيين',
                           value: extractHireDate(userData),
                         ),
+                        if (normalizedRole == 'nursery_staff')
+                          _DetailItem(
+                            label: 'المسؤوليات / المهام',
+                            value:
+                                extractResponsibilities(userData).join(' • '),
+                          ),
+                        if (normalizedRole == 'nursery_staff')
+                          _DetailItem(
+                            label: 'الدورات / الشهادات',
+                            value: extractCertifications(userData).join(' • '),
+                          ),
                         if (normalizedRole == 'admin')
                           _DetailItem(
                             label: 'نطاق الإدارة',
-                            value: adminScopeLabel(extractAdminScope(userData)),
+                            value: adminScopeLabel(
+                              extractAdminScope(userData),
+                            ),
                           ),
                         if (normalizedRole == 'admin')
                           _DetailItem(
                             label: 'الصلاحيات',
                             value: extractPermissions(userData).join(' • '),
                           ),
+                        _DetailItem(
+                          label: 'ملاحظات CV',
+                          value: extractCvNotes(userData),
+                        ),
                       ],
                     ),
-                  _DetailsSection(
-                    title: 'بيانات الطوارئ',
-                    children: [
-                      _DetailItem(
-                        label: 'اسم شخص الطوارئ',
-                        value: extractEmergencyName(userData),
-                      ),
-                      _DetailItem(
-                        label: 'صلة العلاقة',
-                        value: extractEmergencyRelation(userData),
-                      ),
-                      _DetailItem(
-                        label: 'رقم الطوارئ',
-                        value: extractEmergencyPhone(userData),
-                      ),
-                    ],
-                  ),
                   if (normalizedRole == 'parent')
                     _DetailsSection(
                       title: 'الأطفال المرتبطون',
@@ -1073,7 +1060,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                     title: 'ملاحظات',
                     children: [
                       _DetailItem(
-                        label: 'ملاحظات',
+                        label: 'ملاحظات إدارية',
                         value: extractNotes(userData),
                       ),
                     ],
@@ -1097,93 +1084,369 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
     required String docId,
     required Map<String, dynamic> userData,
   }) async {
-    editDisplayNameCtrl.text =
-        (userData['displayName'] ?? userData['name'] ?? '').toString();
-    editUsernameCtrl.text = (userData['username'] ?? '').toString();
-    editPhoneCtrl.text = extractPhone(userData);
-    editNotesCtrl.text = extractNotes(userData);
-
-    bool isSaving = false;
     final originalRole = normalizeRole((userData['role'] ?? '').toString());
     final originalUsername =
         (userData['username'] ?? '').toString().trim().toLowerCase();
     final emailText = (userData['email'] ?? '').toString();
 
+    editDisplayNameCtrl.text =
+        (userData['displayName'] ?? userData['name'] ?? '').toString();
+    editUsernameCtrl.text = originalUsername;
+    editPhoneCtrl.text = extractPhone(userData);
+    editAlternatePhoneCtrl.text = extractAlternatePhone(userData);
+    editNationalIdCtrl.text = extractNationalId(userData);
+    editGenderCtrl.text =
+        extractGender(userData).isEmpty ? 'female' : extractGender(userData);
+    editRelationshipCtrl.text = extractRelationship(userData).isEmpty
+        ? 'mother'
+        : extractRelationship(userData);
+    editCityCtrl.text = extractCity(userData);
+    editAddressCtrl.text = extractAddress(userData);
+
+    editJobTitleCtrl.text = extractJobTitle(userData);
+    editQualificationCtrl.text = extractQualification(userData).isEmpty
+        ? 'بكالوريوس'
+        : extractQualification(userData);
+    editUniversityCtrl.text = extractUniversity(userData);
+    editCollegeCtrl.text = extractCollege(userData);
+    editSpecializationCtrl.text = extractSpecialization(userData);
+    editGraduationYearCtrl.text = extractGraduationYear(userData);
+    editYearsOfExperienceCtrl.text = extractYearsOfExperience(userData);
+    editEmploymentTypeCtrl.text = extractEmploymentType(userData).isEmpty
+        ? 'دوام كامل'
+        : extractEmploymentType(userData);
+    editPermissionsCtrl.text = extractPermissions(userData).join(', ');
+    editResponsibilitiesCtrl.text = extractResponsibilities(userData).join(', ');
+    editCertificationsCtrl.text = extractCertifications(userData).join(', ');
+    editCvNotesCtrl.text = extractCvNotes(userData);
+    editNotesCtrl.text = extractNotes(userData);
+
+    bool isSaving = false;
+
     await showDialog(
       context: context,
       builder: (_) => StatefulBuilder(
         builder: (context, setDialogState) {
+          Widget textField({
+            required TextEditingController controller,
+            required String label,
+            required IconData icon,
+            TextInputType? keyboardType,
+            int maxLines = 1,
+            bool enabled = true,
+          }) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: TextField(
+                controller: controller,
+                enabled: enabled && !isSaving,
+                keyboardType: keyboardType,
+                maxLines: maxLines,
+                decoration: InputDecoration(
+                  labelText: label,
+                  prefixIcon: Icon(icon),
+                ),
+              ),
+            );
+          }
+
+          Widget disabledTextField({
+            required String initialValue,
+            required String label,
+            required IconData icon,
+          }) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: TextFormField(
+                initialValue: initialValue,
+                enabled: false,
+                decoration: InputDecoration(
+                  labelText: label,
+                  prefixIcon: Icon(icon),
+                ),
+              ),
+            );
+          }
+
+          Widget dropdownField({
+            required String label,
+            required IconData icon,
+            required String value,
+            required List<DropdownMenuItem<String>> items,
+            required ValueChanged<String?> onChanged,
+          }) {
+            final allowedValues = items.map((e) => e.value).toSet();
+            final safeValue =
+                allowedValues.contains(value) ? value : items.first.value;
+
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: DropdownButtonFormField<String>(
+                value: safeValue,
+                decoration: InputDecoration(
+                  labelText: label,
+                  prefixIcon: Icon(icon),
+                ),
+                items: items,
+                onChanged: isSaving ? null : onChanged,
+              ),
+            );
+          }
+
+          final isParent = originalRole == 'parent';
+          final isStaff = originalRole == 'nursery_staff';
+          final isAdmin = originalRole == 'admin';
+
           return Directionality(
             textDirection: TextDirection.rtl,
             child: AlertDialog(
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(20),
               ),
-              title: const Text('تعديل المستخدم'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: editDisplayNameCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'الاسم الكامل',
-                        prefixIcon: Icon(Icons.badge_outlined),
+              title: Text('تعديل ${roleLabel(originalRole)}'),
+              content: SizedBox(
+                width: 560,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      textField(
+                        controller: editDisplayNameCtrl,
+                        label: 'الاسم الكامل',
+                        icon: Icons.badge_outlined,
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: editUsernameCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'اسم المستخدم',
-                        prefixIcon: Icon(Icons.person_outline),
+                      textField(
+                        controller: editUsernameCtrl,
+                        label: 'اسم المستخدم',
+                        icon: Icons.person_outline,
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      initialValue: emailText,
-                      enabled: false,
-                      decoration: const InputDecoration(
-                        labelText: 'الإيميل',
-                        prefixIcon: Icon(Icons.email_outlined),
+                      disabledTextField(
+                        initialValue: emailText,
+                        label: 'الإيميل',
+                        icon: Icons.email_outlined,
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: editPhoneCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'رقم الجوال',
-                        prefixIcon: Icon(Icons.phone_outlined),
+                      disabledTextField(
+                        initialValue: roleLabel(originalRole),
+                        label: 'الدور',
+                        icon: Icons.assignment_ind_outlined,
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      initialValue: roleLabel(originalRole),
-                      enabled: false,
-                      decoration: const InputDecoration(
-                        labelText: 'الدور',
-                        prefixIcon: Icon(Icons.assignment_ind_outlined),
+                      textField(
+                        controller: editNationalIdCtrl,
+                        label: 'رقم الهوية',
+                        icon: Icons.credit_card_outlined,
+                        keyboardType: TextInputType.number,
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: editNotesCtrl,
-                      maxLines: 3,
-                      decoration: const InputDecoration(
-                        labelText: 'ملاحظات إدارية',
-                        prefixIcon: Icon(Icons.notes_outlined),
+                      dropdownField(
+                        label: 'الجنس',
+                        icon: Icons.wc_rounded,
+                        value: editGenderCtrl.text,
+                        items: const [
+                          DropdownMenuItem(value: 'female', child: Text('أنثى')),
+                          DropdownMenuItem(value: 'male', child: Text('ذكر')),
+                          DropdownMenuItem(value: 'أنثى', child: Text('أنثى')),
+                          DropdownMenuItem(value: 'ذكر', child: Text('ذكر')),
+                        ],
+                        onChanged: (value) {
+                          setDialogState(() {
+                            editGenderCtrl.text = value ?? 'female';
+                          });
+                        },
                       ),
-                    ),
-                    const SizedBox(height: 10),
-                    const Text(
-                      'ملاحظة: هذه الصفحة للمراجعة والتعديل فقط. لا يمكن تغيير الدور من هنا، وإنشاء الحسابات الجديدة يتم من قسم إنشاء الموظفين أو من طلبات التسجيل.',
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        color: Colors.black54,
-                        height: 1.5,
+                      textField(
+                        controller: editPhoneCtrl,
+                        label: 'رقم الجوال',
+                        icon: Icons.phone_outlined,
+                        keyboardType: TextInputType.phone,
                       ),
-                    ),
-                  ],
+                      textField(
+                        controller: editAlternatePhoneCtrl,
+                        label: 'رقم جوال بديل',
+                        icon: Icons.phone_callback_outlined,
+                        keyboardType: TextInputType.phone,
+                      ),
+                      if (isParent) ...[
+                        dropdownField(
+                          label: 'صلة القرابة',
+                          icon: Icons.family_restroom_rounded,
+                          value: editRelationshipCtrl.text,
+                          items: const [
+                            DropdownMenuItem(value: 'mother', child: Text('أم')),
+                            DropdownMenuItem(value: 'father', child: Text('أب')),
+                            DropdownMenuItem(
+                              value: 'guardian',
+                              child: Text('ولي أمر قانوني'),
+                            ),
+                          ],
+                          onChanged: (value) {
+                            setDialogState(() {
+                              editRelationshipCtrl.text = value ?? 'mother';
+                            });
+                          },
+                        ),
+                        textField(
+                          controller: editCityCtrl,
+                          label: 'المدينة / المنطقة',
+                          icon: Icons.location_city_outlined,
+                        ),
+                        textField(
+                          controller: editAddressCtrl,
+                          label: 'العنوان التفصيلي',
+                          icon: Icons.home_outlined,
+                          maxLines: 2,
+                        ),
+                      ],
+                      if (isStaff || isAdmin) ...[
+                        textField(
+                          controller: editAddressCtrl,
+                          label: 'العنوان',
+                          icon: Icons.home_outlined,
+                          maxLines: 2,
+                        ),
+                        textField(
+                          controller: editJobTitleCtrl,
+                          label: 'المسمى الوظيفي',
+                          icon: Icons.work_outline_rounded,
+                        ),
+                        dropdownField(
+                          label: 'المؤهل العلمي',
+                          icon: Icons.school_outlined,
+                          value: editQualificationCtrl.text.isEmpty
+                              ? 'بكالوريوس'
+                              : editQualificationCtrl.text,
+                          items: [
+                            if (isStaff)
+                              const DropdownMenuItem(
+                                value: 'ثانوية عامة',
+                                child: Text('ثانوية عامة'),
+                              ),
+                            const DropdownMenuItem(
+                              value: 'دبلوم',
+                              child: Text('دبلوم'),
+                            ),
+                            const DropdownMenuItem(
+                              value: 'بكالوريوس',
+                              child: Text('بكالوريوس'),
+                            ),
+                            const DropdownMenuItem(
+                              value: 'ماجستير',
+                              child: Text('ماجستير'),
+                            ),
+                            if (isAdmin)
+                              const DropdownMenuItem(
+                                value: 'دكتوراه',
+                                child: Text('دكتوراه'),
+                              ),
+                          ],
+                          onChanged: (value) {
+                            setDialogState(() {
+                              editQualificationCtrl.text =
+                                  value ?? 'بكالوريوس';
+                            });
+                          },
+                        ),
+                        textField(
+                          controller: editUniversityCtrl,
+                          label: 'الجامعة',
+                          icon: Icons.account_balance_outlined,
+                        ),
+                        textField(
+                          controller: editCollegeCtrl,
+                          label: 'الكلية',
+                          icon: Icons.apartment_outlined,
+                        ),
+                        textField(
+                          controller: editSpecializationCtrl,
+                          label: 'التخصص',
+                          icon: Icons.auto_stories_outlined,
+                        ),
+                        textField(
+                          controller: editGraduationYearCtrl,
+                          label: 'سنة التخرج',
+                          icon: Icons.calendar_today_outlined,
+                          keyboardType: TextInputType.number,
+                        ),
+                        textField(
+                          controller: editYearsOfExperienceCtrl,
+                          label: 'سنوات الخبرة',
+                          icon: Icons.workspace_premium_outlined,
+                          keyboardType: TextInputType.number,
+                        ),
+                        dropdownField(
+                          label: 'نوع الدوام',
+                          icon: Icons.schedule_outlined,
+                          value: editEmploymentTypeCtrl.text.isEmpty
+                              ? 'دوام كامل'
+                              : editEmploymentTypeCtrl.text,
+                          items: const [
+                            DropdownMenuItem(
+                              value: 'دوام كامل',
+                              child: Text('دوام كامل'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'دوام جزئي',
+                              child: Text('دوام جزئي'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'دوام صباحي',
+                              child: Text('دوام صباحي'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'دوام مسائي',
+                              child: Text('دوام مسائي'),
+                            ),
+                          ],
+                          onChanged: (value) {
+                            setDialogState(() {
+                              editEmploymentTypeCtrl.text =
+                                  value ?? 'دوام كامل';
+                            });
+                          },
+                        ),
+                        if (isStaff) ...[
+                          textField(
+                            controller: editResponsibilitiesCtrl,
+                            label: 'المسؤوليات / المهام',
+                            icon: Icons.checklist_outlined,
+                            maxLines: 2,
+                          ),
+                          textField(
+                            controller: editCertificationsCtrl,
+                            label: 'الدورات / الشهادات',
+                            icon: Icons.card_membership_outlined,
+                            maxLines: 2,
+                          ),
+                        ],
+                        if (isAdmin)
+                          textField(
+                            controller: editPermissionsCtrl,
+                            label: 'الصلاحيات الإدارية',
+                            icon: Icons.security_outlined,
+                            maxLines: 2,
+                          ),
+                        textField(
+                          controller: editCvNotesCtrl,
+                          label: 'ملاحظات CV',
+                          icon: Icons.description_outlined,
+                          maxLines: 2,
+                        ),
+                      ],
+                      textField(
+                        controller: editNotesCtrl,
+                        label: 'ملاحظات إدارية',
+                        icon: Icons.notes_outlined,
+                        maxLines: 3,
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'لا يمكن تغيير الدور أو البريد الإلكتروني من هنا.',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: Colors.black54,
+                          height: 1.5,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
               actions: [
@@ -1200,6 +1463,8 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                           final newUsername =
                               editUsernameCtrl.text.trim().toLowerCase();
                           final newPhone = editPhoneCtrl.text.trim();
+                          final newAltPhone =
+                              editAlternatePhoneCtrl.text.trim();
                           final newNotes = editNotesCtrl.text.trim();
 
                           if (newDisplayName.isEmpty || newUsername.isEmpty) {
@@ -1232,6 +1497,28 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                             return;
                           }
 
+                          if (newAltPhone.isNotEmpty &&
+                              !isValidPalestinianMobile(newAltPhone)) {
+                            ScaffoldMessenger.of(this.context).showSnackBar(
+                              const SnackBar(
+                                content: Text('رقم الجوال البديل غير صالح'),
+                              ),
+                            );
+                            return;
+                          }
+
+                          if (newAltPhone.isNotEmpty &&
+                              newAltPhone == newPhone) {
+                            ScaffoldMessenger.of(this.context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'رقم الجوال البديل يجب أن يختلف عن الرقم الأساسي',
+                                ),
+                              ),
+                            );
+                            return;
+                          }
+
                           setDialogState(() {
                             isSaving = true;
                           });
@@ -1258,7 +1545,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                             final userRef =
                                 _firestore.collection('users').doc(docId);
 
-                            batch.update(userRef, {
+                            final updateData = <String, dynamic>{
                               'displayName': newDisplayName,
                               'name': newDisplayName,
                               'username': newUsername,
@@ -1266,9 +1553,83 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                               'phone': newPhone,
                               'notes': newNotes,
                               'adminNotes.internalNotes': newNotes,
-                              'personalInfo.phone': newPhone,
-                              'parentInfo.phone': newPhone,
-                            });
+                            };
+
+                            if (isParent) {
+                              updateData.addAll({
+                                'parentInfo.fullName': newDisplayName,
+                                'parentInfo.username': newUsername,
+                                'parentInfo.phone': newPhone,
+                                'parentInfo.alternatePhone': newAltPhone,
+                                'parentInfo.identityNumber':
+                                    editNationalIdCtrl.text.trim(),
+                                'parentInfo.gender': editGenderCtrl.text.trim(),
+                                'parentInfo.relationship':
+                                    editRelationshipCtrl.text.trim(),
+                                'parentInfo.city': editCityCtrl.text.trim(),
+                                'parentInfo.address':
+                                    editAddressCtrl.text.trim(),
+                              });
+                            }
+
+                            if (isStaff || isAdmin) {
+                              updateData.addAll({
+                                'personalInfo.nationalId':
+                                    editNationalIdCtrl.text.trim(),
+                                'personalInfo.gender':
+                                    editGenderCtrl.text.trim(),
+                                'personalInfo.phone': newPhone,
+                                'personalInfo.alternativePhone': newAltPhone,
+                                'personalInfo.address':
+                                    editAddressCtrl.text.trim(),
+                                'professionalInfo.jobTitle':
+                                    editJobTitleCtrl.text.trim(),
+                                'professionalInfo.qualification':
+                                    editQualificationCtrl.text.trim(),
+                                'professionalInfo.university':
+                                    editUniversityCtrl.text.trim(),
+                                'professionalInfo.college':
+                                    editCollegeCtrl.text.trim(),
+                                'professionalInfo.specialization':
+                                    editSpecializationCtrl.text.trim(),
+                                'professionalInfo.graduationYear': int.tryParse(
+                                  editGraduationYearCtrl.text.trim(),
+                                ),
+                                'professionalInfo.yearsOfExperience':
+                                    int.tryParse(
+                                          editYearsOfExperienceCtrl.text.trim(),
+                                        ) ??
+                                        0,
+                                'professionalInfo.employmentType':
+                                    editEmploymentTypeCtrl.text.trim(),
+                                'professionalInfo.cvNotes':
+                                    editCvNotesCtrl.text.trim(),
+                              });
+                            }
+
+                            if (isStaff) {
+                              updateData.addAll({
+                                'professionalInfo.responsibilities':
+                                    _splitCommaValues(
+                                  editResponsibilitiesCtrl.text,
+                                ),
+                                'professionalInfo.certifications':
+                                    _splitCommaValues(
+                                  editCertificationsCtrl.text,
+                                ),
+                              });
+                            }
+
+                            if (isAdmin) {
+                              updateData.addAll({
+                                'professionalInfo.permissions':
+                                    _splitCommaValues(
+                                  editPermissionsCtrl.text,
+                                ),
+                              });
+                            }
+
+                            batch.update(userRef, updateData);
 
                             if (originalUsername.isNotEmpty &&
                                 originalUsername != newUsername) {
@@ -1593,7 +1954,8 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
               controller: _searchCtrl,
               textAlign: TextAlign.right,
               decoration: InputDecoration(
-                hintText: 'ابحثي بالاسم أو اسم المستخدم أو الإيميل أو الجوال',
+                hintText:
+                    'ابحثي بالاسم أو اسم المستخدم أو الإيميل أو الجوال أو الهوية',
                 prefixIcon: const Icon(Icons.search_rounded),
                 suffixIcon: searchText.trim().isEmpty
                     ? null
@@ -2084,7 +2446,7 @@ class _DetailsSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final visibleChildren = children.where((widget) {
       if (widget is _DetailItem) {
-        return widget.value.trim().isNotEmpty;
+        return widget.value.trim().isNotEmpty && widget.value.trim() != '-';
       }
       return true;
     }).toList();
@@ -2128,7 +2490,9 @@ class _DetailItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (value.trim().isEmpty) return const SizedBox.shrink();
+    if (value.trim().isEmpty || value.trim() == '-') {
+      return const SizedBox.shrink();
+    }
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),

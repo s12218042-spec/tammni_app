@@ -14,6 +14,7 @@ import 'incident_report_page.dart';
 import 'nursery_care_log_page.dart';
 import 'nursery_chats_page.dart';
 import 'send_parent_notification_page.dart';
+import 'send_group_update_page.dart';
 import 'start_live_stream_page.dart';
 import 'welcome_page.dart';
 
@@ -43,7 +44,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
       case 1:
         return 'المتابعة';
       case 2:
-        return 'الرسائل';
+        return ' ';
       case 3:
         return 'الإعدادات';
       default:
@@ -89,16 +90,74 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
     return null;
   }
 
+  Timestamp? _resolveNotificationTimestamp(Map<String, dynamic> data) {
+    final values = [
+      data['createdAt'],
+      data['time'],
+      data['timestamp'],
+      data['eventAt'],
+      data['updatedAt'],
+    ];
+
+    for (final value in values) {
+      if (value is Timestamp) return value;
+    }
+
+    return null;
+  }
+
+  Future<_StaffGroupInfo?> fetchCurrentStaffGroup() async {
+    final currentUser = AuthService().currentUser;
+
+    if (currentUser == null) return null;
+
+    final snapshot = await _firestore
+        .collection('groups')
+        .where('assignedStaffUid', isEqualTo: currentUser.uid)
+        .where('isActive', isEqualTo: true)
+        .limit(1)
+        .get();
+
+    if (snapshot.docs.isEmpty) return null;
+
+    final doc = snapshot.docs.first;
+    final data = doc.data();
+
+    return _StaffGroupInfo(
+      id: doc.id,
+      name: (data['groupName'] ?? 'مجموعة بدون اسم').toString(),
+      maxChildren: (data['maxChildren'] as num?)?.toInt() ?? 12,
+      currentChildrenCount:
+          (data['currentChildrenCount'] as num?)?.toInt() ?? 0,
+      assignedStaffName: (data['assignedStaffName'] ?? '').toString(),
+    );
+  }
+
   Future<List<ChildModel>> fetchNurseryChildren() async {
+    final staffGroup = await fetchCurrentStaffGroup();
+
+    if (staffGroup == null) {
+      return [];
+    }
+
     final snapshot = await _firestore
         .collection('children')
-        .where('section', isEqualTo: 'Nursery')
+        .where('groupId', isEqualTo: staffGroup.id)
         .where('isActive', isEqualTo: true)
         .get();
 
     final children = snapshot.docs.map((doc) {
       final data = doc.data();
-      return ChildModel.fromMap(data, docId: doc.id);
+
+      final fixedData = <String, dynamic>{
+        ...data,
+        'section': 'Nursery',
+        'group':
+            (data['groupName'] ?? data['group'] ?? staffGroup.name).toString(),
+        'groupName': (data['groupName'] ?? staffGroup.name).toString(),
+      };
+
+      return ChildModel.fromMap(fixedData, docId: doc.id);
     }).toList();
 
     children.sort((a, b) => a.name.compareTo(b.name));
@@ -377,9 +436,17 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
         .toList();
   }
 
-  Future<List<Map<String, dynamic>>> fetchRecentNurseryActivities() async {
+  Future<List<Map<String, dynamic>>> fetchRecentNurseryActivities(
+    List<ChildModel> children,
+  ) async {
     final now = DateTime.now();
     final startOfDay = DateTime(now.year, now.month, now.day);
+
+    final childIds = children.map((e) => e.id).toSet();
+
+    if (childIds.isEmpty) {
+      return [];
+    }
 
     final updatesSnapshot = await _firestore
         .collection('updates')
@@ -390,6 +457,10 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
 
     for (final doc in updatesSnapshot.docs) {
       final data = doc.data();
+      final childId = (data['childId'] ?? '').toString();
+
+      if (!childIds.contains(childId)) continue;
+
       final ts = _resolveTimestamp(data);
 
       if (ts == null) continue;
@@ -565,22 +636,6 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
     });
 
     return unique.take(limit).toList();
-  }
-
-  Timestamp? _resolveNotificationTimestamp(Map<String, dynamic> data) {
-    final values = [
-      data['createdAt'],
-      data['time'],
-      data['timestamp'],
-      data['eventAt'],
-      data['updatedAt'],
-    ];
-
-    for (final value in values) {
-      if (value is Timestamp) return value;
-    }
-
-    return null;
   }
 
   Future<List<Map<String, dynamic>>> fetchRecentSentNotifications() async {
@@ -934,10 +989,12 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
         children: [
           _buildWelcomeHeader(),
           const SizedBox(height: 16),
+          _buildMyGroupCard(),
+          const SizedBox(height: 16),
           _buildStatsSection(stats),
           const SizedBox(height: 16),
           _buildAlertsSection(childrenNeedingUpdate),
-          if (childrenNeedingUpdate.isNotEmpty) const SizedBox(height: 16),
+          const SizedBox(height: 16),
           _buildQuickActions(nurseryChildren),
           const SizedBox(height: 16),
           _buildRecentActivitiesSection(activities),
@@ -957,6 +1014,8 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         children: [
+          _buildMyGroupCard(),
+          const SizedBox(height: 16),
           _buildSearchAndFilterBar(),
           const SizedBox(height: 16),
           if (filteredChildren.isEmpty)
@@ -1300,7 +1359,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
             return FutureBuilder<List<dynamic>>(
               future: Future.wait([
                 getChildrenNeedingUpdate(nurseryChildren),
-                fetchRecentNurseryActivities(),
+                fetchRecentNurseryActivities(nurseryChildren),
                 fetchTodayUpdatesSummary(nurseryChildren),
               ]),
               builder: (context, extraSnapshot) {
@@ -1326,81 +1385,224 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
 
                 final childrenNeedingUpdate =
                     (extraSnapshot.data?[0] as List<ChildModel>? ?? []);
+
                 final activities =
                     (extraSnapshot.data?[1] as List<Map<String, dynamic>>? ??
                         []);
+
                 final latestUpdateByChild =
                     (extraSnapshot.data?[2]
                             as Map<String, Map<String, dynamic>>? ??
                         {});
 
-                return Scaffold(
-                  body: AppPageScaffold(
-                    title: _pageTitle,
-                    actions: selectedIndex == 0
-                        ? [
-                            _buildNotificationActionButton(nurseryChildren),
-                            IconButton(
-                              icon: const Icon(Icons.refresh_rounded),
-                              tooltip: 'تحديث الصفحة',
-                              onPressed: () => setState(() {}),
-                            ),
-                          ]
-                        : selectedIndex == 1
-                            ? [
-                                IconButton(
-                                  icon: const Icon(Icons.refresh_rounded),
-                                  tooltip: 'تحديث الصفحة',
-                                  onPressed: () => setState(() {}),
-                                ),
-                              ]
-                            : [
-                                _buildNotificationActionButton(
-                                  nurseryChildren,
-                                ),
-                              ],
-                    child: _buildBody(
-                      nurseryChildren: nurseryChildren,
-                      stats: stats,
-                      childrenNeedingUpdate: childrenNeedingUpdate,
-                      activities: activities,
-                      latestUpdateByChild: latestUpdateByChild,
-                    ),
+                final pageBody = _buildBody(
+  nurseryChildren: nurseryChildren,
+  stats: stats,
+  childrenNeedingUpdate: childrenNeedingUpdate,
+  activities: activities,
+  latestUpdateByChild: latestUpdateByChild,
+);
+
+return Scaffold(
+  body: selectedIndex == 2
+      ? pageBody
+      : AppPageScaffold(
+          title: _pageTitle,
+          actions: selectedIndex == 0
+              ? [
+                  _buildNotificationActionButton(nurseryChildren),
+                  IconButton(
+                    icon: const Icon(Icons.refresh_rounded),
+                    tooltip: 'تحديث الصفحة',
+                    onPressed: () => setState(() {}),
                   ),
-                  bottomNavigationBar: NavigationBar(
-                    selectedIndex: selectedIndex,
-                    onDestinationSelected: (index) {
-                      setState(() {
-                        selectedIndex = index;
-                      });
-                    },
-                    destinations: const [
-                      NavigationDestination(
-                        icon: Icon(Icons.home_outlined),
-                        selectedIcon: Icon(Icons.home_rounded),
-                        label: 'الرئيسية',
+                ]
+              : selectedIndex == 1
+                  ? [
+                      IconButton(
+                        icon: const Icon(Icons.refresh_rounded),
+                        tooltip: 'تحديث الصفحة',
+                        onPressed: () => setState(() {}),
                       ),
-                      NavigationDestination(
-                        icon: Icon(Icons.fact_check_outlined),
-                        selectedIcon: Icon(Icons.fact_check_rounded),
-                        label: 'المتابعة',
-                      ),
-                      NavigationDestination(
-                        icon: Icon(Icons.chat_bubble_outline_rounded),
-                        selectedIcon: Icon(Icons.chat_bubble_rounded),
-                        label: 'الرسائل',
-                      ),
-                      NavigationDestination(
-                        icon: Icon(Icons.settings_outlined),
-                        selectedIcon: Icon(Icons.settings_rounded),
-                        label: 'الإعدادات',
-                      ),
+                    ]
+                  : [
+                      _buildNotificationActionButton(nurseryChildren),
                     ],
-                  ),
-                );
+          child: pageBody,
+        ),
+  bottomNavigationBar: NavigationBar(
+    selectedIndex: selectedIndex,
+    onDestinationSelected: (index) {
+      setState(() {
+        selectedIndex = index;
+      });
+    },
+    destinations: const [
+      NavigationDestination(
+        icon: Icon(Icons.home_outlined),
+        selectedIcon: Icon(Icons.home_rounded),
+        label: 'الرئيسية',
+      ),
+      NavigationDestination(
+        icon: Icon(Icons.fact_check_outlined),
+        selectedIcon: Icon(Icons.fact_check_rounded),
+        label: 'المتابعة',
+      ),
+      NavigationDestination(
+        icon: Icon(Icons.chat_bubble_outline_rounded),
+        selectedIcon: Icon(Icons.chat_bubble_rounded),
+        label: 'الرسائل',
+      ),
+      NavigationDestination(
+        icon: Icon(Icons.settings_outlined),
+        selectedIcon: Icon(Icons.settings_rounded),
+        label: 'الإعدادات',
+      ),
+    ],
+  ),
+);
               },
             );
           },
+        );
+      },
+    );
+  }
+
+  Widget _buildMyGroupCard() {
+    return FutureBuilder<_StaffGroupInfo?>(
+      future: fetchCurrentStaffGroup(),
+      builder: (context, snapshot) {
+        final group = snapshot.data;
+
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Card(
+            child: Padding(
+              padding: EdgeInsets.all(16),
+              child: LinearProgressIndicator(),
+            ),
+          );
+        }
+
+        if (group == null) {
+          return Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.orange.withOpacity(0.08),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: Colors.orange.withOpacity(0.25)),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.info_outline_rounded, color: Colors.orange),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'لم يتم ربطك بمجموعة بعد. راجعي الإدارة لتحديد المجموعة المسؤولة عنها.',
+                    style: TextStyle(
+                      color: AppColors.textDark,
+                      fontWeight: FontWeight.w700,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        final current = group.currentChildrenCount;
+        final max = group.maxChildren;
+        final isFull = max > 0 && current >= max;
+
+        final color = isFull ? Colors.orange : AppColors.primary;
+
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    CircleAvatar(
+                      backgroundColor: color.withOpacity(0.12),
+                      child: Icon(Icons.groups_2_rounded, color: color),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'مجموعتي',
+                            style: TextStyle(
+                              color: AppColors.textLight,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            group.name,
+                            style: const TextStyle(
+                              color: AppColors.textDark,
+                              fontSize: 17,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _GroupInfoBox(
+                        title: 'عدد الأطفال',
+                        value: '$current / $max',
+                        icon: Icons.child_care_rounded,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _GroupInfoBox(
+                        title: 'الحالة',
+                        value: isFull ? 'ممتلئة' : 'متاحة',
+                        icon: isFull
+                            ? Icons.warning_amber_rounded
+                            : Icons.check_circle_outline_rounded,
+                      ),
+                    ),
+                  ],
+                ),
+                if (isFull) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: Colors.orange.withOpacity(0.22),
+                      ),
+                    ),
+                    child: const Text(
+                      'تنبيه: المجموعة وصلت للحد الأقصى أو قريبة من الامتلاء.',
+                      style: TextStyle(
+                        color: Colors.orange,
+                        fontWeight: FontWeight.w800,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
         );
       },
     );
@@ -1478,45 +1680,146 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
   }
 
   Widget _buildAlertsSection(List<ChildModel> childrenNeedingUpdate) {
-    if (childrenNeedingUpdate.isEmpty) return const SizedBox();
+  final count = childrenNeedingUpdate.length;
+  final hasChildrenNeedUpdate = count > 0;
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.orange.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.orange.withOpacity(0.3)),
+  return Container(
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: hasChildrenNeedUpdate
+          ? Colors.orange.withOpacity(0.08)
+          : Colors.green.withOpacity(0.08),
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(
+        color: hasChildrenNeedUpdate
+            ? Colors.orange.withOpacity(0.30)
+            : Colors.green.withOpacity(0.25),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Row(
-            children: [
-              Icon(Icons.warning_amber_rounded, color: Colors.orange),
-              SizedBox(width: 8),
-              Text(
-                'تنبيهات اليوم',
-                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(
+              hasChildrenNeedUpdate
+                  ? Icons.warning_amber_rounded
+                  : Icons.check_circle_outline_rounded,
+              color: hasChildrenNeedUpdate ? Colors.orange : Colors.green,
+            ),
+            const SizedBox(width: 8),
+            const Text(
+              'تنبيهات اليوم',
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 15,
               ),
-            ],
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Text(
+          hasChildrenNeedUpdate
+              ? 'يوجد $count طفل/أطفال بحاجة إلى تحديث اليوم.'
+              : 'لا يوجد أطفال بحاجة إلى تحديث اليوم.',
+          style: TextStyle(
+            fontWeight: FontWeight.w800,
+            color: hasChildrenNeedUpdate ? AppColors.textDark : Colors.green,
+            height: 1.4,
           ),
-          const SizedBox(height: 10),
-          ...childrenNeedingUpdate.map((child) {
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: Text(
-                '${child.name} يحتاج تحديث اليوم',
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-            );
-          }),
-        ],
+        ),
+        const SizedBox(height: 6),
+        Text(
+          hasChildrenNeedUpdate
+              ? 'يمكنكِ عرض الأسماء من الزر أدناه لتجنب ازدحام الصفحة الرئيسية.'
+              : 'تم إرسال تحديثات لجميع أطفال مجموعتك لهذا اليوم.',
+          style: const TextStyle(
+            color: AppColors.textLight,
+            fontWeight: FontWeight.w600,
+            height: 1.45,
+          ),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ChildrenNeedUpdatePage(
+                    children: childrenNeedingUpdate,
+                  ),
+                ),
+              );
+
+              if (!mounted) return;
+              setState(() {});
+            },
+            icon: Icon(
+              hasChildrenNeedUpdate
+                  ? Icons.list_alt_rounded
+                  : Icons.checklist_rounded,
+            ),
+            label: Text(
+              hasChildrenNeedUpdate
+                  ? 'عرض أسماء الأطفال'
+                  : 'عرض حالة التحديثات',
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+  Future<void> openGroupUpdate(List<ChildModel> children) async {
+  if (children.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('لا يوجد أطفال داخل مجموعتك لإرسال تحديث جماعي.'),
       ),
     );
+    return;
   }
+
+  final group = await fetchCurrentStaffGroup();
+
+  if (!mounted) return;
+
+  if (group == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('لم يتم ربطك بمجموعة بعد. راجعي الإدارة.'),
+      ),
+    );
+    return;
+  }
+
+  final res = await Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => SendGroupUpdatePage(
+        groupId: group.id,
+        groupName: group.name,
+        children: children,
+        byRole: 'nursery_staff',
+      ),
+    ),
+  );
+
+  if (res == true && mounted) {
+    setState(() {});
+  }
+}
 
   Widget _buildQuickActions(List<ChildModel> children) {
     final actions = [
+      _QuickActionItem(
+        icon: Icons.groups_2_outlined,
+        label: 'تحديث جماعي',
+        onTap: () => openGroupUpdate(children),
+      ),
       _QuickActionItem(
         icon: Icons.note_add_outlined,
         label: 'إضافة تحديث',
@@ -1769,6 +2072,146 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
           ),
         ],
       ),
+    );
+  }
+}
+class ChildrenNeedUpdatePage extends StatelessWidget {
+  final List<ChildModel> children;
+
+  const ChildrenNeedUpdatePage({
+    super.key,
+    required this.children,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppPageScaffold(
+      title: 'أطفال بحاجة إلى تحديث اليوم',
+      child: children.isEmpty
+          ? Center(
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 62,
+                        height: 62,
+                        decoration: BoxDecoration(
+                          color: Colors.green.withOpacity(0.10),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.check_circle_outline_rounded,
+                          size: 34,
+                          color: Colors.green,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      const Text(
+                        'لا يوجد أطفال بحاجة إلى تحديث اليوم',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 16,
+                          color: AppColors.textDark,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'تم إرسال تحديثات لجميع أطفال مجموعتك لهذا اليوم.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: AppColors.textLight,
+                          fontWeight: FontWeight.w600,
+                          height: 1.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          backgroundColor: Colors.orange.withOpacity(0.12),
+                          child: const Icon(
+                            Icons.warning_amber_rounded,
+                            color: Colors.orange,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'يوجد ${children.length} طفل/أطفال لم يصلهم تحديث اليوم.',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.textDark,
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: ListView.separated(
+                    itemCount: children.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemBuilder: (context, index) {
+                      final child = children[index];
+                      final groupName = child.group.trim().isEmpty
+                          ? 'بدون مجموعة'
+                          : child.group.trim();
+
+                      return Card(
+                        child: ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor:
+                                AppColors.primary.withOpacity(0.12),
+                            child: Text(
+                              '${index + 1}',
+                              style: const TextStyle(
+                                color: AppColors.primary,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          title: Text(
+                            child.name,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.textDark,
+                            ),
+                          ),
+                          subtitle: Text(
+                            'المجموعة: $groupName',
+                            style: const TextStyle(
+                              color: AppColors.textLight,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          trailing: const Icon(
+                            Icons.child_care_rounded,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
     );
   }
 }
@@ -2476,6 +2919,76 @@ class _StatCard extends StatelessWidget {
                     fontSize: 13,
                     color: AppColors.textLight,
                     fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StaffGroupInfo {
+  final String id;
+  final String name;
+  final int maxChildren;
+  final int currentChildrenCount;
+  final String assignedStaffName;
+
+  const _StaffGroupInfo({
+    required this.id,
+    required this.name,
+    required this.maxChildren,
+    required this.currentChildrenCount,
+    required this.assignedStaffName,
+  });
+}
+
+class _GroupInfoBox extends StatelessWidget {
+  final String title;
+  final String value;
+  final IconData icon;
+
+  const _GroupInfoBox({
+    required this.title,
+    required this.value,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.border.withOpacity(0.8)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: AppColors.primary, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: AppColors.textLight,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    color: AppColors.textDark,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w900,
                   ),
                 ),
               ],

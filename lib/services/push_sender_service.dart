@@ -65,9 +65,11 @@ class PushSenderService {
       case 'live_stream_ended':
         return 'live_stream';
 
-      case 'update_notification':
-      case 'nursery_notification':
-      case 'custom':
+     case 'update_notification':
+     case 'group_update':
+     case 'group_update_notification':
+     case 'nursery_notification':
+     case 'custom':
         return 'notifications';
 
       case 'entry':

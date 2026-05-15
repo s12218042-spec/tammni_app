@@ -111,6 +111,19 @@ class _NurseryCareLogPageState extends State<NurseryCareLogPage> {
     return null;
   }
 
+  bool _isGroupUpdate(Map<String, dynamic> data) {
+  final type = (data['type'] ?? '').toString().trim().toLowerCase();
+  final source = (data['source'] ?? '').toString().trim().toLowerCase();
+  final updateSource =
+      (data['updateSource'] ?? '').toString().trim().toLowerCase();
+
+  return data['isGroupUpdate'] == true ||
+      type == 'group_update' ||
+      source == 'group_update' ||
+      updateSource == 'group_update' ||
+      data['groupUpdateId'] != null;
+}
+
   bool _resolveHasMedia(Map<String, dynamic> data) {
     final mediaUrl = (data['mediaUrl'] ?? '').toString().trim();
     final mediaPath = (data['mediaPath'] ?? '').toString().trim();
@@ -192,15 +205,31 @@ String _dateGroupValue(DateTime date) {
     final updates = updatesSnapshot.docs.map((doc) {
       final data = doc.data();
 
-      return {
-        'id': doc.id,
-        'type': _resolveType(data),
-        'note': _resolveNote(data),
-        'displayTime': _resolveTimestamp(data),
-        'hasMedia': _resolveHasMedia(data),
-        'mediaType': _resolveMediaType(data),
-        'createdByName': _resolveCreatedByName(data),
-      };
+     final isGroupUpdate = _isGroupUpdate(data);
+
+return {
+  'id': doc.id,
+  'type': _resolveType(data),
+  'note': _resolveNote(data),
+  'displayTime': _resolveTimestamp(data),
+  'hasMedia': _resolveHasMedia(data),
+  'mediaType': _resolveMediaType(data),
+  'createdByName': _resolveCreatedByName(data),
+
+  
+  'isGroupUpdate': isGroupUpdate,
+  'groupUpdateId': (data['groupUpdateId'] ?? '').toString(),
+  'groupId': (data['groupId'] ?? '').toString(),
+  'groupName': (data['groupName'] ?? data['group'] ?? '').toString(),
+  'targetScope': (data['targetScope'] ?? data['scope'] ?? '').toString(),
+  'targetScopeLabel': (data['targetScopeLabel'] ??
+        ((data['targetScope'] ?? '').toString() == 'all_nursery'
+            ? 'كل أطفال الحضانة'
+            : (data['targetScope'] ?? '').toString() == 'my_group'
+                ? 'مجموعتي فقط'
+                : ''))
+    .toString(),
+};
     }).toList();
 
     updates.sort((a, b) {
@@ -239,6 +268,10 @@ String _dateGroupValue(DateTime date) {
 
   String itemTypeLabel(String type) {
     switch (type) {
+      case 'group_update':
+        return 'تحديث جماعي';
+      case 'تحديث جماعي':
+        return 'تحديث جماعي';
       case 'وجبة':
         return 'وجبة';
       case 'نوم':
@@ -262,6 +295,10 @@ String _dateGroupValue(DateTime date) {
 
   IconData itemIcon(String type) {
     switch (type) {
+      case 'group_update':
+        return Icons.groups_2_rounded;
+      case 'تحديث جماعي':
+        return Icons.groups_2_rounded;
       case 'وجبة':
         return Icons.restaurant_outlined;
       case 'نوم':
@@ -283,6 +320,10 @@ String _dateGroupValue(DateTime date) {
 
   Color itemColor(String type) {
     switch (type) {
+      case 'group_update':
+        return Colors.purple;
+      case 'تحديث جماعي':
+        return Colors.purple;
       case 'وجبة':
         return const Color(0xFFFFB74D);
       case 'نوم':
@@ -306,11 +347,16 @@ String _dateGroupValue(DateTime date) {
   List<Map<String, dynamic>> result = List.from(items);
 
   if (selectedTypeFilter != 'all') {
-    result = result.where((item) {
-      final itemType = (item['type'] ?? '').toString();
-      return itemType == selectedTypeFilter;
-    }).toList();
-  }
+  result = result.where((item) {
+    final itemType = (item['type'] ?? '').toString();
+
+    if (selectedTypeFilter == 'group_update') {
+      return item['isGroupUpdate'] == true;
+    }
+
+    return itemType == selectedTypeFilter;
+  }).toList();
+}
 
   if (!_isAllDateFiltersSelected) {
     result = result.where((item) {
@@ -439,16 +485,25 @@ String _dateGroupValue(DateTime date) {
                  (item) => Padding(
                  padding: const EdgeInsets.only(bottom: 12),
                  child: _CareLogCard(
-                 type: itemTypeLabel(item['type'] ?? ''),
+                 type: item['isGroupUpdate'] == true
+                  ? 'تحديث جماعي'
+                  : itemTypeLabel(item['type'] ?? ''),
                  note: item['note'] ?? '',
                  createdByName: item['createdByName'] ?? '',
                  timeText: formatDateTime(item['displayTime']),
-                 icon: itemIcon(item['type'] ?? ''),
-                 color: itemColor(item['type'] ?? ''),
+                 icon: item['isGroupUpdate'] == true
+                  ? Icons.groups_2_rounded
+                  : itemIcon(item['type'] ?? ''),
+                 color: item['isGroupUpdate'] == true
+                  ? Colors.purple
+                  : itemColor(item['type'] ?? ''),
                  isNew: isNewItem(item),
                  hasMedia: item['hasMedia'] == true,
-                mediaType: (item['mediaType'] ?? '').toString(),
-                 ),
+                 mediaType: (item['mediaType'] ?? '').toString(),
+                 isGroupUpdate: item['isGroupUpdate'] == true,
+                 groupName: (item['groupName'] ?? '').toString(),
+                 targetScopeLabel: (item['targetScopeLabel'] ?? '').toString(),
+                ),
                 ),
               ),
             ],
@@ -555,6 +610,17 @@ String _dateGroupValue(DateTime date) {
             onTap: () {
               setState(() {
                 selectedTypeFilter = 'all';
+              });
+            },
+          ),
+          _TypeFilterChipItem(
+            label: 'تحديث جماعي',
+            icon: Icons.groups_2_rounded,
+            color: Colors.purple,
+            isSelected: selectedTypeFilter == 'group_update',
+            onTap: () {
+              setState(() {
+                selectedTypeFilter = 'group_update';
               });
             },
           ),
@@ -853,6 +919,9 @@ class _CareLogCard extends StatelessWidget {
   final bool isNew;
   final bool hasMedia;
   final String mediaType;
+  final bool isGroupUpdate;
+  final String groupName;
+  final String targetScopeLabel;
 
   const _CareLogCard({
     required this.type,
@@ -864,6 +933,9 @@ class _CareLogCard extends StatelessWidget {
     required this.isNew,
     required this.hasMedia,
     required this.mediaType,
+    required this.isGroupUpdate,
+    required this.groupName,
+    required this.targetScopeLabel,
   });
 
   @override
@@ -873,13 +945,19 @@ class _CareLogCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: isNew ? color.withOpacity(0.06) : Colors.white,
+        color: isGroupUpdate
+        ? Colors.purple.withOpacity(0.045)
+        : isNew
+        ? color.withOpacity(0.06)
+        : Colors.white,
         borderRadius: BorderRadius.circular(22),
         border: Border.all(
-          color: isNew
-              ? color.withOpacity(0.28)
-              : AppColors.border.withOpacity(0.8),
-        ),
+        color: isGroupUpdate
+        ? Colors.purple.withOpacity(0.24)
+        : isNew
+          ? color.withOpacity(0.28)
+          : AppColors.border.withOpacity(0.8),
+),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.03),
@@ -919,32 +997,51 @@ class _CareLogCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        _Badge(
-                          text: type,
-                          background: color.withOpacity(0.10),
-                          foreground: color,
-                        ),
-                        if (isNew)
-                          _Badge(
-                            text: 'جديد',
-                            background: AppColors.success.withOpacity(0.10),
-                            foreground: AppColors.success,
-                          ),
-                        if (hasMedia)
-                          _Badge(
-                            text: mediaType == 'video' ? 'فيديو' : 'وسائط',
-                            background: AppColors.secondary.withOpacity(0.10),
-                            foreground: AppColors.secondary,
-                            icon: mediaType == 'video'
-                                ? Icons.videocam_outlined
-                                : Icons.image_outlined,
-                          ),
-                      ],
-                    ),
+                   Wrap(
+  spacing: 8,
+  runSpacing: 8,
+  children: [
+    _Badge(
+      text: type,
+      background: color.withOpacity(0.10),
+      foreground: color,
+      icon: isGroupUpdate ? Icons.groups_2_rounded : null,
+    ),
+
+    if (isGroupUpdate && groupName.trim().isNotEmpty)
+      _Badge(
+        text: 'المجموعة: $groupName',
+        background: Colors.purple.withOpacity(0.07),
+        foreground: Colors.purple,
+        icon: Icons.group_outlined,
+      ),
+
+    if (isGroupUpdate && targetScopeLabel.trim().isNotEmpty)
+      _Badge(
+        text: targetScopeLabel,
+        background: Colors.purple.withOpacity(0.07),
+        foreground: Colors.purple,
+        icon: Icons.send_outlined,
+      ),
+
+    if (isNew)
+      _Badge(
+        text: 'جديد',
+        background: AppColors.success.withOpacity(0.10),
+        foreground: AppColors.success,
+      ),
+
+    if (hasMedia)
+      _Badge(
+        text: mediaType == 'video' ? 'فيديو' : 'وسائط',
+        background: AppColors.secondary.withOpacity(0.10),
+        foreground: AppColors.secondary,
+        icon: mediaType == 'video'
+            ? Icons.videocam_outlined
+            : Icons.image_outlined,
+      ),
+  ],
+),
                   ],
                 ),
               ),

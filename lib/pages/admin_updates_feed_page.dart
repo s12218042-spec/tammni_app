@@ -19,14 +19,22 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
   String searchText = '';
 
   final List<String> nurseryTypes = [
-    'meal',
-    'sleep',
-    'health',
-    'activity',
-    'entry',
-    'exit',
-    'note',
-  ];
+  'group_update',
+  'نشاط جماعي',
+  'وجبة جماعية',
+  'فعالية',
+  'صورة جماعية',
+  'فيديو جماعي',
+  'إعلان',
+  'ملاحظة عامة',
+  'وجبة',
+  'نوم',
+  'صحة',
+  'نشاط',
+  'ملاحظة',
+  'كاميرا',
+  'وسائط',
+];
 
 
  List<String> get availableTypes => nurseryTypes;
@@ -36,80 +44,143 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
 }
 
   String typeLabel(String value) {
-    switch (value) {
-      case 'meal':
-        return 'وجبة';
-      case 'sleep':
-        return 'نوم';
-      case 'health':
-        return 'صحة';
-      case 'activity':
-        return 'نشاط';
-      case 'entry':
-        return 'دخول';
-      case 'exit':
-        return 'خروج';
-      case 'note':
-        return 'ملاحظة';
-      default:
-        return value;
-    }
+  switch (value.trim()) {
+    case 'group_update':
+      return 'تحديث جماعي';
+    case 'meal':
+    case 'وجبة':
+      return 'وجبة';
+    case 'sleep':
+    case 'نوم':
+      return 'نوم';
+    case 'health':
+    case 'صحة':
+      return 'صحة';
+    case 'activity':
+    case 'نشاط':
+      return 'نشاط';
+    case 'entry':
+      return 'دخول';
+    case 'exit':
+      return 'خروج';
+    case 'note':
+    case 'ملاحظة':
+      return 'ملاحظة';
+    case 'نشاط جماعي':
+      return 'نشاط جماعي';
+    case 'وجبة جماعية':
+      return 'وجبة جماعية';
+    case 'فعالية':
+      return 'فعالية';
+    case 'صورة جماعية':
+      return 'صورة جماعية';
+    case 'فيديو جماعي':
+      return 'فيديو جماعي';
+    case 'إعلان':
+      return 'إعلان';
+    case 'ملاحظة عامة':
+      return 'ملاحظة عامة';
+    case 'كاميرا':
+      return 'كاميرا';
+    case 'وسائط':
+      return 'وسائط';
+    default:
+      return value.trim().isEmpty ? 'تحديث' : value;
   }
+}
 
   IconData typeIcon(String value) {
-    switch (value) {
-      case 'meal':
-        return Icons.restaurant_rounded;
-      case 'sleep':
-        return Icons.bedtime_rounded;
-      case 'health':
-        return Icons.medical_services_rounded;
-      case 'activity':
-        return Icons.extension_rounded;
-      case 'entry':
-        return Icons.login_rounded;
-      case 'exit':
-        return Icons.logout_rounded;
-      case 'note':
-        return Icons.sticky_note_2_rounded;
-      default:
-        return Icons.notifications_active_rounded;
-    }
+  switch (value.trim()) {
+    case 'group_update':
+    case 'نشاط جماعي':
+    case 'وجبة جماعية':
+    case 'فعالية':
+    case 'صورة جماعية':
+    case 'فيديو جماعي':
+    case 'إعلان':
+    case 'ملاحظة عامة':
+      return Icons.groups_2_rounded;
+    case 'meal':
+    case 'وجبة':
+      return Icons.restaurant_rounded;
+    case 'sleep':
+    case 'نوم':
+      return Icons.bedtime_rounded;
+    case 'health':
+    case 'صحة':
+      return Icons.medical_services_rounded;
+    case 'activity':
+    case 'نشاط':
+      return Icons.extension_rounded;
+    case 'entry':
+      return Icons.login_rounded;
+    case 'exit':
+      return Icons.logout_rounded;
+    case 'note':
+    case 'ملاحظة':
+      return Icons.sticky_note_2_rounded;
+    case 'كاميرا':
+    case 'وسائط':
+      return Icons.photo_library_outlined;
+    default:
+      return Icons.notifications_active_rounded;
   }
+}
 
   Color typeColor(String value) {
-    switch (value) {
-      case 'meal':
-        return Colors.orange;
-      case 'sleep':
-        return Colors.indigo;
-      case 'health':
-        return Colors.redAccent;
-      case 'activity':
-        return Colors.green;
-      case 'entry':
-        return Colors.green;
-      case 'exit':
-        return Colors.deepOrange;
-      case 'note':
-        return Colors.brown;
-      default:
-        return AppColors.primary;
-    }
+  switch (value.trim()) {
+    case 'group_update':
+    case 'نشاط جماعي':
+    case 'وجبة جماعية':
+    case 'فعالية':
+    case 'صورة جماعية':
+    case 'فيديو جماعي':
+    case 'إعلان':
+    case 'ملاحظة عامة':
+      return Colors.purple;
+    case 'meal':
+    case 'وجبة':
+      return Colors.orange;
+    case 'sleep':
+    case 'نوم':
+      return Colors.indigo;
+    case 'health':
+    case 'صحة':
+      return Colors.redAccent;
+    case 'activity':
+    case 'نشاط':
+      return Colors.green;
+    case 'entry':
+      return Colors.green;
+    case 'exit':
+      return Colors.deepOrange;
+    case 'note':
+    case 'ملاحظة':
+      return Colors.brown;
+    case 'كاميرا':
+    case 'وسائط':
+      return AppColors.secondary;
+    default:
+      return AppColors.primary;
   }
+}
 
   Color sectionColor(String section) {
   return const Color(0xFFEFA7C8);
 }
 
   DateTime extractDate(Map<String, dynamic> data) {
-    final value = data['time'] ?? data['createdAt'];
+  final value = data['eventAt'] ??
+      data['time'] ??
+      data['createdAt'] ??
+      data['timestamp'] ??
+      data['updatedAt'];
 
-    if (value is Timestamp) return value.toDate();
-    if (value is DateTime) return value;
+  if (value is Timestamp) return value.toDate();
+  if (value is DateTime) return value;
 
-    return DateTime.fromMillisecondsSinceEpoch(0);
-  }
+  return DateTime.fromMillisecondsSinceEpoch(0);
+}
 
   String formatDateTime(DateTime date) {
     if (date.millisecondsSinceEpoch == 0) return 'بدون وقت';
@@ -155,37 +226,72 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
       searchText = '';
     });
   }
+  
+  bool _isGroupUpdate(Map<String, dynamic> data) {
+  final type = (data['type'] ?? '').toString().trim().toLowerCase();
+  final source = (data['source'] ?? '').toString().trim().toLowerCase();
+  final updateSource =
+      (data['updateSource'] ?? '').toString().trim().toLowerCase();
+
+  return data['isGroupUpdate'] == true ||
+      type == 'group_update' ||
+      source == 'group_update' ||
+      updateSource == 'group_update' ||
+      data['groupUpdateId'] != null;
+}
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> applyFilters(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-  ) {
-    return docs.where((doc) {
-      final data = doc.data();
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+) {
+  return docs.where((doc) {
+    final data = doc.data();
 
-      final section = (data['section'] ?? '').toString().trim();
-      final type = (data['type'] ?? '').toString().trim();
-      final childName = (data['childName'] ?? data['name'] ?? '').toString();
-      final createdByName = (data['createdByName'] ?? '').toString();
-      final notes = (data['notes'] ??
-              data['description'] ??
-              data['text'] ??
-              data['message'] ??
-              '')
-          .toString();
+    final section = (data['section'] ?? '').toString().trim();
+    final type = (data['type'] ??
+            data['updateType'] ??
+            data['category'] ??
+            '')
+        .toString()
+        .trim();
 
-      final matchesSection = section == 'Nursery';
+    final isGroupUpdate = _isGroupUpdate(data);
 
-      final matchesType = selectedTypes.isEmpty || selectedTypes.contains(type);
+    final childName =
+        (data['childName'] ?? data['name'] ?? '').toString();
 
-      final query = searchText.trim().toLowerCase();
-      final matchesSearch = query.isEmpty ||
-          childName.toLowerCase().contains(query) ||
-          createdByName.toLowerCase().contains(query) ||
-          notes.toLowerCase().contains(query);
+    final createdByName =
+        (data['createdByName'] ?? data['senderName'] ?? '').toString();
 
-      return matchesSection && matchesType && matchesSearch;
-    }).toList();
-  }
+    final groupName =
+        (data['groupName'] ?? data['group'] ?? '').toString();
+
+    final notes = (data['note'] ??
+            data['notes'] ??
+            data['description'] ??
+            data['text'] ??
+            data['message'] ??
+            data['body'] ??
+            '')
+        .toString();
+
+    final matchesSection =
+        section.trim().isEmpty || section.trim() == 'Nursery';
+
+    final matchesType = selectedTypes.isEmpty ||
+        selectedTypes.contains(type) ||
+        (selectedTypes.contains('group_update') && isGroupUpdate);
+
+    final query = searchText.trim().toLowerCase();
+
+    final matchesSearch = query.isEmpty ||
+        childName.toLowerCase().contains(query) ||
+        createdByName.toLowerCase().contains(query) ||
+        groupName.toLowerCase().contains(query) ||
+        notes.toLowerCase().contains(query);
+
+    return matchesSection && matchesType && matchesSearch;
+  }).toList();
+}
 
   Widget buildSectionChip({
     required String label,
@@ -259,7 +365,7 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
         searchText.trim().isNotEmpty;
 
     return AppPageScaffold(
-      title: 'سجل التحديثات الإداري',
+      title: 'سجل تحديثات الأطفال',
       child: Column(
         children: [
           Card(
@@ -402,7 +508,16 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
                   itemBuilder: (context, index) {
                     final data = filteredDocs[index].data();
 
-                    final type = (data['type'] ?? '').toString().trim();
+                    final isGroupUpdate = _isGroupUpdate(data);
+
+                    final rawType = (data['type'] ??
+                      data['updateType'] ??
+                      data['category'] ??
+                       '')
+                     .toString()
+                     .trim();
+
+                    final type = isGroupUpdate ? 'group_update' : rawType;
                     final childName =
                         (data['childName'] ?? data['name'] ?? 'طفل').toString();
                     final createdByName =
@@ -410,12 +525,26 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
                     final createdByRole =
                         (data['createdByRole'] ?? '').toString();
                     final section = (data['section'] ?? '').toString();
-                    final details = (data['notes'] ??
-                            data['description'] ??
-                            data['text'] ??
-                            data['message'] ??
-                            '')
-                        .toString();
+                    final groupName =
+                        (data['groupName'] ?? data['group'] ?? '').toString().trim();
+
+                    final targetScopeLabel =
+                        (data['targetScopeLabel'] ??
+                   ((data['targetScope'] ?? '').toString() == 'all_nursery'
+                   ? 'كل أطفال الحضانة'
+                   : (data['targetScope'] ?? '').toString() == 'my_group'
+                    ? 'مجموعتي فقط'
+                    : ''))
+                    .toString()
+                    .trim();
+                    final details = (data['note'] ??
+        data['notes'] ??
+        data['description'] ??
+        data['text'] ??
+        data['message'] ??
+        data['body'] ??
+        '')
+    .toString();
 
                     final time = extractDate(data);
                     final color = typeColor(type);
@@ -454,12 +583,39 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
                                         spacing: 6,
                                         runSpacing: 6,
                                         children: [
-                                          _InfoChip(
-                                            label: typeLabel(type),
-                                            icon: typeIcon(type),
-                                            color: color,
-                                          ),
-                                          if (section.isNotEmpty)
+                                         _InfoChip(
+  label: typeLabel(type),
+  icon: typeIcon(type),
+  color: color,
+),
+
+if (isGroupUpdate)
+  _InfoChip(
+    label: 'تحديث جماعي',
+    icon: Icons.groups_2_rounded,
+    color: Colors.purple,
+  ),
+
+if (isGroupUpdate && groupName.isNotEmpty)
+  _InfoChip(
+    label: 'المجموعة: $groupName',
+    icon: Icons.group_outlined,
+    color: Colors.purple,
+  ),
+
+if (isGroupUpdate && targetScopeLabel.isNotEmpty)
+  _InfoChip(
+    label: targetScopeLabel,
+    icon: Icons.send_outlined,
+    color: Colors.purple,
+  ),
+
+if (section.isNotEmpty)
+  _InfoChip(
+    label: sectionLabel(section),
+    icon: Icons.apartment_rounded,
+    color: AppColors.primary,
+  ),
                                             _InfoChip(
                                               label: sectionLabel(section),
                                               icon: Icons.apartment_rounded,

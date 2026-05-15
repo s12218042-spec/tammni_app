@@ -204,6 +204,29 @@ class _ParentNotificationsPageState extends State<ParentNotificationsPage> {
           data['streamTitle'],
           data['title'],
         ]),
+        'isGroupUpdate': _firstBool([
+  data['isGroupUpdate'],
+], fallback: false),
+'groupUpdateId': _firstNonEmpty([
+  data['groupUpdateId'],
+]),
+'updateId': _firstNonEmpty([
+  data['updateId'],
+]),
+'groupId': _firstNonEmpty([
+  data['groupId'],
+]),
+'groupName': _firstNonEmpty([
+  data['groupName'],
+  data['group'],
+]),
+'targetScope': _firstNonEmpty([
+  data['targetScope'],
+  data['scope'],
+]),
+'targetScopeLabel': _firstNonEmpty([
+  data['targetScopeLabel'],
+]),
       };
     }).toList();
 
@@ -358,11 +381,22 @@ class _ParentNotificationsPageState extends State<ParentNotificationsPage> {
     if (!mounted) return;
 
     if (type == 'live_stream_started') {
-      await _openLiveStreamFromNotification(data);
-      return;
-    }
+  await _openLiveStreamFromNotification(data);
+  return;
+}
 
-    setState(() {});
+if (type == 'group_update' || type == 'group_update_notification') {
+  ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(
+      content: Text('يمكنكِ مشاهدة التحديث الجماعي من صفحة تحديثات الطفل'),
+    ),
+  );
+
+  setState(() {});
+  return;
+}
+
+setState(() {});
   }
 
   Widget _buildTopSummary(List<Map<String, dynamic>> items) {
@@ -554,6 +588,15 @@ class _ParentNotificationsPageState extends State<ParentNotificationsPage> {
                   final body = (data['body'] ?? '').toString();
                   final childName = (data['childName'] ?? '').toString();
                   final type = (data['type'] ?? '').toString();
+                  final isGroupUpdate =
+                    data['isGroupUpdate'] == true ||
+                    type.trim().toLowerCase() == 'group_update' ||
+                    type.trim().toLowerCase() == 'group_update_notification' ||
+                    (data['groupUpdateId'] ?? '').toString().trim().isNotEmpty;
+
+                  final groupName = (data['groupName'] ?? '').toString().trim();
+                  final targetScopeLabel =
+                    (data['targetScopeLabel'] ?? '').toString().trim();
 
                   final isLiveStreamStarted =
                       type.trim().toLowerCase() == 'live_stream_started';
@@ -639,6 +682,91 @@ class _ParentNotificationsPageState extends State<ParentNotificationsPage> {
                                       ),
                                     ),
                                   ],
+                                  if (isGroupUpdate) ...[
+  const SizedBox(height: 8),
+  Wrap(
+    spacing: 8,
+    runSpacing: 8,
+    children: [
+      Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: 10,
+          vertical: 6,
+        ),
+        decoration: BoxDecoration(
+          color: Colors.purple.withOpacity(0.12),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: Colors.purple.withOpacity(0.25),
+          ),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.groups_2_rounded,
+              size: 16,
+              color: Colors.purple,
+            ),
+            SizedBox(width: 5),
+            Text(
+              'تحديث جماعي',
+              style: TextStyle(
+                color: Colors.purple,
+                fontWeight: FontWeight.bold,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
+      ),
+      if (groupName.isNotEmpty)
+        Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 10,
+            vertical: 6,
+          ),
+          decoration: BoxDecoration(
+            color: Colors.purple.withOpacity(0.07),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: Colors.purple.withOpacity(0.16),
+            ),
+          ),
+          child: Text(
+            'المجموعة: $groupName',
+            style: const TextStyle(
+              color: Colors.purple,
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
+            ),
+          ),
+        ),
+      if (targetScopeLabel.isNotEmpty)
+        Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 10,
+            vertical: 6,
+          ),
+          decoration: BoxDecoration(
+            color: Colors.purple.withOpacity(0.07),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: Colors.purple.withOpacity(0.16),
+            ),
+          ),
+          child: Text(
+            targetScopeLabel,
+            style: const TextStyle(
+              color: Colors.purple,
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
+            ),
+          ),
+        ),
+    ],
+  ),
+],
                                   if (body.isNotEmpty) ...[
                                     const SizedBox(height: 8),
                                     Text(
@@ -789,6 +917,9 @@ class _ParentNotificationsPageState extends State<ParentNotificationsPage> {
         return Icons.photo_camera_back_outlined;
       case 'update_notification':
         return Icons.campaign_outlined;
+      case 'group_update':
+      case 'group_update_notification':
+        return Icons.groups_2_rounded;
       case 'nursery_notification':
         return Icons.notifications_active_outlined;
       case 'custom':
@@ -827,6 +958,9 @@ class _ParentNotificationsPageState extends State<ParentNotificationsPage> {
         return AppColors.secondary;
       case 'update_notification':
         return AppColors.primary;
+      case 'group_update':
+      case 'group_update_notification':
+        return Colors.purple;
       case 'custom':
         return Colors.teal;
       case 'complaint_reply':
@@ -865,6 +999,9 @@ class _ParentNotificationsPageState extends State<ParentNotificationsPage> {
         return 'إشعار';
       case 'update_notification':
         return 'تحديث';
+      case 'group_update':
+      case 'group_update_notification':
+        return 'تحديث جماعي';
       case 'complaint_reply':
         return 'رد شكوى';
       case 'invoice_created':
@@ -898,6 +1035,9 @@ class _ParentNotificationsPageState extends State<ParentNotificationsPage> {
         return 'تمت إضافة صورة أو فيديو';
       case 'update_notification':
         return 'تحديث جديد';
+      case 'group_update':
+      case 'group_update_notification':
+        return 'تحديث جماعي جديد';
       case 'nursery_notification':
         return 'إشعار جديد';
       case 'custom':

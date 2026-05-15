@@ -44,36 +44,57 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
 
   List<ChildModel> get activeChildren => widget.children;
 
+  List<ChildModel> get nurseryChildren => activeChildren;
+
   bool isNurseryRole(String role) {
-  final value = role.trim().toLowerCase();
-  return value == 'nursery' ||
-      value == 'nursery_staff' ||
-      value == 'nursery staff';
-}
-
-String normalizeRole(String role) {
-  final value = role.trim().toLowerCase();
-
-  if (value == 'nursery' ||
-      value == 'nursery staff' ||
-      value == 'nursery_staff') {
-    return 'nursery_staff';
+    final value = role.trim().toLowerCase();
+    return value == 'nursery' ||
+        value == 'nursery_staff' ||
+        value == 'nursery staff';
   }
 
-  return value;
-}
+  String normalizeRole(String role) {
+    final value = role.trim().toLowerCase();
 
-  List<ChildModel> get nurseryChildren => activeChildren;
+    if (value == 'nursery' ||
+        value == 'nursery staff' ||
+        value == 'nursery_staff') {
+      return 'nursery_staff';
+    }
+
+    if (value == 'admin') return 'admin';
+    if (value == 'parent') return 'parent';
+
+    return value;
+  }
+
+  bool looksLikeAdminChat({
+    required String role,
+    required String name,
+    required String userId,
+  }) {
+    final normalizedRole = normalizeRole(role);
+    final cleanName = name.trim().toLowerCase();
+
+    return normalizedRole == 'admin' ||
+        cleanName == 'admin' ||
+        cleanName == 'الإدارة' ||
+        cleanName == 'ادارة' ||
+        cleanName == 'الإداره';
+  }
 
   String sectionLabel(String section) {
     return 'حضانة';
   }
 
   String roleLabel(String role) {
-    if (isNurseryRole(role)) return 'موظفة حضانة';
-    if (role.trim().toLowerCase() == 'admin') return 'الإدارة';
-    if (role.trim().toLowerCase() == 'parent') return 'ولي أمر';
-    return role;
+    final normalized = normalizeRole(role);
+
+    if (normalized == 'nursery_staff') return 'موظفة حضانة';
+    if (normalized == 'admin') return 'الإدارة';
+    if (normalized == 'parent') return 'ولي أمر';
+
+    return role.trim().isEmpty ? 'مستخدم' : role;
   }
 
   Color sectionColor(String section) {
@@ -81,9 +102,12 @@ String normalizeRole(String role) {
   }
 
   IconData roleIcon(String role) {
-    if (isNurseryRole(role)) return Icons.child_care_outlined;
-    if (role.trim().toLowerCase() == 'admin') return Icons.business_outlined;
-    if (role.trim().toLowerCase() == 'parent') return Icons.person_outline;
+    final normalized = normalizeRole(role);
+
+    if (normalized == 'nursery_staff') return Icons.child_care_outlined;
+    if (normalized == 'admin') return Icons.business_outlined;
+    if (normalized == 'parent') return Icons.person_outline;
+
     return Icons.person_outline;
   }
 
@@ -91,9 +115,8 @@ String normalizeRole(String role) {
     final date = timestamp.toDate();
     final now = DateTime.now();
 
-    final sameDay = date.year == now.year &&
-        date.month == now.month &&
-        date.day == now.day;
+    final sameDay =
+        date.year == now.year && date.month == now.month && date.day == now.day;
 
     if (sameDay) {
       final hour = date.hour > 12
@@ -105,6 +128,157 @@ String normalizeRole(String role) {
     }
 
     return '${date.day}/${date.month}';
+  }
+
+  String firstLetter(String name) {
+    if (name.trim().isEmpty) return 'م';
+    return name.trim().substring(0, 1);
+  }
+
+  bool childBelongsToCurrentParent(String childId) {
+    final cleanChildId = childId.trim();
+    if (cleanChildId.isEmpty) return false;
+
+    return activeChildren.any((child) => child.id == cleanChildId);
+  }
+
+  ChildModel pickChildForPerson(Map<String, dynamic> person) {
+    final role = normalizeRole((person['role'] ?? '').toString());
+
+    if (role == 'admin') {
+      return activeChildren.first;
+    }
+
+    if (nurseryChildren.isNotEmpty) {
+      return nurseryChildren.first;
+    }
+
+    return activeChildren.first;
+  }
+
+  ChildModel pickChildForMessage(MessageModel message) {
+    for (final child in activeChildren) {
+      if (child.id == message.childId) {
+        return child;
+      }
+    }
+
+    return activeChildren.first;
+  }
+
+  ChildModel resolveChildForConversation({
+    required MessageModel message,
+    required String targetRole,
+    required String targetUserId,
+    required String targetUserName,
+    required bool isAdminChat,
+  }) {
+    if (activeChildren.isEmpty) {
+      throw StateError('لا يوجد أطفال مرتبطون بحساب ولي الأمر');
+    }
+
+    if (isAdminChat) {
+      return activeChildren.first;
+    }
+
+    if (childBelongsToCurrentParent(message.childId)) {
+      return pickChildForMessage(message);
+    }
+
+    return activeChildren.first;
+  }
+
+  String childSubtitleForConversation({
+    required MessageModel message,
+    required String targetRole,
+    required String targetUserId,
+    required String targetUserName,
+    required bool isAdminChat,
+  }) {
+    if (isAdminChat) return 'الإدارة';
+
+    final normalizedTargetRole = normalizeRole(targetRole);
+
+    if (normalizedTargetRole == 'admin') {
+      return 'الإدارة';
+    }
+
+    if (activeChildren.isEmpty) {
+      return roleLabel(targetRole);
+    }
+
+    if (childBelongsToCurrentParent(message.childId)) {
+      final child = pickChildForMessage(message);
+      return '${roleLabel(targetRole)} • بخصوص ${child.name}';
+    }
+
+    if (activeChildren.length == 1) {
+      return '${roleLabel(targetRole)} • بخصوص ${activeChildren.first.name}';
+    }
+
+    final names = activeChildren
+        .map((child) => child.name.trim())
+        .where((name) => name.isNotEmpty)
+        .take(3)
+        .join(' و ');
+
+    return names.isEmpty
+        ? '${roleLabel(targetRole)} • بخصوص أكثر من طفل'
+        : '${roleLabel(targetRole)} • بخصوص $names';
+  }
+
+  String conversationKeyForMessage(MessageModel message) {
+    final currentId = currentUserId ?? '';
+
+    final senderRole = normalizeRole(message.senderRole);
+    final receiverRole = normalizeRole(message.receiverRole);
+
+    final isParentSender = message.senderId == currentId || senderRole == 'parent';
+
+    final otherUserId = isParentSender ? message.receiverId : message.senderId;
+    final otherUserName =
+        isParentSender ? message.receiverName : message.senderName;
+    final otherRole = isParentSender ? receiverRole : senderRole;
+
+    final isAdminChat = looksLikeAdminChat(
+      role: otherRole,
+      name: otherUserName,
+      userId: otherUserId,
+    );
+
+    if (isAdminChat || otherRole == 'admin') {
+      return 'admin_chat';
+    }
+
+    if (childBelongsToCurrentParent(message.childId)) {
+      return '${otherRole}_${otherUserId.trim()}_${message.childId.trim()}';
+    }
+
+    if (activeChildren.isNotEmpty) {
+      final ownedChildIds = activeChildren.map((child) => child.id).join('_');
+      return '${otherRole}_${otherUserId.trim()}_$ownedChildIds';
+    }
+
+    return '${otherRole}_${otherUserId.trim()}_${message.childId.trim()}';
+  }
+
+  List<MessageModel> deduplicateRecentChats(List<MessageModel> rawMessages) {
+    final Map<String, MessageModel> uniqueChats = {};
+
+    for (final message in rawMessages) {
+      final key = conversationKeyForMessage(message);
+      final oldMessage = uniqueChats[key];
+
+      if (oldMessage == null ||
+          message.sentAt.compareTo(oldMessage.sentAt) > 0) {
+        uniqueChats[key] = message;
+      }
+    }
+
+    final chats = uniqueChats.values.toList()
+      ..sort((a, b) => b.sentAt.compareTo(a.sentAt));
+
+    return chats;
   }
 
   Future<List<Map<String, dynamic>>> fetchAllowedPeople() async {
@@ -152,8 +326,8 @@ String normalizeRole(String role) {
     }).toList();
 
     results.sort((a, b) {
-      final roleA = (a['role'] ?? '').toString().trim().toLowerCase();
-      final roleB = (b['role'] ?? '').toString().trim().toLowerCase();
+      final roleA = normalizeRole((a['role'] ?? '').toString());
+      final roleB = normalizeRole((b['role'] ?? '').toString());
 
       if (roleA != roleB) {
         if (roleA == 'admin') return -1;
@@ -168,40 +342,36 @@ String normalizeRole(String role) {
     return results;
   }
 
-  ChildModel pickChildForPerson(Map<String, dynamic> person) {
-    if (nurseryChildren.isNotEmpty) {
-      return nurseryChildren.first;
-    }
-
-    return activeChildren.first;
-  }
-
-  ChildModel pickChildForMessage(MessageModel message) {
-    try {
-      return activeChildren.firstWhere((child) => child.id == message.childId);
-    } catch (_) {
-      return activeChildren.first;
-    }
-  }
-
   bool matchesRecentFilter(MessageModel message) {
-  if (selectedFilter == 'all') return true;
+    if (selectedFilter == 'all') return true;
 
-  final senderRole = normalizeRole(message.senderRole);
-  final receiverRole = normalizeRole(message.receiverRole);
+    final currentId = currentUserId ?? '';
 
-  final otherRole = senderRole == 'parent' ? receiverRole : senderRole;
+    final senderRole = normalizeRole(message.senderRole);
+    final receiverRole = normalizeRole(message.receiverRole);
 
-  if (selectedFilter == 'admin') {
-    return otherRole == 'admin';
+    final isParentSender = message.senderId == currentId || senderRole == 'parent';
+
+    final otherRole = isParentSender ? receiverRole : senderRole;
+    final otherName = isParentSender ? message.receiverName : message.senderName;
+    final otherId = isParentSender ? message.receiverId : message.senderId;
+
+    final isAdminChat = looksLikeAdminChat(
+      role: otherRole,
+      name: otherName,
+      userId: otherId,
+    );
+
+    if (selectedFilter == 'admin') {
+      return isAdminChat || otherRole == 'admin';
+    }
+
+    if (selectedFilter == 'nursery') {
+      return isNurseryRole(otherRole);
+    }
+
+    return true;
   }
-
-  if (selectedFilter == 'nursery') {
-    return otherRole == 'nursery_staff';
-  }
-
-  return true;
-}
 
   Widget buildTopTab({
     required String label,
@@ -290,18 +460,52 @@ String normalizeRole(String role) {
   }
 
   Widget buildRecentChatCard(MessageModel message) {
-    final childForChat = pickChildForMessage(message);
+    if (activeChildren.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final currentId = currentUserId ?? '';
+
     final senderRole = normalizeRole(message.senderRole);
-final receiverRole = normalizeRole(message.receiverRole);
-final isParentSender = senderRole == 'parent';
+    final receiverRole = normalizeRole(message.receiverRole);
 
-final targetUserId = isParentSender ? message.receiverId : message.senderId;
-final targetUserName =
-    isParentSender ? message.receiverName : message.senderName;
-final targetRole = isParentSender ? receiverRole : senderRole;
+    final isParentSender = message.senderId == currentId || senderRole == 'parent';
+
+    final targetUserId = isParentSender ? message.receiverId : message.senderId;
+    final targetUserName =
+        isParentSender ? message.receiverName : message.senderName;
+    final targetRole = isParentSender ? receiverRole : senderRole;
+
+    final isAdminChat = looksLikeAdminChat(
+      role: targetRole,
+      name: targetUserName,
+      userId: targetUserId,
+    );
+
+    final childForChat = resolveChildForConversation(
+      message: message,
+      targetRole: targetRole,
+      targetUserId: targetUserId,
+      targetUserName: targetUserName,
+      isAdminChat: isAdminChat,
+    );
+
     const targetSection = 'Nursery';
-
     final color = sectionColor(targetSection);
+
+    final displayName = isAdminChat
+        ? 'الإدارة'
+        : targetUserName.trim().isEmpty
+            ? 'بدون اسم'
+            : targetUserName.trim();
+
+    final subtitle = childSubtitleForConversation(
+      message: message,
+      targetRole: targetRole,
+      targetUserId: targetUserId,
+      targetUserName: targetUserName,
+      isAdminChat: isAdminChat,
+    );
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -325,10 +529,9 @@ final targetRole = isParentSender ? receiverRole : senderRole;
             MaterialPageRoute(
               builder: (_) => MessagesPage(
                 child: childForChat,
-                targetRole: targetRole,
+                targetRole: isAdminChat ? 'admin' : targetRole,
                 targetUserId: targetUserId,
-                targetUserName:
-                    targetUserName.isEmpty ? 'بدون اسم' : targetUserName,
+                targetUserName: displayName,
                 targetSection: targetSection,
               ),
             ),
@@ -343,7 +546,9 @@ final targetRole = isParentSender ? receiverRole : senderRole;
               radius: 25,
               backgroundColor: color.withOpacity(0.14),
               child: Icon(
-                roleIcon(targetRole),
+                isAdminChat
+                    ? Icons.business_outlined
+                    : roleIcon(targetRole),
                 color: color,
               ),
             ),
@@ -353,7 +558,7 @@ final targetRole = isParentSender ? receiverRole : senderRole;
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    targetUserName.isEmpty ? 'بدون اسم' : targetUserName,
+                    displayName,
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w800,
@@ -361,15 +566,16 @@ final targetRole = isParentSender ? receiverRole : senderRole;
                     ),
                   ),
                   const SizedBox(height: 4),
-                  Text(
-                    '${roleLabel(targetRole)} • بخصوص ${childForChat.name}',
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: AppColors.textLight,
-                      fontWeight: FontWeight.w600,
+                  if (subtitle.trim().isNotEmpty)
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppColors.textLight,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 6),
+                  if (subtitle.trim().isNotEmpty) const SizedBox(height: 6),
                   Text(
                     message.text,
                     maxLines: 1,
@@ -408,12 +614,17 @@ final targetRole = isParentSender ? receiverRole : senderRole;
   }
 
   Widget buildPersonCard(Map<String, dynamic> person) {
+    if (activeChildren.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
     final name = (person['displayName'] ?? '').toString();
     final role = normalizeRole((person['role'] ?? '').toString());
     const section = 'Nursery';
 
     final color = sectionColor(section);
     final childForChat = pickChildForPerson(person);
+    final isAdmin = role == 'admin';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -445,7 +656,9 @@ final targetRole = isParentSender ? receiverRole : senderRole;
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  name.isEmpty ? 'بدون اسم' : name,
+                  name.isEmpty
+                      ? (isAdmin ? 'الإدارة' : 'بدون اسم')
+                      : name,
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w800,
@@ -454,22 +667,24 @@ final targetRole = isParentSender ? receiverRole : senderRole;
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  role == 'admin' ? 'الإدارة' : 'موظفة حضانة',
+                  isAdmin ? 'الإدارة' : 'موظفة حضانة',
                   style: const TextStyle(
                     fontSize: 13,
                     color: AppColors.textLight,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  'سيتم فتح المحادثة عبر الطفل: ${childForChat.name}',
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    color: color,
-                    fontWeight: FontWeight.w700,
+                if (!isAdmin) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'سيتم فتح المحادثة عبر الطفل: ${childForChat.name}',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      color: color,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
@@ -483,7 +698,9 @@ final targetRole = isParentSender ? receiverRole : senderRole;
                     child: childForChat,
                     targetRole: role,
                     targetUserId: (person['id'] ?? '').toString(),
-                    targetUserName: name.isEmpty ? 'بدون اسم' : name,
+                    targetUserName: name.isEmpty
+                        ? (isAdmin ? 'الإدارة' : 'بدون اسم')
+                        : name,
                     targetSection: section,
                   ),
                 ),
@@ -552,24 +769,41 @@ final targetRole = isParentSender ? receiverRole : senderRole;
                 );
               }
 
-              final chats = (snapshot.data ?? [])
-    .where((m) {
-      final senderRole = normalizeRole(m.senderRole);
-      final receiverRole = normalizeRole(m.receiverRole);
+              final rawChats = (snapshot.data ?? []).where((message) {
+                final senderRole = normalizeRole(message.senderRole);
+                final receiverRole = normalizeRole(message.receiverRole);
 
-      return senderRole == 'parent' || receiverRole == 'parent';
-    })
-    .where((m) => activeChildren.isNotEmpty)
-    .where((m) {
-      final senderRole = normalizeRole(m.senderRole);
-      final receiverRole = normalizeRole(m.receiverRole);
+                final senderIsParent =
+                    message.senderId == currentUserId || senderRole == 'parent';
+                final receiverIsParent =
+                    message.receiverId == currentUserId || receiverRole == 'parent';
 
-      final otherRole = senderRole == 'parent' ? receiverRole : senderRole;
+                final includesCurrentParent = senderIsParent || receiverIsParent;
 
-      return otherRole == 'nursery_staff' || otherRole == 'admin';
-    })
-    .where(matchesRecentFilter)
-    .toList();
+                if (!includesCurrentParent) return false;
+                if (activeChildren.isEmpty) return false;
+
+                final otherRole = senderIsParent ? receiverRole : senderRole;
+                final otherName =
+                    senderIsParent ? message.receiverName : message.senderName;
+                final otherId =
+                    senderIsParent ? message.receiverId : message.senderId;
+
+                final isAdminChat = looksLikeAdminChat(
+                  role: otherRole,
+                  name: otherName,
+                  userId: otherId,
+                );
+
+                final allowedOtherRole =
+                    isNurseryRole(otherRole) || isAdminChat || otherRole == 'admin';
+
+                if (!allowedOtherRole) return false;
+
+                return true;
+              }).where(matchesRecentFilter).toList();
+
+              final chats = deduplicateRecentChats(rawChats);
 
               if (chats.isEmpty) {
                 return Center(

@@ -27,27 +27,14 @@ class _ParentRegistrationRequestPageState
   final emailCtrl = TextEditingController();
 
   final nationalIdCtrl = TextEditingController();
-  final birthDateCtrl = TextEditingController();
   final addressCtrl = TextEditingController();
 
   final phoneCtrl = TextEditingController();
   final alternatePhoneCtrl = TextEditingController();
   final cityCtrl = TextEditingController();
-  final jobTitleCtrl = TextEditingController();
-  final workPlaceCtrl = TextEditingController();
-  final workPhoneCtrl = TextEditingController();
-  final preferredContactTimeCtrl = TextEditingController();
-
-  final emergencyNameCtrl = TextEditingController();
-  final emergencyRelationCtrl = TextEditingController();
-  final emergencyPhoneCtrl = TextEditingController();
-
-  final notesCtrl = TextEditingController();
 
   String selectedGender = 'female';
   String selectedRelationship = 'mother';
-  String selectedMaritalStatus = 'married';
-  String selectedEmploymentStatus = 'working';
 
   bool isSubmitting = false;
   bool isSendingVerification = false;
@@ -82,19 +69,10 @@ class _ParentRegistrationRequestPageState
     usernameCtrl.dispose();
     emailCtrl.dispose();
     nationalIdCtrl.dispose();
-    birthDateCtrl.dispose();
     addressCtrl.dispose();
     phoneCtrl.dispose();
     alternatePhoneCtrl.dispose();
     cityCtrl.dispose();
-    jobTitleCtrl.dispose();
-    workPlaceCtrl.dispose();
-    workPhoneCtrl.dispose();
-    preferredContactTimeCtrl.dispose();
-    emergencyNameCtrl.dispose();
-    emergencyRelationCtrl.dispose();
-    emergencyPhoneCtrl.dispose();
-    notesCtrl.dispose();
     super.dispose();
   }
 
@@ -123,13 +101,15 @@ class _ParentRegistrationRequestPageState
                 color: AppColors.textDark,
               ),
         ),
-        const SizedBox(height: 4),
-        Text(
-          subtitle,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: AppColors.textLight,
-              ),
-        ),
+        if (subtitle.trim().isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AppColors.textLight,
+                ),
+          ),
+        ],
       ],
     );
   }
@@ -139,103 +119,6 @@ class _ParentRegistrationRequestPageState
       child: Padding(
         padding: const EdgeInsets.all(18),
         child: child,
-      ),
-    );
-  }
-
-  Widget buildHeaderCard() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            AppColors.primary.withOpacity(0.18),
-            AppColors.secondary.withOpacity(0.10),
-          ],
-          begin: Alignment.topRight,
-          end: Alignment.bottomLeft,
-        ),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: AppColors.primary.withOpacity(0.18),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.shadow.withOpacity(0.08),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 58,
-            height: 58,
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.75),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.family_restroom_rounded,
-              color: AppColors.primary,
-              size: 28,
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'طلب إنشاء حساب ولي أمر',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.textDark,
-                      ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'املئي بيانات ولي الأمر فقط، ثم تحققي من البريد الإلكتروني قبل إرسال الطلب للإدارة.',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: AppColors.textLight,
-                        height: 1.45,
-                      ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget buildInfoCard() {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Icon(
-            Icons.info_outline_rounded,
-            color: AppColors.secondary,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              'هذا النموذج مخصص لإنشاء حساب ولي أمر فقط. بعد موافقة الإدارة سيتم إرسال رابط تعيين كلمة المرور إلى البريد الإلكتروني. بعد تسجيل الدخول يمكن لولي الأمر إرسال طلب إضافة طفل من الصفحة الرئيسية.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppColors.textDark,
-                    height: 1.5,
-                  ),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -340,33 +223,6 @@ class _ParentRegistrationRequestPageState
     return null;
   }
 
-  String? _validateAdultBirthDate(String value) {
-    final clean = value.trim();
-
-    if (clean.isEmpty) {
-      return 'تاريخ الميلاد مطلوب';
-    }
-
-    final birthDate = DateTime.tryParse(clean);
-    if (birthDate == null) {
-      return 'تاريخ الميلاد غير صالح';
-    }
-
-    final now = DateTime.now();
-    int age = now.year - birthDate.year;
-
-    if (now.month < birthDate.month ||
-        (now.month == birthDate.month && now.day < birthDate.day)) {
-      age--;
-    }
-
-    if (age < 18) {
-      return 'يجب أن يكون عمر ولي الأمر 18 سنة أو أكثر';
-    }
-
-    return null;
-  }
-
   String? _validateUsername(String value) {
     final clean = value.trim();
 
@@ -423,22 +279,6 @@ class _ParentRegistrationRequestPageState
         .get();
 
     return snapshot.docs.isNotEmpty;
-  }
-
-  Future<void> _pickParentBirthDate() async {
-    final now = DateTime.now();
-
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: DateTime(now.year - 30),
-      firstDate: DateTime(1950),
-      lastDate: DateTime(now.year - 18),
-    );
-
-    if (picked == null) return;
-
-    birthDateCtrl.text =
-        '${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
   }
 
   void _resetVerificationState() {
@@ -808,22 +648,9 @@ class _ParentRegistrationRequestPageState
           'alternatePhone': alternatePhoneCtrl.text.trim(),
           'identityNumber': nationalIdCtrl.text.trim(),
           'gender': selectedGender,
-          'birthDate': birthDateCtrl.text.trim().isEmpty
-              ? null
-              : birthDateCtrl.text.trim(),
           'relationship': selectedRelationship,
-          'maritalStatus': selectedMaritalStatus,
           'city': cityCtrl.text.trim(),
           'address': addressCtrl.text.trim(),
-          'jobTitle': jobTitleCtrl.text.trim(),
-          'workplace': workPlaceCtrl.text.trim(),
-          'workPhone': workPhoneCtrl.text.trim(),
-          'employmentStatus': selectedEmploymentStatus,
-          'bestContactTime': preferredContactTimeCtrl.text.trim(),
-          'emergencyContactName': emergencyNameCtrl.text.trim(),
-          'emergencyContactRelation': emergencyRelationCtrl.text.trim(),
-          'emergencyContactPhone': emergencyPhoneCtrl.text.trim(),
-          'notes': notesCtrl.text.trim(),
         },
 
         'childrenInfo': [],
@@ -1080,18 +907,6 @@ class _ParentRegistrationRequestPageState
             validator: (value) => _validatePalestinianId(value ?? ''),
           ),
           const SizedBox(height: 14),
-          TextFormField(
-            controller: birthDateCtrl,
-            readOnly: true,
-            onTap: _pickParentBirthDate,
-            decoration: customDecoration(
-              label: 'تاريخ الميلاد',
-              icon: Icons.calendar_month_rounded,
-              hint: 'اختاري التاريخ',
-            ),
-            validator: (value) => _validateAdultBirthDate(value ?? ''),
-          ),
-          const SizedBox(height: 14),
           DropdownButtonFormField<String>(
             value: selectedGender,
             decoration: customDecoration(
@@ -1118,31 +933,14 @@ class _ParentRegistrationRequestPageState
             items: const [
               DropdownMenuItem(value: 'mother', child: Text('أم')),
               DropdownMenuItem(value: 'father', child: Text('أب')),
-              DropdownMenuItem(value: 'guardian', child: Text('ولي أمر قانوني')),
-              DropdownMenuItem(value: 'other', child: Text('أخرى')),
+              DropdownMenuItem(
+                value: 'guardian',
+                child: Text('ولي أمر قانوني'),
+              ),
             ],
             onChanged: (value) {
               setState(() {
                 selectedRelationship = value ?? 'mother';
-              });
-            },
-          ),
-          const SizedBox(height: 14),
-          DropdownButtonFormField<String>(
-            value: selectedMaritalStatus,
-            decoration: customDecoration(
-              label: 'الحالة الاجتماعية',
-              icon: Icons.favorite_border_rounded,
-            ),
-            items: const [
-              DropdownMenuItem(value: 'married', child: Text('متزوج/ة')),
-              DropdownMenuItem(value: 'single', child: Text('أعزب/عزباء')),
-              DropdownMenuItem(value: 'divorced', child: Text('مطلق/ة')),
-              DropdownMenuItem(value: 'widowed', child: Text('أرمل/ة')),
-            ],
-            onChanged: (value) {
-              setState(() {
-                selectedMaritalStatus = value ?? 'married';
               });
             },
           ),
@@ -1157,8 +955,8 @@ class _ParentRegistrationRequestPageState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           buildSectionTitle(
-            'بيانات التواصل والعمل',
-            'وسائل التواصل والبيانات الإضافية المفيدة.',
+            'بيانات التواصل',
+            'وسائل التواصل الأساسية مع ولي الأمر.',
           ),
           const SizedBox(height: 14),
           TextFormField(
@@ -1213,149 +1011,6 @@ class _ParentRegistrationRequestPageState
             decoration: customDecoration(
               label: 'العنوان التفصيلي',
               icon: Icons.home_rounded,
-            ),
-          ),
-          const SizedBox(height: 14),
-          DropdownButtonFormField<String>(
-            value: selectedEmploymentStatus,
-            decoration: customDecoration(
-              label: 'حالة العمل',
-              icon: Icons.work_outline_rounded,
-            ),
-            items: const [
-              DropdownMenuItem(value: 'working', child: Text('يعمل/تعمل')),
-              DropdownMenuItem(
-                value: 'not_working',
-                child: Text('لا يعمل/لا تعمل'),
-              ),
-            ],
-            onChanged: (value) {
-              setState(() {
-                selectedEmploymentStatus = value ?? 'working';
-              });
-            },
-          ),
-          const SizedBox(height: 14),
-          TextFormField(
-            controller: jobTitleCtrl,
-            decoration: customDecoration(
-              label: 'المهنة',
-              icon: Icons.badge_outlined,
-              hint: 'اختياري',
-            ),
-          ),
-          const SizedBox(height: 14),
-          TextFormField(
-            controller: workPlaceCtrl,
-            decoration: customDecoration(
-              label: 'جهة العمل',
-              icon: Icons.business_center_rounded,
-              hint: 'اختياري',
-            ),
-          ),
-          const SizedBox(height: 14),
-          TextFormField(
-            controller: workPhoneCtrl,
-            keyboardType: TextInputType.phone,
-            inputFormatters: [
-              FilteringTextInputFormatter.digitsOnly,
-              LengthLimitingTextInputFormatter(10),
-            ],
-            decoration: customDecoration(
-              label: 'هاتف العمل',
-              icon: Icons.call_rounded,
-              hint: 'اختياري',
-            ),
-            validator: (value) => _validatePalestinianMobile(
-              value ?? '',
-              label: 'هاتف العمل',
-              requiredField: false,
-            ),
-          ),
-          const SizedBox(height: 14),
-          TextFormField(
-            controller: preferredContactTimeCtrl,
-            decoration: customDecoration(
-              label: 'أفضل وقت للتواصل',
-              icon: Icons.schedule_rounded,
-              hint: 'مثال: بعد الساعة 3 مساءً',
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget buildEmergencySection() {
-    return buildMainCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          buildSectionTitle(
-            'بيانات الطوارئ والملاحظات',
-            'معلومات مهمة للإدارة في الحالات العاجلة.',
-          ),
-          const SizedBox(height: 14),
-          TextFormField(
-            controller: emergencyNameCtrl,
-            decoration: customDecoration(
-              label: 'اسم شخص للطوارئ',
-              icon: Icons.emergency_rounded,
-            ),
-            validator: (value) {
-              if ((value?.trim() ?? '').isEmpty) {
-                return 'أدخلي اسم شخص للطوارئ';
-              }
-              return null;
-            },
-          ),
-          const SizedBox(height: 14),
-          TextFormField(
-            controller: emergencyRelationCtrl,
-            decoration: customDecoration(
-              label: 'صلة القرابة',
-              icon: Icons.family_restroom_rounded,
-            ),
-            validator: (value) {
-              if ((value?.trim() ?? '').isEmpty) {
-                return 'أدخلي صلة القرابة';
-              }
-              return null;
-            },
-          ),
-          const SizedBox(height: 14),
-          TextFormField(
-            controller: emergencyPhoneCtrl,
-            keyboardType: TextInputType.phone,
-            inputFormatters: [
-              FilteringTextInputFormatter.digitsOnly,
-              LengthLimitingTextInputFormatter(10),
-            ],
-            decoration: customDecoration(
-              label: 'رقم هاتف الطوارئ',
-              icon: Icons.phone_in_talk_rounded,
-            ),
-            validator: (value) {
-              final clean = (value ?? '').trim();
-
-              if (clean.isEmpty) {
-                return 'أدخلي رقم هاتف الطوارئ';
-              }
-
-              return _validatePalestinianMobile(
-                clean,
-                label: 'رقم هاتف الطوارئ',
-              );
-            },
-          ),
-          const SizedBox(height: 14),
-          TextFormField(
-            controller: notesCtrl,
-            maxLines: 4,
-            decoration: customDecoration(
-              label: 'ملاحظات عامة',
-              icon: Icons.notes_rounded,
-              hint: 'أي ظروف خاصة أو تنبيهات مهمة...',
             ),
           ),
         ],
@@ -1426,17 +1081,11 @@ class _ParentRegistrationRequestPageState
         autovalidateMode: AutovalidateMode.onUserInteraction,
         child: ListView(
           children: [
-            buildHeaderCard(),
-            const SizedBox(height: 16),
-            buildInfoCard(),
-            const SizedBox(height: 18),
             buildAccountSection(),
             const SizedBox(height: 14),
             buildPersonalSection(),
             const SizedBox(height: 14),
             buildContactSection(),
-            const SizedBox(height: 14),
-            buildEmergencySection(),
             const SizedBox(height: 18),
             buildVerificationCard(),
             const SizedBox(height: 14),

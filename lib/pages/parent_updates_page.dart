@@ -55,6 +55,10 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
 
   Color typeColor(String type) {
     switch (type.trim()) {
+      case 'group_update':
+        return Colors.purple;
+      case 'تحديث جماعي':
+        return Colors.purple;
       case 'وجبة':
         return Colors.orange;
       case 'نوم':
@@ -77,6 +81,10 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
 
   IconData typeIcon(String type) {
     switch (type.trim()) {
+      case 'group_update':
+        return Icons.groups_2_rounded;
+      case 'تحديث جماعي':
+        return Icons.groups_2_rounded;
       case 'وجبة':
         return Icons.restaurant_outlined;
       case 'نوم':
@@ -236,6 +244,19 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
     return null;
   }
 
+  bool _isGroupUpdate(Map<String, dynamic> data) {
+  final type = (data['type'] ?? '').toString().trim().toLowerCase();
+  final source = (data['source'] ?? '').toString().trim().toLowerCase();
+  final updateSource =
+      (data['updateSource'] ?? '').toString().trim().toLowerCase();
+
+  return data['isGroupUpdate'] == true ||
+      type == 'group_update' ||
+      source == 'group_update' ||
+      updateSource == 'group_update' ||
+      data['groupUpdateId'] != null;
+}
+
   bool _isUsableRemoteUrl(String value) {
     final trimmed = value.trim().toLowerCase();
     return trimmed.startsWith('http://') || trimmed.startsWith('https://');
@@ -317,19 +338,31 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
       final mediaType = _resolveMediaType(data);
       final resolvedSource = mediaUrl.isNotEmpty ? mediaUrl : mediaPath;
 
-      return {
-        'id': doc.id,
-        'type': _resolveType(data),
-        'note': _resolveNote(data),
-        'byRole': _resolveRole(data),
-        'createdByName': _resolveCreatorName(data),
-        'displayTime': _resolveTimestamp(data),
-        'mediaUrl': mediaUrl,
-        'mediaType': mediaType,
-        'mediaPath': mediaPath,
-        'resolvedSource': resolvedSource,
-        'hasMedia': resolvedSource.isNotEmpty && mediaType.isNotEmpty,
-      };
+      final isGroupUpdate = _isGroupUpdate(data);
+final resolvedType = _resolveType(data);
+
+return {
+  'id': doc.id,
+  'type': isGroupUpdate && resolvedType == 'group_update'
+      ? 'تحديث'
+      : resolvedType,
+  'note': _resolveNote(data),
+  'byRole': _resolveRole(data),
+  'createdByName': _resolveCreatorName(data),
+  'displayTime': _resolveTimestamp(data),
+  'mediaUrl': mediaUrl,
+  'mediaType': mediaType,
+  'mediaPath': mediaPath,
+  'resolvedSource': resolvedSource,
+  'hasMedia': resolvedSource.isNotEmpty && mediaType.isNotEmpty,
+
+
+  'isGroupUpdate': isGroupUpdate,
+  'groupUpdateId': data['groupUpdateId'],
+  'groupId': data['groupId'],
+  'groupName': data['groupName'],
+  'updateScope': data['updateScope'] ?? data['scope'] ?? '',
+};
     }).toList();
 
     items.sort((a, b) {
@@ -564,6 +597,9 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
                         mediaType: u['mediaType']?.toString(),
                         mediaPath: u['mediaPath']?.toString(),
                         hasMedia: u['hasMedia'] == true,
+                        isGroupUpdate: u['isGroupUpdate'] == true,
+                        groupName: (u['groupName'] ?? '').toString(),
+                        updateScope: (u['updateScope'] ?? '').toString(),
                       );
                     },
                   ),
@@ -686,6 +722,9 @@ class _UpdateCard extends StatelessWidget {
   final String? mediaType;
   final String? mediaPath;
   final bool hasMedia;
+  final bool isGroupUpdate;
+  final String groupName;
+  final String updateScope;
 
   const _UpdateCard({
     required this.type,
@@ -700,6 +739,9 @@ class _UpdateCard extends StatelessWidget {
     this.mediaType,
     this.mediaPath,
     required this.hasMedia,
+    required this.isGroupUpdate,
+    required this.groupName,
+    required this.updateScope,
   });
 
   bool get _hasRemoteUrl {
@@ -747,7 +789,16 @@ class _UpdateCard extends StatelessWidget {
     final displayType = type.trim().isEmpty ? 'تحديث' : type;
 
     return Card(
-      child: Padding(
+  color: isGroupUpdate ? Colors.purple.withOpacity(0.035) : null,
+  shape: isGroupUpdate
+      ? RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: BorderSide(
+            color: Colors.purple.withOpacity(0.20),
+          ),
+        )
+      : null,
+        child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -784,6 +835,38 @@ class _UpdateCard extends StatelessWidget {
                           ),
                         ),
                       ),
+                      if (isGroupUpdate)
+  Container(
+    padding: const EdgeInsets.symmetric(
+      horizontal: 10,
+      vertical: 6,
+    ),
+    decoration: BoxDecoration(
+      color: Colors.purple.withOpacity(0.12),
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(
+        color: Colors.purple.withOpacity(0.25),
+      ),
+    ),
+    child: const Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          Icons.groups_2_rounded,
+          size: 16,
+          color: Colors.purple,
+        ),
+        SizedBox(width: 5),
+        Text(
+          'تحديث جماعي',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: Colors.purple,
+          ),
+        ),
+      ],
+    ),
+  ),
                       Container(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 10,
@@ -836,6 +919,64 @@ class _UpdateCard extends StatelessWidget {
                     : AppColors.textLight,
               ),
             ),
+            if (isGroupUpdate &&
+    (groupName.trim().isNotEmpty || updateScope.trim().isNotEmpty)) ...[
+  const SizedBox(height: 10),
+  Wrap(
+    spacing: 8,
+    runSpacing: 8,
+    children: [
+      if (groupName.trim().isNotEmpty)
+        Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 10,
+            vertical: 6,
+          ),
+          decoration: BoxDecoration(
+            color: Colors.purple.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: Colors.purple.withOpacity(0.18),
+            ),
+          ),
+          child: Text(
+            'المجموعة: $groupName',
+            style: const TextStyle(
+              color: Colors.purple,
+              fontWeight: FontWeight.w700,
+              fontSize: 12.5,
+            ),
+          ),
+        ),
+      if (updateScope.trim().isNotEmpty)
+        Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 10,
+            vertical: 6,
+          ),
+          decoration: BoxDecoration(
+            color: Colors.purple.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: Colors.purple.withOpacity(0.18),
+            ),
+          ),
+          child: Text(
+            updateScope.trim() == 'all'
+                ? 'النطاق: كل أطفال الحضانة'
+                : updateScope.trim() == 'group'
+                    ? 'النطاق: مجموعة محددة'
+                    : 'النطاق: ${updateScope.trim()}',
+            style: const TextStyle(
+              color: Colors.purple,
+              fontWeight: FontWeight.w700,
+              fontSize: 12.5,
+            ),
+          ),
+        ),
+    ],
+  ),
+],
             const SizedBox(height: 10),
             Row(
               children: [
