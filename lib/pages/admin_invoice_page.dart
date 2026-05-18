@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 import 'create_nursery_invoice_page.dart';
+import 'add_extra_hours_page.dart';
 
 class AdminInvoicesPage extends StatefulWidget {
   const AdminInvoicesPage({super.key});
@@ -598,6 +599,9 @@ class _AdminInvoicesPageState extends State<AdminInvoicesPage> {
     final parentUsername = (data['parentUsername'] ?? '').toString();
     final billingType = (data['billingType'] ?? '').toString();
     final totalAmount = formatAmount(data['totalAmount']);
+    final extraHoursAmount = formatAmount(
+      data['extraHoursAmount'] ?? data['extraHoursTotal'] ?? 0,
+    );
 
     final color = statusColor(status);
 
@@ -682,7 +686,13 @@ class _AdminInvoicesPageState extends State<AdminInvoicesPage> {
             _InvoiceInfoTile(
               icon: Icons.payments_outlined,
               title: 'المبلغ الإجمالي',
-              value: totalAmount,
+              value: '$totalAmount شيكل',
+            ),
+            const SizedBox(height: 8),
+            _InvoiceInfoTile(
+              icon: Icons.access_time_filled_rounded,
+              title: 'الساعات الإضافية',
+              value: '$extraHoursAmount شيكل',
             ),
             const SizedBox(height: 8),
             _InvoiceInfoTile(
@@ -720,10 +730,37 @@ class _AdminInvoicesPageState extends State<AdminInvoicesPage> {
   Widget build(BuildContext context) {
     return AppPageScaffold(
       title: 'فواتير الحضانة',
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: openCreateInvoice,
-        icon: const Icon(Icons.add),
-        label: const Text('إنشاء فاتورة'),
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FloatingActionButton.extended(
+            heroTag: 'extra_hours_btn',
+            onPressed: () async {
+              final result = await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const AddExtraHoursPage(),
+                ),
+              );
+
+              if (!mounted) return;
+
+              if (result == true) {
+                setState(() {});
+              }
+            },
+            backgroundColor: Colors.orange,
+            icon: const Icon(Icons.access_time_filled_rounded),
+            label: const Text('الساعات الإضافية'),
+          ),
+          const SizedBox(height: 12),
+          FloatingActionButton.extended(
+            heroTag: 'create_invoice_btn',
+            onPressed: openCreateInvoice,
+            icon: const Icon(Icons.add),
+            label: const Text('إنشاء فاتورة'),
+          ),
+        ],
       ),
       child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: invoicesStream(),

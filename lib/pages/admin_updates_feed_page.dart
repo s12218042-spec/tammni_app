@@ -616,11 +616,6 @@ if (section.isNotEmpty)
     icon: Icons.apartment_rounded,
     color: AppColors.primary,
   ),
-                                            _InfoChip(
-                                              label: sectionLabel(section),
-                                              icon: Icons.apartment_rounded,
-                                              color: AppColors.primary,
-                                            ),
                                         ],
                                       ),
                                     ],

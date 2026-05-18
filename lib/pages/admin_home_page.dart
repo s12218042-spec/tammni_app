@@ -18,6 +18,8 @@ import 'manage_children_page.dart';
 import 'manage_users_page.dart';
 import 'welcome_page.dart';
 import 'admin_live_stream_requests_page.dart';
+import 'admin_offers_page.dart';
+import 'admin_consultations_page.dart';
 import '../services/account_settings_service.dart';
 
 class AdminHomePage extends StatefulWidget {
@@ -831,6 +833,39 @@ class _AdminHomePageState extends State<AdminHomePage> {
               setState(() {});
             },
           ),
+          _AdminActionCard(
+            icon: Icons.local_offer_rounded,
+            title: 'العروض والاشتراكات',
+            subtitle: 'إدارة عروض الحضانة والاشتراكات والخصومات الخاصة بأولياء الأمور',
+            onTap: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const AdminOffersPage(),
+                ),
+              );
+
+              if (!mounted) return;
+              setState(() {});
+            },
+          ),
+          _AdminActionCard(
+            icon: Icons.psychology_alt_rounded,
+            title: 'الاستشارات',
+            subtitle:
+                'إدارة استشارات الأطفال وموافقة أولياء الأمور وربطها بالفواتير',
+            onTap: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const AdminConsultationsPage(),
+                ),
+              );
+
+              if (!mounted) return;
+              setState(() {});
+            },
+          ),
           const SizedBox(height: 24),
           const _SectionTitle(
          title: 'أدوات الإدارة المتقدمة',
@@ -1572,3 +1607,4 @@ class _AdminActivityItem {
     required this.icon,
   });
 }
+

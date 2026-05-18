@@ -16,6 +16,7 @@ import 'child_profile_page.dart';
 import 'live_stream_viewer_page.dart';
 import 'parent_chats_page.dart';
 import 'parent_complaints_page.dart';
+import 'parent_consultations_page.dart';
 import 'parent_invoice_page.dart';
 import 'parent_notifications_page.dart';
 import 'parent_updates_page.dart';
@@ -1016,6 +1017,28 @@ class _ParentHomePageState extends State<ParentHomePage> {
                 title: const Text('الفواتير'),
                 subtitle: const Text('عرض الفواتير المرتبطة بالحساب'),
                 onTap: _openInvoices,
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Colors.deepPurple.withOpacity(0.12),
+                  child: const Icon(
+                    Icons.psychology_alt_rounded,
+                    color: Colors.deepPurple,
+                  ),
+                ),
+                title: const Text('الاستشارات'),
+                subtitle: const Text('عرض الاستشارات وموافقة وليّ الأمر'),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ParentConsultationsPage(
+                        parentUsername: widget.parentUsername,
+                      ),
+                    ),
+                  );
+                },
               ),
               const Divider(height: 1),
               ListTile(
