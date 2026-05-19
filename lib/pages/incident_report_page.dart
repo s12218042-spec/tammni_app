@@ -197,34 +197,108 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
   }
 
   Future<Map<String, String>> fetchParentLinkInfo() async {
-    String parentUid = widget.child.parentUid.trim();
-    String parentUsername = widget.child.parentUsername.trim().toLowerCase();
-    String parentName = widget.child.parentName.trim();
+  String parentUid = widget.child.parentUid.trim();
+  String parentUsername = widget.child.parentUsername.trim().toLowerCase();
+  String parentName = widget.child.parentName.trim();
 
-    try {
-      final childDoc =
-          await _firestore.collection('children').doc(widget.child.id).get();
+  try {
+    final childDoc =
+        await _firestore.collection('children').doc(widget.child.id).get();
 
-      if (childDoc.exists) {
-        final data = childDoc.data() ?? <String, dynamic>{};
+    if (childDoc.exists) {
+      final data = childDoc.data() ?? <String, dynamic>{};
 
-        final docParentUid = (data['parentUid'] ?? '').toString().trim();
-        final docParentUsername =
-            (data['parentUsername'] ?? '').toString().trim().toLowerCase();
-        final docParentName = (data['parentName'] ?? '').toString().trim();
+      final docParentUid = (data['parentUid'] ??
+              data['parentId'] ??
+              data['parentUserId'] ??
+              data['uid'] ??
+              '')
+          .toString()
+          .trim();
 
-        if (docParentUid.isNotEmpty) parentUid = docParentUid;
-        if (docParentUsername.isNotEmpty) parentUsername = docParentUsername;
-        if (docParentName.isNotEmpty) parentName = docParentName;
+      final docParentUsername = (data['parentUsername'] ??
+              data['parentUserName'] ??
+              data['username'] ??
+              '')
+          .toString()
+          .trim()
+          .toLowerCase();
+
+      final docParentName = (data['parentName'] ??
+              data['parentFullName'] ??
+              data['guardianName'] ??
+              '')
+          .toString()
+          .trim();
+
+      if (docParentUid.isNotEmpty) parentUid = docParentUid;
+      if (docParentUsername.isNotEmpty) parentUsername = docParentUsername;
+      if (docParentName.isNotEmpty) parentName = docParentName;
+    }
+
+    if (parentUid.isEmpty && parentUsername.isNotEmpty) {
+      final userSnapshot = await _firestore
+          .collection('users')
+          .where('username', isEqualTo: parentUsername)
+          .limit(1)
+          .get();
+
+      if (userSnapshot.docs.isNotEmpty) {
+        final userDoc = userSnapshot.docs.first;
+        final userData = userDoc.data();
+
+        parentUid = userDoc.id;
+
+        final resolvedName = (userData['displayName'] ??
+                userData['name'] ??
+                userData['fullName'] ??
+                userData['username'] ??
+                '')
+            .toString()
+            .trim();
+
+        if (parentName.isEmpty && resolvedName.isNotEmpty) {
+          parentName = resolvedName;
+        }
       }
-    } catch (_) {}
+    }
 
-    return {
-      'parentUid': parentUid,
-      'parentUsername': parentUsername,
-      'parentName': parentName,
-    };
+    if (parentUsername.isEmpty && parentUid.isNotEmpty) {
+      final userDoc = await _firestore.collection('users').doc(parentUid).get();
+
+      if (userDoc.exists) {
+        final userData = userDoc.data() ?? <String, dynamic>{};
+
+        final resolvedUsername =
+            (userData['username'] ?? '').toString().trim().toLowerCase();
+
+        final resolvedName = (userData['displayName'] ??
+                userData['name'] ??
+                userData['fullName'] ??
+                userData['username'] ??
+                '')
+            .toString()
+            .trim();
+
+        if (resolvedUsername.isNotEmpty) {
+          parentUsername = resolvedUsername;
+        }
+
+        if (parentName.isEmpty && resolvedName.isNotEmpty) {
+          parentName = resolvedName;
+        }
+      }
+    }
+  } catch (e) {
+    debugPrint('IncidentReportPage: تعذر جلب بيانات ولي الأمر: $e');
   }
+
+  return {
+    'parentUid': parentUid,
+    'parentUsername': parentUsername,
+    'parentName': parentName,
+  };
+}
 
   Future<void> pickImage() async {
     try {
@@ -420,7 +494,11 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
 
       await batch.commit();
 
-    if (canNotifyParent) {
+   if (canNotifyParent) {
+  debugPrint(
+    'IncidentReportPage: سيتم إرسال إشعار حادث إلى parentUid=$parentUid parentUsername=$parentUsername',
+  );
+
   await AppNotificationService.instance.notifyParent(
     parentUid: parentUid,
     parentUsername: parentUsername,
@@ -443,10 +521,10 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
     extraData: {
       'reportId': reportRef.id,
       'incidentReportId': reportRef.id,
+      'reportType': 'incident_report',
       'incidentType': incidentType,
       'incidentPlace': finalIncidentPlace,
       'locationLabel': finalIncidentPlace,
-      'priority': priority,
       'importance': priority,
       'autoRisk': autoRisk,
       'details': detailsCtrl.text.trim(),
@@ -464,6 +542,10 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
       'relatedCollection': 'incident_reports',
       ...imageData,
     },
+  );
+} else {
+  debugPrint(
+    'IncidentReportPage: لم يتم إرسال إشعار لأن parentUid و parentUsername فارغين للطفل ${widget.child.id}',
   );
 }
 

@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import 'notification_service.dart';
+
 class LoginResult {
   final User user;
   final Map<String, dynamic> userData;
@@ -32,8 +34,10 @@ class AuthService {
     String? pendingEmail;
 
     try {
-      final lookupDoc =
-          await _firestore.collection('login_usernames').doc(cleanUsername).get();
+      final lookupDoc = await _firestore
+          .collection('login_usernames')
+          .doc(cleanUsername)
+          .get();
 
       final lookupData = lookupDoc.data() ?? <String, dynamic>{};
       pendingEmail =
@@ -89,96 +93,97 @@ class AuthService {
   }
 
   Future<void> _syncPendingEmailIfNeeded({
-  required User authUser,
-  required String username,
-  required Map<String, dynamic> userData,
-  required Map<String, dynamic> lookupData,
-}) async {
-  final cleanUsername = username.trim().toLowerCase();
+    required User authUser,
+    required String username,
+    required Map<String, dynamic> userData,
+    required Map<String, dynamic> lookupData,
+  }) async {
+    final cleanUsername = username.trim().toLowerCase();
 
-  final userPendingEmail =
-      (userData['pendingEmail'] ?? '').toString().trim().toLowerCase();
+    final userPendingEmail =
+        (userData['pendingEmail'] ?? '').toString().trim().toLowerCase();
 
-  final lookupPendingEmail =
-      (lookupData['pendingEmail'] ?? '').toString().trim().toLowerCase();
+    final lookupPendingEmail =
+        (lookupData['pendingEmail'] ?? '').toString().trim().toLowerCase();
 
-  final authEmail = (authUser.email ?? '').trim().toLowerCase();
+    final authEmail = (authUser.email ?? '').trim().toLowerCase();
 
-  print('EMAIL SYNC: authEmail = $authEmail');
-  print('EMAIL SYNC: userPendingEmail = $userPendingEmail');
-  print('EMAIL SYNC: lookupPendingEmail = $lookupPendingEmail');
+    print('EMAIL SYNC: authEmail = $authEmail');
+    print('EMAIL SYNC: userPendingEmail = $userPendingEmail');
+    print('EMAIL SYNC: lookupPendingEmail = $lookupPendingEmail');
 
-  if (authEmail.isEmpty) {
-    print('EMAIL SYNC: auth email is empty');
-    return;
-  }
+    if (authEmail.isEmpty) {
+      print('EMAIL SYNC: auth email is empty');
+      return;
+    }
 
-  final shouldSync =
-      (userPendingEmail.isNotEmpty && authEmail == userPendingEmail) ||
-      (lookupPendingEmail.isNotEmpty && authEmail == lookupPendingEmail);
+    final shouldSync =
+        (userPendingEmail.isNotEmpty && authEmail == userPendingEmail) ||
+            (lookupPendingEmail.isNotEmpty && authEmail == lookupPendingEmail);
 
-  if (!shouldSync) {
-    print('EMAIL SYNC: no sync needed');
-    return;
-  }
+    if (!shouldSync) {
+      print('EMAIL SYNC: no sync needed');
+      return;
+    }
 
-  try {
-    final userRef = _firestore.collection('users').doc(authUser.uid);
-    final loginRef = _firestore.collection('login_usernames').doc(cleanUsername);
+    try {
+      final userRef = _firestore.collection('users').doc(authUser.uid);
+      final loginRef =
+          _firestore.collection('login_usernames').doc(cleanUsername);
 
-    print('EMAIL SYNC: preparing batch');
+      print('EMAIL SYNC: preparing batch');
 
-    final batch = _firestore.batch();
+      final batch = _firestore.batch();
 
-    batch.set(userRef, {
-      'email': authEmail,
-      'pendingEmail': FieldValue.delete(),
-      'emailChangeRequestedAt': FieldValue.delete(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-
-    print('EMAIL SYNC: user doc added to batch');
-
-    if (cleanUsername.isNotEmpty) {
-      batch.set(loginRef, {
+      batch.set(userRef, {
         'email': authEmail,
         'pendingEmail': FieldValue.delete(),
         'emailChangeRequestedAt': FieldValue.delete(),
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
+
+      print('EMAIL SYNC: user doc added to batch');
+
+      if (cleanUsername.isNotEmpty) {
+        batch.set(loginRef, {
+          'email': authEmail,
+          'pendingEmail': FieldValue.delete(),
+          'emailChangeRequestedAt': FieldValue.delete(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+
+      print('EMAIL SYNC: login_usernames doc added to batch');
+      print('EMAIL SYNC: committing batch...');
+
+      await batch.commit();
+
+      print('EMAIL SYNC: batch committed');
+
+      await _firestore.collection('account_activity_logs').add({
+        'targetUid': authUser.uid,
+        'action': 'email_changed',
+        'title': 'تم تغيير البريد الإلكتروني',
+        'message': 'تم اعتماد البريد الإلكتروني الجديد بنجاح: $authEmail',
+        'status': 'success',
+        'actorUid': authUser.uid,
+        'actorName': (userData['displayName'] ??
+                userData['name'] ??
+                userData['username'] ??
+                '')
+            .toString(),
+        'actorRole': (userData['role'] ?? '').toString(),
+        'createdAt': FieldValue.serverTimestamp(),
+        'newEmail': authEmail,
+      });
+
+      print('EMAIL SYNC: success');
+    } catch (e, st) {
+      print('EMAIL SYNC ERROR: $e');
+      print(st);
+      rethrow;
     }
-
-    print('EMAIL SYNC: login_usernames doc added to batch');
-    print('EMAIL SYNC: committing batch...');
-
-    await batch.commit();
-
-    print('EMAIL SYNC: batch committed');
-
-    await _firestore.collection('account_activity_logs').add({
-      'targetUid': authUser.uid,
-      'action': 'email_changed',
-      'title': 'تم تغيير البريد الإلكتروني',
-      'message': 'تم اعتماد البريد الإلكتروني الجديد بنجاح: $authEmail',
-      'status': 'success',
-      'actorUid': authUser.uid,
-      'actorName': (userData['displayName'] ??
-              userData['name'] ??
-              userData['username'] ??
-              '')
-          .toString(),
-      'actorRole': (userData['role'] ?? '').toString(),
-      'createdAt': FieldValue.serverTimestamp(),
-      'newEmail': authEmail,
-    });
-
-    print('EMAIL SYNC: success');
-  } catch (e, st) {
-    print('EMAIL SYNC ERROR: $e');
-    print(st);
-    rethrow;
   }
-}
 
   Future<LoginResult> login({
     required String username,
@@ -282,8 +287,10 @@ class AuthService {
       }
 
       var userData = userDoc.data() ?? <String, dynamic>{};
+
       final storedUsername =
           (userData['username'] ?? '').toString().trim().toLowerCase();
+
       final userIsActive = (userData['isActive'] ?? true) == true;
 
       print('LOGIN STEP 10: storedUsername = $storedUsername');
@@ -306,19 +313,20 @@ class AuthService {
       print('LOGIN STEP 12: syncing pending email if needed');
 
       try {
-  await _syncPendingEmailIfNeeded(
-    authUser: authUser,
-    username: cleanUsername,
-    userData: userData,
-    lookupData: lookupData,
-  );
-} catch (e, st) {
-  print('EMAIL SYNC FAILED BUT LOGIN WILL CONTINUE: $e');
-  print(st);
-}
+        await _syncPendingEmailIfNeeded(
+          authUser: authUser,
+          username: cleanUsername,
+          userData: userData,
+          lookupData: lookupData,
+        );
+      } catch (e, st) {
+        print('EMAIL SYNC FAILED BUT LOGIN WILL CONTINUE: $e');
+        print(st);
+      }
 
       final refreshedUserDoc =
           await _firestore.collection('users').doc(authUid).get();
+
       userData = refreshedUserDoc.data() ?? <String, dynamic>{};
 
       final mustChangePassword = userData['mustChangePassword'] == true;
@@ -333,7 +341,16 @@ class AuthService {
         'lastLoginAt': FieldValue.serverTimestamp(),
       });
 
-      print('LOGIN STEP 16: success');
+      print('LOGIN STEP 16: setting up notifications token');
+
+      try {
+        await NotificationService.instance.setupForCurrentUser();
+      } catch (e, st) {
+        print('NOTIFICATION SETUP FAILED BUT LOGIN WILL CONTINUE: $e');
+        print(st);
+      }
+
+      print('LOGIN STEP 17: success');
 
       return LoginResult(
         user: authUser,
@@ -360,6 +377,7 @@ class AuthService {
     } catch (e, st) {
       print('LOGIN UNKNOWN ERROR: $e');
       print(st);
+
       throw FirebaseAuthException(
         code: 'login-failed',
         message: 'حدث خطأ أثناء تسجيل الدخول: $e',
@@ -368,6 +386,13 @@ class AuthService {
   }
 
   Future<void> logout() async {
+    try {
+      await NotificationService.instance.removeCurrentUserToken();
+    } catch (e, st) {
+      print('REMOVE FCM TOKEN FAILED BUT LOGOUT WILL CONTINUE: $e');
+      print(st);
+    }
+
     await _auth.signOut();
   }
 }

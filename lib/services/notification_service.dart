@@ -21,6 +21,7 @@ class NotificationService {
 
   bool _initialized = false;
   bool _lifecycleObserverAdded = false;
+
   StreamSubscription<String>? _tokenRefreshSubscription;
   StreamSubscription<RemoteMessage>? _foregroundMessageSubscription;
   StreamSubscription<RemoteMessage>? _messageOpenedSubscription;
@@ -41,6 +42,7 @@ class NotificationService {
     await _requestPermission();
     await _initLocalNotifications();
     await _setupForegroundPresentationOptions();
+
     _setupForegroundHandler();
     _setupTokenRefreshListener();
     _setupAppLifecycleBadgeCleaner();
@@ -51,10 +53,7 @@ class NotificationService {
   }
 
   /// استدعي هذه الدالة بعد تسجيل الدخول مباشرة.
-  /// وظيفتها:
-  /// 1) تهيئة الإشعارات
-  /// 2) حفظ FCM token داخل users/{uid}
-  /// 3) معالجة فتح التطبيق من إشعار
+  /// تنظّف التوكن من أي حساب قديم، ثم تحفظه للحساب الحالي.
   Future<void> setupForCurrentUser() async {
     await init();
     await saveCurrentUserToken();
@@ -117,8 +116,6 @@ class NotificationService {
         );
 
         await clearAppBadgeAndDeliveredNotifications();
-
-        // لاحقًا إذا أردنا فتح صفحة حسب payload نضيف المنطق هنا.
       },
     );
 
@@ -176,16 +173,15 @@ class NotificationService {
 
     _messageOpenedSubscription?.cancel();
 
-    _messageOpenedSubscription =
-        FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) async {
-      debugPrint(
-        'NotificationService: تم فتح التطبيق من إشعار وهو بالخلفية: ${message.data}',
-      );
+    _messageOpenedSubscription = FirebaseMessaging.onMessageOpenedApp.listen(
+      (RemoteMessage message) async {
+        debugPrint(
+          'NotificationService: تم فتح التطبيق من إشعار وهو بالخلفية: ${message.data}',
+        );
 
-      await clearAppBadgeAndDeliveredNotifications();
-
-      // لاحقًا إذا أردنا فتح صفحة حسب message.data نضيف المنطق هنا.
-    });
+        await clearAppBadgeAndDeliveredNotifications();
+      },
+    );
   }
 
   Future<void> _showLocalNotification({
@@ -230,8 +226,6 @@ class NotificationService {
         debugPrint(
           'NotificationService: التطبيق فُتح من إشعار وهو مغلق: ${initialMessage.data}',
         );
-
-        // لاحقًا إذا أردنا فتح صفحة حسب initialMessage.data نضيف المنطق هنا.
       }
 
       await clearAppBadgeAndDeliveredNotifications();
@@ -253,6 +247,59 @@ class NotificationService {
     }
   }
 
+  Future<void> _removeTokenFromOldAccounts({
+    required String token,
+    required String currentUid,
+  }) async {
+    final cleanToken = token.trim();
+    if (cleanToken.isEmpty || currentUid.trim().isEmpty) return;
+
+    final usersRef = FirebaseFirestore.instance.collection('users');
+
+    try {
+      final oldArrayOwners = await usersRef
+          .where('fcmTokens', arrayContains: cleanToken)
+          .get();
+
+      for (final doc in oldArrayOwners.docs) {
+        if (doc.id == currentUid) continue;
+
+        await doc.reference.set({
+          'fcmTokens': FieldValue.arrayRemove([cleanToken]),
+          'lastTokenRemovedAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+
+        debugPrint(
+          'NotificationService: تم حذف token من حساب قديم array uid=${doc.id}',
+        );
+      }
+    } catch (e) {
+      debugPrint('NotificationService: فشل تنظيف fcmTokens القديمة: $e');
+    }
+
+    try {
+      final oldSingleOwners =
+          await usersRef.where('fcmToken', isEqualTo: cleanToken).get();
+
+      for (final doc in oldSingleOwners.docs) {
+        if (doc.id == currentUid) continue;
+
+        await doc.reference.set({
+          'fcmToken': FieldValue.delete(),
+          'lastTokenRemovedAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+
+        debugPrint(
+          'NotificationService: تم حذف token مفرد من حساب قديم uid=${doc.id}',
+        );
+      }
+    } catch (e) {
+      debugPrint('NotificationService: فشل تنظيف fcmToken القديم: $e');
+    }
+  }
+
   Future<void> saveCurrentUserToken() async {
     if (kIsWeb) return;
 
@@ -269,17 +316,62 @@ class NotificationService {
       return;
     }
 
+    final cleanToken = token.trim();
+
     try {
+      await _removeTokenFromOldAccounts(
+        token: cleanToken,
+        currentUid: user.uid,
+      );
+
       await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-        'fcmTokens': FieldValue.arrayUnion([token.trim()]),
-        'fcmToken': token.trim(),
+        'fcmTokens': FieldValue.arrayUnion([cleanToken]),
+        'fcmToken': cleanToken,
+        'fcmTokenOwnerUid': user.uid,
         'lastTokenUpdate': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
-      debugPrint('NotificationService: تم حفظ FCM token للمستخدم الحالي');
+      debugPrint('NotificationService: تم حفظ FCM token للحساب الحالي فقط');
     } catch (e) {
       debugPrint('NotificationService: فشل حفظ FCM token: $e');
+    }
+  }
+
+  Future<void> removeCurrentUserToken() async {
+    if (kIsWeb) return;
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final token = await getToken();
+    if (token == null || token.trim().isEmpty) return;
+
+    final cleanToken = token.trim();
+
+    try {
+      final userRef =
+          FirebaseFirestore.instance.collection('users').doc(user.uid);
+
+      final userDoc = await userRef.get();
+      final data = userDoc.data() ?? <String, dynamic>{};
+      final currentSingleToken = (data['fcmToken'] ?? '').toString().trim();
+
+      final updateData = <String, dynamic>{
+        'fcmTokens': FieldValue.arrayRemove([cleanToken]),
+        'lastTokenRemovedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      if (currentSingleToken == cleanToken) {
+        updateData['fcmToken'] = FieldValue.delete();
+      }
+
+      await userRef.set(updateData, SetOptions(merge: true));
+
+      debugPrint('NotificationService: تم حذف FCM token من الحساب الحالي');
+    } catch (e) {
+      debugPrint('NotificationService: فشل حذف FCM token من الحساب الحالي: $e');
     }
   }
 
@@ -301,15 +393,23 @@ class NotificationService {
 
         if (newToken.trim().isEmpty) return;
 
+        final cleanToken = newToken.trim();
+
         try {
+          await _removeTokenFromOldAccounts(
+            token: cleanToken,
+            currentUid: user.uid,
+          );
+
           await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-            'fcmTokens': FieldValue.arrayUnion([newToken.trim()]),
-            'fcmToken': newToken.trim(),
+            'fcmTokens': FieldValue.arrayUnion([cleanToken]),
+            'fcmToken': cleanToken,
+            'fcmTokenOwnerUid': user.uid,
             'lastTokenUpdate': FieldValue.serverTimestamp(),
             'updatedAt': FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));
 
-          debugPrint('NotificationService: تم تحديث FCM token للمستخدم الحالي');
+          debugPrint('NotificationService: تم تحديث FCM token للحساب الحالي فقط');
         } catch (e) {
           debugPrint('NotificationService: فشل تحديث FCM token: $e');
         }
