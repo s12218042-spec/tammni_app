@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../services/app_notification_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 
@@ -221,76 +222,51 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      final notificationRef = _firestore.collection('notifications').doc();
+  
 
-      batch.set(notificationRef, {
-        // Receiver / target fields for admin
-        'targetUid': adminInfo['uid'],
-        'targetUsername': adminInfo['username'],
-        'targetRole': 'admin',
-        'targetName': adminInfo['name'],
-        'notificationFor': 'admin',
-
-        // Sender / parent fields
-        'parentUid': parentUid,
-        'parentUsername': parentUsername,
-        'parentName': parentName,
-
-        // Notification content
-        'title': 'شكوى جديدة من ولي أمر',
-        'subject': 'شكوى جديدة من ولي أمر',
-        'notificationTitle': 'شكوى جديدة من ولي أمر',
-        'body': 'أرسل $parentName شكوى جديدة بعنوان: $title',
-        'message': 'أرسل $parentName شكوى جديدة بعنوان: $title',
-        'text': message,
-        'description': message,
-        'details': message,
-
-        // Complaint context
-        'complaintId': complaintRef.id,
-        'complaintTitle': title,
-        'complaintStatus': 'pending',
-
-        // Type/classification
-        'type': 'complaint_created',
-        'notificationType': 'complaint_created',
-        'category': 'complaints',
-        'templateType': 'parent_complaint',
-        'priority': 'important',
-        'importance': 'important',
-        'level': 'important',
-
-        // Read state
-        'isRead': false,
-        'read': false,
-        'seen': false,
-        'readAt': null,
-
-        // Created by fields
-        'createdByUid': parentUid,
-        'createdByName': parentName,
-        'createdByRole': 'parent',
-        'createdByUsername': parentUsername,
-        'byRole': 'parent',
-        'senderId': parentUid,
-        'senderName': parentName,
-        'senderRole': 'parent',
-
-        // Routing/linking
-        'source': 'parent_complaints_page',
-        'route': 'admin_complaints',
-        'relatedCollection': 'complaints',
-        'relatedDocId': complaintRef.id,
-
-        // Time fields
-        'createdAt': now,
-        'time': FieldValue.serverTimestamp(),
-        'timestamp': now,
-        'eventAt': now,
-        'updatedAt': now,
-      });
 
       await batch.commit();
+
+  await AppNotificationService.instance.notifyAdmin(
+  title: 'شكوى جديدة من ولي أمر',
+  body: 'أرسل $parentName شكوى جديدة بعنوان: $title',
+  type: 'complaint_created',
+  priority: 'important',
+  parentUid: parentUid,
+  parentUsername: parentUsername,
+  parentName: parentName,
+  createdByUid: parentUid,
+  createdByName: parentName,
+  createdByRole: 'parent',
+  extraData: {
+    'targetUid': adminInfo['uid'] ?? '',
+    'targetUsername': adminInfo['username'] ?? '',
+    'targetName': adminInfo['name'] ?? 'الإدارة',
+    'complaintId': complaintRef.id,
+    'complaintTitle': title,
+    'complaintStatus': 'pending',
+    'notificationType': 'complaint_created',
+    'category': 'complaints',
+    'templateType': 'parent_complaint',
+    'importance': 'important',
+    'level': 'important',
+    'text': message,
+    'description': message,
+    'details': message,
+    'createdByUsername': parentUsername,
+    'byRole': 'parent',
+    'senderId': parentUid,
+    'senderName': parentName,
+    'senderRole': 'parent',
+    'source': 'parent_complaints_page',
+    'screen': 'complaints',
+    'route': 'admin_complaints',
+    'relatedCollection': 'complaints',
+    'relatedDocId': complaintRef.id,
+    'eventAt': now,
+    'timestamp': now,
+  },
+);
 
       _titleController.clear();
       _messageController.clear();

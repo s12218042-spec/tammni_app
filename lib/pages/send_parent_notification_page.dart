@@ -83,21 +83,21 @@ class _SendParentNotificationPageState
   }
 
   String templateNotificationType(String value) {
-    switch (value.trim().toLowerCase()) {
-      case 'health':
-        return 'health';
-      case 'supplies':
-        return 'supplies';
-      case 'media':
-        return 'media';
-      case 'custom':
-        return 'custom';
-      case 'care':
-      case 'note':
-      default:
-        return 'nursery_notification';
-    }
+  switch (value.trim().toLowerCase()) {
+    case 'health':
+      return 'nursery_notification';
+    case 'supplies':
+      return 'nursery_notification';
+    case 'media':
+      return 'nursery_notification';
+    case 'custom':
+      return 'custom';
+    case 'care':
+    case 'note':
+    default:
+      return 'nursery_notification';
   }
+}
 
   Future<Map<String, String>> fetchCurrentUserInfo() async {
     final currentUser = _auth.currentUser;

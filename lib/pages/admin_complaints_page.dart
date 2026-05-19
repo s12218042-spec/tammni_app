@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../services/app_notification_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 
@@ -240,86 +241,53 @@ class _AdminComplaintsPageState extends State<AdminComplaintsPage> {
 
       final hasReply = replyText.isNotEmpty;
 
-      if (shouldCreateNotification && (statusChanged || hasReply)) {
-        final notificationTitle = _notificationTitleForStatus(newStatus);
-        final notificationBody = _notificationBodyForComplaint(
-          status: newStatus,
-          complaintTitle: complaintTitle,
-          adminReply: replyText,
-        );
-
-        final notificationRef = _firestore.collection('notifications').doc();
-
-        batch.set(notificationRef, {
-          // Receiver / target fields
-          'targetUid': parentUid,
-          'targetUsername': parentUsername,
-          'targetRole': 'parent',
-          'targetName': parentName,
-          'notificationFor': 'parent',
-
-          // Backward-compatible parent fields
-          'parentUid': parentUid,
-          'parentUsername': parentUsername,
-          'parentName': parentName,
-
-          // Notification content
-          'title': notificationTitle,
-          'subject': notificationTitle,
-          'notificationTitle': notificationTitle,
-          'body': notificationBody,
-          'message': notificationBody,
-          'text': notificationBody,
-          'description': notificationBody,
-          'details': notificationBody,
-
-          // Complaint context
-          'complaintId': docId,
-          'complaintTitle': complaintTitle,
-          'complaintStatus': newStatus,
-          'adminReply': replyText,
-
-          // Type/classification
-          'type': 'complaint_update',
-          'notificationType': 'complaint_update',
-          'category': 'complaints',
-          'templateType': 'admin_complaint_reply',
-          'priority': _priorityForStatus(newStatus),
-          'importance': _priorityForStatus(newStatus),
-          'level': _priorityForStatus(newStatus),
-
-          // Read state
-          'isRead': false,
-          'read': false,
-          'seen': false,
-          'readAt': null,
-
-          // Created by fields
-          'createdByUid': adminInfo['uid'],
-          'createdByName': adminInfo['name'],
-          'createdByRole': 'admin',
-          'createdByUsername': adminInfo['username'],
-          'byRole': 'admin',
-          'senderId': adminInfo['uid'],
-          'senderName': adminInfo['name'],
-          'senderRole': 'admin',
-
-          // Routing/linking
-          'source': 'admin_complaints_page',
-          'route': 'parent_complaints',
-          'relatedCollection': 'complaints',
-          'relatedDocId': docId,
-
-          // Time fields
-          'createdAt': now,
-          'time': FieldValue.serverTimestamp(),
-          'timestamp': now,
-          'eventAt': now,
-          'updatedAt': now,
-        });
-      }
+      
 
       await batch.commit();
+
+if (shouldCreateNotification && (statusChanged || hasReply)) {
+  final notificationTitle = _notificationTitleForStatus(newStatus);
+  final notificationBody = _notificationBodyForComplaint(
+    status: newStatus,
+    complaintTitle: complaintTitle,
+    adminReply: replyText,
+  );
+
+  await AppNotificationService.instance.notifyParent(
+    parentUid: parentUid,
+    parentUsername: parentUsername,
+    parentName: parentName,
+    title: notificationTitle,
+    body: notificationBody,
+    type: 'complaint_update',
+    priority: _priorityForStatus(newStatus),
+    createdByUid: adminInfo['uid'] ?? '',
+    createdByName: adminInfo['name'] ?? 'الإدارة',
+    createdByRole: 'admin',
+    extraData: {
+      'complaintId': docId,
+      'complaintTitle': complaintTitle,
+      'complaintStatus': newStatus,
+      'adminReply': replyText,
+      'notificationType': 'complaint_update',
+      'category': 'complaints',
+      'templateType': 'admin_complaint_reply',
+      'importance': _priorityForStatus(newStatus),
+      'level': _priorityForStatus(newStatus),
+      'createdByUsername': adminInfo['username'] ?? '',
+      'senderId': adminInfo['uid'] ?? '',
+      'senderName': adminInfo['name'] ?? 'الإدارة',
+      'senderRole': 'admin',
+      'source': 'admin_complaints_page',
+      'screen': 'complaints',
+      'route': 'parent_complaints',
+      'relatedCollection': 'complaints',
+      'relatedDocId': docId,
+      'eventAt': now,
+      'timestamp': now,
+    },
+  );
+}
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

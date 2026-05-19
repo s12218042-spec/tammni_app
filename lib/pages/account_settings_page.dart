@@ -38,9 +38,6 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
   bool _isSavingName = false;
   bool _isChangingPassword = false;
   bool _isChangingEmail = false;
-  bool _isDeactivating = false;
-  bool _isRequestingDeletion = false;
-  bool _isCancellingDeletionRequest = false;
   bool _isCancellingPendingEmailChange = false;
 
   bool _obscureCurrentPassword = true;
@@ -57,7 +54,6 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
   int _remainingEmailVerificationSeconds = 0;
 
   AccountSettingsData? _userData;
-  AccountDeletionRequestData? _deletionRequestData;
 
   static const int _emailCheckIntervalSeconds = 3;
   static const int _emailCheckTotalSeconds = 120;
@@ -81,22 +77,22 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
   }
 
   Future<void> _initializePage() async {
-  await _loadUserData();
+    await _loadUserData();
 
-  try {
-    final result = await _service.refreshEmailAfterVerificationIfNeeded();
+    try {
+      final result = await _service.refreshEmailAfterVerificationIfNeeded();
 
-    if (result == EmailRefreshStatus.success) {
-      await _loadUserData();
-      _showSnack('تمت مزامنة البريد الإلكتروني بنجاح');
-    } else if (result == EmailRefreshStatus.noCurrentUser) {
-      await _handleSessionEndedAfterEmailVerification();
-      return;
-    }
-  } catch (_) {}
+      if (result == EmailRefreshStatus.success) {
+        await _loadUserData();
+        _showSnack('تمت مزامنة البريد الإلكتروني بنجاح');
+      } else if (result == EmailRefreshStatus.noCurrentUser) {
+        await _handleSessionEndedAfterEmailVerification();
+        return;
+      }
+    } catch (_) {}
 
-  await _restoreEmailWatcherIfNeeded();
-}
+    await _restoreEmailWatcherIfNeeded();
+  }
 
   String _formatCountdown(int totalSeconds) {
     final minutes = (totalSeconds ~/ 60).toString().padLeft(2, '0');
@@ -276,38 +272,36 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
   }
 
   Future<void> _loadUserData() async {
-  if (mounted) {
-    setState(() {
-      _isLoading = true;
-    });
-  }
-
-  try {
-    final data = await _service.getCurrentUserData();
-    final deletionRequest = await _service.getLatestDeletionRequest();
-
-    _nameController.text = data.name;
-
-    if (!mounted) return;
-    setState(() {
-      _userData = data;
-      _deletionRequestData = deletionRequest;
-    });
-  } on FirebaseAuthException catch (e) {
-    if (e.code != 'no-current-user') {
-      _showSnack(e.message ?? 'حدث خطأ أثناء تحميل بيانات الحساب');
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+      });
     }
-  } on FirebaseException catch (e) {
-    _showSnack(e.message ?? 'حدث خطأ في قراءة بيانات Firestore');
-  } catch (e) {
-    _showSnack('حدث خطأ أثناء تحميل بيانات الحساب: $e');
-  } finally {
-    if (!mounted) return;
-    setState(() {
-      _isLoading = false;
-    });
+
+    try {
+      final data = await _service.getCurrentUserData();
+
+      _nameController.text = data.name;
+
+      if (!mounted) return;
+      setState(() {
+        _userData = data;
+      });
+    } on FirebaseAuthException catch (e) {
+      if (e.code != 'no-current-user') {
+        _showSnack(e.message ?? 'حدث خطأ أثناء تحميل بيانات الحساب');
+      }
+    } on FirebaseException catch (e) {
+      _showSnack(e.message ?? 'حدث خطأ في قراءة بيانات Firestore');
+    } catch (e) {
+      _showSnack('حدث خطأ أثناء تحميل بيانات الحساب: $e');
+    } finally {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+      });
+    }
   }
-}
 
   Future<void> _saveName() async {
     if (!_nameFormKey.currentState!.validate()) return;
@@ -429,217 +423,6 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
     }
   }
 
-  Future<void> _deactivateAccount() async {
-    final isAdmin = _userData?.role == 'admin';
-
-    if (isAdmin) {
-      _showSnack('لا يمكن للأدمن تعطيل حسابه بنفسه');
-      return;
-    }
-
-    final reasonController = TextEditingController();
-
-    try {
-      final result = await showDialog<String>(
-        context: context,
-        builder: (_) => Directionality(
-          textDirection: TextDirection.rtl,
-          child: AlertDialog(
-            title: const Text('تعطيل الحساب مؤقتًا'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'لن تتمكني من تسجيل الدخول بعد ذلك حتى تقوم الإدارة بإعادة تفعيل الحساب.',
-                  style: TextStyle(height: 1.5),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: reasonController,
-                  maxLines: 3,
-                  decoration: InputDecoration(
-                    hintText: 'سبب التعطيل المؤقت (اختياري)',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('إلغاء'),
-              ),
-              ElevatedButton(
-                onPressed: () =>
-                    Navigator.pop(context, reasonController.text.trim()),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.danger,
-                ),
-                child: const Text('تعطيل الحساب'),
-              ),
-            ],
-          ),
-        ),
-      );
-
-      if (result == null) return;
-
-      setState(() {
-        _isDeactivating = true;
-      });
-
-      await _service.deactivateCurrentAccount(reason: result);
-
-      if (!mounted) return;
-
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (_) => const WelcomePage()),
-        (route) => false,
-      );
-    } on FirebaseAuthException catch (e) {
-      _showSnack(e.message ?? 'تعذر تعطيل الحساب');
-    } catch (_) {
-      _showSnack('تعذر تعطيل الحساب');
-    } finally {
-      reasonController.dispose();
-      if (!mounted) return;
-      setState(() {
-        _isDeactivating = false;
-      });
-    }
-  }
-
-  Future<void> _requestPermanentDeletion() async {
-  final isAdmin = _userData?.role == 'admin';
-
-  if (isAdmin) {
-    _showSnack('لا يمكن للأدمن طلب حذف حسابه بنفسه');
-    return;
-  }
-
-  final confirmed = await showDialog<bool>(
-    context: context,
-    builder: (_) => Directionality(
-      textDirection: TextDirection.rtl,
-      child: AlertDialog(
-        title: const Text('طلب حذف دائم'),
-        content: const Text(
-          'هل أنتِ متأكدة أنكِ تريدين إرسال طلب حذف دائم للحساب؟ سيتم إرسال الطلب للإدارة للمراجعة، ولن يتم حذف الحساب مباشرة.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('إلغاء'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.danger,
-            ),
-            child: const Text('إرسال الطلب'),
-          ),
-        ],
-      ),
-    ),
-  );
-
-  if (confirmed != true) return;
-
-  setState(() {
-    _isRequestingDeletion = true;
-  });
-
-  try {
-    await _service.requestPermanentDeletion();
-    await _loadUserData();
-
-    if (!mounted) return;
-
-    final messenger = ScaffoldMessenger.of(context);
-messenger.hideCurrentSnackBar();
-messenger.removeCurrentSnackBar();
-
-messenger.showSnackBar(
-  SnackBar(
-    duration: const Duration(seconds: 3),
-    behavior: SnackBarBehavior.floating,
-    content: Row(
-      children: [
-        const Expanded(
-          child: Text(
-            'تم إرسال طلب الحذف الدائم للإدارة',
-            textAlign: TextAlign.center,
-          ),
-        ),
-        TextButton(
-          onPressed: () async {
-            messenger.hideCurrentSnackBar();
-
-            await _cancelPermanentDeletionRequest();
-
-            if (!mounted) return;
-            await _loadUserData();
-          },
-          child: const Text('تراجع'),
-        ),
-      ],
-    ),
-  ),
-);
-  } on FirebaseAuthException catch (e) {
-    _showSnack(e.message ?? 'تعذر إرسال طلب الحذف الدائم');
-  } catch (_) {
-    _showSnack('تعذر إرسال طلب الحذف الدائم');
-  } finally {
-    if (!mounted) return;
-    setState(() {
-      _isRequestingDeletion = false;
-    });
-  }
-}
-
-  Future<void> _cancelPermanentDeletionRequest() async {
-  final request = _deletionRequestData;
-
-  if (request == null || !request.isPending) {
-    _showSnack('لا يوجد طلب حذف قيد المراجعة للتراجع عنه');
-    return;
-  }
-
-  setState(() {
-    _isCancellingDeletionRequest = true;
-  });
-
-  try {
-    await _service.cancelPendingDeletionRequest();
-
-    if (!mounted) return;
-
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentSnackBar();
-    messenger.removeCurrentSnackBar();
-
-    await _loadUserData();
-    _showSnack('تم سحب طلب الحذف بنجاح');
-  } on FirebaseAuthException catch (e) {
-    _showSnack(e.message ?? 'تعذر سحب طلب الحذف');
-  } catch (_) {
-    _showSnack('تعذر سحب طلب الحذف');
-  } finally {
-    if (!mounted) return;
-    setState(() {
-      _isCancellingDeletionRequest = false;
-    });
-  }
-}
-
-  String _formatDate(DateTime date) {
-    return '${date.year}/${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')} - ${date.hour}:${date.minute.toString().padLeft(2, '0')}';
-  }
-
   void _showSnack(String message) {
     if (!mounted) return;
 
@@ -669,30 +452,7 @@ messenger.showSnackBar(
                       const SizedBox(height: 18),
                       const _SectionLabel(title: 'سجل الحساب'),
                       const SizedBox(height: 8),
-                      Card(
-                        child: ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor:
-                                AppColors.primary.withOpacity(0.12),
-                            child: const Icon(
-                              Icons.history_rounded,
-                              color: AppColors.primary,
-                            ),
-                          ),
-                          title: const Text('سجل تغييرات الحساب'),
-                          subtitle: const Text(
-                            'عرض كل التعديلات والحركات المرتبطة بالحساب',
-                          ),
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const AccountHistoryPage(),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
+                      _buildAccountHistoryCard(),
                       const SizedBox(height: 18),
                       const _SectionLabel(title: 'تعديل الاسم'),
                       const SizedBox(height: 8),
@@ -709,12 +469,36 @@ messenger.showSnackBar(
                       const _SectionLabel(title: 'إدارة الحساب'),
                       const SizedBox(height: 8),
                       _buildAccountStatusCard(),
-                      const SizedBox(height: 10),
-                      _buildAccountActionsCard(),
                       const SizedBox(height: 12),
                     ],
                   ),
                 ),
+    );
+  }
+
+  Widget _buildAccountHistoryCard() {
+    return Card(
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: AppColors.primary.withOpacity(0.12),
+          child: const Icon(
+            Icons.history_rounded,
+            color: AppColors.primary,
+          ),
+        ),
+        title: const Text('سجل تغييرات الحساب'),
+        subtitle: const Text(
+          'عرض كل التعديلات والحركات المرتبطة بالحساب',
+        ),
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const AccountHistoryPage(),
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -1155,13 +939,6 @@ messenger.showSnackBar(
 
   Widget _buildAccountStatusCard() {
     final data = _userData;
-    final request = _deletionRequestData;
-
-    Color bgColor = AppColors.background;
-    Color textColor = AppColors.textDark;
-    IconData icon = Icons.info_outline_rounded;
-    String title = 'حالة الحساب';
-    String message = '';
 
     if (data == null) {
       return const SizedBox.shrink();
@@ -1169,42 +946,21 @@ messenger.showSnackBar(
 
     final isActive = data.isActive;
 
-    if (!isActive) {
-      bgColor = AppColors.danger.withOpacity(0.08);
-      textColor = AppColors.danger;
-      icon = Icons.person_off_outlined;
-      title = 'الحساب غير نشط';
-      message =
-          'هذا الحساب غير مفعل حاليًا. إذا كان التعطيل مؤقتًا فيمكن للإدارة إعادة تفعيله.';
-    } else if (request?.isPending == true) {
-      bgColor = Colors.amber.withOpacity(0.10);
-      textColor = Colors.amber.shade800;
-      icon = Icons.hourglass_top_rounded;
-      title = 'طلب حذف قيد المراجعة';
-      message =
-          'تم إرسال طلب حذف دائم للحساب وهو الآن بانتظار مراجعة الإدارة. يمكنك سحب الطلب ما دام لم تتم معالجته بعد.';
-    } else if (request?.isApproved == true) {
-      bgColor = AppColors.danger.withOpacity(0.08);
-      textColor = AppColors.danger;
-      icon = Icons.delete_forever_outlined;
-      title = 'تم قبول طلب الحذف';
-      message =
-          'تمت الموافقة على طلب حذف الحساب من الإدارة، والحساب الآن بانتظار المعالجة النهائية.';
-    } else if (request?.isRejected == true) {
-      bgColor = Colors.orange.withOpacity(0.10);
-      textColor = Colors.orange.shade800;
-      icon = Icons.cancel_outlined;
-      title = 'تم رفض طلب الحذف';
-      message = request!.reviewNote.isNotEmpty
-          ? 'تم رفض طلب الحذف. ملاحظة الإدارة: ${request.reviewNote}'
-          : 'تم رفض طلب الحذف من الإدارة.';
-    } else {
-      bgColor = AppColors.success.withOpacity(0.08);
-      textColor = AppColors.success;
-      icon = Icons.verified_user_outlined;
-      title = 'الحساب نشط';
-      message = 'الحساب يعمل بشكل طبيعي ولا توجد طلبات حذف حالية.';
-    }
+    final bgColor = isActive
+        ? AppColors.success.withOpacity(0.08)
+        : AppColors.danger.withOpacity(0.08);
+
+    final textColor = isActive ? AppColors.success : AppColors.danger;
+
+    final icon = isActive
+        ? Icons.verified_user_outlined
+        : Icons.person_off_outlined;
+
+    final title = isActive ? 'الحساب نشط' : 'الحساب غير نشط';
+
+    final message = isActive
+        ? 'الحساب يعمل بشكل طبيعي.'
+        : 'هذا الحساب غير مفعل حاليًا. يمكن للإدارة فقط إعادة تفعيله أو تعديل حالته.';
 
     return Card(
       child: Padding(
@@ -1245,167 +1001,11 @@ messenger.showSnackBar(
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    if (request?.requestedAt != null) ...[
-                      const SizedBox(height: 6),
-                      Text(
-                        'تاريخ الطلب: ${_formatDate(request!.requestedAt!)}',
-                        style: const TextStyle(
-                          color: AppColors.textLight,
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                    if (request?.processedAt != null) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        'تاريخ المعالجة: ${_formatDate(request!.processedAt!)}',
-                        style: const TextStyle(
-                          color: AppColors.textLight,
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
                   ],
                 ),
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAccountActionsCard() {
-    final isAdmin = _userData?.role == 'admin';
-    final hasPendingDeletion = _deletionRequestData?.isPending == true;
-    final hasApprovedDeletion = _deletionRequestData?.isApproved == true;
-    final isInactive = _userData?.isActive == false;
-
-    final disableDeactivate = isAdmin || _isDeactivating || isInactive;
-    final disableDeletionRequest = isAdmin ||
-        _isRequestingDeletion ||
-        hasPendingDeletion ||
-        hasApprovedDeletion;
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: isAdmin
-                    ? Colors.orange.withOpacity(0.10)
-                    : Colors.red.withOpacity(0.08),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Text(
-                isAdmin
-                    ? 'حساب الأدمن لا يمكن تعطيله أو طلب حذفه ذاتيًا من داخل التطبيق.'
-                    : 'يمكنك تعطيل الحساب مؤقتًا أو إرسال طلب حذف دائم للإدارة. الحذف الدائم لا يتم مباشرة من داخل التطبيق.',
-                style: TextStyle(
-                  color: isAdmin ? Colors.orange.shade800 : AppColors.danger,
-                  height: 1.45,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-            const SizedBox(height: 14),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: disableDeactivate ? null : _deactivateAccount,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.danger,
-                ),
-                icon: _isDeactivating
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.3,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Icon(Icons.person_off_outlined),
-                label: Text(
-                  isInactive
-                      ? 'الحساب معطل حاليًا'
-                      : _isDeactivating
-                          ? 'جاري تعطيل الحساب...'
-                          : 'تعطيل الحساب مؤقتًا',
-                ),
-              ),
-            ),
-            if (!isAdmin) ...[
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed:
-                      disableDeletionRequest ? null : _requestPermanentDeletion,
-                  icon: _isRequestingDeletion
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.3,
-                          ),
-                        )
-                      : const Icon(Icons.delete_forever_outlined),
-                  label: Text(
-                    hasPendingDeletion
-                        ? 'يوجد طلب حذف قيد المراجعة'
-                        : hasApprovedDeletion
-                            ? 'تم قبول طلب الحذف'
-                            : _isRequestingDeletion
-                                ? 'جاري إرسال الطلب...'
-                                : 'طلب حذف دائم',
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.danger,
-                    side: const BorderSide(
-                      color: AppColors.danger,
-                      width: 1.2,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-            if (!isAdmin && hasPendingDeletion) ...[
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _isCancellingDeletionRequest
-                      ? null
-                      : _cancelPermanentDeletionRequest,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.orange,
-                  ),
-                  icon: _isCancellingDeletionRequest
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.3,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Icon(Icons.undo_rounded),
-                  label: Text(
-                    _isCancellingDeletionRequest
-                        ? 'جاري سحب الطلب...'
-                        : 'سحب طلب الحذف',
-                  ),
-                ),
-              ),
-            ],
-          ],
         ),
       ),
     );

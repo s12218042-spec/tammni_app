@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'app_notification_service.dart';
 
 class LiveStreamRequestResult {
   final String requestId;
@@ -876,224 +877,163 @@ class LiveStreamService {
   }
 
   Future<void> _sendNotificationToAdmins({
-    required String type,
-    required String title,
-    required String body,
-    required String childId,
-    required String childName,
-    required String requestId,
-    required String parentUid,
-    required String parentUsername,
-    required String parentName,
-  }) async {
-    try {
-      final adminsSnapshot = await _firestore
-          .collection('users')
-          .where('role', isEqualTo: 'admin')
-          .where('isActive', isEqualTo: true)
-          .get();
-
-      if (adminsSnapshot.docs.isEmpty) return;
-
-      WriteBatch batch = _firestore.batch();
-      int counter = 0;
-
-      for (final adminDoc in adminsSnapshot.docs) {
-        final adminData = adminDoc.data();
-        final adminUid = adminDoc.id;
-
-        final notificationRef = _firestore.collection('notifications').doc();
-
-        batch.set(notificationRef, {
-          'notificationId': notificationRef.id,
-          'type': type,
-          'notificationType': type,
-          'category': 'live_stream',
-          'templateType': 'live_stream_request',
-          'title': title,
-          'body': body,
-          'message': body,
-          'description': body,
-          'isRead': false,
-          'read': false,
-          'seen': false,
-          'targetUid': adminUid,
-          'targetRole': 'admin',
-          'targetName':
-              (adminData['name'] ?? adminData['username'] ?? '').toString(),
-          'notificationFor': 'admin',
-          'childId': childId,
-          'childName': childName,
-          'requestId': requestId,
-          'liveStreamRequestId': requestId,
-          'parentUid': parentUid,
-          'parentUsername': parentUsername,
-          'parentName': parentName,
-          'createdByUid': parentUid,
-          'createdByName': parentName.isEmpty ? 'ولي الأمر' : parentName,
-          'createdByRole': 'parent',
-          'byRole': 'parent',
-          'createdAt': FieldValue.serverTimestamp(),
-          'time': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-
-        counter++;
-
-        if (counter >= 450) {
-          await batch.commit();
-          batch = _firestore.batch();
-          counter = 0;
-        }
-      }
-
-      if (counter > 0) {
-        await batch.commit();
-      }
-    } catch (e) {
-      debugPrint('send admin live stream request notification error: $e');
-    }
+  required String type,
+  required String title,
+  required String body,
+  required String childId,
+  required String childName,
+  required String requestId,
+  required String parentUid,
+  required String parentUsername,
+  required String parentName,
+}) async {
+  try {
+    await AppNotificationService.instance.notifyAdmin(
+      title: title,
+      body: body,
+      type: type,
+      priority: 'important',
+      parentUid: parentUid,
+      parentUsername: parentUsername,
+      parentName: parentName,
+      childId: childId,
+      childName: childName,
+      section: 'Nursery',
+      createdByUid: parentUid,
+      createdByName: parentName.isEmpty ? 'ولي الأمر' : parentName,
+      createdByRole: 'parent',
+      extraData: {
+        'notificationType': type,
+        'category': 'live_stream',
+        'templateType': 'live_stream_request',
+        'requestId': requestId,
+        'liveStreamRequestId': requestId,
+        'route': 'live_stream_requests',
+        'screen': 'live_stream',
+      },
+    );
+  } catch (e) {
+    debugPrint('send admin live stream request notification error: $e');
   }
+}
 
-  Future<void> _sendNotificationToParent({
-    required String type,
-    required String title,
-    required String body,
-    required String parentUid,
-    required String parentUsername,
-    required String parentName,
-    required String childId,
-    required String childName,
-    required String roomId,
-    required String requestId,
-    required String actorUid,
-    required String actorName,
-    required String actorRole,
-  }) async {
-    try {
-      if (parentUid.trim().isEmpty && parentUsername.trim().isEmpty) return;
+Future<void> _sendNotificationToParent({
+  required String type,
+  required String title,
+  required String body,
+  required String parentUid,
+  required String parentUsername,
+  required String parentName,
+  required String childId,
+  required String childName,
+  required String roomId,
+  required String requestId,
+  required String actorUid,
+  required String actorName,
+  required String actorRole,
+}) async {
+  try {
+    if (parentUid.trim().isEmpty && parentUsername.trim().isEmpty) return;
 
-      final notificationRef = _firestore.collection('notifications').doc();
-
-      await notificationRef.set({
-        'notificationId': notificationRef.id,
-        'type': type,
+    await AppNotificationService.instance.notifyParent(
+      parentUid: parentUid,
+      parentUsername: parentUsername,
+      parentName: parentName,
+      title: title,
+      body: body,
+      type: type,
+      childId: childId,
+      childName: childName,
+      section: 'Nursery',
+      priority: type == 'live_stream_request_rejected' ? 'important' : 'normal',
+      createdByUid: actorUid,
+      createdByName: actorName,
+      createdByRole: actorRole,
+      extraData: {
         'notificationType': type,
         'category': 'live_stream',
         'templateType': 'live_stream',
-        'title': title,
-        'body': body,
-        'message': body,
-        'description': body,
-        'isRead': false,
-        'read': false,
-        'seen': false,
-        'targetUid': parentUid.trim(),
-        'targetUsername': parentUsername.trim().toLowerCase(),
-        'targetRole': 'parent',
-        'notificationFor': 'parent',
-        'uid': parentUid.trim(),
-        'parentUid': parentUid.trim(),
-        'parentUsername': parentUsername.trim().toLowerCase(),
-        'parentName': parentName.trim(),
-        'childId': childId.trim(),
-        'childName': childName.trim(),
-        'roomId': roomId.trim(),
-        'liveStreamId': roomId.trim(),
-        'requestId': requestId.trim(),
-        'liveStreamRequestId': requestId.trim(),
-        'createdByUid': actorUid.trim(),
-        'createdByName': actorName.trim(),
-        'createdByRole': _normalizeRole(actorRole),
-        'byRole': _normalizeRole(actorRole),
-        'createdAt': FieldValue.serverTimestamp(),
-        'time': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    } catch (e) {
-      debugPrint('send parent live stream notification error: $e');
-    }
+        'roomId': roomId,
+        'liveStreamId': roomId,
+        'requestId': requestId,
+        'liveStreamRequestId': requestId,
+        'route': 'live_stream',
+        'screen': 'live_stream',
+      },
+    );
+  } catch (e) {
+    debugPrint('send parent live stream notification error: $e');
   }
+}
 
-  Future<void> _sendLiveStreamNotificationToParents({
-    required String type,
-    required String title,
-    required String body,
-    required String roomId,
-    required String streamTitle,
-    required String actorUid,
-    required String actorName,
-    required String actorRole,
-  }) async {
-    try {
-      final parentsSnapshot = await _firestore
-          .collection('users')
-          .where('role', isEqualTo: 'parent')
-          .where('isActive', isEqualTo: true)
-          .get();
+Future<void> _sendLiveStreamNotificationToParents({
+  required String type,
+  required String title,
+  required String body,
+  required String roomId,
+  required String streamTitle,
+  required String actorUid,
+  required String actorName,
+  required String actorRole,
+}) async {
+  try {
+    final parentsSnapshot = await _firestore
+        .collection('users')
+        .where('role', isEqualTo: 'parent')
+        .where('isActive', isEqualTo: true)
+        .get();
 
-      if (parentsSnapshot.docs.isEmpty) return;
+    if (parentsSnapshot.docs.isEmpty) return;
 
-      WriteBatch batch = _firestore.batch();
-      int counter = 0;
+    for (final parentDoc in parentsSnapshot.docs) {
+      final parentData = parentDoc.data();
 
-      for (final parentDoc in parentsSnapshot.docs) {
-        final parentData = parentDoc.data();
+      final parentUid = parentDoc.id;
+      final parentUsername =
+          (parentData['username'] ?? '').toString().trim().toLowerCase();
 
-        final parentUid = parentDoc.id;
-        final parentUsername =
-            (parentData['username'] ?? '').toString().trim().toLowerCase();
+      final parentName = (parentData['displayName'] ??
+              parentData['name'] ??
+              parentData['fullName'] ??
+              parentData['username'] ??
+              '')
+          .toString()
+          .trim();
 
-        final notificationRef = _firestore.collection('notifications').doc();
-
-        batch.set(notificationRef, {
-          'notificationId': notificationRef.id,
-          'type': type,
-          'notificationType': type,
-          'category': 'live_stream',
-          'templateType': 'live_stream',
-          'title': title,
-          'body': body,
-          'message': body,
-          'description': body,
-          'isRead': false,
-          'read': false,
-          'seen': false,
-          'targetUid': parentUid,
-          'targetUsername': parentUsername,
-          'targetRole': 'parent',
-          'notificationFor': 'parent',
-          'uid': parentUid,
-          'parentUid': parentUid,
-          'parentUsername': parentUsername,
-          'roomId': roomId,
-          'liveStreamId': roomId,
-          'streamTitle': streamTitle,
-          'createdByUid': actorUid,
-          'createdByName': actorName,
-          'createdByRole': _normalizeRole(actorRole),
-          'byRole': _normalizeRole(actorRole),
-          'createdAt': FieldValue.serverTimestamp(),
-          'time': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-
-        counter++;
-
-        if (counter >= 450) {
-          await batch.commit();
-          batch = _firestore.batch();
-          counter = 0;
-        }
+      try {
+        await AppNotificationService.instance.notifyParent(
+          parentUid: parentUid,
+          parentUsername: parentUsername,
+          parentName: parentName,
+          title: title,
+          body: body,
+          type: type,
+          section: 'Nursery',
+          priority: 'normal',
+          createdByUid: actorUid,
+          createdByName: actorName,
+          createdByRole: actorRole,
+          extraData: {
+            'notificationType': type,
+            'category': 'live_stream',
+            'templateType': 'live_stream',
+            'roomId': roomId,
+            'liveStreamId': roomId,
+            'streamTitle': streamTitle,
+            'route': 'live_stream',
+            'screen': 'live_stream',
+          },
+        );
+      } catch (e) {
+        debugPrint(
+          'send live stream notification to parent $parentUid error: $e',
+        );
       }
-
-      if (counter > 0) {
-        await batch.commit();
-      }
-    } catch (e) {
-      debugPrint('send live stream notifications error: $e');
     }
+  } catch (e) {
+    debugPrint('send live stream notifications error: $e');
   }
+}
 
   Future<void> _promoteNextQueuedRequest() async {
     try {

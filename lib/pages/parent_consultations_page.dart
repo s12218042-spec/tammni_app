@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../services/app_notification_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 
@@ -136,6 +137,95 @@ class _ParentConsultationsPageState extends State<ParentConsultationsPage> {
     }).toList();
   }
 
+Future<Map<String, String>> fetchCurrentParentInfo() async {
+  final user = FirebaseAuth.instance.currentUser;
+
+  if (user == null) {
+    return {
+      'uid': '',
+      'name': 'ولي الأمر',
+      'username': cleanUsername,
+    };
+  }
+
+  try {
+    final doc = await _firestore.collection('users').doc(user.uid).get();
+    final data = doc.data() ?? {};
+
+    return {
+      'uid': user.uid,
+      'name': (data['displayName'] ??
+              data['name'] ??
+              data['fullName'] ??
+              data['username'] ??
+              'ولي الأمر')
+          .toString()
+          .trim(),
+      'username': (data['username'] ?? cleanUsername)
+          .toString()
+          .trim()
+          .toLowerCase(),
+    };
+  } catch (_) {
+    return {
+      'uid': user.uid,
+      'name': 'ولي الأمر',
+      'username': cleanUsername,
+    };
+  }
+}
+
+Future<void> notifyAdminConsultationResponse({
+  required String consultationId,
+  required bool approved,
+  required Map<String, dynamic> consultationData,
+}) async {
+  final parentInfo = await fetchCurrentParentInfo();
+
+  final parentUid = (parentInfo['uid'] ?? '').trim();
+  final parentUsername = (parentInfo['username'] ?? '').trim().toLowerCase();
+  final parentName = (parentInfo['name'] ?? 'ولي الأمر').trim();
+
+  final childName = (consultationData['childName'] ?? '').toString().trim();
+  final title = (consultationData['title'] ?? 'استشارة').toString().trim();
+  final totalAmount = consultationData['totalAmount'] ?? 0;
+
+  final responseText = approved ? 'وافق' : 'رفض';
+
+  await AppNotificationService.instance.notifyAdmin(
+    title: approved ? 'تمت الموافقة على استشارة' : 'تم رفض استشارة',
+    body:
+        '$responseText ولي الأمر $parentName على الاستشارة "$title"${childName.isNotEmpty ? ' للطفل $childName' : ''}. المبلغ: ${formatMoney(totalAmount)} شيكل.',
+    type: approved ? 'consultation_approved' : 'consultation_rejected',
+    priority: approved ? 'normal' : 'important',
+    parentUid: parentUid,
+    parentUsername: parentUsername,
+    parentName: parentName,
+    childId: (consultationData['childId'] ?? '').toString(),
+    childName: childName,
+    section: (consultationData['section'] ?? 'Nursery').toString(),
+    group: (consultationData['group'] ?? '').toString(),
+    createdByUid: parentUid,
+    createdByName: parentName,
+    createdByRole: 'parent',
+    extraData: {
+      'consultationId': consultationId,
+      'consultationStatus': approved ? 'scheduled' : 'cancelled',
+      'parentApprovalStatus': approved ? 'approved' : 'rejected',
+      'notificationType':
+          approved ? 'consultation_approved' : 'consultation_rejected',
+      'category': 'consultations',
+      'screen': 'consultations',
+      'route': 'admin_consultations',
+      'relatedCollection': 'child_consultations',
+      'relatedDocId': consultationId,
+      'totalAmount': totalAmount,
+      'hourlyPrice': consultationData['hourlyPrice'] ?? 50,
+      'hours': consultationData['hours'] ?? 0,
+    },
+  );
+}
+
   Future<void> respondToConsultation({
     required String consultationId,
     required bool approved,
@@ -148,17 +238,24 @@ class _ParentConsultationsPageState extends State<ParentConsultationsPage> {
 
     try {
       final now = DateTime.now();
+    final consultationRef =
+    _firestore.collection('child_consultations').doc(consultationId);
 
-      await _firestore
-          .collection('child_consultations')
-          .doc(consultationId)
-          .update({
-        'parentApprovalStatus': approved ? 'approved' : 'rejected',
-        'parentRespondedAt': Timestamp.fromDate(now),
-        'consultationStatus': approved ? 'scheduled' : 'cancelled',
-        'updatedAt': Timestamp.fromDate(now),
-      });
+    final consultationDoc = await consultationRef.get();
+    final consultationData = consultationDoc.data() ?? <String, dynamic>{};
 
+      await consultationRef.update({
+  'parentApprovalStatus': approved ? 'approved' : 'rejected',
+  'parentRespondedAt': Timestamp.fromDate(now),
+  'consultationStatus': approved ? 'scheduled' : 'cancelled',
+  'updatedAt': Timestamp.fromDate(now),
+});
+
+await notifyAdminConsultationResponse(
+  consultationId: consultationId,
+  approved: approved,
+  consultationData: consultationData,
+);
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(

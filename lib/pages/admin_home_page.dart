@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
-import 'account_settings_page.dart';
 import 'admin_add_child_requests_page.dart';
 import 'admin_add_user_page.dart';
 import 'admin_chats_page.dart';
@@ -18,8 +17,16 @@ import 'manage_children_page.dart';
 import 'manage_users_page.dart';
 import 'welcome_page.dart';
 import 'admin_live_stream_requests_page.dart';
+import 'admin_daily_tasks_table_page.dart';
+import 'admin _weekly_duty__page.dart';
+import 'admin_staff_tasks_review_page.dart';
+import 'profile_details_page.dart';
+import 'admin_staff_evaluations_page.dart';
+import 'admin_staff_attendance_page.dart';
+import 'admin_staff_payroll_page.dart';
 import 'admin_offers_page.dart';
 import 'admin_consultations_page.dart';
+import 'admin_general_reports_page.dart';
 import '../services/account_settings_service.dart';
 
 class AdminHomePage extends StatefulWidget {
@@ -35,9 +42,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
       AccountSettingsService();
 
   int selectedIndex = 0;
-  bool isArabic = true;
-  bool isDarkMode = false;
-
+  
   Future<void> logout(BuildContext context) async {
     final shouldLogout = await showDialog<bool>(
       context: context,
@@ -716,171 +721,181 @@ class _AdminHomePageState extends State<AdminHomePage> {
   }
 
   Widget _buildFollowUpTab() {
-    return RefreshIndicator(
-      onRefresh: () async {
-        setState(() {});
-      },
-      child: ListView(
-        children: [
-          const _SectionTitle(
-            title: 'الإجراءات الأساسية',
-            icon: Icons.fact_check_rounded,
-          ),
-          const SizedBox(height: 12),
-          _AdminActionCard(
-            icon: Icons.how_to_reg_rounded,
-            title: 'طلبات تسجيل أولياء الأمور',
-            subtitle: 'مراجعة طلبات التسجيل الجديدة والموافقة أو الرفض',
-            onTap: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const AdminRegistrationRequestsPage(),
-                ),
-              );
-              setState(() {});
-            },
-          ),
-          _AdminActionCard(
-            icon: Icons.person_add_alt_1_outlined,
-            title: 'طلبات إضافة الأطفال',
-            subtitle: 'مراجعة طلبات إضافة طفل جديد إلى حسابات أولياء الأمور',
-            onTap: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const AdminAddChildRequestsPage(),
-                ),
-              );
-              setState(() {});
-            },
-          ),
-          _AdminActionCard(
-            icon: Icons.report_problem_outlined,
-            title: 'شكاوى أولياء الأمور',
-            subtitle: 'متابعة الشكاوى والملاحظات من الأهالي',
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const AdminComplaintsPage()),
-              );
-            },
-          ),
-          
-          _AdminActionCard(
-            icon: Icons.group_rounded,
-            title: 'إدارة المستخدمين',
-            subtitle:
-                'مراجعة الحسابات الحالية، تعديلها، تفعيلها أو تعطيلها دون إنشاء حسابات جديدة',
-            onTap: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const ManageUsersPage()),
-              );
-              setState(() {});
-            },
-          ),
-          _AdminActionCard(
-            icon: Icons.child_care_rounded,
-            title: 'إدارة الأطفال',
-            subtitle: 'متابعة بيانات الأطفال، الأرشفة، والحالة الحالية',
-            onTap: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const ManageChildrenPage()),
-              );
-              setState(() {});
-            },
-          ),
-          _AdminActionCard(
-            icon: Icons.groups_2_rounded,
-            title: 'إدارة المجموعات',
-            subtitle: 'إنشاء مجموعات الحضانة وربطها بالموظفات ومتابعة عدد الأطفال داخل كل مجموعة',
-            onTap: () async {
+  return RefreshIndicator(
+    onRefresh: () async {
+      setState(() {});
+    },
+    child: ListView(
+      children: [
+        const _SectionTitle(
+          title: 'الإجراءات الأساسية',
+          icon: Icons.fact_check_rounded,
+        ),
+        const SizedBox(height: 12),
+
+        _AdminActionCard(
+          icon: Icons.how_to_reg_rounded,
+          title: 'طلبات تسجيل أولياء الأمور',
+          subtitle: 'مراجعة طلبات التسجيل الجديدة والموافقة أو الرفض',
+          onTap: () async {
             await Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const AdminGroupsPage()),
+              context,
+              MaterialPageRoute(
+                builder: (_) => const AdminRegistrationRequestsPage(),
+              ),
             );
 
-    if (!mounted) return;
-    setState(() {});
-  },
-),
-          _AdminActionCard(
-            icon: Icons.person_add_alt_1_rounded,
-            title: 'إنشاء حسابات الموظفين',
-            subtitle: 'إنشاء حسابات موظفات الحضانة والإدارة فقط',
-            onTap: () async {
-              final result = await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const AdminAddUserPage()),
-              );
+            if (!mounted) return;
+            setState(() {});
+          },
+        ),
 
-              if (result == true) {
-                setState(() {});
-              }
-            },
-          ),
-          _AdminActionCard(
-            icon: Icons.receipt_long_rounded,
-            title: 'إدارة الفواتير',
-            subtitle: 'عرض الفواتير وإنشاء فاتورة حضانة جديدة من خلال الأدمن',
-            onTap: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const AdminInvoicesPage()),
-              );
-              setState(() {});
-            },
-          ),
-          _AdminActionCard(
-            icon: Icons.local_offer_rounded,
-            title: 'العروض والاشتراكات',
-            subtitle: 'إدارة عروض الحضانة والاشتراكات والخصومات الخاصة بأولياء الأمور',
-            onTap: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const AdminOffersPage(),
-                ),
-              );
-
-              if (!mounted) return;
-              setState(() {});
-            },
-          ),
-          _AdminActionCard(
-            icon: Icons.psychology_alt_rounded,
-            title: 'الاستشارات',
-            subtitle:
-                'إدارة استشارات الأطفال وموافقة أولياء الأمور وربطها بالفواتير',
-            onTap: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const AdminConsultationsPage(),
-                ),
-              );
-
-              if (!mounted) return;
-              setState(() {});
-            },
-          ),
-          const SizedBox(height: 24),
-          const _SectionTitle(
-         title: 'أدوات الإدارة المتقدمة',
-         icon: Icons.admin_panel_settings_rounded,
-          ),
-        const SizedBox(height: 12),
         _AdminActionCard(
-  icon: Icons.video_call_rounded,
-  title: 'طلبات البث المباشر',
-  subtitle: 'مراجعة طلبات أولياء الأمور وبدء بث خاص لكل طفل',
+          icon: Icons.person_add_alt_1_outlined,
+          title: 'طلبات إضافة الأطفال',
+          subtitle: 'مراجعة طلبات إضافة طفل جديد إلى حسابات أولياء الأمور',
+          onTap: () async {
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const AdminAddChildRequestsPage(),
+              ),
+            );
+
+            if (!mounted) return;
+            setState(() {});
+          },
+        ),
+
+        _AdminActionCard(
+          icon: Icons.report_problem_outlined,
+          title: 'شكاوى أولياء الأمور',
+          subtitle: 'متابعة الشكاوى والملاحظات من الأهالي',
+          onTap: () async {
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const AdminComplaintsPage(),
+              ),
+            );
+
+            if (!mounted) return;
+            setState(() {});
+          },
+        ),
+
+        _AdminActionCard(
+          icon: Icons.group_rounded,
+          title: 'إدارة المستخدمين',
+          subtitle:
+              'مراجعة الحسابات الحالية، تعديلها، تفعيلها أو تعطيلها دون إنشاء حسابات جديدة',
+          onTap: () async {
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const ManageUsersPage(),
+              ),
+            );
+
+            if (!mounted) return;
+            setState(() {});
+          },
+        ),
+
+        _AdminActionCard(
+          icon: Icons.child_care_rounded,
+          title: 'إدارة الأطفال',
+          subtitle: 'متابعة بيانات الأطفال، الأرشفة، والحالة الحالية',
+          onTap: () async {
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const ManageChildrenPage(),
+              ),
+            );
+
+            if (!mounted) return;
+            setState(() {});
+          },
+        ),
+
+        _AdminActionCard(
+          icon: Icons.groups_2_rounded,
+          title: 'إدارة المجموعات',
+          subtitle:
+              'إنشاء مجموعات الحضانة وربطها بالموظفات ومتابعة عدد الأطفال داخل كل مجموعة',
+          onTap: () async {
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const AdminGroupsPage(),
+              ),
+            );
+
+            if (!mounted) return;
+            setState(() {});
+          },
+        ),
+
+        _AdminActionCard(
+          icon: Icons.assignment_turned_in_outlined,
+          title: 'مهام الموظفات اليومية',
+          subtitle: 'توزيع ومتابعة مهام الموظفات',
+          onTap: () async {
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const AdminDailyTasksTablePage(),
+              ),
+            );
+
+            if (!mounted) return;
+            setState(() {});
+          },
+        ),
+
+        _AdminActionCard(
+          icon: Icons.fact_check_outlined,
+          title: 'متابعة مهام الموظفات',
+          subtitle: 'عرض المهام وتعديل حالتها',
+          onTap: () async {
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const AdminStaffTasksReviewPage(),
+              ),
+            );
+
+            if (!mounted) return;
+            setState(() {});
+          },
+        ),
+
+        _AdminActionCard(
+          icon: Icons.calendar_month_outlined,
+          title: 'المناوبة الأسبوعية',
+          subtitle: 'تحديد موظفة المناوبة لهذا الأسبوع',
+          onTap: () async {
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const AdminWeeklyDutyPage(),
+              ),
+            );
+
+            if (!mounted) return;
+            setState(() {});
+          },
+        ),
+        _AdminActionCard(
+  icon: Icons.star_rate_outlined,
+  title: 'تقييم الموظفات',
+  subtitle: 'تقييم أسبوعي أو شهري لأداء موظفات الحضانة',
   onTap: () async {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => const AdminLiveStreamRequestsPage(),
+        builder: (_) => const AdminStaffEvaluationsPage(),
       ),
     );
 
@@ -888,34 +903,168 @@ class _AdminHomePageState extends State<AdminHomePage> {
     setState(() {});
   },
 ),
-
 _AdminActionCard(
-  icon: Icons.dynamic_feed_rounded,
-  title: 'سجل التحديثات الإداري',
-  subtitle: 'متابعة آخر تحديثات موظفات الحضانة داخل النظام',
+  icon: Icons.access_time_outlined,
+  title: 'دوام الموظفات',
+  subtitle: 'تسجيل حضور وانصراف الموظفات وحساب ساعات العمل',
   onTap: () async {
     await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const AdminUpdatesFeedPage()),
+      MaterialPageRoute(
+        builder: (_) => const AdminStaffAttendancePage(),
+      ),
     );
+
+    if (!mounted) return;
     setState(() {});
   },
 ),
-          _AdminActionCard(
-            icon: Icons.bar_chart_rounded,
-            title: 'التقارير العامة',
-            subtitle: 'تجهيز صفحة تقارير أوسع لاحقًا',
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('قيد العمل')),
-              );
-            },
-          ),
-          const SizedBox(height: 12),
-        ],
+_AdminActionCard(
+  icon: Icons.payments_outlined,
+  title: 'رواتب الموظفات',
+  subtitle: 'اعتماد راتب الموظفة الشهري حسب الدوام والخصم والعلاوة',
+  onTap: () async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const AdminStaffPayrollPage(),
       ),
     );
-  }
+
+    if (!mounted) return;
+    setState(() {});
+  },
+),
+        _AdminActionCard(
+          icon: Icons.person_add_alt_1_rounded,
+          title: 'إنشاء حسابات الموظفين',
+          subtitle: 'إنشاء حسابات موظفات الحضانة والإدارة فقط',
+          onTap: () async {
+            final result = await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const AdminAddUserPage(),
+              ),
+            );
+
+            if (result == true) {
+              setState(() {});
+            }
+          },
+        ),
+
+        _AdminActionCard(
+          icon: Icons.receipt_long_rounded,
+          title: 'إدارة الفواتير',
+          subtitle: 'عرض الفواتير وإنشاء فاتورة حضانة جديدة من خلال الأدمن',
+          onTap: () async {
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const AdminInvoicesPage(),
+              ),
+            );
+
+            if (!mounted) return;
+            setState(() {});
+          },
+        ),
+
+        _AdminActionCard(
+          icon: Icons.local_offer_rounded,
+          title: 'العروض والاشتراكات',
+          subtitle:
+              'إدارة عروض الحضانة والاشتراكات والخصومات الخاصة بأولياء الأمور',
+          onTap: () async {
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const AdminOffersPage(),
+              ),
+            );
+
+            if (!mounted) return;
+            setState(() {});
+          },
+        ),
+
+        _AdminActionCard(
+          icon: Icons.psychology_alt_rounded,
+          title: 'الاستشارات',
+          subtitle:
+              'إدارة استشارات الأطفال وموافقة أولياء الأمور وربطها بالفواتير',
+          onTap: () async {
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const AdminConsultationsPage(),
+              ),
+            );
+
+            if (!mounted) return;
+            setState(() {});
+          },
+        ),
+
+        const SizedBox(height: 24),
+
+        const _SectionTitle(
+          title: 'أدوات الإدارة المتقدمة',
+          icon: Icons.admin_panel_settings_rounded,
+        ),
+        const SizedBox(height: 12),
+
+        _AdminActionCard(
+          icon: Icons.video_call_rounded,
+          title: 'طلبات البث المباشر',
+          subtitle: 'مراجعة طلبات أولياء الأمور وبدء بث خاص لكل طفل',
+          onTap: () async {
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const AdminLiveStreamRequestsPage(),
+              ),
+            );
+
+            if (!mounted) return;
+            setState(() {});
+          },
+        ),
+
+        _AdminActionCard(
+          icon: Icons.dynamic_feed_rounded,
+          title: 'سجل التحديثات الإداري',
+          subtitle: 'متابعة آخر تحديثات موظفات الحضانة داخل النظام',
+          onTap: () async {
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const AdminUpdatesFeedPage(),
+              ),
+            );
+
+            if (!mounted) return;
+            setState(() {});
+          },
+        ),
+
+        _AdminActionCard(
+  icon: Icons.bar_chart_rounded,
+  title: 'التقارير العامة',
+  subtitle: 'عرض ملخص شامل عن الأطفال، الموظفات، الفواتير والخدمات',
+  onTap: () {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const AdminGeneralReportsPage(),
+      ),
+    );
+  },
+),
+      ],
+    ),
+  );
+}
 
   Widget _buildMessagesTab() {
     return const AdminChatsPage();
@@ -970,16 +1119,16 @@ _AdminActionCard(
                   ),
                 ),
                 onTap: () async {
-                  await Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const AccountSettingsPage(),
-                    ),
-                  );
+  await Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => const ProfileDetailsPage(),
+    ),
+  );
 
-                  if (!mounted) return;
-                  setState(() {});
-                },
+  if (!mounted) return;
+  setState(() {});
+},
               );
             },
           ),
@@ -992,48 +1141,11 @@ _AdminActionCard(
                 fontWeight: FontWeight.w700,
               ),
         ),
+      
         const SizedBox(height: 8),
         Card(
           child: Column(
             children: [
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Colors.orange.withOpacity(0.12),
-                  child: const Icon(
-                    Icons.person_outline_rounded,
-                    color: Colors.orange,
-                  ),
-                ),
-                title: const Text('تعديل الملف الشخصي'),
-                subtitle: const Text('تعديل الاسم، كلمة المرور، وإدارة الحساب'),
-                onTap: () async {
-                  await Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const AccountSettingsPage(),
-                    ),
-                  );
-
-                  if (!mounted) return;
-                  setState(() {});
-                },
-              ),
-              const Divider(height: 1),
-              SwitchListTile(
-                secondary: CircleAvatar(
-                  backgroundColor: Colors.blue.withOpacity(0.12),
-                  child: const Icon(Icons.language_rounded, color: Colors.blue),
-                ),
-                title: const Text('لغة التطبيق'),
-                subtitle: Text(isArabic ? 'العربية' : 'English'),
-                value: isArabic,
-                onChanged: (value) {
-                  setState(() {
-                    isArabic = value;
-                  });
-                },
-              ),
-              const Divider(height: 1),
               ListTile(
                 leading: CircleAvatar(
                   backgroundColor: Colors.green.withOpacity(0.12),
@@ -1061,31 +1173,7 @@ _AdminActionCard(
             ],
           ),
         ),
-        const SizedBox(height: 18),
-        Text(
-          'المظهر',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: AppColors.textLight,
-                fontWeight: FontWeight.w700,
-              ),
-        ),
-        const SizedBox(height: 8),
-        Card(
-          child: SwitchListTile(
-            secondary: CircleAvatar(
-              backgroundColor: Colors.purple.withOpacity(0.12),
-              child: const Icon(Icons.palette_outlined, color: Colors.purple),
-            ),
-            title: const Text('الوضع الليلي'),
-            value: isDarkMode,
-            onChanged: (value) {
-              setState(() {
-                isDarkMode = value;
-              });
-            },
-          ),
-        ),
-        const SizedBox(height: 18),
+      
         Text(
           'المساعدة والدعم',
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
@@ -1093,6 +1181,7 @@ _AdminActionCard(
                 fontWeight: FontWeight.w700,
               ),
         ),
+
         const SizedBox(height: 8),
         Card(
           child: Column(

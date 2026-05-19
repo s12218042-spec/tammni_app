@@ -12,6 +12,7 @@ class PushSenderService {
 
   static const String _functionName = 'send-fcm-notification';
 
+  String lastError = '';
   String _clean(String value) => value.trim();
 
   String _normalizeUsername(String value) => value.trim().toLowerCase();
@@ -61,8 +62,13 @@ class PushSenderService {
       case 'message_reaction':
         return 'messages';
 
-      case 'live_stream_started':
-      case 'live_stream_ended':
+     case 'live_stream_request':
+     case 'live_stream_request_ready':
+     case 'live_stream_started':
+     case 'live_stream_ended':
+     case 'live_stream_queued':
+     case 'live_stream_request_approved':
+     case 'live_stream_request_rejected':
         return 'live_stream';
 
      case 'update_notification':
@@ -83,17 +89,44 @@ class PushSenderService {
       case 'invoice_status':
       case 'invoice_created':
       case 'invoice_updated':
+      case 'extra_hours':
         return 'invoices';
 
-      case 'complaint_status':
-      case 'complaint_reply':
-        return 'complaints';
+      case 'consultation_created':
+      case 'consultation_updated':
+      case 'consultation_approved':
+      case 'consultation_rejected':
+       return 'consultations';
+
+      case 'add_child_request':
+      case 'registration_request':
+      case 'parent_registration_request':
+        return 'requests';
+
+
+     case 'complaint_created':
+     case 'complaint_status':
+     case 'complaint_reply':
+     case 'complaint_update':
+       return 'complaints';
 
       case 'account_enabled':
       case 'account_disabled':
       case 'account_updated':
       case 'account_deleted':
         return 'account';
+
+      case 'weekly_duty':
+        return 'weekly_duty';
+
+      case 'staff_daily_tasks':
+        return 'staff_tasks';
+
+      case 'child_handoff':
+      case 'child_handoff_updated':
+        return 'notifications';
+
+      
 
       default:
         return 'notifications';
@@ -121,10 +154,11 @@ class PushSenderService {
     final cleanTitle = _clean(title);
     final cleanBody = _clean(body);
 
-    if (cleanToken.isEmpty || cleanBody.isEmpty) {
-      debugPrint('PushSenderService: token أو body فارغ');
-      return false;
-    }
+   if (cleanToken.isEmpty || cleanBody.isEmpty) {
+  lastError = 'token أو body فارغ';
+  debugPrint('PushSenderService: $lastError');
+  return false;
+}
 
     try {
       final response = await _supabase.functions.invoke(
@@ -153,17 +187,20 @@ class PushSenderService {
       final status = response.status;
       final isSuccess = status >= 200 && status < 300;
 
-      if (!isSuccess) {
-        debugPrint(
-          'PushSenderService: فشل إرسال الإشعار. status=$status data=${response.data}',
-        );
-      }
+     if (!isSuccess) {
+  lastError =
+      'فشل Supabase Function. status=$status data=${response.data}';
+  debugPrint('PushSenderService: $lastError');
+  return false;
+}
 
-      return isSuccess;
+lastError = '';
+return true;
     } catch (e) {
-      debugPrint('PushSenderService: خطأ أثناء sendToToken: $e');
-      return false;
-    }
+  lastError = 'خطأ أثناء sendToToken: $e';
+  debugPrint('PushSenderService: $lastError');
+  return false;
+}
   }
 
   Future<int> sendToTokens({
@@ -190,9 +227,10 @@ class PushSenderService {
         .toList();
 
     if (uniqueTokens.isEmpty) {
-      debugPrint('PushSenderService: لا يوجد tokens للإرسال');
-      return 0;
-    }
+  lastError = 'لا يوجد tokens للإرسال';
+  debugPrint('PushSenderService: $lastError');
+  return 0;
+}
 
     int successCount = 0;
 
@@ -411,122 +449,146 @@ class PushSenderService {
   }
 
   Future<int> sendFromNotificationData({
-    required String notificationId,
-    required Map<String, dynamic> notificationData,
-  }) async {
-    final title = (notificationData['title'] ?? 'طمّني').toString().trim();
+  required String notificationId,
+  required Map<String, dynamic> notificationData,
+}) async {
+  final title = (notificationData['title'] ?? 'طمّني').toString().trim();
 
-    final body = (notificationData['body'] ??
-            notificationData['message'] ??
-            notificationData['text'] ??
-            '')
-        .toString()
-        .trim();
+  final body = (notificationData['body'] ??
+          notificationData['message'] ??
+          notificationData['text'] ??
+          '')
+      .toString()
+      .trim();
 
-    if (body.isEmpty) {
-      debugPrint('PushSenderService: notification body فارغ');
-      return 0;
-    }
-
-    final type = (notificationData['type'] ?? 'general').toString().trim();
-
-    final screen = _screenForType(type);
-
-    final targetUid =
-        (notificationData['targetUid'] ?? '').toString().trim();
-
-    final targetRole = _normalizeRole(
-      (notificationData['targetRole'] ??
-              notificationData['notificationFor'] ??
-              '')
-          .toString(),
-    );
-
-    final parentUid =
-        (notificationData['parentUid'] ?? '').toString().trim();
-
-    final parentUsername =
-        (notificationData['parentUsername'] ?? '').toString().trim();
-
-    final childId = (notificationData['childId'] ?? '').toString().trim();
-    final childName = (notificationData['childName'] ?? '').toString().trim();
-
-    final roomId = (notificationData['roomId'] ??
-            notificationData['liveStreamId'] ??
-            '')
-        .toString()
-        .trim();
-
-    final liveStreamId = (notificationData['liveStreamId'] ??
-            notificationData['roomId'] ??
-            '')
-        .toString()
-        .trim();
-
-    final extraPayload = {
-      'status': (notificationData['status'] ?? '').toString(),
-      'priority': (notificationData['priority'] ??
-              notificationData['importance'] ??
-              '')
-          .toString(),
-      'createdByUid': (notificationData['createdByUid'] ?? '').toString(),
-      'createdByName': (notificationData['createdByName'] ?? '').toString(),
-      'createdByRole': (notificationData['createdByRole'] ?? '').toString(),
-      'messageId': (notificationData['messageId'] ?? '').toString(),
-      'conversationChildId':
-          (notificationData['conversationChildId'] ?? '').toString(),
-      'emoji': (notificationData['emoji'] ?? '').toString(),
-    };
-
-    if (targetUid.isNotEmpty) {
-      return sendToUser(
-        uid: targetUid,
-        title: title,
-        body: body,
-        type: type,
-        screen: screen,
-        childId: childId,
-        childName: childName,
-        parentUid: parentUid,
-        parentUsername: parentUsername,
-        targetRole: targetRole,
-        notificationId: notificationId,
-        roomId: roomId,
-        liveStreamId: liveStreamId,
-        extraData: extraPayload,
-      );
-    }
-
-    if (parentUid.isNotEmpty || parentUsername.isNotEmpty) {
-      return sendToParent(
-        parentUid: parentUid,
-        parentUsername: parentUsername,
-        title: title,
-        body: body,
-        type: type,
-        screen: screen,
-        childId: childId,
-        childName: childName,
-        notificationId: notificationId,
-        roomId: roomId,
-        liveStreamId: liveStreamId,
-        extraData: extraPayload,
-      );
-    }
-
-    if (targetRole.isNotEmpty) {
-      return sendToRole(
-        role: targetRole,
-        title: title,
-        body: body,
-        type: type,
-        screen: screen,
-        notificationId: notificationId,
-        extraData: extraPayload,
-      );
-    }
-
-    debugPrint('PushSenderService: لا يوجد target واضح للإشعار');
+  if (body.isEmpty) {
+    debugPrint('PushSenderService: notification body فارغ');
     return 0;
   }
+
+  final type = (notificationData['type'] ?? 'general').toString().trim();
+  final screen = _screenForType(type);
+
+  final targetUid =
+      (notificationData['targetUid'] ?? '').toString().trim();
+
+  final targetRole = _normalizeRole(
+    (notificationData['targetRole'] ??
+            notificationData['notificationFor'] ??
+            '')
+        .toString(),
+  );
+
+  final parentUid =
+      (notificationData['parentUid'] ?? '').toString().trim();
+
+  final parentUsername =
+      (notificationData['parentUsername'] ?? '').toString().trim();
+
+  final childId = (notificationData['childId'] ?? '').toString().trim();
+  final childName = (notificationData['childName'] ?? '').toString().trim();
+
+  final roomId = (notificationData['roomId'] ??
+          notificationData['liveStreamId'] ??
+          '')
+      .toString()
+      .trim();
+
+  final liveStreamId = (notificationData['liveStreamId'] ??
+          notificationData['roomId'] ??
+          '')
+      .toString()
+      .trim();
+
+  final extraPayload = {
+    'status': (notificationData['status'] ?? '').toString(),
+    'priority': (notificationData['priority'] ??
+            notificationData['importance'] ??
+            '')
+        .toString(),
+    'createdByUid': (notificationData['createdByUid'] ?? '').toString(),
+    'createdByName': (notificationData['createdByName'] ?? '').toString(),
+    'createdByRole': (notificationData['createdByRole'] ?? '').toString(),
+    'messageId': (notificationData['messageId'] ?? '').toString(),
+    'conversationChildId':
+        (notificationData['conversationChildId'] ?? '').toString(),
+    'emoji': (notificationData['emoji'] ?? '').toString(),
+    'invoiceId': (notificationData['invoiceId'] ?? '').toString(),
+    'invoiceStatus': (notificationData['invoiceStatus'] ?? '').toString(),
+    'paymentStatus': (notificationData['paymentStatus'] ?? '').toString(),
+  };
+
+  int sentCount = 0;
+
+  // 1) جرّب الإرسال حسب targetUid أولًا.
+  if (targetUid.isNotEmpty) {
+    sentCount = await sendToUser(
+      uid: targetUid,
+      title: title,
+      body: body,
+      type: type,
+      screen: screen,
+      childId: childId,
+      childName: childName,
+      parentUid: parentUid,
+      parentUsername: parentUsername,
+      targetRole: targetRole,
+      notificationId: notificationId,
+      roomId: roomId,
+      liveStreamId: liveStreamId,
+      extraData: extraPayload,
+    );
+
+    if (sentCount > 0) return sentCount;
+
+    debugPrint(
+      'PushSenderService: لم يتم العثور على token عبر targetUid، سيتم تجربة parentUid/parentUsername',
+    );
+  }
+
+  // 2) إذا فشل UID، جرّب parentUid أو parentUsername.
+  if (parentUid.isNotEmpty || parentUsername.isNotEmpty) {
+    sentCount = await sendToParent(
+      parentUid: parentUid,
+      parentUsername: parentUsername,
+      title: title,
+      body: body,
+      type: type,
+      screen: screen,
+      childId: childId,
+      childName: childName,
+      notificationId: notificationId,
+      roomId: roomId,
+      liveStreamId: liveStreamId,
+      extraData: extraPayload,
+    );
+
+    if (sentCount > 0) return sentCount;
+
+    debugPrint(
+      'PushSenderService: لم يتم العثور على token عبر parentUid/parentUsername',
+    );
+  }
+
+  // 3) إذا الإشعار موجه لدور عام، جرّب الدور.
+  if (targetRole.isNotEmpty && targetRole != 'parent') {
+    sentCount = await sendToRole(
+      role: targetRole,
+      title: title,
+      body: body,
+      type: type,
+      screen: screen,
+      notificationId: notificationId,
+      extraData: extraPayload,
+    );
+
+    if (sentCount > 0) return sentCount;
+  }
+
+  debugPrint(
+    'PushSenderService: لا يوجد token صالح للإشعار notificationId=$notificationId targetUid=$targetUid parentUid=$parentUid parentUsername=$parentUsername targetRole=$targetRole',
+  );
+
+  return 0;
+}
 }

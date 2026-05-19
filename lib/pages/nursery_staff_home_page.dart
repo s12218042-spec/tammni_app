@@ -7,7 +7,6 @@ import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 import 'account_history_page.dart';
-import 'account_settings_page.dart';
 import 'add_update_page.dart';
 import 'child_handoff_log_page.dart';
 import 'incident_report_page.dart';
@@ -16,6 +15,9 @@ import 'nursery_chats_page.dart';
 import 'send_parent_notification_page.dart';
 import 'send_group_update_page.dart';
 import 'start_live_stream_page.dart';
+import 'staff_my_tasks_page.dart';
+import 'profile_details_page.dart';
+import 'staff_employee_file_page.dart';
 import 'welcome_page.dart';
 
 class NurseryStaffHomePage extends StatefulWidget {
@@ -31,11 +33,38 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
       AccountSettingsService();
 
   int selectedIndex = 0;
-  bool isArabic = true;
-  bool isDarkMode = false;
-
+  
   String searchQuery = '';
   String selectedStatusFilter = 'all';
+
+  DateTime get _todayDateOnly {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day);
+  }
+
+  DateTime get _currentWeekStart {
+    final d = _todayDateOnly;
+    final daysFromSunday = d.weekday == DateTime.sunday ? 0 : d.weekday;
+    return d.subtract(Duration(days: daysFromSunday));
+  }
+
+  DateTime get _currentWeekEnd {
+    return _currentWeekStart.add(const Duration(days: 6));
+  }
+
+  String get _currentWeekKey {
+    final firstDay = DateTime(_todayDateOnly.year, 1, 1);
+    final diff = _todayDateOnly.difference(firstDay).inDays;
+    final week = ((diff + firstDay.weekday) / 7).ceil();
+    return '${_todayDateOnly.year}-W${week.toString().padLeft(2, '0')}';
+  }
+
+  String _formatDateKey(DateTime date) {
+    final y = date.year;
+    final m = date.month.toString().padLeft(2, '0');
+    final d = date.day.toString().padLeft(2, '0');
+    return '$y-$m-$d';
+  }
 
   String get _pageTitle {
     switch (selectedIndex) {
@@ -975,6 +1004,191 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
         );
     }
   }
+  Widget _buildWeeklyDutyMiniCard() {
+  final currentUser = AuthService().currentUser;
+
+  if (currentUser == null) {
+    return const SizedBox.shrink();
+  }
+
+  return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+    stream: _firestore
+        .collection('weekly_duties')
+        .doc(_currentWeekKey)
+        .snapshots(),
+    builder: (context, snapshot) {
+      if (snapshot.connectionState == ConnectionState.waiting) {
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: const [
+                SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'جاري فحص مناوبة الأسبوع...',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+
+      if (snapshot.hasError) {
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: const [
+                Icon(Icons.error_outline, color: Colors.redAccent),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'تعذر تحميل المناوبة الأسبوعية',
+                    style: TextStyle(
+                      color: Colors.redAccent,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+
+      final exists = snapshot.data?.exists == true;
+      final data = snapshot.data?.data();
+
+      if (!exists || data == null) {
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: Colors.blueGrey.withOpacity(0.10),
+                  child: const Icon(
+                    Icons.event_available_outlined,
+                    color: Colors.blueGrey,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text(
+                    'لا توجد مناوبة محددة لهذا الأسبوع',
+                    style: TextStyle(
+                      color: AppColors.textDark,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+
+      final rawDutyStaffUids = data['dutyStaffUids'];
+
+final dutyStaffUids = rawDutyStaffUids is List
+    ? rawDutyStaffUids.map((e) => e.toString().trim()).toList()
+    : <String>[];
+
+final oldSingleStaffUid = (data['staffUid'] ?? '').toString().trim();
+
+final isMyDuty = dutyStaffUids.isNotEmpty
+    ? dutyStaffUids.contains(currentUser.uid)
+    : oldSingleStaffUid == currentUser.uid;
+
+final rawDutyStaff = data['dutyStaff'];
+
+String dutyStaffNames = '';
+
+if (rawDutyStaff is List && rawDutyStaff.isNotEmpty) {
+  dutyStaffNames = rawDutyStaff
+      .map((e) {
+        if (e is Map) {
+          return (e['name'] ?? e['staffName'] ?? '').toString().trim();
+        }
+        return '';
+      })
+      .where((name) => name.isNotEmpty)
+      .join('، ');
+}
+
+if (dutyStaffNames.isEmpty) {
+  dutyStaffNames =
+      (data['staffName'] ?? data['dutyStaffName'] ?? 'موظفة غير محددة')
+          .toString()
+          .trim();
+}
+
+final start = (data['weekStartDateKey'] ??
+        _formatDateKey(_currentWeekStart))
+    .toString();
+
+final end = (data['weekEndDateKey'] ??
+        _formatDateKey(_currentWeekEnd))
+    .toString();
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              CircleAvatar(
+                backgroundColor: isMyDuty
+                    ? Colors.green.withOpacity(0.12)
+                    : Colors.blueGrey.withOpacity(0.10),
+                child: Icon(
+                  isMyDuty
+                      ? Icons.verified_user_outlined
+                      : Icons.event_note_outlined,
+                  color: isMyDuty ? Colors.green : Colors.blueGrey,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isMyDuty
+                          ? 'أنتِ المناوبة لهذا الأسبوع'
+                          : 'لا توجد مناوبة عليكِ هذا الأسبوع',
+                      style: TextStyle(
+                        color: isMyDuty ? Colors.green : AppColors.textDark,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      isMyDuty
+                          ? 'من $start إلى $end'
+                          : 'المناوبة : $dutyStaffNames',
+                      style: const TextStyle(
+                        color: AppColors.textLight,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
 
   Widget _buildDashboardTab({
     required List<ChildModel> nurseryChildren,
@@ -990,6 +1204,8 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
           _buildWelcomeHeader(),
           const SizedBox(height: 16),
           _buildMyGroupCard(),
+          const SizedBox(height: 12),
+          _buildWeeklyDutyMiniCard(),
           const SizedBox(height: 16),
           _buildStatsSection(stats),
           const SizedBox(height: 16),
@@ -1061,248 +1277,180 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
   Widget _buildMessagesTab(List<ChildModel> nurseryChildren) {
     return NurseryChatsPage(children: nurseryChildren);
   }
-
   Widget _buildSettingsTab(List<ChildModel> nurseryChildren) {
-    return ListView(
-      children: [
-        Card(
-          child: FutureBuilder<AccountSettingsData>(
-            future: _accountSettingsService.getCurrentUserData(),
-            builder: (context, snapshot) {
-              final data = snapshot.data;
+  return ListView(
+    children: [
+      Card(
+        child: FutureBuilder<AccountSettingsData>(
+          future: _accountSettingsService.getCurrentUserData(),
+          builder: (context, snapshot) {
+            final data = snapshot.data;
 
-              final displayName = data?.name.trim().isNotEmpty == true
-                  ? data!.name
-                  : 'موظفة الحضانة';
+            final displayName = data?.name.trim().isNotEmpty == true
+                ? data!.name
+                : 'موظفة الحضانة';
 
-              final subtitle = data == null
-                  ? 'متابعة الرعاية اليومية'
-                  : '${data.roleLabel} • ${data.username.isNotEmpty ? data.username : "بدون اسم مستخدم"}';
+            final subtitle = data == null
+                ? 'متابعة الرعاية اليومية'
+                : '${data.roleLabel} • ${data.username.isNotEmpty ? data.username : "بدون اسم مستخدم"}';
 
-              return ListTile(
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                leading: CircleAvatar(
-                  radius: 28,
-                  backgroundColor: AppColors.primary.withOpacity(0.10),
-                  child: Text(
-                    displayName.trim().isNotEmpty ? displayName.trim()[0] : 'م',
-                    style: const TextStyle(
-                      color: AppColors.primary,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 22,
-                    ),
-                  ),
-                ),
-                title: Text(
-                  displayName,
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                subtitle: Text(subtitle),
-                trailing: CircleAvatar(
-                  radius: 18,
-                  backgroundColor: AppColors.primary.withOpacity(0.12),
-                  child: const Icon(
-                    Icons.edit,
-                    size: 18,
+            return ListTile(
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              leading: CircleAvatar(
+                radius: 28,
+                backgroundColor: AppColors.primary.withOpacity(0.10),
+                child: Text(
+                  displayName.trim().isNotEmpty ? displayName.trim()[0] : 'م',
+                  style: const TextStyle(
                     color: AppColors.primary,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 22,
                   ),
                 ),
-                onTap: () async {
-                  await Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const AccountSettingsPage(),
-                    ),
-                  );
+              ),
+              title: Text(
+                displayName,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              subtitle: Text(subtitle),
+              trailing: CircleAvatar(
+                radius: 18,
+                backgroundColor: AppColors.primary.withOpacity(0.12),
+                child: const Icon(
+                  Icons.edit,
+                  size: 18,
+                  color: AppColors.primary,
+                ),
+              ),
+              onTap: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const ProfileDetailsPage(),
+                  ),
+                );
 
-                  if (!mounted) return;
-                  setState(() {});
-                },
-              );
-            },
-          ),
+                if (!mounted) return;
+                setState(() {});
+              },
+            );
+          },
         ),
-        const SizedBox(height: 18),
-        Text(
-          'الإعدادات العامة',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: AppColors.textLight,
-                fontWeight: FontWeight.w700,
-              ),
-        ),
-        const SizedBox(height: 8),
-        Card(
-          child: Column(
-            children: [
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Colors.orange.withOpacity(0.12),
-                  child: const Icon(
-                    Icons.person_outline_rounded,
-                    color: Colors.orange,
-                  ),
-                ),
-                title: const Text('تعديل الملف الشخصي'),
-                subtitle:
-                    const Text('تعديل الاسم، كلمة المرور، وإدارة الحساب'),
-                onTap: () async {
-                  await Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const AccountSettingsPage(),
-                    ),
-                  );
+      ),
+      const SizedBox(height: 18),
+      Text(
+        'الخدمات',
+        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              color: AppColors.textLight,
+              fontWeight: FontWeight.w700,
+            ),
+      ),
+      const SizedBox(height: 8),
 
-                  if (!mounted) return;
-                  setState(() {});
-                },
+      Card(
+        child: Column(
+          children: [
+            ListTile(
+              leading: CircleAvatar(
+                backgroundColor: Colors.green.withOpacity(0.12),
+                child: const Icon(
+                  Icons.notifications_none_rounded,
+                  color: Colors.green,
+                ),
               ),
-              const Divider(height: 1),
-              SwitchListTile(
-                secondary: CircleAvatar(
-                  backgroundColor: Colors.blue.withOpacity(0.12),
-                  child: const Icon(
-                    Icons.language_rounded,
-                    color: Colors.blue,
+              title: const Text('الإشعارات'),
+              subtitle: const Text('عرض الإشعارات المستلمة والمرسلة للأهل'),
+              onTap: () => _openNotificationsPage(nurseryChildren),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: CircleAvatar(
+                backgroundColor: Colors.teal.withOpacity(0.12),
+                child: const Icon(
+                  Icons.history_rounded,
+                  color: Colors.teal,
+                ),
+              ),
+              title: const Text('سجل نشاط الحساب'),
+              subtitle: const Text('عرض تغييرات الحساب والنشاطات الأخيرة'),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const AccountHistoryPage(),
                   ),
-                ),
-                title: const Text('لغة التطبيق'),
-                subtitle: Text(isArabic ? 'العربية' : 'English'),
-                value: isArabic,
-                onChanged: (value) {
-                  setState(() {
-                    isArabic = value;
-                  });
-                },
-              ),
-              const Divider(height: 1),
-              SwitchListTile(
-                secondary: CircleAvatar(
-                  backgroundColor: Colors.purple.withOpacity(0.12),
-                  child: const Icon(
-                    Icons.palette_outlined,
-                    color: Colors.purple,
-                  ),
-                ),
-                title: const Text('الوضع الليلي'),
-                value: isDarkMode,
-                onChanged: (value) {
-                  setState(() {
-                    isDarkMode = value;
-                  });
-                },
-              ),
-            ],
-          ),
+                );
+              },
+            ),
+          ],
         ),
-        const SizedBox(height: 18),
-        Text(
-          'الخدمات',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: AppColors.textLight,
-                fontWeight: FontWeight.w700,
-              ),
-        ),
-        const SizedBox(height: 8),
-        Card(
-          child: Column(
-            children: [
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Colors.green.withOpacity(0.12),
-                  child: const Icon(
-                    Icons.notifications_none_rounded,
-                    color: Colors.green,
-                  ),
+      ),
+
+      const SizedBox(height: 18),
+
+      Text(
+        'المساعدة والدعم',
+        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              color: AppColors.textLight,
+              fontWeight: FontWeight.w700,
+            ),
+      ),
+      const SizedBox(height: 8),
+
+      Card(
+        child: Column(
+          children: [
+            ListTile(
+              leading: CircleAvatar(
+                backgroundColor: Colors.red.withOpacity(0.12),
+                child: const Icon(
+                  Icons.support_agent_rounded,
+                  color: Colors.red,
                 ),
-                title: const Text('الإشعارات'),
-                subtitle:
-                    const Text('عرض الإشعارات المستلمة والمرسلة للأهل'),
-                onTap: () => _openNotificationsPage(nurseryChildren),
               ),
-              const Divider(height: 1),
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Colors.teal.withOpacity(0.12),
-                  child: const Icon(
-                    Icons.history_rounded,
-                    color: Colors.teal,
-                  ),
+              title: const Text('مركز الدعم'),
+              onTap: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('قيد التطوير')),
+                );
+              },
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: CircleAvatar(
+                backgroundColor: Colors.redAccent.withOpacity(0.12),
+                child: const Icon(
+                  Icons.logout_rounded,
+                  color: Colors.redAccent,
                 ),
-                title: const Text('سجل نشاط الحساب'),
-                subtitle: const Text('عرض تغييرات الحساب والنشاطات الأخيرة'),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const AccountHistoryPage(),
-                    ),
-                  );
-                },
               ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 18),
-        Text(
-          'المساعدة والدعم',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: AppColors.textLight,
-                fontWeight: FontWeight.w700,
+              title: const Text(
+                'تسجيل الخروج',
+                style: TextStyle(color: Colors.redAccent),
               ),
+              onTap: _logout,
+            ),
+          ],
         ),
-        const SizedBox(height: 8),
-        Card(
-          child: Column(
-            children: [
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Colors.red.withOpacity(0.12),
-                  child: const Icon(
-                    Icons.support_agent_rounded,
-                    color: Colors.red,
-                  ),
-                ),
-                title: const Text('مركز الدعم'),
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('قيد التطوير')),
-                  );
-                },
-              ),
-              const Divider(height: 1),
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Colors.redAccent.withOpacity(0.12),
-                  child: const Icon(
-                    Icons.logout_rounded,
-                    color: Colors.redAccent,
-                  ),
-                ),
-                title: const Text(
-                  'تسجيل الخروج',
-                  style: TextStyle(color: Colors.redAccent),
-                ),
-                onTap: _logout,
-              ),
-            ],
-          ),
+      ),
+
+      const SizedBox(height: 20),
+
+      Center(
+        child: Text(
+          'إصدار النظام V1.0.0',
+          style: Theme.of(context)
+              .textTheme
+              .bodySmall
+              ?.copyWith(color: AppColors.textLight),
         ),
-        const SizedBox(height: 20),
-        Center(
-          child: Text(
-            'إصدار النظام V1.0.0',
-            style: Theme.of(context)
-                .textTheme
-                .bodySmall
-                ?.copyWith(color: AppColors.textLight),
-          ),
-        ),
-        const SizedBox(height: 12),
-      ],
-    );
-  }
+      ),
+      const SizedBox(height: 12),
+    ],
+  );
+}
+
 
   @override
   Widget build(BuildContext context) {
@@ -1396,71 +1544,75 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
                         {});
 
                 final pageBody = _buildBody(
-  nurseryChildren: nurseryChildren,
-  stats: stats,
-  childrenNeedingUpdate: childrenNeedingUpdate,
-  activities: activities,
-  latestUpdateByChild: latestUpdateByChild,
-);
+                  nurseryChildren: nurseryChildren,
+                  stats: stats,
+                  childrenNeedingUpdate: childrenNeedingUpdate,
+                  activities: activities,
+                  latestUpdateByChild: latestUpdateByChild,
+                );
 
-return Scaffold(
-  body: selectedIndex == 2
-      ? pageBody
-      : AppPageScaffold(
-          title: _pageTitle,
-          actions: selectedIndex == 0
-              ? [
-                  _buildNotificationActionButton(nurseryChildren),
-                  IconButton(
-                    icon: const Icon(Icons.refresh_rounded),
-                    tooltip: 'تحديث الصفحة',
-                    onPressed: () => setState(() {}),
-                  ),
-                ]
-              : selectedIndex == 1
-                  ? [
-                      IconButton(
-                        icon: const Icon(Icons.refresh_rounded),
-                        tooltip: 'تحديث الصفحة',
-                        onPressed: () => setState(() {}),
+                return Scaffold(
+                  body: selectedIndex == 2
+                      ? pageBody
+                      : AppPageScaffold(
+                          title: _pageTitle,
+                          actions: selectedIndex == 0
+                              ? [
+                                  _buildNotificationActionButton(
+                                    nurseryChildren,
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.refresh_rounded),
+                                    tooltip: 'تحديث الصفحة',
+                                    onPressed: () => setState(() {}),
+                                  ),
+                                ]
+                              : selectedIndex == 1
+                                  ? [
+                                      IconButton(
+                                        icon: const Icon(Icons.refresh_rounded),
+                                        tooltip: 'تحديث الصفحة',
+                                        onPressed: () => setState(() {}),
+                                      ),
+                                    ]
+                                  : [
+                                      _buildNotificationActionButton(
+                                        nurseryChildren,
+                                      ),
+                                    ],
+                          child: pageBody,
+                        ),
+                  bottomNavigationBar: NavigationBar(
+                    selectedIndex: selectedIndex,
+                    onDestinationSelected: (index) {
+                      setState(() {
+                        selectedIndex = index;
+                      });
+                    },
+                    destinations: const [
+                      NavigationDestination(
+                        icon: Icon(Icons.home_outlined),
+                        selectedIcon: Icon(Icons.home_rounded),
+                        label: 'الرئيسية',
                       ),
-                    ]
-                  : [
-                      _buildNotificationActionButton(nurseryChildren),
+                      NavigationDestination(
+                        icon: Icon(Icons.fact_check_outlined),
+                        selectedIcon: Icon(Icons.fact_check_rounded),
+                        label: 'المتابعة',
+                      ),
+                      NavigationDestination(
+                        icon: Icon(Icons.chat_bubble_outline_rounded),
+                        selectedIcon: Icon(Icons.chat_bubble_rounded),
+                        label: 'الرسائل',
+                      ),
+                      NavigationDestination(
+                        icon: Icon(Icons.settings_outlined),
+                        selectedIcon: Icon(Icons.settings_rounded),
+                        label: 'الإعدادات',
+                      ),
                     ],
-          child: pageBody,
-        ),
-  bottomNavigationBar: NavigationBar(
-    selectedIndex: selectedIndex,
-    onDestinationSelected: (index) {
-      setState(() {
-        selectedIndex = index;
-      });
-    },
-    destinations: const [
-      NavigationDestination(
-        icon: Icon(Icons.home_outlined),
-        selectedIcon: Icon(Icons.home_rounded),
-        label: 'الرئيسية',
-      ),
-      NavigationDestination(
-        icon: Icon(Icons.fact_check_outlined),
-        selectedIcon: Icon(Icons.fact_check_rounded),
-        label: 'المتابعة',
-      ),
-      NavigationDestination(
-        icon: Icon(Icons.chat_bubble_outline_rounded),
-        selectedIcon: Icon(Icons.chat_bubble_rounded),
-        label: 'الرسائل',
-      ),
-      NavigationDestination(
-        icon: Icon(Icons.settings_outlined),
-        selectedIcon: Icon(Icons.settings_rounded),
-        label: 'الإعدادات',
-      ),
-    ],
-  ),
-);
+                  ),
+                );
               },
             );
           },
@@ -1815,11 +1967,42 @@ return Scaffold(
 
   Widget _buildQuickActions(List<ChildModel> children) {
     final actions = [
-      _QuickActionItem(
-        icon: Icons.groups_2_outlined,
-        label: 'تحديث جماعي',
-        onTap: () => openGroupUpdate(children),
+    _QuickActionItem(
+      icon: Icons.assignment_outlined,
+      label: 'مهامي',
+      onTap: () async {
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const StaffMyTasksPage(),
+          ),
+        );
+
+        if (!mounted) return;
+        setState(() {});
+      },
+    ),
+    _QuickActionItem(
+  icon: Icons.badge_outlined,
+  label: 'ملفي الوظيفي',
+  onTap: () async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const StaffEmployeeFilePage(),
       ),
+    );
+
+    if (!mounted) return;
+    setState(() {});
+  },
+),
+
+    _QuickActionItem(
+      icon: Icons.groups_2_outlined,
+      label: 'تحديث جماعي',
+      onTap: () => openGroupUpdate(children),
+    ),
       _QuickActionItem(
         icon: Icons.note_add_outlined,
         label: 'إضافة تحديث',

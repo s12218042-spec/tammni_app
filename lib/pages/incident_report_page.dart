@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../models/child_model.dart';
+import '../services/app_notification_service.dart';
 import '../services/gallery_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
@@ -369,7 +370,7 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
       final canNotifyParent = parentUid.isNotEmpty || parentUsername.isNotEmpty;
 
       final reportRef = _firestore.collection('incident_reports').doc();
-      final notificationRef = _firestore.collection('notifications').doc();
+    
 
       final batch = _firestore.batch();
 
@@ -416,58 +417,55 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
         'senderRole': userInfo['role'],
       });
 
-      if (canNotifyParent) {
-        batch.set(notificationRef, {
-          'notificationId': notificationRef.id,
-          'uid': parentUid,
-          'targetUid': parentUid,
-          'targetUsername': parentUsername,
-          'targetRole': 'parent',
-          'receiverUid': parentUid,
-          'receiverUsername': parentUsername,
-          'receiverRole': 'parent',
-          'parentUid': parentUid,
-          'parentUsername': parentUsername,
-          'parentName': parentName,
-          'childId': widget.child.id,
-          'childName': widget.child.name,
-          'section': 'Nursery',
-          'group': widget.child.group,
-          'title': autoRisk == 'urgent' || priority == 'urgent'
-              ? 'تنبيه عاجل بخصوص حادث'
-              : 'تقرير حادث جديد',
-          'body': finalSummary,
-          'message': finalSummary,
-          'description': finalSummary,
-          'type': 'incident_report',
-          'notificationType': 'incident_report',
-          'category': 'incident_report',
-          'templateType': 'incident_report',
-          'reportId': reportRef.id,
-          'incidentReportId': reportRef.id,
-          'incidentType': incidentType,
-          'priority': priority,
-          'importance': priority,
-          'autoRisk': autoRisk,
-          'isRead': false,
-          'read': false,
-          'seen': false,
-          'createdAt': now,
-          'time': now,
-          'eventAt': now,
-          'updatedAt': now,
-          'createdByUid': userInfo['uid'],
-          'createdByName': userInfo['name'],
-          'createdByRole': userInfo['role'],
-          'byRole': userInfo['role'],
-          'senderUid': userInfo['uid'],
-          'senderName': userInfo['name'],
-          'senderRole': userInfo['role'],
-          ...imageData,
-        });
-      }
 
       await batch.commit();
+
+    if (canNotifyParent) {
+  await AppNotificationService.instance.notifyParent(
+    parentUid: parentUid,
+    parentUsername: parentUsername,
+    parentName: parentName,
+    title: autoRisk == 'urgent' || priority == 'urgent'
+        ? 'تنبيه عاجل بخصوص حادث'
+        : 'تقرير حادث جديد',
+    body: finalSummary,
+    type: 'incident_report',
+    childId: widget.child.id,
+    childName: widget.child.name,
+    section: 'Nursery',
+    group: widget.child.group,
+    priority: autoRisk == 'urgent' || priority == 'urgent'
+        ? 'urgent'
+        : priority,
+    createdByUid: userInfo['uid'] ?? '',
+    createdByName: userInfo['name'] ?? 'مستخدم',
+    createdByRole: userInfo['role'] ?? 'nursery_staff',
+    extraData: {
+      'reportId': reportRef.id,
+      'incidentReportId': reportRef.id,
+      'incidentType': incidentType,
+      'incidentPlace': finalIncidentPlace,
+      'locationLabel': finalIncidentPlace,
+      'priority': priority,
+      'importance': priority,
+      'autoRisk': autoRisk,
+      'details': detailsCtrl.text.trim(),
+      'actionTaken': actionCtrl.text.trim(),
+      'notificationType': 'incident_report',
+      'category': 'incident_report',
+      'templateType': 'incident_report',
+      'description': finalSummary,
+      'eventAt': now,
+      'senderUid': userInfo['uid'] ?? '',
+      'senderName': userInfo['name'] ?? 'مستخدم',
+      'senderRole': userInfo['role'] ?? 'nursery_staff',
+      'screen': 'incident_report',
+      'route': 'parent_incident_reports',
+      'relatedCollection': 'incident_reports',
+      ...imageData,
+    },
+  );
+}
 
       if (!mounted) return;
 

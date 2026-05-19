@@ -337,7 +337,7 @@ class MessageService {
       'replyToText': replyToText,
       'replyToSenderId': replyToSenderId,
       'replyToSenderName': replyToSenderName,
-      'notificationCreated': true,
+      'notificationCreated': false,
       'updatedAt': FieldValue.serverTimestamp(),
     });
 
@@ -354,6 +354,11 @@ class MessageService {
       messageId: docRef.id,
       messageType: 'text',
     );
+
+    await docRef.update({
+  'notificationCreated': true,
+  'notificationCreatedAt': FieldValue.serverTimestamp(),
+});
   }
 
   Future<void> sendAudioMessage({
@@ -419,7 +424,7 @@ class MessageService {
       'replyToText': replyToText,
       'replyToSenderId': replyToSenderId,
       'replyToSenderName': replyToSenderName,
-      'notificationCreated': true,
+      'notificationCreated': false,
       'updatedAt': FieldValue.serverTimestamp(),
     });
 
@@ -436,6 +441,11 @@ class MessageService {
       messageId: docRef.id,
       messageType: 'audio',
     );
+
+  await docRef.update({
+  'notificationCreated': true,
+  'notificationCreatedAt': FieldValue.serverTimestamp(),
+});
   }
 
   Future<void> markConversationAsRead({

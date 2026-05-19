@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../services/app_notification_service.dart';
+
 class ChildHandoffLogPage extends StatefulWidget {
   final dynamic child;
   final String? childId;
@@ -579,69 +581,6 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
     };
   }
 
-  Map<String, dynamic> _buildNotificationData({
-    required Timestamp now,
-    required Map<String, String> parentInfo,
-    required Map<String, String> userInfo,
-    required String handoffId,
-    required bool isUpdate,
-  }) {
-    final parentUid = (parentInfo['parentUid'] ?? '').trim();
-    final parentUsername =
-        (parentInfo['parentUsername'] ?? '').trim().toLowerCase();
-    final parentName = (parentInfo['parentName'] ?? '').trim();
-
-    final personName = _personNameController.text.trim();
-    final relation = _relationController.text.trim();
-    final message = _buildNotificationBody();
-
-    return {
-      'uid': parentUid,
-      'targetUid': parentUid,
-      'targetUsername': parentUsername,
-      'targetRole': 'parent',
-      'receiverUid': parentUid,
-      'receiverUsername': parentUsername,
-      'receiverRole': 'parent',
-      'parentUid': parentUid,
-      'parentUsername': parentUsername,
-      'parentName': parentName,
-      'childId': _safeChildId,
-      'childName': _safeChildName,
-      'section': _safeChildSection,
-      'group': _safeChildGroup,
-      'title': _buildNotificationTitle(isUpdate: isUpdate),
-      'body': message,
-      'message': message,
-      'description': message,
-      'type': isUpdate ? 'child_handoff_updated' : 'child_handoff',
-      'notificationType': isUpdate ? 'child_handoff_updated' : 'child_handoff',
-      'category': 'child_handoff',
-      'templateType': _handoffType,
-      'handoffId': handoffId,
-      'handoffType': _handoffType,
-      'handoffTypeLabel': _handoffTypeLabel(_handoffType),
-      'personName': personName,
-      'relation': relation,
-      'priority': 'normal',
-      'importance': 'normal',
-      'isRead': false,
-      'read': false,
-      'seen': false,
-      'createdAt': now,
-      'time': now,
-      'eventAt': now,
-      'updatedAt': now,
-      'createdByUid': userInfo['uid'],
-      'createdByName': userInfo['name'],
-      'createdByRole': userInfo['role'],
-      'byRole': userInfo['role'],
-      'senderUid': userInfo['uid'],
-      'senderName': userInfo['name'],
-      'senderRole': userInfo['role'],
-    };
-  }
-
   Future<void> _saveHandoff() async {
     if (!_validateInputs()) return;
 
@@ -666,7 +605,7 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
       final userInfo = await _fetchCurrentUserInfo();
 
       final handoffRef = _firestore.collection('child_handoffs').doc();
-      final notificationRef = _firestore.collection('notifications').doc();
+    
 
       final handoffData = _buildHandoffData(
         now: now,
@@ -674,13 +613,6 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
         userInfo: userInfo,
       );
 
-      final notificationData = _buildNotificationData(
-        now: now,
-        parentInfo: parentInfo,
-        userInfo: userInfo,
-        handoffId: handoffRef.id,
-        isUpdate: false,
-      );
 
       final batch = _firestore.batch();
 
@@ -689,9 +621,37 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
         'createdAt': now,
       });
 
-      batch.set(notificationRef, notificationData);
 
       await batch.commit();
+
+  await AppNotificationService.instance.notifyParent(
+  parentUid: parentInfo['parentUid'] ?? '',
+  parentUsername: parentInfo['parentUsername'] ?? '',
+  parentName: parentInfo['parentName'] ?? '',
+  title: _buildNotificationTitle(isUpdate: false),
+  body: _buildNotificationBody(),
+  type: 'child_handoff',
+  childId: _safeChildId,
+  childName: _safeChildName,
+  section: _safeChildSection,
+  group: _safeChildGroup,
+  priority: 'normal',
+  createdByUid: userInfo['uid'] ?? '',
+  createdByName: userInfo['name'] ?? 'مستخدم',
+  createdByRole: userInfo['role'] ?? 'nursery_staff',
+  extraData: {
+    'handoffId': handoffRef.id,
+    'handoffType': _handoffType,
+    'handoffTypeLabel': _handoffTypeLabel(_handoffType),
+    'personName': _personNameController.text.trim(),
+    'relation': _relationController.text.trim(),
+    'category': 'child_handoff',
+    'notificationType': 'child_handoff',
+    'screen': 'notifications',
+    'route': 'parent_notifications',
+    'relatedCollection': 'child_handoffs',
+  },
+);
 
       _clearFormAfterSave();
 
@@ -732,7 +692,6 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
       final userInfo = await _fetchCurrentUserInfo();
 
       final handoffRef = _firestore.collection('child_handoffs').doc(_lastLogId);
-      final notificationRef = _firestore.collection('notifications').doc();
 
       final message = _buildNotificationBody();
 
@@ -752,18 +711,37 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
         'isCorrected': true,
       });
 
-      batch.set(
-        notificationRef,
-        _buildNotificationData(
-          now: now,
-          parentInfo: parentInfo,
-          userInfo: userInfo,
-          handoffId: _lastLogId!,
-          isUpdate: true,
-        ),
-      );
 
       await batch.commit();
+
+  await AppNotificationService.instance.notifyParent(
+  parentUid: parentInfo['parentUid'] ?? '',
+  parentUsername: parentInfo['parentUsername'] ?? '',
+  parentName: parentInfo['parentName'] ?? '',
+  title: _buildNotificationTitle(isUpdate: true),
+  body: _buildNotificationBody(),
+  type: 'child_handoff_updated',
+  childId: _safeChildId,
+  childName: _safeChildName,
+  section: _safeChildSection,
+  group: _safeChildGroup,
+  priority: 'normal',
+  createdByUid: userInfo['uid'] ?? '',
+  createdByName: userInfo['name'] ?? 'مستخدم',
+  createdByRole: userInfo['role'] ?? 'nursery_staff',
+  extraData: {
+    'handoffId': _lastLogId!,
+    'handoffType': _handoffType,
+    'handoffTypeLabel': _handoffTypeLabel(_handoffType),
+    'personName': _personNameController.text.trim(),
+    'relation': _relationController.text.trim(),
+    'category': 'child_handoff',
+    'notificationType': 'child_handoff_updated',
+    'screen': 'notifications',
+    'route': 'parent_notifications',
+    'relatedCollection': 'child_handoffs',
+  },
+);
 
       _clearFormAfterSave();
 

@@ -145,12 +145,14 @@ class AppNotificationService {
       );
 
       await notificationRef.set({
-        'pushSent': sentCount > 0,
-        'pushSentCount': sentCount,
-        'pushSentAt': sentCount > 0 ? FieldValue.serverTimestamp() : null,
-        'pushError': '',
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+  'pushSent': sentCount > 0,
+  'pushSentCount': sentCount,
+  'pushSentAt': sentCount > 0 ? FieldValue.serverTimestamp() : null,
+  'pushError': sentCount > 0
+      ? ''
+      : PushSenderService.instance.lastError,
+  'updatedAt': FieldValue.serverTimestamp(),
+}, SetOptions(merge: true));
     } catch (e) {
       debugPrint('AppNotificationService: فشل إرسال Push: $e');
 

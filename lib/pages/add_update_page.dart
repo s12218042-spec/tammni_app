@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../models/child_model.dart';
+import '../services/app_notification_service.dart';
 import '../services/gallery_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
@@ -488,7 +489,7 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
       final canNotifyParent = parentUid.isNotEmpty || parentUsername.isNotEmpty;
 
       final updateRef = _firestore.collection('updates').doc();
-      final notificationRef = _firestore.collection('notifications').doc();
+    
 
       final updateData = {
         'updateId': updateRef.id,
@@ -533,60 +534,50 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
         'notifyParent': canNotifyParent,
       };
 
-      final notificationData = {
-        'notificationId': notificationRef.id,
-        'uid': parentUid,
-        'targetUid': parentUid,
-        'targetUsername': parentUsername,
-        'targetRole': 'parent',
-        'receiverUid': parentUid,
-        'receiverUsername': parentUsername,
-        'receiverRole': 'parent',
-        'parentUid': parentUid,
-        'parentUsername': parentUsername,
-        'parentName': parentName,
-        'childId': widget.child.id,
-        'childName': widget.child.name,
-        'section': 'Nursery',
-        'group': widget.child.group,
-        'title': autoTitle(),
-        'body': finalNote,
-        'message': finalNote,
-        'description': finalNote,
-        'type': 'update_notification',
-        'notificationType': 'update_notification',
-        'category': type,
-        'templateType': type,
-        'updateId': updateRef.id,
-        'isRead': false,
-        'read': false,
-        'seen': false,
-        'createdAt': now,
-        'time': now,
-        'eventAt': now,
-        'updatedAt': now,
-        'createdByUid': userInfo['uid'],
-        'createdByName': userInfo['name'],
-        'createdByRole': userInfo['role'],
-        'byRole': userInfo['role'],
-        'senderUid': userInfo['uid'],
-        'senderName': userInfo['name'],
-        'senderRole': userInfo['role'],
-        'priority': priority,
-        'importance': priority,
-        'importanceLabel': importance,
-        ...mediaData,
-      };
 
       final batch = _firestore.batch();
 
-      batch.set(updateRef, updateData);
+batch.set(updateRef, updateData);
 
-      if (canNotifyParent) {
-        batch.set(notificationRef, notificationData);
-      }
+await batch.commit();
 
-      await batch.commit();
+if (canNotifyParent) {
+  await AppNotificationService.instance.notifyParent(
+    parentUid: parentUid,
+    parentUsername: parentUsername,
+    parentName: parentName,
+    title: autoTitle(),
+    body: finalNote,
+    type: 'update_notification',
+    childId: widget.child.id,
+    childName: widget.child.name,
+    section: 'Nursery',
+    group: widget.child.group,
+    priority: priority,
+    createdByUid: userInfo['uid'] ?? '',
+    createdByName: userInfo['name'] ?? 'مستخدم',
+    createdByRole: userInfo['role'] ?? 'nursery_staff',
+    extraData: {
+      'category': type,
+      'templateType': type,
+      'updateId': updateRef.id,
+      'notificationType': 'update_notification',
+      'importance': priority,
+      'importanceLabel': importance,
+      'eventAt': now,
+      'time': now,
+      'message': finalNote,
+      'description': finalNote,
+      'senderUid': userInfo['uid'] ?? '',
+      'senderName': userInfo['name'] ?? 'مستخدم',
+      'senderRole': userInfo['role'] ?? 'nursery_staff',
+      'screen': 'notifications',
+      'route': 'parent_notifications',
+      'relatedCollection': 'updates',
+      ...mediaData,
+    },
+  );
+}
 
       if (!mounted) return;
 

@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../services/app_notification_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 
@@ -232,7 +233,7 @@ class _AdminConsultationsPageState extends State<AdminConsultationsPage> {
         'hourlyPrice': hourlyPrice,
         'totalAmount': totalAmount,
 
-        // workflow
+        
         'parentApprovalStatus': 'pending',
         'consultationStatus': 'proposed',
         'invoiceStatus': 'pending_invoice',
@@ -246,41 +247,50 @@ class _AdminConsultationsPageState extends State<AdminConsultationsPage> {
         'updatedAt': Timestamp.fromDate(now),
       });
 
-      await _firestore.collection('notifications').add({
-        'uid': selectedChild!['parentUid'] ?? '',
-        'targetUid': selectedChild!['parentUid'] ?? '',
-        'targetRole': 'parent',
-        'receiverUid': selectedChild!['parentUid'] ?? '',
-        'receiverRole': 'parent',
-        'parentUid': selectedChild!['parentUid'] ?? '',
-        'parentUsername':
-            (selectedChild!['parentUsername'] ?? '').toString().toLowerCase(),
-        'parentName': selectedChild!['parentName'] ?? '',
-        'childId': selectedChild!['id'] ?? '',
-        'childName': selectedChild!['name'] ?? '',
-        'title': 'استشارة جديدة بانتظار الموافقة',
-        'body':
-            'تم اقتراح ${consultationTypeLabel(selectedConsultationType)} للطفل ${selectedChild!['name'] ?? ''} بقيمة ${totalAmount.toStringAsFixed(0)} شيكل.',
-        'message':
-            'تم اقتراح ${consultationTypeLabel(selectedConsultationType)} للطفل ${selectedChild!['name'] ?? ''} بقيمة ${totalAmount.toStringAsFixed(0)} شيكل.',
-        'type': 'consultation',
-        'notificationType': 'consultation',
-        'category': 'consultation',
-        'consultationId': docRef.id,
-        'priority': 'normal',
-        'importance': 'normal',
-        'isRead': false,
-        'read': false,
-        'seen': false,
-        'createdAt': FieldValue.serverTimestamp(),
-        'time': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-        'createdByUid': adminInfo['uid'] ?? '',
-        'createdByName': adminInfo['name'] ?? 'الإدارة',
-        'createdByRole': 'admin',
-        'byRole': 'admin',
-        'senderRole': 'admin',
-      });
+    final parentUid = (selectedChild!['parentUid'] ?? '').toString().trim();
+final parentUsername =
+    (selectedChild!['parentUsername'] ?? '').toString().trim().toLowerCase();
+final parentName = (selectedChild!['parentName'] ?? '').toString().trim();
+final childId = (selectedChild!['id'] ?? '').toString().trim();
+final childName = (selectedChild!['name'] ?? '').toString().trim();
+
+if (parentUid.isNotEmpty || parentUsername.isNotEmpty) {
+  await AppNotificationService.instance.notifyParent(
+    parentUid: parentUid,
+    parentUsername: parentUsername,
+    parentName: parentName,
+    title: 'استشارة جديدة بانتظار الموافقة',
+    body:
+        'تم اقتراح ${consultationTypeLabel(selectedConsultationType)} للطفل $childName بقيمة ${totalAmount.toStringAsFixed(0)} شيكل. يرجى مراجعة الطلب والموافقة أو الرفض.',
+    type: 'consultation',
+    childId: childId,
+    childName: childName,
+    section: selectedChild!['section'] ?? 'Nursery',
+    group: selectedChild!['group'] ?? '',
+    priority: 'normal',
+    createdByUid: adminInfo['uid'] ?? '',
+    createdByName: adminInfo['name'] ?? 'الإدارة',
+    createdByRole: 'admin',
+    extraData: {
+      'consultationId': docRef.id,
+      'consultationType': selectedConsultationType,
+      'consultationTypeLabel':
+          consultationTypeLabel(selectedConsultationType),
+      'suggestedDate': Timestamp.fromDate(suggestedDate),
+      'hours': hours,
+      'hourlyPrice': hourlyPrice,
+      'totalAmount': totalAmount,
+      'parentApprovalStatus': 'pending',
+      'consultationStatus': 'proposed',
+      'invoiceStatus': 'pending_invoice',
+      'category': 'consultation',
+      'notificationType': 'consultation',
+      'screen': 'consultations',
+      'route': 'parent_consultations',
+      'relatedCollection': 'child_consultations',
+    },
+  );
+}
 
       if (!mounted) return;
 

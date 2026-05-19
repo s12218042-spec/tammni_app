@@ -45,6 +45,11 @@ class _AdminChatsPageState extends State<AdminChatsPage> {
     return normalizeRole(value) == 'nursery_staff';
   }
 
+  bool isAllowedChatRole(dynamic value) {
+  final role = normalizeRole(value);
+  return role == 'nursery_staff' || role == 'parent';
+}
+
   String cleanText(dynamic value) {
     if (value == null) return '';
     return value.toString().trim();
@@ -101,8 +106,8 @@ class _AdminChatsPageState extends State<AdminChatsPage> {
       if (!isActive) return false;
       if (uid == currentUser.uid) return false;
 
-      // الأدمن يتواصل هنا مع موظفات الحضانة فقط
-      if (!isNurseryRole(role)) return false;
+      // الأدمن يتواصل مع موظفات الحضانة وأولياء الأمور
+if (!isAllowedChatRole(role)) return false;
 
       if (selectedRole != 'all' && role != selectedRole) return false;
 
@@ -174,7 +179,7 @@ class _AdminChatsPageState extends State<AdminChatsPage> {
               controller: searchCtrl,
               textAlign: TextAlign.right,
               decoration: InputDecoration(
-                hintText: 'ابحثي بالاسم أو اسم المستخدم أو البريد...',
+                hintText: 'ابحث بالاسم أو اسم المستخدم أو البريد...',
                 prefixIcon: const Icon(Icons.search_rounded),
                 suffixIcon: searchText.trim().isEmpty
                     ? null
@@ -202,15 +207,19 @@ class _AdminChatsPageState extends State<AdminChatsPage> {
                 prefixIcon: Icon(Icons.filter_list_rounded),
               ),
               items: const [
-                DropdownMenuItem(
-                  value: 'all',
-                  child: Text('الكل'),
-                ),
-                DropdownMenuItem(
-                  value: 'nursery_staff',
-                  child: Text('موظفات الحضانة'),
-                ),
-              ],
+  DropdownMenuItem(
+    value: 'all',
+    child: Text('الكل'),
+  ),
+  DropdownMenuItem(
+    value: 'nursery_staff',
+    child: Text('موظفات الحضانة'),
+  ),
+  DropdownMenuItem(
+    value: 'parent',
+    child: Text('أولياء الأمور'),
+  ),
+],
               onChanged: (value) {
                 setState(() {
                   selectedRole = value ?? 'all';
@@ -242,7 +251,7 @@ class _AdminChatsPageState extends State<AdminChatsPage> {
               ),
               const SizedBox(height: 14),
               const Text(
-                'لا توجد موظفات حضانة مطابقات حاليًا',
+                'لا توجد جهات اتصال مطابقة حاليًا',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontWeight: FontWeight.w800,

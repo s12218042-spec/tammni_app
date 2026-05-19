@@ -188,13 +188,25 @@ class _StartLiveStreamPageState extends State<StartLiveStreamPage> {
     final snapshot = await _firestore
         .collection('live_streams')
         .where('status', isEqualTo: 'active')
-        .orderBy('startedAt', descending: true)
-        .limit(1)
+        .limit(10)
         .get();
 
     if (snapshot.docs.isEmpty) return null;
 
-    final doc = snapshot.docs.first;
+    final docs = snapshot.docs.toList();
+
+    docs.sort((a, b) {
+      final aTime = a.data()['startedAt'];
+      final bTime = b.data()['startedAt'];
+
+      if (aTime is Timestamp && bTime is Timestamp) {
+        return bTime.compareTo(aTime);
+      }
+
+      return 0;
+    });
+
+    final doc = docs.first;
 
     return {
       'id': doc.id,
@@ -322,7 +334,7 @@ class _StartLiveStreamPageState extends State<StartLiveStreamPage> {
             .collection('live_stream_requests')
             .doc(widget.liveStreamRequestId)
             .set({
-          'status': 'live',
+          'status': 'active',
           'liveStreamId': roomId,
           'roomId': roomId,
           'startedAt': FieldValue.serverTimestamp(),

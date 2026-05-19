@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../theme/app_theme.dart';
+import '../services/app_notification_service.dart';
 import '../utils/child_section_utils.dart';
 import '../widgets/app_page_scaffold.dart';
 
@@ -454,43 +455,38 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
       final requestRef =
           await _firestore.collection('add_child_requests').add(requestData);
 
-      await _firestore.collection('notifications').add({
-        'title': 'طلب إضافة طفل جديد',
-        'body':
-            'أرسل ولي الأمر ${parent['name']} طلب إضافة الطفل $childFullName ويحتاج مراجعة الإدارة.',
-        'message':
-            'أرسل ولي الأمر ${parent['name']} طلب إضافة الطفل $childFullName ويحتاج مراجعة الإدارة.',
-        'type': 'add_child_request',
-        'notificationType': 'add_child_request',
-        'category': 'requests',
-        'requestType': 'add_child',
-        'requestId': requestRef.id,
-        'status': 'pending',
-        'priority': 'important',
-        'importance': 'important',
-        'targetRole': 'admin',
-        'receiverRole': 'admin',
-        'parentUid': parent['uid'],
-        'parentUsername': parent['username'],
-        'parentName': parent['name'],
-        'parentEmail': parent['email'],
-        'childName': childFullName,
-        'childId': '',
-        'section': 'Nursery',
-        'group': '',
-        'isRead': false,
-        'read': false,
-        'seen': false,
-        'createdAt': FieldValue.serverTimestamp(),
-        'time': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-        'createdByUid': parent['uid'],
-        'createdByName': parent['name'],
-        'createdByRole': 'parent',
-        'senderUid': parent['uid'],
-        'senderName': parent['name'],
-        'senderRole': 'parent',
-      });
+      await AppNotificationService.instance.notifyAdmin(
+  title: 'طلب إضافة طفل جديد',
+  body:
+      'أرسل ولي الأمر ${parent['name']} طلب إضافة الطفل $childFullName ويحتاج مراجعة الإدارة.',
+  type: 'add_child_request',
+  priority: 'important',
+  parentUid: parent['uid'],
+  parentUsername: parent['username'],
+  parentName: parent['name'],
+  childId: '',
+  childName: childFullName,
+  section: 'Nursery',
+  group: '',
+  createdByUid: parent['uid'],
+  createdByName: parent['name'],
+  createdByRole: 'parent',
+  extraData: {
+    'notificationType': 'add_child_request',
+    'category': 'requests',
+    'requestType': 'add_child',
+    'requestId': requestRef.id,
+    'status': 'pending',
+    'importance': 'important',
+    'parentEmail': parent['email'],
+    'senderUid': parent['uid'],
+    'senderName': parent['name'],
+    'senderRole': 'parent',
+    'screen': 'add_child_requests',
+    'route': 'admin_add_child_requests',
+    'relatedCollection': 'add_child_requests',
+  },
+);
 
       if (!mounted) return;
 

@@ -1,9 +1,9 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
@@ -21,6 +21,9 @@ class NotificationService {
 
   bool _initialized = false;
   bool _lifecycleObserverAdded = false;
+  StreamSubscription<String>? _tokenRefreshSubscription;
+  StreamSubscription<RemoteMessage>? _foregroundMessageSubscription;
+  StreamSubscription<RemoteMessage>? _messageOpenedSubscription;
 
   static const String _channelId = 'tammni_high_importance_channel';
   static const String _channelName = 'إشعارات طمّني';
@@ -30,16 +33,32 @@ class NotificationService {
   Future<void> init() async {
     if (_initialized) return;
 
+    if (kIsWeb) {
+      debugPrint('NotificationService: Web غير مدعوم حاليًا للإشعارات');
+      return;
+    }
+
     await _requestPermission();
     await _initLocalNotifications();
     await _setupForegroundPresentationOptions();
-    await _setupForegroundHandler();
-    await _setupTokenRefreshListener();
+    _setupForegroundHandler();
+    _setupTokenRefreshListener();
     _setupAppLifecycleBadgeCleaner();
 
     await clearAppBadgeAndDeliveredNotifications();
 
     _initialized = true;
+  }
+
+  /// استدعي هذه الدالة بعد تسجيل الدخول مباشرة.
+  /// وظيفتها:
+  /// 1) تهيئة الإشعارات
+  /// 2) حفظ FCM token داخل users/{uid}
+  /// 3) معالجة فتح التطبيق من إشعار
+  Future<void> setupForCurrentUser() async {
+    await init();
+    await saveCurrentUserToken();
+    await handleInitialMessage();
   }
 
   void _setupAppLifecycleBadgeCleaner() {
@@ -60,14 +79,9 @@ class NotificationService {
               AndroidFlutterLocalNotificationsPlugin>()
           ?.cancelAll();
 
-      await _localNotifications
-          .resolvePlatformSpecificImplementation<
-              IOSFlutterLocalNotificationsPlugin>()
-          ?.cancelAll();
-
-      debugPrint('تم مسح إشعارات التطبيق والعداد');
+      debugPrint('NotificationService: تم مسح إشعارات التطبيق والعداد');
     } catch (e) {
-      debugPrint('فشل مسح إشعارات التطبيق أو العداد: $e');
+      debugPrint('NotificationService: فشل مسح الإشعارات أو العداد: $e');
     }
   }
 
@@ -81,28 +95,30 @@ class NotificationService {
       provisional: false,
     );
 
-    debugPrint('حالة إذن الإشعارات: ${settings.authorizationStatus}');
+    debugPrint(
+      'NotificationService: حالة إذن الإشعارات: ${settings.authorizationStatus}',
+    );
   }
 
   Future<void> _initLocalNotifications() async {
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-
-    const iosSettings = DarwinInitializationSettings(
-      requestAlertPermission: true,
-      requestBadgePermission: true,
-      requestSoundPermission: true,
+    const androidSettings = AndroidInitializationSettings(
+      '@mipmap/ic_launcher',
     );
 
     const initSettings = InitializationSettings(
       android: androidSettings,
-      iOS: iosSettings,
     );
 
     await _localNotifications.initialize(
       initSettings,
       onDidReceiveNotificationResponse: (details) async {
-        debugPrint('تم الضغط على إشعار محلي: ${details.payload}');
+        debugPrint(
+          'NotificationService: تم الضغط على إشعار محلي: ${details.payload}',
+        );
+
         await clearAppBadgeAndDeliveredNotifications();
+
+        // لاحقًا إذا أردنا فتح صفحة حسب payload نضيف المنطق هنا.
       },
     );
 
@@ -132,9 +148,14 @@ class NotificationService {
     );
   }
 
-  Future<void> _setupForegroundHandler() async {
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
-      debugPrint('وصل إشعار والتطبيق مفتوح: ${message.data}');
+  void _setupForegroundHandler() {
+    _foregroundMessageSubscription?.cancel();
+
+    _foregroundMessageSubscription =
+        FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
+      debugPrint(
+        'NotificationService: وصل إشعار والتطبيق مفتوح: ${message.data}',
+      );
 
       final notification = message.notification;
 
@@ -146,10 +167,39 @@ class NotificationService {
 
       if (title.trim().isEmpty && body.trim().isEmpty) return;
 
+      await _showLocalNotification(
+        title: title,
+        body: body,
+        payload: message.data.toString(),
+      );
+    });
+
+    _messageOpenedSubscription?.cancel();
+
+    _messageOpenedSubscription =
+        FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) async {
+      debugPrint(
+        'NotificationService: تم فتح التطبيق من إشعار وهو بالخلفية: ${message.data}',
+      );
+
+      await clearAppBadgeAndDeliveredNotifications();
+
+      // لاحقًا إذا أردنا فتح صفحة حسب message.data نضيف المنطق هنا.
+    });
+  }
+
+  Future<void> _showLocalNotification({
+    required String title,
+    required String body,
+    String payload = '',
+  }) async {
+    if (kIsWeb) return;
+
+    try {
       await _localNotifications.show(
         DateTime.now().millisecondsSinceEpoch ~/ 1000,
-        title,
-        body,
+        title.trim().isEmpty ? 'طمّني' : title.trim(),
+        body.trim(),
         const NotificationDetails(
           android: AndroidNotificationDetails(
             _channelId,
@@ -162,31 +212,32 @@ class NotificationService {
             visibility: NotificationVisibility.public,
             category: AndroidNotificationCategory.message,
           ),
-          iOS: DarwinNotificationDetails(
-            presentAlert: true,
-            presentBadge: true,
-            presentSound: true,
-            badgeNumber: 0,
-          ),
         ),
-        payload: message.data.toString(),
+        payload: payload,
       );
-    });
-
-    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) async {
-      debugPrint('تم فتح التطبيق من إشعار وهو بالخلفية: ${message.data}');
-      await clearAppBadgeAndDeliveredNotifications();
-    });
+    } catch (e) {
+      debugPrint('NotificationService: فشل عرض الإشعار المحلي: $e');
+    }
   }
 
   Future<void> handleInitialMessage() async {
-    final initialMessage = await _messaging.getInitialMessage();
+    if (kIsWeb) return;
 
-    if (initialMessage != null) {
-      debugPrint('التطبيق فُتح من إشعار وهو مغلق: ${initialMessage.data}');
+    try {
+      final initialMessage = await _messaging.getInitialMessage();
+
+      if (initialMessage != null) {
+        debugPrint(
+          'NotificationService: التطبيق فُتح من إشعار وهو مغلق: ${initialMessage.data}',
+        );
+
+        // لاحقًا إذا أردنا فتح صفحة حسب initialMessage.data نضيف المنطق هنا.
+      }
+
+      await clearAppBadgeAndDeliveredNotifications();
+    } catch (e) {
+      debugPrint('NotificationService: فشل handleInitialMessage: $e');
     }
-
-    await clearAppBadgeAndDeliveredNotifications();
   }
 
   Future<String?> getToken() async {
@@ -194,10 +245,10 @@ class NotificationService {
 
     try {
       final token = await _messaging.getToken();
-      debugPrint('FCM TOKEN: $token');
+      debugPrint('NotificationService: FCM TOKEN: $token');
       return token;
     } catch (e) {
-      debugPrint('فشل جلب FCM token: $e');
+      debugPrint('NotificationService: فشل جلب FCM token: $e');
       return null;
     }
   }
@@ -206,33 +257,76 @@ class NotificationService {
     if (kIsWeb) return;
 
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
+    if (user == null) {
+      debugPrint('NotificationService: لا يوجد مستخدم لحفظ FCM token');
+      return;
+    }
 
     final token = await getToken();
-    if (token == null || token.isEmpty) return;
 
-    await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-      'fcmTokens': FieldValue.arrayUnion([token]),
-      'lastTokenUpdate': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    if (token == null || token.trim().isEmpty) {
+      debugPrint('NotificationService: FCM token فارغ، لم يتم الحفظ');
+      return;
+    }
 
-    debugPrint('تم حفظ FCM token للمستخدم الحالي');
-  }
-
-  Future<void> _setupTokenRefreshListener() async {
-    if (kIsWeb) return;
-
-    _messaging.onTokenRefresh.listen((newToken) async {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
-
+    try {
       await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-        'fcmTokens': FieldValue.arrayUnion([newToken]),
+        'fcmTokens': FieldValue.arrayUnion([token.trim()]),
+        'fcmToken': token.trim(),
         'lastTokenUpdate': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
-      debugPrint('تم تحديث FCM token للمستخدم الحالي');
-    });
+      debugPrint('NotificationService: تم حفظ FCM token للمستخدم الحالي');
+    } catch (e) {
+      debugPrint('NotificationService: فشل حفظ FCM token: $e');
+    }
+  }
+
+  void _setupTokenRefreshListener() {
+    if (kIsWeb) return;
+
+    _tokenRefreshSubscription?.cancel();
+
+    _tokenRefreshSubscription = _messaging.onTokenRefresh.listen(
+      (newToken) async {
+        final user = FirebaseAuth.instance.currentUser;
+
+        if (user == null) {
+          debugPrint(
+            'NotificationService: token refresh وصل لكن لا يوجد مستخدم حالي',
+          );
+          return;
+        }
+
+        if (newToken.trim().isEmpty) return;
+
+        try {
+          await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+            'fcmTokens': FieldValue.arrayUnion([newToken.trim()]),
+            'fcmToken': newToken.trim(),
+            'lastTokenUpdate': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+
+          debugPrint('NotificationService: تم تحديث FCM token للمستخدم الحالي');
+        } catch (e) {
+          debugPrint('NotificationService: فشل تحديث FCM token: $e');
+        }
+      },
+    );
+  }
+
+  Future<void> dispose() async {
+    await _tokenRefreshSubscription?.cancel();
+    await _foregroundMessageSubscription?.cancel();
+    await _messageOpenedSubscription?.cancel();
+
+    _tokenRefreshSubscription = null;
+    _foregroundMessageSubscription = null;
+    _messageOpenedSubscription = null;
+
+    _initialized = false;
   }
 }
 

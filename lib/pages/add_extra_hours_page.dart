@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../services/app_notification_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 
@@ -176,6 +177,46 @@ class _AddExtraHoursPageState extends State<AddExtraHoursPage> {
         'createdAt': Timestamp.fromDate(now),
         'updatedAt': Timestamp.fromDate(now),
       });
+
+    final parentUid = (selectedChild!['parentUid'] ?? '').toString().trim();
+final parentUsername =
+    (selectedChild!['parentUsername'] ?? '').toString().trim().toLowerCase();
+final parentName = (selectedChild!['parentName'] ?? '').toString().trim();
+final childId = (selectedChild!['id'] ?? '').toString().trim();
+final childName = (selectedChild!['name'] ?? '').toString().trim();
+
+if (parentUid.isNotEmpty || parentUsername.isNotEmpty) {
+  await AppNotificationService.instance.notifyParent(
+    parentUid: parentUid,
+    parentUsername: parentUsername,
+    parentName: parentName,
+    title: 'تم تسجيل ساعات إضافية',
+    body:
+        'تم تسجيل ${hours.toStringAsFixed(2)} ساعة إضافية للطفل $childName بقيمة ${totalAmount.toStringAsFixed(0)} شيكل، وسيتم إضافتها إلى الفاتورة.',
+    type: 'extra_hours',
+    childId: childId,
+    childName: childName,
+    section: selectedChild!['section'] ?? 'Nursery',
+    group: selectedChild!['group'] ?? '',
+    priority: 'normal',
+    createdByUid: currentUser['uid'] ?? '',
+    createdByName: currentUser['name'] ?? 'الإدارة',
+    createdByRole: currentUser['role'] ?? 'admin',
+    extraData: {
+      'extraHoursId': docRef.id,
+      'hours': hours,
+      'hourlyPrice': hourlyPrice,
+      'totalAmount': totalAmount,
+      'date': Timestamp.fromDate(selectedDate),
+      'status': 'pending_invoice',
+      'category': 'extra_hours',
+      'notificationType': 'extra_hours',
+      'screen': 'invoices',
+      'route': 'parent_invoices',
+      'relatedCollection': 'extra_child_hours',
+    },
+  );
+}
 
       if (!mounted) return;
 

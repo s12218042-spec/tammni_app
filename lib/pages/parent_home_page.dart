@@ -10,17 +10,18 @@ import '../services/message_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 import 'account_history_page.dart';
-import 'account_settings_page.dart';
 import 'add_child_request_page.dart';
 import 'child_profile_page.dart';
 import 'live_stream_viewer_page.dart';
 import 'parent_chats_page.dart';
 import 'parent_complaints_page.dart';
+import 'profile_details_page.dart';
 import 'parent_consultations_page.dart';
 import 'parent_invoice_page.dart';
 import 'parent_notifications_page.dart';
 import 'parent_updates_page.dart';
 import 'welcome_page.dart';
+import 'parent_support_center_page.dart';
 
 class ParentHomePage extends StatefulWidget {
   final String parentUsername;
@@ -877,7 +878,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
                   await Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => const AccountSettingsPage(),
+                      builder: (_) => const ProfileDetailsPage(),
                     ),
                   );
 
@@ -895,72 +896,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
                 color: AppColors.textLight,
                 fontWeight: FontWeight.w700,
               ),
-        ),
-        const SizedBox(height: 8),
-        Card(
-          child: Column(
-            children: [
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Colors.orange.withOpacity(0.12),
-                  child: const Icon(
-                    Icons.person_outline_rounded,
-                    color: Colors.orange,
-                  ),
-                ),
-                title: const Text('تعديل الملف الشخصي'),
-                subtitle:
-                    const Text('تعديل الاسم، كلمة المرور، وإدارة الحساب'),
-                onTap: () async {
-                  await Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const AccountSettingsPage(),
-                    ),
-                  );
-
-                  if (!mounted) return;
-                  setState(() {});
-                },
-              ),
-              const Divider(height: 1),
-              SwitchListTile(
-                secondary: CircleAvatar(
-                  backgroundColor: Colors.blue.withOpacity(0.12),
-                  child: const Icon(
-                    Icons.language_rounded,
-                    color: Colors.blue,
-                  ),
-                ),
-                title: const Text('لغة التطبيق'),
-                subtitle: Text(isArabic ? 'العربية' : 'English'),
-                value: isArabic,
-                onChanged: (value) {
-                  setState(() {
-                    isArabic = value;
-                  });
-                },
-              ),
-              const Divider(height: 1),
-              SwitchListTile(
-                secondary: CircleAvatar(
-                  backgroundColor: Colors.purple.withOpacity(0.12),
-                  child: const Icon(
-                    Icons.palette_outlined,
-                    color: Colors.purple,
-                  ),
-                ),
-                title: const Text('الوضع الليلي'),
-                value: isDarkMode,
-                onChanged: (value) {
-                  setState(() {
-                    isDarkMode = value;
-                  });
-                },
-              ),
-            ],
-          ),
-        ),
+        ),        
         const SizedBox(height: 18),
         Text(
           'الخدمات',
@@ -1095,16 +1031,29 @@ class _ParentHomePageState extends State<ParentHomePage> {
           child: Column(
             children: [
               ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Colors.red.withOpacity(0.12),
-                  child: const Icon(
-                    Icons.support_agent_rounded,
-                    color: Colors.red,
-                  ),
-                ),
-                title: const Text('مركز الدعم'),
-                onTap: _openComplaints,
-              ),
+  leading: CircleAvatar(
+    backgroundColor: Colors.red.withOpacity(0.12),
+    child: const Icon(
+      Icons.support_agent_rounded,
+      color: Colors.red,
+    ),
+  ),
+  title: const Text('مركز الدعم'),
+  subtitle: const Text(
+    'المساعدة، الشكاوى، الفواتير، الحساب والأسئلة الشائعة',
+  ),
+  onTap: () {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ParentSupportCenterPage(
+          parentUsername: widget.parentUsername,
+          children: children,
+        ),
+      ),
+    );
+  },
+),
               const Divider(height: 1),
               ListTile(
                 leading: CircleAvatar(
@@ -2011,13 +1960,22 @@ class _LiveStreamRequestAction extends StatelessWidget {
     required this.onCancel,
   });
 
-  bool _isOpenStatus(String status) {
+  bool _shouldShowWaitingStatus(String status) {
     final clean = status.trim().toLowerCase();
-    return clean == 'pending' ||
-        clean == 'queued' ||
-        clean == 'waiting' ||
-        clean == 'approved' ||
-        clean == 'active';
+
+    return clean == 'pending' || clean == 'queued' || clean == 'waiting';
+  }
+
+  bool _shouldHideRequestStatus(String status) {
+    final clean = status.trim().toLowerCase();
+
+    return clean == 'approved' ||
+        clean == 'active' ||
+        clean == 'completed' ||
+        clean == 'ended' ||
+        clean == 'finished' ||
+        clean == 'cancelled' ||
+        clean == 'rejected';
   }
 
   String _statusText(String status) {
@@ -2027,10 +1985,6 @@ class _LiveStreamRequestAction extends StatelessWidget {
       case 'queued':
       case 'waiting':
         return 'طلبك ضمن الانتظار';
-      case 'approved':
-        return 'تمت الموافقة على الطلب';
-      case 'active':
-        return 'البث نشط الآن';
       default:
         return 'طلب بث قائم';
     }
@@ -2039,6 +1993,23 @@ class _LiveStreamRequestAction extends StatelessWidget {
   bool _canCancel(String status) {
     final clean = status.trim().toLowerCase();
     return clean == 'pending' || clean == 'queued' || clean == 'waiting';
+  }
+
+  DateTime? _dateFromDynamic(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    return null;
+  }
+
+  int _requestSortValue(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data();
+    final status = (data['status'] ?? '').toString().trim().toLowerCase();
+
+    if (status == 'active') return 1;
+    if (status == 'approved') return 2;
+    if (status == 'pending') return 3;
+    if (status == 'queued' || status == 'waiting') return 4;
+    return 9;
   }
 
   @override
@@ -2060,24 +2031,65 @@ class _LiveStreamRequestAction extends StatelessWidget {
       builder: (context, snapshot) {
         final docs = snapshot.data?.docs ?? [];
 
-        QueryDocumentSnapshot<Map<String, dynamic>>? openDoc;
+        if (docs.isEmpty) {
+          return _buildRequestButton();
+        }
 
-        for (final doc in docs) {
-          final data = doc.data();
-          final status = (data['status'] ?? '').toString();
+        final sortedDocs = [...docs];
 
-          if (_isOpenStatus(status)) {
-            openDoc = doc;
+        sortedDocs.sort((a, b) {
+          final aPriority = _requestSortValue(a);
+          final bPriority = _requestSortValue(b);
+
+          if (aPriority != bPriority) {
+            return aPriority.compareTo(bPriority);
+          }
+
+          final aData = a.data();
+          final bData = b.data();
+
+          final aDate = _dateFromDynamic(aData['updatedAt']) ??
+              _dateFromDynamic(aData['createdAt']) ??
+              _dateFromDynamic(aData['requestedAt']);
+
+          final bDate = _dateFromDynamic(bData['updatedAt']) ??
+              _dateFromDynamic(bData['createdAt']) ??
+              _dateFromDynamic(bData['requestedAt']);
+
+          if (aDate == null && bDate == null) return 0;
+          if (aDate == null) return 1;
+          if (bDate == null) return -1;
+
+          return bDate.compareTo(aDate);
+        });
+
+        QueryDocumentSnapshot<Map<String, dynamic>>? relevantDoc;
+
+        for (final doc in sortedDocs) {
+          final status = (doc.data()['status'] ?? '').toString();
+
+          if (_shouldShowWaitingStatus(status) ||
+              _shouldHideRequestStatus(status)) {
+            relevantDoc = doc;
             break;
           }
         }
 
-        if (openDoc == null) {
+        if (relevantDoc == null) {
           return _buildRequestButton();
         }
 
-        final data = openDoc.data();
-        final status = (data['status'] ?? 'pending').toString();
+        final data = relevantDoc.data();
+        final status = (data['status'] ?? '').toString();
+
+        if (_shouldHideRequestStatus(status)) {
+          return const SizedBox.shrink();
+        }
+
+        if (!_shouldShowWaitingStatus(status)) {
+          return _buildRequestButton();
+        }
+
         final canCancel = _canCancel(status);
 
         if (compact) {
@@ -2094,7 +2106,7 @@ class _LiveStreamRequestAction extends StatelessWidget {
               ),
               if (canCancel)
                 TextButton.icon(
-                  onPressed: () => onCancel(openDoc!.id),
+                  onPressed: () => onCancel(relevantDoc!.id),
                   icon: const Icon(Icons.close_rounded, size: 17),
                   label: const Text('إلغاء'),
                   style: TextButton.styleFrom(
@@ -2138,7 +2150,7 @@ class _LiveStreamRequestAction extends StatelessWidget {
                 SizedBox(
                   width: double.infinity,
                   child: OutlinedButton.icon(
-                    onPressed: () => onCancel(openDoc!.id),
+                    onPressed: () => onCancel(relevantDoc!.id),
                     icon: const Icon(Icons.close_rounded),
                     label: const Text('إلغاء الطلب'),
                     style: OutlinedButton.styleFrom(

@@ -39,6 +39,10 @@ dependencies:
   # Live streaming / WebRTC
   flutter_webrtc: ^0.14.2
 
+  # PDF / Printing
+  pdf: ^3.11.1
+  printing: ^5.13.4
+
 dependency_overrides:
   record_linux: 1.3.0
 

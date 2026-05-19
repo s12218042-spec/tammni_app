@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../services/app_notification_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 
@@ -72,16 +73,23 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
     final title = (selectedOffer!['title'] ?? selectedOffer!['name'] ?? '')
         .toString()
         .toLowerCase();
-    final description = (selectedOffer!['description'] ?? '')
-        .toString()
-        .toLowerCase();
+    final description =
+        (selectedOffer!['description'] ?? '').toString().toLowerCase();
+
+    final childrenCount = _numValue(
+      selectedOffer!['childrenCount'] ??
+          selectedOffer!['maxChildren'] ??
+          selectedOffer!['numberOfChildren'],
+    );
+
     final finalPrice = _numValue(
       selectedOffer!['finalPrice'] ??
           selectedOffer!['price'] ??
           selectedOffer!['offerPrice'],
     );
 
-    return id.contains('two') ||
+    return childrenCount >= 2 ||
+        id.contains('two') ||
         id.contains('2') ||
         title.contains('طفلين') ||
         title.contains('طفلان') ||
@@ -89,6 +97,7 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
         title.contains('اخوين') ||
         title.contains('two') ||
         description.contains('طفلين') ||
+        description.contains('طفلان') ||
         description.contains('أخوين') ||
         description.contains('اخوين') ||
         finalPrice == 1100;
@@ -122,7 +131,6 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
   double get registrationFee => _parseAmount(registrationFeeCtrl);
   double get lateFee => _parseAmount(lateFeeCtrl);
 
-  // المبلغ الأساسي للأطفال فقط بدون المواصلات/الوجبات.
   double get childrenBaseAmount {
     if (isRegistrationInvoice || isLateFeeInvoice) return baseAmount;
     return baseAmount * invoiceChildrenCount;
@@ -153,9 +161,6 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
           selectedOffer!['offerPrice'],
     );
 
-    // مثال:
-    // طفل واحد: 700 - 600 = 100
-    // طفلين: 1400 - 1100 = 300
     if (offerPrice > 0 && childrenBaseAmount > offerPrice) {
       return childrenBaseAmount - offerPrice;
     }
@@ -175,12 +180,183 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
   }
 
   double get totalAmount {
-    final total = subtotalAmount -
-        offerDiscount +
-        extraHoursAmount +
-        consultationsAmount;
+    final total =
+        subtotalAmount - offerDiscount + extraHoursAmount + consultationsAmount;
 
     return total < 0 ? 0 : total;
+  }
+
+  String _monthKey(DateTime date) {
+    final month = date.month.toString().padLeft(2, '0');
+    return '${date.year}-$month';
+  }
+
+  DateTime? _dateFromInvoiceValue(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    return null;
+  }
+
+  String _invoiceMonthKeyFromData(Map<String, dynamic> data) {
+    final direct = (data['billingMonthKey'] ?? '').toString().trim();
+    if (direct.isNotEmpty) return direct;
+
+    final start = _dateFromInvoiceValue(data['startDate']);
+    if (start != null) return _monthKey(start);
+
+    final due = _dateFromInvoiceValue(data['dueDate']);
+    if (due != null) return _monthKey(due);
+
+    final created = _dateFromInvoiceValue(data['createdAt']);
+    if (created != null) return _monthKey(created);
+
+    return '';
+  }
+
+  bool _isActiveInvoiceForDuplicateCheck(Map<String, dynamic> data) {
+    final status = (data['status'] ?? '').toString().trim().toLowerCase();
+    final paymentStatus =
+        (data['paymentStatus'] ?? '').toString().trim().toLowerCase();
+    final invoiceStatus =
+        (data['invoiceStatus'] ?? '').toString().trim().toLowerCase();
+
+    const badStatuses = {
+      'cancelled',
+      'canceled',
+      'deleted',
+      'void',
+      'superseded',
+    };
+
+    return !badStatuses.contains(status) &&
+        !badStatuses.contains(paymentStatus) &&
+        !badStatuses.contains(invoiceStatus);
+  }
+
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      fetchSameParentMonthlyInvoices({
+    required String parentUid,
+    required String parentUsername,
+    required String billingMonthKey,
+  }) async {
+    if (billingMonthKey.isEmpty) return [];
+
+    QuerySnapshot<Map<String, dynamic>> snapshot;
+
+    if (parentUid.trim().isNotEmpty) {
+      snapshot = await _firestore
+          .collection('invoices')
+          .where('parentUid', isEqualTo: parentUid.trim())
+          .get();
+    } else if (parentUsername.trim().isNotEmpty) {
+      snapshot = await _firestore
+          .collection('invoices')
+          .where('parentUsername',
+              isEqualTo: parentUsername.trim().toLowerCase())
+          .get();
+    } else {
+      return [];
+    }
+
+    final docs = snapshot.docs.where((doc) {
+      final data = doc.data();
+
+      final category = (data['invoiceCategory'] ?? '').toString();
+      final type = (data['billingType'] ?? '').toString();
+
+      final isNurseryFee =
+          category.isEmpty || category == 'nursery_fee' || category == 'monthly';
+
+      final isMonthly = type.isEmpty || type == 'monthly';
+
+      final docMonthKey = _invoiceMonthKeyFromData(data);
+
+      return isNurseryFee &&
+          isMonthly &&
+          docMonthKey == billingMonthKey &&
+          _isActiveInvoiceForDuplicateCheck(data);
+    }).toList();
+
+    docs.sort((a, b) {
+      final aDate = _dateFromInvoiceValue(a.data()['createdAt']) ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      final bDate = _dateFromInvoiceValue(b.data()['createdAt']) ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      return aDate.compareTo(bDate);
+    });
+
+    return docs;
+  }
+
+  Future<List<Map<String, dynamic>>> fetchActiveChildrenForSameParent(
+    Map<String, dynamic> child,
+  ) async {
+    final parentUid = (child['parentUid'] ?? '').toString().trim();
+    final parentUsername =
+        (child['parentUsername'] ?? '').toString().trim().toLowerCase();
+
+    QuerySnapshot<Map<String, dynamic>> snapshot;
+
+    if (parentUid.isNotEmpty) {
+      snapshot = await _firestore
+          .collection('children')
+          .where('parentUid', isEqualTo: parentUid)
+          .get();
+    } else if (parentUsername.isNotEmpty) {
+      snapshot = await _firestore
+          .collection('children')
+          .where('parentUsername', isEqualTo: parentUsername)
+          .get();
+    } else {
+      return [];
+    }
+
+    final children = snapshot.docs.map((doc) {
+      final data = doc.data();
+
+      final section = (data['section'] ??
+              data['childSection'] ??
+              data['nurserySection'] ??
+              'Nursery')
+          .toString();
+
+      final status = (data['status'] ?? data['childStatus'] ?? '')
+          .toString()
+          .trim()
+          .toLowerCase();
+
+      final isActiveValue = data['isActive'];
+      final isActive = isActiveValue == null
+          ? status != 'inactive' &&
+              status != 'withdrawn' &&
+              status != 'rejected_after_trial'
+          : isActiveValue == true;
+
+      return {
+        'id': doc.id,
+        'name': (data['name'] ??
+                data['childName'] ??
+                data['fullName'] ??
+                'طفل بدون اسم')
+            .toString(),
+        'section': section,
+        'group': (data['groupName'] ?? data['group'] ?? '').toString(),
+        'parentName': (data['parentName'] ?? '').toString(),
+        'parentUid': (data['parentUid'] ?? '').toString(),
+        'parentUsername': (data['parentUsername'] ?? '').toString(),
+        'isActive': isActive,
+      };
+    }).where((item) {
+      final section = (item['section'] ?? '').toString().trim().toLowerCase();
+      final isNurseryLike = section.isEmpty ||
+          section == 'nursery' ||
+          section == 'حضانة' ||
+          section == 'nursery_section';
+
+      return item['isActive'] == true && isNurseryLike;
+    }).toList();
+
+    return children;
   }
 
   List<Map<String, dynamic>> secondChildrenOptions(
@@ -201,7 +377,6 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
       final parentUsername =
           (child['parentUsername'] ?? '').toString().toLowerCase();
 
-      // عرض الطفلين يجب أن يكون لنفس ولي الأمر إذا كانت بيانات ولي الأمر موجودة.
       if (firstParentUid.isNotEmpty || firstParentUsername.isNotEmpty) {
         return (firstParentUid.isNotEmpty && parentUid == firstParentUid) ||
             (firstParentUsername.isNotEmpty &&
@@ -303,8 +478,7 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
           final data = doc.data();
           final status = (data['status'] ?? '').toString().trim().toLowerCase();
 
-          final isActive =
-              data['isActive'] != false &&
+          final isActive = data['isActive'] != false &&
               data['active'] != false &&
               data['disabled'] != true &&
               data['isDisabled'] != true &&
@@ -322,9 +496,7 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
             'isActive': true,
           });
         }
-      } catch (_) {
-        // إذا كان اسم collection غير موجود أو القواعد منعت قراءته، نكمل بدون تعطيل الصفحة.
-      }
+      } catch (_) {}
     }
 
     if (allOffers.isEmpty) {
@@ -431,7 +603,10 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
           .collection('child_consultations')
           .where('childId', isEqualTo: childId)
           .where('parentApprovalStatus', isEqualTo: 'approved')
-          .where('invoiceStatus', whereIn: ['pending_invoice', 'ready_for_invoice'])
+          .where(
+            'invoiceStatus',
+            whereIn: ['pending_invoice', 'ready_for_invoice'],
+          )
           .get();
 
       for (final doc in snapshot.docs) {
@@ -516,6 +691,72 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
     }
   }
 
+  Future<void> sendInvoiceCreatedNotification({
+  required String invoiceId,
+  required bool isUpdatingExistingInvoice,
+  required Map<String, String> currentUser,
+  required List<String> childrenNames,
+}) async {
+  final parentUid = (selectedChild?['parentUid'] ?? '').toString().trim();
+  final parentUsername =
+      (selectedChild?['parentUsername'] ?? '').toString().trim().toLowerCase();
+  final parentName = (selectedChild?['parentName'] ?? '').toString().trim();
+
+  if (parentUid.isEmpty && parentUsername.isEmpty) return;
+
+  final cleanChildrenNames = childrenNames
+      .map((e) => e.trim())
+      .where((e) => e.isNotEmpty)
+      .toList();
+
+  final childrenText = cleanChildrenNames.isEmpty
+      ? (selectedChild?['name'] ?? 'الطفل').toString()
+      : cleanChildrenNames.join('، ');
+
+  final invoiceTitle = titleCtrl.text.trim().isEmpty
+      ? 'فاتورة حضانة'
+      : titleCtrl.text.trim();
+
+  final actionText =
+      isUpdatingExistingInvoice ? 'تم تحديث الفاتورة' : 'تم إنشاء فاتورة جديدة';
+
+  await AppNotificationService.instance.notifyParent(
+    parentUid: parentUid,
+    parentUsername: parentUsername,
+    parentName: parentName,
+    title: isUpdatingExistingInvoice
+        ? 'تم تحديث فاتورة الحضانة'
+        : 'فاتورة حضانة جديدة',
+    body:
+        '$actionText "$invoiceTitle" للأطفال: $childrenText. المبلغ: ${totalAmount.toStringAsFixed(0)} شيكل، تاريخ الاستحقاق: ${formatDate(dueDate)}.',
+    type: isUpdatingExistingInvoice ? 'invoice_updated' : 'invoice_created',
+    childId: (selectedChild?['id'] ?? '').toString(),
+    childName: childrenText,
+    section: (selectedChild?['section'] ?? 'Nursery').toString(),
+    group: (selectedChild?['group'] ?? '').toString(),
+    priority: selectedPaymentStatus == 'unpaid' ? 'important' : 'normal',
+    createdByUid: currentUser['uid'] ?? '',
+    createdByName: currentUser['name'] ?? 'الإدارة',
+    createdByRole: currentUser['role'] ?? 'admin',
+    extraData: {
+      'invoiceId': invoiceId,
+      'invoiceStatus': selectedPaymentStatus,
+      'paymentStatus': selectedPaymentStatus,
+      'billingType': selectedBillingType,
+      'invoiceCategory': invoiceCategory,
+      'totalAmount': totalAmount,
+      'childrenNames': childrenText,
+      'childrenCount': invoiceChildrenCount,
+      'category': 'invoice',
+      'notificationType':
+          isUpdatingExistingInvoice ? 'invoice_updated' : 'invoice_created',
+      'screen': 'invoices',
+      'route': 'parent_invoices',
+      'relatedCollection': 'invoices',
+    },
+  );
+}
+
   Future<void> saveInvoice() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -558,6 +799,18 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
       return;
     }
 
+    if (selectedBillingType == 'monthly' && !isTwoChildrenOffer) {
+      final parentChildren =
+          await fetchActiveChildrenForSameParent(selectedChild!);
+
+      if (parentChildren.length >= 2) {
+        _showSnack(
+          'هذا ولي الأمر لديه طفلين أو أكثر. اختاري عرض طفلين بدل إنشاء فاتورة 700 لطفل واحد.',
+        );
+        return;
+      }
+    }
+
     setState(() {
       isLoading = true;
     });
@@ -571,11 +824,33 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
       }
 
       final now = DateTime.now();
-      final docRef = _firestore.collection('invoices').doc();
+
+      final invoiceMonthKey = selectedBillingType == 'monthly'
+          ? _monthKey(startDate ?? dueDate ?? now)
+          : '';
+
+      final parentUid = (selectedChild!['parentUid'] ?? '').toString();
+      final parentUsername =
+          (selectedChild!['parentUsername'] ?? '').toString().toLowerCase();
+
+      final sameParentInvoices = selectedBillingType == 'monthly'
+          ? await fetchSameParentMonthlyInvoices(
+              parentUid: parentUid,
+              parentUsername: parentUsername,
+              billingMonthKey: invoiceMonthKey,
+            )
+          : <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+
+      final docRef = sameParentInvoices.isNotEmpty
+          ? sameParentInvoices.first.reference
+          : _firestore.collection('invoices').doc();
+
+      final isUpdatingExistingInvoice = sameParentInvoices.isNotEmpty;
 
       final invoiceChildren = selectedInvoiceChildren();
-      final childrenIds =
-          invoiceChildren.map((child) => (child['id'] ?? '').toString()).toList();
+      final childrenIds = invoiceChildren
+          .map((child) => (child['id'] ?? '').toString())
+          .toList();
       final childrenNames = invoiceChildren
           .map((child) => (child['name'] ?? '').toString())
           .toList();
@@ -586,14 +861,11 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
       extraHoursAmount = pendingExtraHoursAmount;
       linkedExtraHoursIds = extraHoursDocs.map((doc) => doc.id).toList();
 
-      final consultationDocs =
-          await fetchPendingConsultationsDocs(childrenIds);
+      final consultationDocs = await fetchPendingConsultationsDocs(childrenIds);
 
-      consultationsAmount =
-          calculateConsultationsTotal(consultationDocs);
+      consultationsAmount = calculateConsultationsTotal(consultationDocs);
 
-      linkedConsultationIds =
-          consultationDocs.map((doc) => doc.id).toList();
+      linkedConsultationIds = consultationDocs.map((doc) => doc.id).toList();
 
       selectedConsultations = consultationDocs.map((doc) {
         final data = doc.data();
@@ -633,12 +905,15 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
             .toList(),
 
         'parentName': selectedChild!['parentName'] ?? '',
-        'parentUsername': selectedChild!['parentUsername'] ?? '',
-        'parentUid': selectedChild!['parentUid'] ?? '',
+        'parentUsername': parentUsername,
+        'parentUid': parentUid,
         'section': selectedChild!['section'] ?? 'Nursery',
         'group': selectedChild!['group'] ?? '',
         'invoiceCategory': invoiceCategory,
         'billingType': selectedBillingType,
+        'billingMonthKey': invoiceMonthKey,
+        'billingYear': startDate?.year ?? dueDate?.year ?? now.year,
+        'billingMonth': startDate?.month ?? dueDate?.month ?? now.month,
         'title': titleCtrl.text.trim(),
         'description': descriptionCtrl.text.trim(),
         'startDate': startDate == null ? null : Timestamp.fromDate(startDate!),
@@ -663,24 +938,64 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
         'consultationsAmount': consultationsAmount,
         'consultationIds': linkedConsultationIds,
         'consultations': selectedConsultations,
+
         'offerId': selectedOffer?['id'] ?? '',
-        'offerTitle': (selectedOffer?['title'] ?? selectedOffer?['name'] ?? '')
-            .toString(),
+        'offerTitle':
+            (selectedOffer?['title'] ?? selectedOffer?['name'] ?? '')
+                .toString(),
         'offerCollectionName': selectedOffer?['collectionName'] ?? '',
         'isDefaultOffer': selectedOffer?['isDefaultOffer'] == true,
         'isTwoChildrenOffer': isTwoChildrenOffer,
         'offerDiscount': offerDiscount,
+
         'totalAmount': totalAmount,
         'status': selectedPaymentStatus,
         'paymentStatus': selectedPaymentStatus,
         'paymentMethod': '',
         'notes': notesCtrl.text.trim(),
-        'createdByUid': currentUser['uid'] ?? '',
-        'createdByName': currentUser['name'] ?? 'مستخدم',
-        'createdByRole': currentUser['role'] ?? '',
-        'createdAt': Timestamp.fromDate(now),
+
+        'updatedExistingInvoice': isUpdatingExistingInvoice,
+        'createdByUid': isUpdatingExistingInvoice
+            ? FieldValue.delete()
+            : (currentUser['uid'] ?? ''),
+        'createdByName': isUpdatingExistingInvoice
+            ? FieldValue.delete()
+            : (currentUser['name'] ?? 'مستخدم'),
+        'createdByRole': isUpdatingExistingInvoice
+            ? FieldValue.delete()
+            : (currentUser['role'] ?? ''),
+        'updatedByUid': currentUser['uid'] ?? '',
+        'updatedByName': currentUser['name'] ?? 'مستخدم',
+        'updatedByRole': currentUser['role'] ?? '',
+        'createdAt': isUpdatingExistingInvoice
+            ? FieldValue.delete()
+            : Timestamp.fromDate(now),
         'updatedAt': Timestamp.fromDate(now),
-      });
+      }, SetOptions(merge: true));
+
+await sendInvoiceCreatedNotification(
+  invoiceId: docRef.id,
+  isUpdatingExistingInvoice: isUpdatingExistingInvoice,
+  currentUser: currentUser,
+  childrenNames: childrenNames,
+);
+      if (sameParentInvoices.length > 1) {
+        final batch = _firestore.batch();
+
+        for (final oldDoc in sameParentInvoices.skip(1)) {
+          if (oldDoc.id == docRef.id) continue;
+
+          batch.update(oldDoc.reference, {
+            'status': 'superseded',
+            'paymentStatus': 'superseded',
+            'invoiceStatus': 'superseded',
+            'supersededByInvoiceId': docRef.id,
+            'updatedAt': Timestamp.fromDate(now),
+          });
+        }
+
+        await batch.commit();
+      }
 
       if (consultationDocs.isNotEmpty) {
         final batch = _firestore.batch();
@@ -715,7 +1030,13 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم إنشاء الفاتورة بنجاح ✅')),
+        SnackBar(
+          content: Text(
+            isUpdatingExistingInvoice
+                ? 'تم تحديث فاتورة الشهر بدل إنشاء فاتورة مكررة ✅'
+                : 'تم إنشاء الفاتورة بنجاح ✅',
+          ),
+        ),
       );
 
       Navigator.pop(context, true);
@@ -1351,5 +1672,3 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
     );
   }
 }
-
-

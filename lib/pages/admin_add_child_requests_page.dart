@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
+import '../services/app_notification_service.dart';
 import '../utils/child_section_utils.dart';
 import '../widgets/app_page_scaffold.dart';
 
@@ -197,60 +198,51 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
   }
 
   Future<void> _createParentNotification({
-    required String parentUid,
-    required String parentUsername,
-    required String parentName,
-    required String title,
-    required String body,
-    required String requestId,
-    required String childName,
-    required String status,
-    required String adminUid,
-    required String adminName,
-    String reviewNote = '',
-    String createdChildId = '',
-  }) async {
-    final cleanParentUsername = parentUsername.trim().toLowerCase();
-
-    await _firestore.collection('notifications').add({
-      'uid': parentUid,
-      'targetUid': parentUid,
-      'targetRole': 'parent',
-      'receiverUid': parentUid,
-      'receiverRole': 'parent',
-      'parentUid': parentUid,
-      'parentUsername': cleanParentUsername,
-      'parentName': parentName.trim(),
-      'title': title.trim(),
-      'body': body.trim(),
-      'message': body.trim(),
-      'type': 'add_child_request',
+  required String parentUid,
+  required String parentUsername,
+  required String parentName,
+  required String title,
+  required String body,
+  required String requestId,
+  required String childName,
+  required String status,
+  required String adminUid,
+  required String adminName,
+  String reviewNote = '',
+  String createdChildId = '',
+}) async {
+  await AppNotificationService.instance.notifyParent(
+    parentUid: parentUid,
+    parentUsername: parentUsername,
+    parentName: parentName,
+    title: title,
+    body: body,
+    type: 'add_child_request',
+    childId: createdChildId,
+    childName: childName,
+    section: 'Nursery',
+    group: '',
+    priority: status == 'approved' ? 'normal' : 'important',
+    createdByUid: adminUid,
+    createdByName: adminName,
+    createdByRole: 'admin',
+    extraData: {
       'notificationType': 'add_child_request',
       'category': 'requests',
       'requestType': 'add_child',
       'requestId': requestId,
-      'childId': createdChildId,
-      'childName': childName.trim(),
-      'section': 'Nursery',
-      'group': '',
       'status': status,
       'reviewNote': reviewNote.trim(),
-      'priority': status == 'approved' ? 'normal' : 'important',
       'importance': status == 'approved' ? 'normal' : 'important',
-      'isRead': false,
-      'read': false,
-      'seen': false,
-      'createdAt': FieldValue.serverTimestamp(),
-      'time': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-      'createdByUid': adminUid,
-      'createdByName': adminName,
-      'createdByRole': 'admin',
       'senderUid': adminUid,
       'senderName': adminName,
       'senderRole': 'admin',
-    });
-  }
+      'screen': 'requests',
+      'route': 'parent_add_child_requests',
+      'relatedCollection': 'add_child_requests',
+    },
+  );
+}
 
   Future<void> _updateRequestStatus({
     required String requestId,

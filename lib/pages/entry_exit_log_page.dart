@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../models/child_model.dart';
+import '../services/app_notification_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 
@@ -316,72 +317,64 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
   }
 
   Future<void> createParentNotification({
-    required Map<String, String> childInfo,
-    required Map<String, String> userInfo,
-    required String eventType,
-    required String note,
-    required String logId,
-    required Timestamp now,
-  }) async {
-    final parentUid = (childInfo['parentUid'] ?? '').trim();
-    final parentUsername =
-        (childInfo['parentUsername'] ?? '').trim().toLowerCase();
-    final parentName = (childInfo['parentName'] ?? '').trim();
-    final childName = (childInfo['childName'] ?? widget.child.name).trim();
-    final section = (childInfo['section'] ?? 'Nursery').trim();
-    final group = (childInfo['group'] ?? '').trim();
+  required Map<String, String> childInfo,
+  required Map<String, String> userInfo,
+  required String eventType,
+  required String note,
+  required String logId,
+  required Timestamp now,
+}) async {
+  final parentUid = (childInfo['parentUid'] ?? '').trim();
+  final parentUsername =
+      (childInfo['parentUsername'] ?? '').trim().toLowerCase();
+  final parentName = (childInfo['parentName'] ?? '').trim();
+  final childName = (childInfo['childName'] ?? widget.child.name).trim();
+  final section = (childInfo['section'] ?? 'Nursery').trim();
+  final group = (childInfo['group'] ?? '').trim();
 
-    if (parentUid.isEmpty && parentUsername.isEmpty) return;
+  if (parentUid.isEmpty && parentUsername.isEmpty) return;
 
-    final title = buildNotificationTitle(eventType);
-    final body = buildNotificationBody(
-      eventType: eventType,
-      childName: childName,
-      note: note,
-    );
+  final title = buildNotificationTitle(eventType);
+  final body = buildNotificationBody(
+    eventType: eventType,
+    childName: childName,
+    note: note,
+  );
 
-    await _firestore.collection('notifications').add({
-      'uid': parentUid,
-      'targetUid': parentUid,
-      'targetRole': 'parent',
-      'receiverUid': parentUid,
-      'receiverRole': 'parent',
-      'parentUid': parentUid,
-      'parentUsername': parentUsername,
-      'parentName': parentName,
-      'childId': widget.child.id,
-      'childName': childName,
-      'section': section,
-      'group': group,
-      'title': title,
-      'body': body,
-      'message': body,
-      'description': body,
-      'type': eventType == 'entry' ? 'entry' : 'exit',
+  await AppNotificationService.instance.notifyParent(
+    parentUid: parentUid,
+    parentUsername: parentUsername,
+    parentName: parentName,
+    title: title,
+    body: body,
+    type: eventType == 'entry' ? 'entry' : 'exit',
+    childId: widget.child.id,
+    childName: childName,
+    section: section,
+    group: group,
+    priority: 'normal',
+    createdByUid: userInfo['uid'] ?? '',
+    createdByName: userInfo['name'] ?? 'مستخدم',
+    createdByRole: userInfo['role'] ?? 'admin',
+    extraData: {
       'notificationType': eventType == 'entry' ? 'entry' : 'exit',
       'category': 'entry_exit',
       'templateType': eventType,
       'eventType': eventType,
       'entryExitLogId': logId,
       'note': note,
-      'priority': 'normal',
       'importance': 'normal',
-      'isRead': false,
-      'read': false,
-      'seen': false,
-      'createdAt': now,
-      'time': FieldValue.serverTimestamp(),
+      'description': body,
       'eventAt': now,
-      'updatedAt': now,
-      'createdByUid': userInfo['uid'],
-      'createdByName': userInfo['name'],
-      'createdByRole': userInfo['role'],
-      'byRole': userInfo['role'],
-      'senderUid': userInfo['uid'],
-      'senderName': userInfo['name'],
-      'senderRole': userInfo['role'],
-    });
-  }
+      'senderUid': userInfo['uid'] ?? '',
+      'senderName': userInfo['name'] ?? 'مستخدم',
+      'senderRole': userInfo['role'] ?? 'admin',
+      'screen': 'entry_exit',
+      'route': 'parent_entry_exit',
+      'relatedCollection': 'entry_exit_logs',
+    },
+  );
+}
 
   Future<void> saveEntryExitEvent() async {
     if (!isAdminUser) {

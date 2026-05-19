@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../services/app_notification_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 import 'start_live_stream_page.dart';
@@ -236,55 +237,47 @@ class _AdminLiveStreamRequestsPageState
   }
 
   Future<void> _notifyParent({
-    required Map<String, dynamic> requestData,
-    required String title,
-    required String body,
-    required String type,
-    String priority = 'normal',
-  }) async {
-    final admin = await _adminInfo();
+  required Map<String, dynamic> requestData,
+  required String title,
+  required String body,
+  required String type,
+  String priority = 'normal',
+}) async {
+  final admin = await _adminInfo();
 
-    final parentUid = (requestData['parentUid'] ?? '').toString().trim();
-    final parentUsername =
-        (requestData['parentUsername'] ?? '').toString().trim().toLowerCase();
-    final parentName = (requestData['parentName'] ?? '').toString().trim();
+  final parentUid = (requestData['parentUid'] ?? '').toString().trim();
+  final parentUsername =
+      (requestData['parentUsername'] ?? '').toString().trim().toLowerCase();
+  final parentName = (requestData['parentName'] ?? '').toString().trim();
 
-    if (parentUid.isEmpty && parentUsername.isEmpty) return;
+  if (parentUid.isEmpty && parentUsername.isEmpty) return;
 
-    await _firestore.collection('notifications').add({
-      'title': title,
-      'body': body,
-      'message': body,
-      'type': type,
+  await AppNotificationService.instance.notifyParent(
+    parentUid: parentUid,
+    parentUsername: parentUsername,
+    parentName: parentName,
+    title: title,
+    body: body,
+    type: type,
+    childId: (requestData['childId'] ?? '').toString(),
+    childName: (requestData['childName'] ?? '').toString(),
+    section: (requestData['section'] ?? 'Nursery').toString(),
+    group: (requestData['group'] ?? '').toString(),
+    priority: priority,
+    createdByUid: admin['uid'] ?? '',
+    createdByName: admin['name'] ?? 'الإدارة',
+    createdByRole: 'admin',
+    extraData: {
       'notificationType': type,
       'category': 'live_stream',
-      'notificationFor': 'parent',
-      'targetUid': parentUid,
-      'targetUsername': parentUsername,
-      'targetRole': 'parent',
-      'parentUid': parentUid,
-      'parentUsername': parentUsername,
-      'parentName': parentName,
-      'childId': (requestData['childId'] ?? '').toString(),
-      'childName': (requestData['childName'] ?? '').toString(),
-      'section': (requestData['section'] ?? 'Nursery').toString(),
-      'group': (requestData['group'] ?? '').toString(),
       'requestId': (requestData['requestId'] ?? '').toString(),
       'liveStreamRequestId': (requestData['requestId'] ?? '').toString(),
-      'isRead': false,
-      'read': false,
-      'seen': false,
-      'priority': priority,
-      'importance': priority,
-      'createdByUid': admin['uid'],
-      'createdByName': admin['name'],
-      'createdByRole': 'admin',
-      'byRole': 'admin',
-      'createdAt': FieldValue.serverTimestamp(),
-      'time': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-  }
+      'screen': 'live_stream',
+      'route': 'parent_live_stream_requests',
+      'relatedCollection': 'live_stream_requests',
+    },
+  );
+}
 
   Future<void> _approveAndStartStream({
     required String requestId,

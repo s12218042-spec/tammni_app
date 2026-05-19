@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../services/app_notification_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 
@@ -441,108 +442,6 @@ class _ParentRegistrationRequestPageState
     }
   }
 
-  Future<void> _createAdminRegistrationNotification({
-    required String requestId,
-    required String parentUid,
-    required String parentName,
-    required String parentUsername,
-    required String parentEmail,
-    required String parentPhone,
-  }) async {
-    final title = 'طلب تسجيل ولي أمر جديد';
-    final body =
-        'تم إرسال طلب تسجيل جديد من $parentName باسم المستخدم @$parentUsername، بانتظار مراجعة الإدارة.';
-
-    final baseData = <String, dynamic>{
-      'title': title,
-      'body': body,
-      'message': body,
-      'type': 'parent_registration_request',
-      'notificationType': 'parent_registration_request',
-      'category': 'registration_requests',
-      'priority': 'important',
-      'importance': 'important',
-      'isRead': false,
-      'read': false,
-      'seen': false,
-      'requestId': requestId,
-      'requestType': 'parent_registration',
-      'status': 'pending',
-      'parentUid': parentUid,
-      'parentUsername': parentUsername,
-      'parentName': parentName,
-      'parentEmail': parentEmail,
-      'parentPhone': parentPhone,
-      'createdByUid': parentUid,
-      'createdByName': parentName,
-      'createdByRole': 'parent',
-      'senderUid': parentUid,
-      'senderName': parentName,
-      'senderRole': 'parent',
-      'targetRole': 'admin',
-      'receiverRole': 'admin',
-      'route': 'registration_requests',
-      'createdAt': FieldValue.serverTimestamp(),
-      'time': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    };
-
-    try {
-      final adminsSnapshot = await _firestore
-          .collection('users')
-          .where('role', isEqualTo: 'admin')
-          .get();
-
-      final activeAdmins = adminsSnapshot.docs.where((doc) {
-        final data = doc.data();
-        return data['isActive'] != false;
-      }).toList();
-
-      if (activeAdmins.isEmpty) {
-        await _firestore.collection('notifications').add({
-          ...baseData,
-          'receiverUid': '',
-          'adminUid': '',
-          'userUid': '',
-          'scope': 'admin',
-        });
-        return;
-      }
-
-      final batch = _firestore.batch();
-
-      for (final adminDoc in activeAdmins) {
-        final adminData = adminDoc.data();
-        final adminName = (adminData['displayName'] ??
-                adminData['name'] ??
-                adminData['username'] ??
-                'الإدارة')
-            .toString();
-
-        final notificationRef = _firestore.collection('notifications').doc();
-
-        batch.set(notificationRef, {
-          ...baseData,
-          'receiverUid': adminDoc.id,
-          'adminUid': adminDoc.id,
-          'userUid': adminDoc.id,
-          'receiverName': adminName,
-          'scope': 'admin',
-        });
-      }
-
-      await batch.commit();
-    } catch (_) {
-      await _firestore.collection('notifications').add({
-        ...baseData,
-        'receiverUid': '',
-        'adminUid': '',
-        'userUid': '',
-        'scope': 'admin',
-      });
-    }
-  }
-
   Future<void> submitRequest() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -665,16 +564,26 @@ class _ParentRegistrationRequestPageState
       };
 
       final requestRef =
-          await _firestore.collection('registration_requests').add(requestData);
+    await _firestore.collection('registration_requests').add(requestData);
 
-      await _createAdminRegistrationNotification(
-        requestId: requestRef.id,
-        parentUid: requestAuthUid,
-        parentName: fullName.isEmpty ? 'ولي أمر' : fullName,
-        parentUsername: cleanUsername,
-        parentEmail: cleanEmail,
-        parentPhone: mainPhone,
-      );
+await AppNotificationService.instance.notifyAdmin(
+  title: 'طلب تسجيل ولي أمر جديد',
+  body:
+      'تم إرسال طلب تسجيل جديد من ${fullName.isEmpty ? 'ولي أمر' : fullName} باسم المستخدم @$cleanUsername، بانتظار مراجعة الإدارة.',
+  type: 'parent_registration_request',
+  priority: 'important',
+  extraData: {
+    'requestId': requestRef.id,
+    'requestType': 'parent_registration',
+    'status': 'pending',
+    'parentUid': requestAuthUid,
+    'parentUsername': cleanUsername,
+    'parentName': fullName.isEmpty ? 'ولي أمر' : fullName,
+    'parentEmail': cleanEmail,
+    'parentPhone': mainPhone,
+    'route': 'registration_requests',
+  },
+);
 
       await _auth.signOut();
 

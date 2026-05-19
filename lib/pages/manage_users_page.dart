@@ -2127,30 +2127,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                       fontWeight: FontWeight.bold,
                     ),
               ),
-              const SizedBox(height: 6),
-              Text(
-                'مراجعة وتعديل وتنظيم الحسابات الحالية داخل النظام دون إنشاء حسابات جديدة من هنا.',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: AppColors.textLight,
-                    ),
-              ),
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: AppColors.border),
-                ),
-                child: const Text(
-                  'ملاحظة: إنشاء الحسابات الجديدة لم يعد من هذه الصفحة. الموظفون يتم إنشاؤهم من قسم إنشاء حسابات الموظفين، وأولياء الأمور عبر طلبات التسجيل وموافقة الإدارة.',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: AppColors.textDark,
-                    height: 1.5,
-                  ),
-                ),
-              ),
+
               const SizedBox(height: 16),
               buildFiltersCard(),
               const SizedBox(height: 20),
