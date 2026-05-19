@@ -1389,52 +1389,24 @@ final end = (data['weekEndDateKey'] ??
 
       const SizedBox(height: 18),
 
-      Text(
-        'المساعدة والدعم',
-        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              color: AppColors.textLight,
-              fontWeight: FontWeight.w700,
-            ),
-      ),
-      const SizedBox(height: 8),
+     const SizedBox(height: 16),
 
-      Card(
-        child: Column(
-          children: [
-            ListTile(
-              leading: CircleAvatar(
-                backgroundColor: Colors.red.withOpacity(0.12),
-                child: const Icon(
-                  Icons.support_agent_rounded,
-                  color: Colors.red,
-                ),
-              ),
-              title: const Text('مركز الدعم'),
-              onTap: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('قيد التطوير')),
-                );
-              },
-            ),
-            const Divider(height: 1),
-            ListTile(
-              leading: CircleAvatar(
-                backgroundColor: Colors.redAccent.withOpacity(0.12),
-                child: const Icon(
-                  Icons.logout_rounded,
-                  color: Colors.redAccent,
-                ),
-              ),
-              title: const Text(
-                'تسجيل الخروج',
-                style: TextStyle(color: Colors.redAccent),
-              ),
-              onTap: _logout,
-            ),
-          ],
-        ),
+Card(
+  child: ListTile(
+    leading: CircleAvatar(
+      backgroundColor: Colors.redAccent.withOpacity(0.12),
+      child: const Icon(
+        Icons.logout_rounded,
+        color: Colors.redAccent,
       ),
-
+    ),
+    title: const Text(
+      'تسجيل الخروج',
+      style: TextStyle(color: Colors.redAccent),
+    ),
+    onTap: _logout,
+  ),
+),
       const SizedBox(height: 20),
 
       Center(

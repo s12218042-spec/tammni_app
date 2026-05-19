@@ -1174,47 +1174,23 @@ _AdminActionCard(
           ),
         ),
       
-        Text(
-          'المساعدة والدعم',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: AppColors.textLight,
-                fontWeight: FontWeight.w700,
-              ),
-        ),
-
-        const SizedBox(height: 8),
-        Card(
-          child: Column(
-            children: [
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Colors.red.withOpacity(0.12),
-                  child: const Icon(
-                    Icons.support_agent_rounded,
-                    color: Colors.red,
-                  ),
-                ),
-                title: const Text('مركز الدعم'),
-                onTap: () {},
-              ),
-              const Divider(height: 1),
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Colors.redAccent.withOpacity(0.12),
-                  child: const Icon(
-                    Icons.logout_rounded,
-                    color: Colors.redAccent,
-                  ),
-                ),
-                title: const Text(
-                  'تسجيل الخروج',
-                  style: TextStyle(color: Colors.redAccent),
-                ),
-                onTap: () => logout(context),
-              ),
-            ],
-          ),
-        ),
+      const SizedBox(height: 16),
+Card(
+  child: ListTile(
+    leading: CircleAvatar(
+      backgroundColor: Colors.redAccent.withOpacity(0.12),
+      child: const Icon(
+        Icons.logout_rounded,
+        color: Colors.redAccent,
+      ),
+    ),
+    title: const Text(
+      'تسجيل الخروج',
+      style: TextStyle(color: Colors.redAccent),
+    ),
+    onTap: () => logout(context),
+  ),
+),
         const SizedBox(height: 20),
         Center(
           child: Text(
