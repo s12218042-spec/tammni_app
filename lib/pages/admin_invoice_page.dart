@@ -17,7 +17,7 @@ class AdminInvoicesPage extends StatefulWidget {
 
 class _AdminInvoicesPageState extends State<AdminInvoicesPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
 
   String selectedStatus = 'all';
   bool isUpdatingStatus = false;
@@ -35,6 +35,11 @@ final FirebaseAuth _auth = FirebaseAuth.instance;
     if (result == true) {
       setState(() {});
     }
+  }
+
+  double numValue(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? 0;
   }
 
   String normalizeStatus(dynamic value) {
@@ -143,6 +148,24 @@ final FirebaseAuth _auth = FirebaseAuth.instance;
     }
   }
 
+  String paymentMethodLabel(dynamic method) {
+    switch ((method ?? '').toString().trim().toLowerCase()) {
+      case 'cash':
+        return 'كاش';
+      case 'card':
+        return 'بطاقة / فيزا';
+      case 'bank_transfer':
+        return 'تحويل بنكي';
+      case 'other':
+        return 'أخرى';
+      case 'none':
+      case '':
+        return 'غير محدد';
+      default:
+        return method.toString();
+    }
+  }
+
   Timestamp? resolveTimestamp(dynamic value) {
     if (value is Timestamp) return value;
     return null;
@@ -158,23 +181,42 @@ final FirebaseAuth _auth = FirebaseAuth.instance;
   }
 
   String formatAmount(dynamic value) {
-    if (value == null) return '0';
-
-    if (value is num) {
-      if (value == value.roundToDouble()) {
-        return value.toStringAsFixed(0);
-      }
-      return value.toStringAsFixed(2);
-    }
-
-    final parsed = num.tryParse(value.toString());
-    if (parsed == null) return value.toString();
+    final parsed = numValue(value);
 
     if (parsed == parsed.roundToDouble()) {
       return parsed.toStringAsFixed(0);
     }
 
     return parsed.toStringAsFixed(2);
+  }
+
+  double resolvedPaidAmount(Map<String, dynamic> data) {
+    return numValue(data['paidAmount']);
+  }
+
+  double resolvedRemainingAmount(Map<String, dynamic> data) {
+    final stored = data['remainingAmount'];
+    if (stored != null) return numValue(stored);
+
+    final total = numValue(data['totalAmount']);
+    final paid = numValue(data['paidAmount']);
+    final remaining = total - paid;
+
+    return remaining < 0 ? 0 : remaining;
+  }
+
+  String resolvedStatus(Map<String, dynamic> data) {
+    final stored = normalizeStatus(data['status'] ?? data['paymentStatus']);
+    if (stored == 'paid' || stored == 'partial' || stored == 'unpaid') {
+      return stored;
+    }
+
+    final total = numValue(data['totalAmount']);
+    final paid = resolvedPaidAmount(data);
+
+    if (total <= 0 || paid <= 0) return 'unpaid';
+    if (paid >= total) return 'paid';
+    return 'partial';
   }
 
   String invoiceChildrenNames(Map<String, dynamic> data) {
@@ -264,7 +306,7 @@ final FirebaseAuth _auth = FirebaseAuth.instance;
 
     return cleanDocs.where((doc) {
       final data = doc.data();
-      final status = normalizeStatus(data['status'] ?? data['paymentStatus']);
+      final status = resolvedStatus(data);
       return status == selectedStatus;
     }).toList();
   }
@@ -281,9 +323,8 @@ final FirebaseAuth _auth = FirebaseAuth.instance;
     final cleanDocs = visibleDocs(docs);
 
     for (final doc in cleanDocs) {
-      final status = normalizeStatus(
-        doc.data()['status'] ?? doc.data()['paymentStatus'],
-      );
+      final data = doc.data();
+      final status = resolvedStatus(data);
 
       if (status == 'paid') {
         paid++;
@@ -329,7 +370,9 @@ final FirebaseAuth _auth = FirebaseAuth.instance;
     required String status,
     required String invoiceTitle,
     required String childrenNames,
-    required String amount,
+    required String totalAmount,
+    required String paidAmount,
+    required String remainingAmount,
     required String dueDate,
   }) {
     final title = invoiceTitle.trim().isEmpty ? 'فاتورة' : invoiceTitle;
@@ -338,102 +381,115 @@ final FirebaseAuth _auth = FirebaseAuth.instance;
 
     switch (normalizeStatus(status)) {
       case 'paid':
-        return 'تم تسجيل الفاتورة "$title"$childPart كمدفوعة. المبلغ: $amount شيكل.';
+        return 'تم تسجيل الفاتورة "$title"$childPart كمدفوعة. الإجمالي: $totalAmount شيكل.';
       case 'partial':
-        return 'تم تحديث الفاتورة "$title"$childPart كمدفوعة جزئيًا. المبلغ الإجمالي: $amount شيكل.';
+        return 'تم تحديث الفاتورة "$title"$childPart كمدفوعة جزئيًا. المدفوع: $paidAmount شيكل، المتبقي: $remainingAmount شيكل.';
       case 'overdue':
-        return 'الفاتورة "$title"$childPart أصبحت متأخرة. المبلغ: $amount شيكل، تاريخ الاستحقاق: $dueDate.';
+        return 'الفاتورة "$title"$childPart أصبحت متأخرة. المتبقي: $remainingAmount شيكل، تاريخ الاستحقاق: $dueDate.';
       case 'cancelled':
       case 'canceled':
         return 'تم إلغاء الفاتورة "$title"$childPart.';
       case 'unpaid':
       default:
-        return 'تم تحديث حالة الفاتورة "$title"$childPart إلى غير مدفوعة. المبلغ: $amount شيكل.';
+        return 'تم تحديث حالة الفاتورة "$title"$childPart إلى غير مدفوعة. الإجمالي: $totalAmount شيكل.';
     }
   }
 
   Future<void> createParentInvoiceNotification({
-  required String invoiceId,
-  required Map<String, dynamic> invoiceData,
-  required String newStatus,
-}) async {
-  final parentUid = (invoiceData['parentUid'] ??
-          invoiceData['uid'] ??
-          invoiceData['targetUid'] ??
-          '')
-      .toString()
-      .trim();
+    required String invoiceId,
+    required Map<String, dynamic> invoiceData,
+    required String newStatus,
+  }) async {
+    final parentUid = (invoiceData['parentUid'] ??
+            invoiceData['uid'] ??
+            invoiceData['targetUid'] ??
+            '')
+        .toString()
+        .trim();
 
-  final parentUsername =
-      (invoiceData['parentUsername'] ?? '').toString().trim().toLowerCase();
+    final parentUsername =
+        (invoiceData['parentUsername'] ?? '').toString().trim().toLowerCase();
 
-  if (parentUid.isEmpty && parentUsername.isEmpty) return;
+    if (parentUid.isEmpty && parentUsername.isEmpty) return;
 
-  final parentName = (invoiceData['parentName'] ?? '').toString().trim();
-  final childId = (invoiceData['childId'] ?? '').toString().trim();
-  final childrenNames = invoiceChildrenNames(invoiceData);
-  final invoiceTitle = invoiceDisplayTitle(invoiceData);
-  final amount = formatAmount(invoiceData['totalAmount']);
-  final dueDate = formatDate(invoiceData['dueDate']);
+    final parentName = (invoiceData['parentName'] ?? '').toString().trim();
+    final childId = (invoiceData['childId'] ?? '').toString().trim();
+    final childrenNames = invoiceChildrenNames(invoiceData);
+    final invoiceTitle = invoiceDisplayTitle(invoiceData);
 
-  final title = buildNotificationTitle(newStatus);
-  final body = buildNotificationBody(
-    status: newStatus,
-    invoiceTitle: invoiceTitle,
-    childrenNames: childrenNames,
-    amount: amount,
-    dueDate: dueDate,
-  );
+    final total = formatAmount(invoiceData['totalAmount']);
+    final paid = formatAmount(invoiceData['paidAmount']);
+    final remaining = formatAmount(
+      invoiceData['remainingAmount'] ?? resolvedRemainingAmount(invoiceData),
+    );
+    final dueDate = formatDate(invoiceData['dueDate']);
 
-  final currentUser = _auth.currentUser;
+    final title = buildNotificationTitle(newStatus);
+    final body = buildNotificationBody(
+      status: newStatus,
+      invoiceTitle: invoiceTitle,
+      childrenNames: childrenNames,
+      totalAmount: total,
+      paidAmount: paid,
+      remainingAmount: remaining,
+      dueDate: dueDate,
+    );
 
-  String adminName = 'الإدارة';
-  String adminRole = 'admin';
+    final currentUser = _auth.currentUser;
 
-  if (currentUser != null) {
-    try {
-      final userDoc =
-          await _firestore.collection('users').doc(currentUser.uid).get();
+    String adminName = 'الإدارة';
+    String adminRole = 'admin';
 
-      final userData = userDoc.data() ?? <String, dynamic>{};
+    if (currentUser != null) {
+      try {
+        final userDoc =
+            await _firestore.collection('users').doc(currentUser.uid).get();
 
-      adminName = (userData['displayName'] ??
-              userData['name'] ??
-              userData['fullName'] ??
-              userData['username'] ??
-              'الإدارة')
-          .toString();
+        final userData = userDoc.data() ?? <String, dynamic>{};
 
-      adminRole = (userData['role'] ?? 'admin').toString();
-    } catch (_) {
-      adminName = 'الإدارة';
-      adminRole = 'admin';
+        adminName = (userData['displayName'] ??
+                userData['name'] ??
+                userData['fullName'] ??
+                userData['username'] ??
+                'الإدارة')
+            .toString();
+
+        adminRole = (userData['role'] ?? 'admin').toString();
+      } catch (_) {
+        adminName = 'الإدارة';
+        adminRole = 'admin';
+      }
     }
-  }
 
-  await AppNotificationService.instance.notifyParent(
-    parentUid: parentUid,
-    parentUsername: parentUsername,
-    parentName: parentName,
-    title: title,
-    body: body,
-    type: 'invoice_updated',
-    childId: childId,
-    childName: childrenNames,
-    priority: normalizeStatus(newStatus) == 'overdue' ? 'important' : 'normal',
-    createdByUid: currentUser?.uid ?? '',
-    createdByName: adminName,
-    createdByRole: adminRole,
-    extraData: {
-      'invoiceId': invoiceId,
-      'invoiceStatus': normalizeStatus(newStatus),
-      'paymentStatus': normalizeStatus(newStatus),
-      'category': 'invoice',
-      'notificationType': 'invoice',
-      'screen': 'invoices',
-    },
-  );
-}
+    await AppNotificationService.instance.notifyParent(
+      parentUid: parentUid,
+      parentUsername: parentUsername,
+      parentName: parentName,
+      title: title,
+      body: body,
+      type: 'invoice_updated',
+      childId: childId,
+      childName: childrenNames,
+      priority: normalizeStatus(newStatus) == 'overdue' ? 'important' : 'normal',
+      createdByUid: currentUser?.uid ?? '',
+      createdByName: adminName,
+      createdByRole: adminRole,
+      extraData: {
+        'invoiceId': invoiceId,
+        'invoiceStatus': normalizeStatus(newStatus),
+        'paymentStatus': normalizeStatus(newStatus),
+        'totalAmount': numValue(invoiceData['totalAmount']),
+        'paidAmount': numValue(invoiceData['paidAmount']),
+        'remainingAmount': resolvedRemainingAmount(invoiceData),
+        'paymentMethod': invoiceData['paymentMethod'] ?? '',
+        'category': 'invoice',
+        'notificationType': 'invoice_updated',
+        'screen': 'invoices',
+        'route': 'parent_invoices',
+        'relatedCollection': 'invoices',
+      },
+    );
+  }
 
   Future<void> updateInvoiceStatus({
     required String docId,
@@ -454,12 +510,27 @@ final FirebaseAuth _auth = FirebaseAuth.instance;
       }
 
       final invoiceData = invoiceDoc.data() ?? <String, dynamic>{};
-
       final normalized = normalizeStatus(status);
+
+      final total = numValue(invoiceData['totalAmount']);
+      final currentPaid = numValue(invoiceData['paidAmount']);
+
+      double newPaid = currentPaid;
+
+      if (normalized == 'paid') {
+        newPaid = total;
+      } else if (normalized == 'unpaid') {
+        newPaid = 0;
+      }
+
+      final remaining = total - newPaid;
 
       final updateData = <String, dynamic>{
         'status': normalized,
         'paymentStatus': normalized,
+        'invoiceStatus': normalized,
+        'paidAmount': newPaid < 0 ? 0 : newPaid,
+        'remainingAmount': remaining < 0 ? 0 : remaining,
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
@@ -478,6 +549,9 @@ final FirebaseAuth _auth = FirebaseAuth.instance;
           ...updateData,
           'status': normalized,
           'paymentStatus': normalized,
+          'invoiceStatus': normalized,
+          'paidAmount': updateData['paidAmount'],
+          'remainingAmount': updateData['remainingAmount'],
         },
         newStatus: normalized,
       );
@@ -601,119 +675,43 @@ final FirebaseAuth _auth = FirebaseAuth.instance;
     );
   }
 
-  Widget buildHeaderCard() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            AppColors.primary.withOpacity(0.14),
-            AppColors.secondary.withOpacity(0.10),
-          ],
-          begin: Alignment.topRight,
-          end: Alignment.bottomLeft,
-        ),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: AppColors.primary.withOpacity(0.08),
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 54,
-            height: 54,
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.80),
-              borderRadius: BorderRadius.circular(18),
-            ),
-            child: const Icon(
-              Icons.receipt_long_rounded,
-              color: AppColors.primary,
-              size: 28,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'إدارة الفواتير',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.textDark,
-                      ),
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  'عرض ومتابعة فواتير الحضانة وتحديث حالات الدفع وإشعار ولي الأمر عند تغيير الحالة.',
-                  style: TextStyle(
-                    color: AppColors.textLight,
-                    height: 1.5,
-                    fontSize: 13.5,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget buildFiltersCard(Map<String, int> stats) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Wrap(
+          spacing: 8,
+          runSpacing: 8,
           children: [
-            const Text(
-              'فلترة الفواتير',
-              style: TextStyle(
-                fontWeight: FontWeight.w800,
-                fontSize: 15.5,
-                color: AppColors.textDark,
-              ),
+            buildFilterChip(
+              label: 'الكل',
+              value: 'all',
+              count: stats['all'] ?? 0,
             ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                buildFilterChip(
-                  label: 'الكل',
-                  value: 'all',
-                  count: stats['all'] ?? 0,
-                ),
-                buildFilterChip(
-                  label: 'غير مدفوعة',
-                  value: 'unpaid',
-                  count: stats['unpaid'] ?? 0,
-                ),
-                buildFilterChip(
-                  label: 'جزئيًا',
-                  value: 'partial',
-                  count: stats['partial'] ?? 0,
-                ),
-                buildFilterChip(
-                  label: 'مدفوعة',
-                  value: 'paid',
-                  count: stats['paid'] ?? 0,
-                ),
-                buildFilterChip(
-                  label: 'متأخرة',
-                  value: 'overdue',
-                  count: stats['overdue'] ?? 0,
-                ),
-                buildFilterChip(
-                  label: 'ملغاة',
-                  value: 'cancelled',
-                  count: stats['cancelled'] ?? 0,
-                ),
-              ],
+            buildFilterChip(
+              label: 'غير مدفوعة',
+              value: 'unpaid',
+              count: stats['unpaid'] ?? 0,
+            ),
+            buildFilterChip(
+              label: 'جزئيًا',
+              value: 'partial',
+              count: stats['partial'] ?? 0,
+            ),
+            buildFilterChip(
+              label: 'مدفوعة',
+              value: 'paid',
+              count: stats['paid'] ?? 0,
+            ),
+            buildFilterChip(
+              label: 'متأخرة',
+              value: 'overdue',
+              count: stats['overdue'] ?? 0,
+            ),
+            buildFilterChip(
+              label: 'ملغاة',
+              value: 'cancelled',
+              count: stats['cancelled'] ?? 0,
             ),
           ],
         ),
@@ -742,15 +740,6 @@ final FirebaseAuth _auth = FirebaseAuth.instance;
                 fontWeight: FontWeight.w800,
               ),
             ),
-            SizedBox(height: 6),
-            Text(
-              'يمكنك إنشاء فاتورة جديدة من زر إنشاء فاتورة.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: AppColors.textLight,
-                height: 1.5,
-              ),
-            ),
           ],
         ),
       ),
@@ -760,7 +749,7 @@ final FirebaseAuth _auth = FirebaseAuth.instance;
   Widget buildInvoiceCard(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data();
 
-    final status = normalizeStatus(data['status'] ?? data['paymentStatus']);
+    final status = resolvedStatus(data);
     final dueDate = data['dueDate'];
     final createdAt = invoiceCreatedDate(data);
 
@@ -771,9 +760,21 @@ final FirebaseAuth _auth = FirebaseAuth.instance;
     final parentName = (data['parentName'] ?? '').toString();
     final parentUsername = (data['parentUsername'] ?? '').toString();
     final billingType = (data['billingType'] ?? '').toString();
+
     final totalAmount = formatAmount(data['totalAmount']);
+    final paidAmount = formatAmount(data['paidAmount']);
+    final remainingAmount = formatAmount(
+      data['remainingAmount'] ?? resolvedRemainingAmount(data),
+    );
+
     final subtotalAmount = formatAmount(data['subtotalAmount']);
     final offerDiscount = formatAmount(data['offerDiscount'] ?? 0);
+    final manualDiscount = formatAmount(
+      data['manualDiscount'] ?? data['discountAmount'] ?? 0,
+    );
+    final totalDiscount = formatAmount(data['totalDiscount'] ?? 0);
+
+    final discountNotes = (data['discountNotes'] ?? '').toString().trim();
     final offerTitle = (data['offerTitle'] ?? '').toString().trim();
 
     final extraHoursAmount = formatAmount(
@@ -784,7 +785,15 @@ final FirebaseAuth _auth = FirebaseAuth.instance;
       data['consultationsAmount'] ?? 0,
     );
 
+    final consultationIds = data['consultationIds'];
+    final extraHoursIds = data['extraHoursIds'];
+
+    final consultationsCount =
+        consultationIds is List ? consultationIds.length : 0;
+    final extraHoursCount = extraHoursIds is List ? extraHoursIds.length : 0;
+
     final billingMonthKey = (data['billingMonthKey'] ?? '').toString().trim();
+    final paymentMethod = paymentMethodLabel(data['paymentMethod']);
 
     final color = statusColor(status);
 
@@ -897,27 +906,72 @@ final FirebaseAuth _auth = FirebaseAuth.instance;
             ),
             const SizedBox(height: 8),
             _InvoiceInfoTile(
-              icon: Icons.discount_outlined,
-              title: 'الخصم',
+              icon: Icons.local_offer_outlined,
+              title: 'خصم العرض',
               value: '$offerDiscount شيكل',
             ),
             const SizedBox(height: 8),
             _InvoiceInfoTile(
-              icon: Icons.payments_outlined,
-              title: 'المبلغ الإجمالي',
-              value: '$totalAmount شيكل',
+              icon: Icons.discount_outlined,
+              title: 'خصم إضافي',
+              value: '$manualDiscount شيكل',
             ),
             const SizedBox(height: 8),
             _InvoiceInfoTile(
+              icon: Icons.price_change_outlined,
+              title: 'مجموع الخصم',
+              value: '$totalDiscount شيكل',
+            ),
+            if (discountNotes.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              _InvoiceInfoTile(
+                icon: Icons.notes_outlined,
+                title: 'ملاحظات الخصم',
+                value: discountNotes,
+              ),
+            ],
+            const SizedBox(height: 8),
+            _InvoiceInfoTile(
               icon: Icons.access_time_filled_rounded,
-              title: 'الساعات الإضافية',
+              title: extraHoursCount > 0
+                  ? 'الساعات الإضافية ($extraHoursCount)'
+                  : 'الساعات الإضافية',
               value: '$extraHoursAmount شيكل',
             ),
             const SizedBox(height: 8),
             _InvoiceInfoTile(
               icon: Icons.psychology_alt_outlined,
-              title: 'الاستشارات',
+              title: consultationsCount > 0
+                  ? 'الاستشارات ($consultationsCount)'
+                  : 'الاستشارات',
               value: '$consultationsAmount شيكل',
+            ),
+            const SizedBox(height: 8),
+            _InvoiceInfoTile(
+              icon: Icons.payments_outlined,
+              title: 'الإجمالي',
+              value: '$totalAmount شيكل',
+              strong: true,
+            ),
+            const SizedBox(height: 8),
+            _InvoiceInfoTile(
+              icon: Icons.price_check_rounded,
+              title: 'المدفوع',
+              value: '$paidAmount شيكل',
+              strong: true,
+            ),
+            const SizedBox(height: 8),
+            _InvoiceInfoTile(
+              icon: Icons.account_balance_wallet_outlined,
+              title: 'المتبقي',
+              value: '$remainingAmount شيكل',
+              strong: true,
+            ),
+            const SizedBox(height: 8),
+            _InvoiceInfoTile(
+              icon: Icons.credit_card_rounded,
+              title: 'طريقة الدفع',
+              value: paymentMethod,
             ),
             const SizedBox(height: 8),
             _InvoiceInfoTile(
@@ -1018,16 +1072,14 @@ final FirebaseAuth _auth = FirebaseAuth.instance;
             },
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.only(bottom: 100),
               children: [
-                buildHeaderCard(),
-                const SizedBox(height: 16),
                 buildFiltersCard(stats),
                 const SizedBox(height: 18),
                 if (filteredDocs.isEmpty)
                   buildEmptyState()
                 else
                   ...filteredDocs.map(buildInvoiceCard),
-                const SizedBox(height: 90),
               ],
             ),
           );
@@ -1041,15 +1093,19 @@ class _InvoiceInfoTile extends StatelessWidget {
   final IconData icon;
   final String title;
   final String value;
+  final bool strong;
 
   const _InvoiceInfoTile({
     required this.icon,
     required this.title,
     required this.value,
+    this.strong = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final color = strong ? AppColors.primary : AppColors.textDark;
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
@@ -1062,23 +1118,23 @@ class _InvoiceInfoTile extends StatelessWidget {
           Icon(
             icon,
             size: 18,
-            color: AppColors.textLight,
+            color: strong ? AppColors.primary : AppColors.textLight,
           ),
           const SizedBox(width: 8),
           Text(
             '$title: ',
-            style: const TextStyle(
-              color: AppColors.textLight,
-              fontWeight: FontWeight.w700,
+            style: TextStyle(
+              color: strong ? AppColors.primary : AppColors.textLight,
+              fontWeight: FontWeight.w800,
               fontSize: 12.5,
             ),
           ),
           Expanded(
             child: Text(
               value.trim().isEmpty ? '-' : value,
-              style: const TextStyle(
-                color: AppColors.textDark,
-                fontWeight: FontWeight.w700,
+              style: TextStyle(
+                color: color,
+                fontWeight: strong ? FontWeight.w900 : FontWeight.w700,
                 fontSize: 13.5,
               ),
             ),

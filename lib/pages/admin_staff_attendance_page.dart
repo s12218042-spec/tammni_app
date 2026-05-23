@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 class AdminStaffAttendancePage extends StatefulWidget {
@@ -11,6 +12,7 @@ class AdminStaffAttendancePage extends StatefulWidget {
 
 class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
 
   DateTime selectedDate = DateTime.now();
 
@@ -23,6 +25,8 @@ class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
   final Map<String, TextEditingController> noteControllers = {};
   final Map<String, bool> isAbsentMap = {};
   final Map<String, Map<String, dynamic>> savedAttendanceByStaffUid = {};
+
+  static const double hourlyRate = 8.0;
 
   DateTime get today {
     final now = DateTime.now();
@@ -69,9 +73,9 @@ class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
     final displayName = _clean(data['displayName']);
     final username = _clean(data['username']);
 
+    if (displayName.isNotEmpty) return displayName;
     if (name.isNotEmpty) return name;
     if (fullName.isNotEmpty) return fullName;
-    if (displayName.isNotEmpty) return displayName;
     if (username.isNotEmpty) return username;
     return 'موظفة بدون اسم';
   }
@@ -109,6 +113,11 @@ class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
     );
   }
 
+  Timestamp? _timestampFromTime(TimeOfDay? time) {
+    if (time == null) return null;
+    return Timestamp.fromDate(_dateTimeFromTime(time));
+  }
+
   double _workedHours(TimeOfDay? checkIn, TimeOfDay? checkOut) {
     if (checkIn == null || checkOut == null) return 0;
 
@@ -129,9 +138,52 @@ class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
     return value.toStringAsFixed(2);
   }
 
+  double _money(double value) {
+    return double.parse(value.toStringAsFixed(2));
+  }
+
   void _prepareStaff(String uid) {
     noteControllers.putIfAbsent(uid, () => TextEditingController());
     isAbsentMap.putIfAbsent(uid, () => false);
+  }
+
+  Future<Map<String, String>> _currentAdminInfo() async {
+    final user = _auth.currentUser;
+
+    if (user == null) {
+      return {
+        'uid': '',
+        'name': 'الإدارة',
+        'role': 'admin',
+      };
+    }
+
+    try {
+      final doc = await _firestore.collection('users').doc(user.uid).get();
+      final data = doc.data() ?? {};
+
+      final name = _clean(data['displayName']).isNotEmpty
+          ? _clean(data['displayName'])
+          : _clean(data['name']).isNotEmpty
+              ? _clean(data['name'])
+              : _clean(data['fullName']).isNotEmpty
+                  ? _clean(data['fullName'])
+                  : _clean(data['username']).isNotEmpty
+                      ? _clean(data['username'])
+                      : 'الإدارة';
+
+      return {
+        'uid': user.uid,
+        'name': name,
+        'role': _clean(data['role']).isNotEmpty ? _clean(data['role']) : 'admin',
+      };
+    } catch (_) {
+      return {
+        'uid': user.uid,
+        'name': 'الإدارة',
+        'role': 'admin',
+      };
+    }
   }
 
   @override
@@ -269,12 +321,58 @@ class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
       return;
     }
 
+    if (!isAbsent && checkIn != null && checkOut != null) {
+      final worked = _workedHours(checkIn, checkOut);
+      if (worked <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('وقت الانصراف غير صحيح للموظفة ${_staffName(data)}'),
+          ),
+        );
+        return;
+      }
+    }
+
     await _saveManyAttendance([staffDoc]);
   }
 
   Future<void> _saveAllAttendance(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> staffDocs,
   ) async {
+    for (final staffDoc in staffDocs) {
+      final uid = staffDoc.id;
+      final data = staffDoc.data();
+
+      final isAbsent = isAbsentMap[uid] == true;
+      final checkIn = checkInTimes[uid];
+      final checkOut = checkOutTimes[uid];
+
+      if (!isAbsent &&
+          requiredHours > 0 &&
+          (checkIn == null || checkOut == null)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content:
+                Text('حددي وقت الحضور والانصراف للموظفة ${_staffName(data)}'),
+          ),
+        );
+        return;
+      }
+
+      if (!isAbsent && checkIn != null && checkOut != null) {
+        final worked = _workedHours(checkIn, checkOut);
+        if (worked <= 0) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content:
+                  Text('وقت الانصراف غير صحيح للموظفة ${_staffName(data)}'),
+            ),
+          );
+          return;
+        }
+      }
+    }
+
     await _saveManyAttendance(staffDocs);
   }
 
@@ -288,6 +386,17 @@ class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
     });
 
     try {
+      final adminInfo = await _currentAdminInfo();
+      final adminUid = _clean(adminInfo['uid']);
+      final adminName =
+          _clean(adminInfo['name']).isEmpty ? 'الإدارة' : _clean(adminInfo['name']);
+      final adminRole =
+          _clean(adminInfo['role']).isEmpty ? 'admin' : _clean(adminInfo['role']);
+
+      if (adminUid.isEmpty) {
+        throw Exception('يجب تسجيل الدخول كأدمن قبل حفظ الدوام');
+      }
+
       final batch = _firestore.batch();
 
       for (final staffDoc in staffDocs) {
@@ -314,8 +423,21 @@ class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
                 ? 0.0
                 : double.parse((required - worked).toStringAsFixed(2));
 
+        final dailyAmount = _money(worked * hourlyRate);
+
+        final attendanceStatus = required == 0
+            ? 'holiday'
+            : isAbsent
+                ? 'absent'
+                : completed
+                    ? 'completed'
+                    : 'incomplete';
+
         final docId = '${uid}_$dateKey';
         final ref = _firestore.collection('staff_attendance').doc(docId);
+
+        final existing = savedAttendanceByStaffUid[uid];
+        final alreadyCreatedAt = existing?['createdAt'];
 
         batch.set(
           ref,
@@ -324,21 +446,46 @@ class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
             'staffUid': uid,
             'staffName': staffName,
             'staffUsername': staffUsername,
+            'staffRole': 'nursery_staff',
+
             'dateKey': dateKey,
             'date': Timestamp.fromDate(selectedDate),
             'dayTypeLabel': dayTypeLabel,
+
             'requiredHours': required,
+            'hourlyRate': hourlyRate,
+            'workedHours': worked,
+            'dailyAmount': dailyAmount,
+            'missingHours': missing,
+
             'isAbsent': isAbsent,
+            'attendanceStatus': attendanceStatus,
+            'isCompletedRequiredHours': completed,
+
             'checkInTime': isAbsent ? '' : _formatTimeOfDay(checkIn),
             'checkOutTime': isAbsent ? '' : _formatTimeOfDay(checkOut),
-            'workedHours': worked,
-            'missingHours': missing,
-            'isCompletedRequiredHours': completed,
+            'checkInAt': isAbsent ? null : _timestampFromTime(checkIn),
+            'checkOutAt': isAbsent ? null : _timestampFromTime(checkOut),
+
             'adminNote': noteControllers[uid]?.text.trim() ?? '',
-            'createdByRole': 'admin',
+
+            'createdByUid': existing == null
+                ? adminUid
+                : (existing['createdByUid'] ?? adminUid),
+            'createdByName': existing == null
+                ? adminName
+                : (existing['createdByName'] ?? adminName),
+            'createdByRole': existing == null
+                ? adminRole
+                : (existing['createdByRole'] ?? adminRole),
+
+            'updatedByUid': adminUid,
+            'updatedByName': adminName,
+            'updatedByRole': adminRole,
+
             'isActive': true,
+            'createdAt': alreadyCreatedAt ?? FieldValue.serverTimestamp(),
             'updatedAt': FieldValue.serverTimestamp(),
-            'createdAt': FieldValue.serverTimestamp(),
           },
           SetOptions(merge: true),
         );
@@ -418,24 +565,8 @@ class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
             _infoRow('نوع اليوم', dayTypeLabel),
             const SizedBox(height: 6),
             _infoRow('الساعات المطلوبة', '${_hoursText(requiredHours)} ساعة'),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.blueGrey.withOpacity(0.08),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.blueGrey.withOpacity(0.18)),
-              ),
-              child: const Text(
-                'الراتب والخصم النهائي تحدده الإدارة لاحقًا من صفحة الرواتب. هذه الصفحة لتسجيل الدوام والساعات فقط.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.blueGrey,
-                  fontWeight: FontWeight.bold,
-                  height: 1.4,
-                ),
-              ),
-            ),
+            const SizedBox(height: 6),
+            _infoRow('سعر الساعة', '${_hoursText(hourlyRate)} شيكل'),
             if (isSaving || isLoadingSaved) ...[
               const SizedBox(height: 12),
               const LinearProgressIndicator(),
@@ -508,11 +639,15 @@ class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
             ? 0.0
             : double.parse((required - worked).toStringAsFixed(2));
 
+    final dailyAmount = _money(worked * hourlyRate);
+
     final statusColor = required == 0
         ? Colors.blueGrey
-        : completed
-            ? Colors.green
-            : Colors.orange;
+        : isAbsent
+            ? Colors.redAccent
+            : completed
+                ? Colors.green
+                : Colors.orange;
 
     final statusText = required == 0
         ? 'عطلة / لا ساعات مطلوبة'
@@ -589,7 +724,6 @@ class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
                 'غياب',
                 style: TextStyle(fontWeight: FontWeight.bold),
               ),
-              subtitle: const Text('فعّليها إذا كانت الموظفة غائبة في هذا اليوم'),
               onChanged: isSaving
                   ? null
                   : (value) {
@@ -636,7 +770,7 @@ class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
               children: [
                 Expanded(
                   child: _miniInfoBox(
-                    title: 'الساعات المطلوبة',
+                    title: 'المطلوبة',
                     value: _hoursText(required),
                     color: Colors.blueGrey,
                   ),
@@ -644,7 +778,7 @@ class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: _miniInfoBox(
-                    title: 'الساعات الفعلية',
+                    title: 'الفعلية',
                     value: _hoursText(worked),
                     color: statusColor,
                   ),
@@ -652,9 +786,9 @@ class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: _miniInfoBox(
-                    title: 'النقص',
-                    value: _hoursText(missing),
-                    color: missing > 0 ? Colors.orange : Colors.green,
+                    title: 'المبلغ',
+                    value: '${_hoursText(dailyAmount)} ش',
+                    color: Colors.green,
                   ),
                 ),
               ],
@@ -667,7 +801,6 @@ class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
               textAlign: TextAlign.right,
               decoration: const InputDecoration(
                 labelText: 'ملاحظة الإدارة',
-                hintText: 'مثال: تأخير بسبب مواصلات / خروج مبكر...',
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.notes_outlined),
               ),
@@ -743,7 +876,7 @@ class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
       child: Padding(
         padding: EdgeInsets.all(18),
         child: Text(
-          'لا يوجد موظفات حضانة.\nتأكدي أن role = nursery_staff داخل users.',
+          'لا يوجد موظفات حضانة',
           textAlign: TextAlign.center,
         ),
       ),
@@ -795,10 +928,10 @@ class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
               onRefresh: _loadSavedAttendance,
               child: ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.only(bottom: 24),
                 children: [
                   _buildHeader(staffDocs),
                   ...staffDocs.map(_buildStaffAttendanceCard),
-                  const SizedBox(height: 20),
                 ],
               ),
             );

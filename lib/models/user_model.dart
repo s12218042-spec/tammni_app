@@ -32,6 +32,18 @@ class UserModel {
   final DateTime? birthDate;
   final DateTime? hireDate;
 
+  // بيانات الحضانة / المجموعات
+  final String section;
+  final String group;
+  final String groupId;
+  final String groupName;
+  final List<String> assignedGroups;
+
+  // بيانات الرواتب
+  final String salaryCalculationType; // hourly
+  final double hourlyRate; // 8
+  final double baseSalary;
+
   // بيانات خاصة بالموظفة
   final List<String> responsibilities;
   final List<String> certifications;
@@ -40,9 +52,16 @@ class UserModel {
   final String adminScope;
   final List<String> permissions;
 
+  // إشعارات
+  final List<String> fcmTokens;
+
   // ملاحظات
   final String cvNotes;
   final String adminNotes;
+
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+  final DateTime? lastLoginAt;
 
   const UserModel({
     required this.id,
@@ -69,12 +88,24 @@ class UserModel {
     this.employmentType = '',
     this.birthDate,
     this.hireDate,
+    this.section = 'Nursery',
+    this.group = '',
+    this.groupId = '',
+    this.groupName = '',
+    this.assignedGroups = const [],
+    this.salaryCalculationType = 'hourly',
+    this.hourlyRate = 8,
+    this.baseSalary = 0,
     this.responsibilities = const [],
     this.certifications = const [],
     this.adminScope = '',
     this.permissions = const [],
+    this.fcmTokens = const [],
     this.cvNotes = '',
     this.adminNotes = '',
+    this.createdAt,
+    this.updatedAt,
+    this.lastLoginAt,
   });
 
   static String normalizeRole(dynamic value) {
@@ -92,12 +123,40 @@ class UserModel {
     return role.isEmpty ? 'parent' : role;
   }
 
+  static String normalizeSection(dynamic value) {
+    final section = _string(value);
+
+    if (section.toLowerCase() == 'nursery' || section == 'حضانة') {
+      return 'Nursery';
+    }
+
+    if (section.toLowerCase() == 'all') return 'all';
+
+    return section.isEmpty ? 'Nursery' : section;
+  }
+
+  static String normalizeSalaryCalculationType(dynamic value) {
+    final type = _string(value).toLowerCase();
+
+    switch (type) {
+      case 'hourly':
+      case 'hours':
+      case 'بالساعة':
+        return 'hourly';
+      case 'monthly':
+        return 'monthly';
+      default:
+        return type.isEmpty ? 'hourly' : type;
+    }
+  }
+
   static Map<String, dynamic> _mapField(
     Map<String, dynamic> map,
     String key,
   ) {
     final value = map[key];
     if (value is Map<String, dynamic>) return value;
+    if (value is Map) return Map<String, dynamic>.from(value);
     return <String, dynamic>{};
   }
 
@@ -117,11 +176,20 @@ class UserModel {
   static int? _intOrNull(dynamic value) {
     if (value == null) return null;
     if (value is int) return value;
+    if (value is num) return value.toInt();
     return int.tryParse(value.toString().trim());
   }
 
   static int _intOrZero(dynamic value) {
     return _intOrNull(value) ?? 0;
+  }
+
+  static double _doubleOrZero(dynamic value) {
+    if (value == null) return 0;
+    if (value is int) return value.toDouble();
+    if (value is double) return value;
+    if (value is num) return value.toDouble();
+    return double.tryParse(value.toString().trim()) ?? 0;
   }
 
   static DateTime? _date(dynamic value) {
@@ -161,6 +229,24 @@ class UserModel {
   bool get isAdmin => role == 'admin';
   bool get isEmployee => isNurseryStaff || isAdmin;
 
+  bool get hasGroup {
+    return groupId.trim().isNotEmpty ||
+        groupName.trim().isNotEmpty ||
+        group.trim().isNotEmpty;
+  }
+
+  String get displayName {
+    return name.trim().isNotEmpty ? name : username;
+  }
+
+  String get displayGroup {
+    return groupName.trim().isNotEmpty
+        ? groupName
+        : group.trim().isNotEmpty
+            ? group
+            : 'بدون مجموعة';
+  }
+
   String get roleLabel {
     switch (role) {
       case 'parent':
@@ -171,6 +257,17 @@ class UserModel {
         return 'مدير النظام';
       default:
         return role;
+    }
+  }
+
+  String get salaryCalculationTypeLabel {
+    switch (salaryCalculationType) {
+      case 'hourly':
+        return 'بالساعة';
+      case 'monthly':
+        return 'شهري';
+      default:
+        return salaryCalculationType;
     }
   }
 
@@ -185,7 +282,9 @@ class UserModel {
     final name = _firstNonEmpty([
       map['displayName'],
       map['name'],
+      map['fullName'],
       parentInfo['fullName'],
+      personalInfo['fullName'],
     ]);
 
     final username = _firstNonEmpty([
@@ -237,6 +336,37 @@ class UserModel {
       map['city'],
     ]);
 
+    final resolvedSection = normalizeSection(
+      _firstNonEmpty([
+        map['section'],
+        professionalInfo['section'],
+        normalizedRole == 'admin' ? map['adminScope'] : '',
+      ]),
+    );
+
+    final resolvedGroupName = _firstNonEmpty([
+      map['groupName'],
+      map['group'],
+      professionalInfo['groupName'],
+      professionalInfo['group'],
+    ]);
+
+    final resolvedHourlyRate = _doubleOrZero(
+      _firstNonEmpty([
+        map['hourlyRate'],
+        professionalInfo['hourlyRate'],
+      ]),
+    );
+
+    final resolvedBaseSalary = _doubleOrZero(
+      _firstNonEmpty([
+        map['baseSalary'],
+        professionalInfo['baseSalary'],
+        map['monthlySalary'],
+        professionalInfo['monthlySalary'],
+      ]),
+    );
+
     return UserModel(
       id: _firstNonEmpty([
         map['id'],
@@ -250,6 +380,7 @@ class UserModel {
       isActive: (map['isActive'] ?? true) == true,
       accountStatus: _firstNonEmpty([
         map['accountStatus'],
+        map['status'],
         'active',
       ]),
       phone: phone,
@@ -263,29 +394,87 @@ class UserModel {
         professionalInfo['jobTitle'],
         map['jobTitle'],
       ]),
-      qualification: _string(professionalInfo['qualification']),
-      university: _string(professionalInfo['university']),
-      college: _string(professionalInfo['college']),
-      specialization: _string(professionalInfo['specialization']),
-      graduationYear: _intOrNull(professionalInfo['graduationYear']),
-      yearsOfExperience: _intOrZero(professionalInfo['yearsOfExperience']),
-      employmentType: _string(professionalInfo['employmentType']),
+      qualification: _firstNonEmpty([
+        professionalInfo['qualification'],
+        map['qualification'],
+      ]),
+      university: _firstNonEmpty([
+        professionalInfo['university'],
+        map['university'],
+      ]),
+      college: _firstNonEmpty([
+        professionalInfo['college'],
+        map['college'],
+      ]),
+      specialization: _firstNonEmpty([
+        professionalInfo['specialization'],
+        map['specialization'],
+      ]),
+      graduationYear: _intOrNull(
+        professionalInfo['graduationYear'] ?? map['graduationYear'],
+      ),
+      yearsOfExperience: _intOrZero(
+        professionalInfo['yearsOfExperience'] ?? map['yearsOfExperience'],
+      ),
+      employmentType: _firstNonEmpty([
+        professionalInfo['employmentType'],
+        map['employmentType'],
+      ]),
       birthDate: _date(personalInfo['birthDate'] ?? map['birthDate']),
-      hireDate: _date(professionalInfo['hireDate']),
-      responsibilities: _stringList(professionalInfo['responsibilities']),
-      certifications: _stringList(professionalInfo['certifications']),
+      hireDate: _date(professionalInfo['hireDate'] ?? map['hireDate']),
+      section: resolvedSection,
+      group: _firstNonEmpty([
+        map['group'],
+        map['groupName'],
+        professionalInfo['group'],
+        professionalInfo['groupName'],
+      ]),
+      groupId: _firstNonEmpty([
+        map['groupId'],
+        professionalInfo['groupId'],
+      ]),
+      groupName: resolvedGroupName,
+      assignedGroups: _stringList(
+        map['assignedGroups'] ?? professionalInfo['assignedGroups'],
+      ),
+      salaryCalculationType: normalizeSalaryCalculationType(
+        _firstNonEmpty([
+          map['salaryCalculationType'],
+          professionalInfo['salaryCalculationType'],
+          'hourly',
+        ]),
+      ),
+      hourlyRate: resolvedHourlyRate > 0 ? resolvedHourlyRate : 8,
+      baseSalary: resolvedBaseSalary,
+      responsibilities: _stringList(
+        professionalInfo['responsibilities'] ?? map['responsibilities'],
+      ),
+      certifications: _stringList(
+        professionalInfo['certifications'] ?? map['certifications'],
+      ),
       adminScope: _firstNonEmpty([
         map['adminScope'],
         professionalInfo['adminScope'],
+        normalizedRole == 'admin' ? 'all' : '',
       ]),
       permissions: _stringList(
-        professionalInfo['permissions'] ?? adminNotesMap['extraPermissions'],
+        professionalInfo['permissions'] ??
+            adminNotesMap['extraPermissions'] ??
+            map['permissions'],
       ),
-      cvNotes: _string(professionalInfo['cvNotes']),
+      fcmTokens: _stringList(map['fcmTokens']),
+      cvNotes: _firstNonEmpty([
+        professionalInfo['cvNotes'],
+        map['cvNotes'],
+      ]),
       adminNotes: _firstNonEmpty([
         adminNotesMap['internalNotes'],
+        map['adminNotes'],
         map['notes'],
       ]),
+      createdAt: _date(map['createdAt']),
+      updatedAt: _date(map['updatedAt']),
+      lastLoginAt: _date(map['lastLoginAt']),
     );
   }
 
@@ -299,20 +488,50 @@ class UserModel {
   }
 
   Map<String, dynamic> toMap() {
+    final normalizedRole = normalizeRole(role);
+    final normalizedSection = isAdmin
+        ? (adminScope == 'nursery' ? 'Nursery' : 'all')
+        : normalizeSection(section);
+
+    final resolvedGroupName = groupName.trim().isNotEmpty ? groupName : group;
+    final resolvedGroup = group.trim().isNotEmpty ? group : resolvedGroupName;
+
     final data = <String, dynamic>{
       'id': id,
       'uid': id,
       'name': name,
       'displayName': name,
       'email': email,
-      'role': normalizeRole(role),
+      'role': normalizedRole,
       'username': username,
       'isActive': isActive,
       'accountStatus': accountStatus,
+
+      'phone': phone,
+      'alternatePhone': alternatePhone,
+      'alternativePhone': alternatePhone,
+
+      'section': normalizedSection,
+      'group': normalizedRole == 'nursery_staff' ? resolvedGroup : '',
+      'groupId': normalizedRole == 'nursery_staff' ? groupId : '',
+      'groupName': normalizedRole == 'nursery_staff' ? resolvedGroupName : '',
+      'assignedGroups':
+          normalizedRole == 'nursery_staff' ? assignedGroups : <String>[],
+
+      'fcmTokens': fcmTokens,
+
+      'updatedAt': updatedAt == null ? FieldValue.serverTimestamp() : Timestamp.fromDate(updatedAt!),
     };
 
-    if (isParent) {
-      data['phone'] = phone;
+    if (createdAt != null) {
+      data['createdAt'] = Timestamp.fromDate(createdAt!);
+    }
+
+    if (lastLoginAt != null) {
+      data['lastLoginAt'] = Timestamp.fromDate(lastLoginAt!);
+    }
+
+    if (normalizedRole == 'parent') {
       data['parentInfo'] = {
         'fullName': name,
         'username': username,
@@ -327,8 +546,7 @@ class UserModel {
       };
     }
 
-    if (isNurseryStaff || isAdmin) {
-      data['phone'] = phone;
+    if (normalizedRole == 'nursery_staff' || normalizedRole == 'admin') {
       data['personalInfo'] = {
         'nationalId': nationalId,
         'gender': gender,
@@ -349,22 +567,26 @@ class UserModel {
         'employmentType': employmentType,
         'hireDate': hireDate == null ? null : Timestamp.fromDate(hireDate!),
         'cvNotes': cvNotes,
+
+        'section': normalizedSection,
+        'group': normalizedRole == 'nursery_staff' ? resolvedGroup : '',
+        'groupId': normalizedRole == 'nursery_staff' ? groupId : '',
+        'groupName': normalizedRole == 'nursery_staff' ? resolvedGroupName : '',
+        'assignedGroups':
+            normalizedRole == 'nursery_staff' ? assignedGroups : <String>[],
+
+        'salaryCalculationType': salaryCalculationType,
+        'hourlyRate': hourlyRate,
+        'baseSalary': baseSalary,
       };
 
-      if (isNurseryStaff) {
-        data['section'] = 'Nursery';
-        data['group'] = '';
-        data['groupId'] = '';
-        data['groupName'] = '';
-        data['assignedGroups'] = [];
-        data['professionalInfo']['section'] = 'Nursery';
+      if (normalizedRole == 'nursery_staff') {
         data['professionalInfo']['responsibilities'] = responsibilities;
         data['professionalInfo']['certifications'] = certifications;
       }
 
-      if (isAdmin) {
+      if (normalizedRole == 'admin') {
         data['adminScope'] = adminScope.isEmpty ? 'all' : adminScope;
-        data['section'] = adminScope == 'nursery' ? 'Nursery' : 'all';
         data['professionalInfo']['adminScope'] =
             adminScope.isEmpty ? 'all' : adminScope;
         data['professionalInfo']['permissions'] = permissions;
@@ -404,12 +626,24 @@ class UserModel {
     String? employmentType,
     DateTime? birthDate,
     DateTime? hireDate,
+    String? section,
+    String? group,
+    String? groupId,
+    String? groupName,
+    List<String>? assignedGroups,
+    String? salaryCalculationType,
+    double? hourlyRate,
+    double? baseSalary,
     List<String>? responsibilities,
     List<String>? certifications,
     String? adminScope,
     List<String>? permissions,
+    List<String>? fcmTokens,
     String? cvNotes,
     String? adminNotes,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    DateTime? lastLoginAt,
   }) {
     return UserModel(
       id: id ?? this.id,
@@ -436,12 +670,26 @@ class UserModel {
       employmentType: employmentType ?? this.employmentType,
       birthDate: birthDate ?? this.birthDate,
       hireDate: hireDate ?? this.hireDate,
+      section: section ?? this.section,
+      group: group ?? this.group,
+      groupId: groupId ?? this.groupId,
+      groupName: groupName ?? this.groupName,
+      assignedGroups: assignedGroups ?? this.assignedGroups,
+      salaryCalculationType: salaryCalculationType == null
+          ? this.salaryCalculationType
+          : normalizeSalaryCalculationType(salaryCalculationType),
+      hourlyRate: hourlyRate ?? this.hourlyRate,
+      baseSalary: baseSalary ?? this.baseSalary,
       responsibilities: responsibilities ?? this.responsibilities,
       certifications: certifications ?? this.certifications,
       adminScope: adminScope ?? this.adminScope,
       permissions: permissions ?? this.permissions,
+      fcmTokens: fcmTokens ?? this.fcmTokens,
       cvNotes: cvNotes ?? this.cvNotes,
       adminNotes: adminNotes ?? this.adminNotes,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      lastLoginAt: lastLoginAt ?? this.lastLoginAt,
     );
   }
 }

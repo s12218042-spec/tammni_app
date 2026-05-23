@@ -3,11 +3,6 @@ import 'package:flutter/material.dart';
 import '../models/child_model.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
-import 'add_child_request_page.dart';
-import 'parent_chats_page.dart';
-import 'parent_complaints_page.dart';
-import 'parent_invoice_page.dart';
-import 'profile_details_page.dart';
 
 class ParentSupportCenterPage extends StatelessWidget {
   final String parentUsername;
@@ -19,18 +14,12 @@ class ParentSupportCenterPage extends StatelessWidget {
     required this.children,
   });
 
-  Future<void> _openPage(BuildContext context, Widget page) async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => page),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return AppPageScaffold(
       title: 'مركز الدعم',
       child: ListView(
+        padding: const EdgeInsets.only(bottom: 24),
         children: [
           Container(
             width: double.infinity,
@@ -51,7 +40,7 @@ class ParentSupportCenterPage extends StatelessWidget {
                 ),
                 SizedBox(height: 12),
                 Text(
-                  'كيف يمكننا مساعدتك؟',
+                  'مركز الدعم',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 21,
@@ -60,7 +49,7 @@ class ParentSupportCenterPage extends StatelessWidget {
                 ),
                 SizedBox(height: 6),
                 Text(
-                  'اختاري نوع المشكلة أو تواصلي مع الإدارة مباشرة من داخل التطبيق.',
+                  'إجابات مختصرة على أكثر الأسئلة شيوعًا داخل التطبيق.',
                   style: TextStyle(
                     color: Colors.white,
                     height: 1.5,
@@ -74,88 +63,6 @@ class ParentSupportCenterPage extends StatelessWidget {
           const SizedBox(height: 18),
 
           const _SectionTitle(
-            title: 'خدمات الدعم',
-            icon: Icons.help_outline_rounded,
-          ),
-          const SizedBox(height: 10),
-
-          _SupportActionCard(
-            icon: Icons.report_problem_outlined,
-            color: Colors.red,
-            title: 'إرسال شكوى أو ملاحظة',
-            subtitle: 'أرسلي مشكلة أو اقتراح للإدارة وتابعي الردود.',
-            onTap: () {
-              _openPage(
-                context,
-                ParentComplaintsPage(parentUsername: parentUsername),
-              );
-            },
-          ),
-
-          _SupportActionCard(
-            icon: Icons.chat_bubble_outline_rounded,
-            color: Colors.blueGrey,
-            title: 'مراسلة الإدارة أو الحضانة',
-            subtitle: 'افتحي المحادثات للتواصل المباشر.',
-            onTap: () {
-              if (children.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('لا توجد محادثات متاحة بدون أطفال مرتبطين'),
-                  ),
-                );
-                return;
-              }
-
-              _openPage(
-                context,
-                ParentChatsPage(children: children),
-              );
-            },
-          ),
-
-          _SupportActionCard(
-            icon: Icons.receipt_long_rounded,
-            color: Colors.indigo,
-            title: 'مشكلة في الفواتير',
-            subtitle: 'راجعي الفواتير أو تواصلي مع الإدارة بخصوص المبلغ.',
-            onTap: () {
-              _openPage(
-                context,
-                ParentInvoicesPage(parentUsername: parentUsername),
-              );
-            },
-          ),
-
-          _SupportActionCard(
-            icon: Icons.manage_accounts_outlined,
-            color: Colors.orange,
-            title: 'مشكلة في الحساب',
-            subtitle: 'تعديل الاسم أو البريد أو كلمة المرور.',
-            onTap: () {
-              _openPage(
-                context,
-                const ProfileDetailsPage(),
-              );
-            },
-          ),
-
-          _SupportActionCard(
-            icon: Icons.person_add_alt_1_rounded,
-            color: AppColors.primary,
-            title: 'طلب إضافة طفل',
-            subtitle: 'إرسال طلب جديد للإدارة لربط طفل بالحساب.',
-            onTap: () {
-              _openPage(
-                context,
-                const AddChildRequestPage(),
-              );
-            },
-          ),
-
-          const SizedBox(height: 18),
-
-          const _SectionTitle(
             title: 'الأسئلة الشائعة',
             icon: Icons.quiz_outlined,
           ),
@@ -164,27 +71,42 @@ class ParentSupportCenterPage extends StatelessWidget {
           const _FaqTile(
             question: 'كيف أضيف طفل جديد؟',
             answer:
-                'من مركز الدعم أو الإعدادات اضغطي على طلب إضافة طفل، ثم املئي البيانات وانتظري موافقة الإدارة.',
+                'يمكنك إرسال طلب إضافة طفل من الصفحة المخصصة لطلبات إضافة الأطفال داخل حساب ولي الأمر، وبعدها تنتظرين مراجعة الإدارة للطلب.',
           ),
           const _FaqTile(
             question: 'كيف أتابع تحديثات طفلي؟',
             answer:
-                'من تبويب المتابعة، اختاري الطفل ثم اضغطي على التحديثات أو ملف الطفل.',
+                'من تبويب المتابعة، اختاري الطفل المطلوب ثم تابعي التحديثات اليومية، الصور، الفيديوهات، والسجلات المرتبطة به.',
           ),
           const _FaqTile(
             question: 'كيف أرسل شكوى أو ملاحظة؟',
             answer:
-                'من مركز الدعم اضغطي على إرسال شكوى أو ملاحظة، وسيصل الطلب للإدارة.',
+                'الشكاوى والملاحظات لها صفحة مستقلة داخل حساب ولي الأمر، ومن خلالها يمكنك إرسال الشكوى ومتابعة رد الإدارة.',
           ),
           const _FaqTile(
             question: 'كيف أتابع الفواتير؟',
             answer:
-                'من الرئيسية أو الإعدادات أو مركز الدعم اضغطي على الفواتير لمراجعة الفواتير المرتبطة بحسابك.',
+                'الفواتير تظهر في صفحة الفواتير الخاصة بولي الأمر، ويمكنك متابعة المبلغ الكلي، المدفوع، المتبقي، وحالة الدفع.',
+          ),
+          const _FaqTile(
+            question: 'كيف أراسل الإدارة أو الحضانة؟',
+            answer:
+                'يمكنك استخدام قسم الرسائل في التطبيق للتواصل مع الإدارة أو موظفة الحضانة حسب المحادثات المتاحة لك.',
           ),
           const _FaqTile(
             question: 'كيف أطلب بث مباشر؟',
             answer:
-                'من بطاقة الطفل في المتابعة اضغطي على طلب بث مباشر للطفل، وسيصل الطلب للإدارة للموافقة.',
+                'من صفحة الطفل أو مكان البث المباشر داخل التطبيق. إذا كان هناك بث قائم حاليًا، قد يتم وضعك في قائمة انتظار حتى ينتهي البث الحالي.',
+          ),
+          const _FaqTile(
+            question: 'كيف أعدل بيانات الحساب؟',
+            answer:
+                'تعديل بيانات الحساب مثل الاسم أو البريد أو كلمة المرور يتم من صفحة إعدادات الحساب أو الملف الشخصي.',
+          ),
+          const _FaqTile(
+            question: 'ماذا أفعل إذا لم تظهر بيانات طفلي؟',
+            answer:
+                'تأكدي من أن طلب الطفل تمت الموافقة عليه من الإدارة، وأنك تستخدمين نفس الحساب المرتبط بالطفل.',
           ),
 
           const SizedBox(height: 18),
@@ -213,7 +135,7 @@ class ParentSupportCenterPage extends StatelessWidget {
                   SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      'سيتم الرد على الشكاوى والملاحظات من خلال الإدارة داخل التطبيق. تابعي الإشعارات والرسائل لمعرفة الرد.',
+                      'لأي مشكلة لا تجدين إجابتها هنا، استخدمي الصفحة المناسبة داخل التطبيق مثل الرسائل، الشكاوى، الفواتير، أو إعدادات الحساب.',
                       style: TextStyle(
                         color: AppColors.textDark,
                         height: 1.5,
@@ -257,59 +179,6 @@ class _SectionTitle extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _SupportActionCard extends StatelessWidget {
-  final IconData icon;
-  final Color color;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-
-  const _SupportActionCard({
-    required this.icon,
-    required this.color,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 14,
-          vertical: 8,
-        ),
-        leading: CircleAvatar(
-          backgroundColor: color.withOpacity(0.12),
-          child: Icon(icon, color: color),
-        ),
-        title: Text(
-          title,
-          style: const TextStyle(
-            fontWeight: FontWeight.w900,
-            color: AppColors.textDark,
-          ),
-        ),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 4),
-          child: Text(
-            subtitle,
-            style: const TextStyle(
-              color: AppColors.textLight,
-              height: 1.35,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-        trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 17),
-        onTap: onTap,
-      ),
     );
   }
 }

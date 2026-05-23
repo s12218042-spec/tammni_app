@@ -193,7 +193,6 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
 
       await batch.commit();
     } catch (_) {
-      // لا نوقف الموافقة/الرفض لو فشل تحديث إشعار الأدمن
     }
   }
 
@@ -342,28 +341,6 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
             borderRadius: BorderRadius.circular(22),
           ),
           title: const Text('الموافقة على طلب إضافة الطفل'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'سيتم إنشاء سجل طفل جديد وربطه مباشرة بحساب ولي الأمر داخل Firestore.',
-                textAlign: TextAlign.center,
-                style: TextStyle(height: 1.6),
-              ),
-              const SizedBox(height: 14),
-              TextField(
-                controller: noteController,
-                maxLines: 3,
-                textAlign: TextAlign.right,
-                decoration: InputDecoration(
-                  labelText: 'ملاحظة إدارية (اختياري)',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                ),
-              ),
-            ],
-          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -538,27 +515,16 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
             borderRadius: BorderRadius.circular(22),
           ),
           title: const Text('رفض طلب إضافة الطفل'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'يمكنك كتابة سبب الرفض أو ملاحظة إدارية.',
-                textAlign: TextAlign.center,
-                style: TextStyle(height: 1.6),
+          content: TextField(
+            controller: noteController,
+            maxLines: 3,
+            textAlign: TextAlign.right,
+            decoration: InputDecoration(
+              labelText: 'سبب الرفض',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
               ),
-              const SizedBox(height: 14),
-              TextField(
-                controller: noteController,
-                maxLines: 3,
-                textAlign: TextAlign.right,
-                decoration: InputDecoration(
-                  labelText: 'سبب الرفض / ملاحظة',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
           actions: [
             TextButton(
@@ -809,11 +775,6 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
                     title: 'الحالة الحالية',
                     children: [
                       _InfoRow('الحالة', _statusLabel(status)),
-                      if (status == 'pending')
-                        const _InfoRow(
-                          'متابعة الطلب',
-                          'الطلب بانتظار مراجعة الإدارة',
-                        ),
                       if (status == 'approved') ...[
                         _InfoRow(
                           'تمت المراجعة بواسطة',
@@ -823,10 +784,8 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
                           'رقم الطفل المنشأ',
                           createdChildId.isEmpty ? '-' : createdChildId,
                         ),
-                        _InfoRow(
-                          'ملاحظة المراجعة',
-                          reviewNote.trim().isEmpty ? '-' : reviewNote,
-                        ),
+                        if (reviewNote.trim().isNotEmpty)
+                          _InfoRow('ملاحظة المراجعة', reviewNote),
                       ],
                       if (status == 'rejected') ...[
                         _InfoRow(
@@ -1154,8 +1113,7 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
                   TextField(
                     textAlign: TextAlign.right,
                     decoration: InputDecoration(
-                      hintText:
-                          'ابحثي باسم الطفل أو ولي الأمر أو اسم المستخدم أو البريد',
+                      hintText: 'بحث',
                       prefixIcon: const Icon(Icons.search),
                       suffixIcon: searchText.trim().isEmpty
                           ? null

@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../services/account_settings_service.dart';
 import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
@@ -13,10 +14,9 @@ import 'admin_groups_page.dart';
 import 'admin_invoice_page.dart';
 import 'admin_registration_requests_page.dart';
 import 'admin_updates_feed_page.dart';
-import 'manage_children_page.dart';
 import 'manage_users_page.dart';
+import 'manage_children_page.dart';
 import 'welcome_page.dart';
-import 'admin_live_stream_requests_page.dart';
 import 'admin_daily_tasks_table_page.dart';
 import 'admin _weekly_duty__page.dart';
 import 'admin_staff_tasks_review_page.dart';
@@ -27,7 +27,6 @@ import 'admin_staff_payroll_page.dart';
 import 'admin_offers_page.dart';
 import 'admin_consultations_page.dart';
 import 'admin_general_reports_page.dart';
-import '../services/account_settings_service.dart';
 
 class AdminHomePage extends StatefulWidget {
   const AdminHomePage({super.key});
@@ -42,7 +41,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
       AccountSettingsService();
 
   int selectedIndex = 0;
-  
+
   Future<void> logout(BuildContext context) async {
     final shouldLogout = await showDialog<bool>(
       context: context,
@@ -109,16 +108,16 @@ class _AdminHomePageState extends State<AdminHomePage> {
 
     final currentAdminUid = FirebaseAuth.instance.currentUser?.uid ?? '';
 
-     QuerySnapshot<Map<String, dynamic>>? unreadMessagesSnapshot;
+    QuerySnapshot<Map<String, dynamic>>? unreadMessagesSnapshot;
 
-     if (currentAdminUid.trim().isNotEmpty) {
+    if (currentAdminUid.trim().isNotEmpty) {
       unreadMessagesSnapshot = await _firestore
-      .collection('messages')
-      .where('receiverId', isEqualTo: currentAdminUid)
-      .where('isRead', isEqualTo: false)
-      .limit(200)
-      .get();
-}
+          .collection('messages')
+          .where('receiverId', isEqualTo: currentAdminUid)
+          .where('isRead', isEqualTo: false)
+          .limit(200)
+          .get();
+    }
 
     final users = usersSnapshot.docs.map((e) => e.data()).toList();
     final children = childrenSnapshot.docs.map((e) => e.data()).toList();
@@ -133,17 +132,17 @@ class _AdminHomePageState extends State<AdminHomePage> {
     int unreadMessagesCount = 0;
 
     if (unreadMessagesSnapshot != null) {
-  unreadMessagesCount = unreadMessagesSnapshot.docs.where((doc) {
-    final data = doc.data();
+      unreadMessagesCount = unreadMessagesSnapshot.docs.where((doc) {
+        final data = doc.data();
 
-    final deletedForUserIds =
-        (data['deletedForUserIds'] as List<dynamic>? ?? [])
-            .map((e) => e.toString())
-            .toList();
+        final deletedForUserIds =
+            (data['deletedForUserIds'] as List<dynamic>? ?? [])
+                .map((e) => e.toString())
+                .toList();
 
-    return !deletedForUserIds.contains(currentAdminUid);
-   }).length;
-}
+        return !deletedForUserIds.contains(currentAdminUid);
+      }).length;
+    }
 
     int activeChildren = 0;
     int archivedChildren = 0;
@@ -240,7 +239,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
         _AdminAlertItem(
           title: 'يوجد $archivedChildren طفل/أطفال مؤرشفون',
           subtitle:
-              'راجعي الأطفال المؤرشفين وتحققي إذا كانت حالتهم ما زالت صحيحة.',
+              'راجعي الحالات غير النشطة.',
           icon: Icons.archive_outlined,
           color: Colors.blueGrey,
         ),
@@ -251,8 +250,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
       alerts.add(
         _AdminAlertItem(
           title: 'يوجد $pendingRequests طلب/طلبات تسجيل بانتظار المراجعة',
-          subtitle:
-              'راجعي طلبات أولياء الأمور الجديدة وحددي الموافقة أو الرفض.',
+          subtitle: ' ',
           icon: Icons.how_to_reg_rounded,
           color: Colors.teal,
         ),
@@ -264,8 +262,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
         _AdminAlertItem(
           title:
               'يوجد $pendingAddChildRequests طلب/طلبات إضافة طفل بانتظار المراجعة',
-          subtitle:
-              'راجعي طلبات إضافة الأطفال الجديدة وحددي الموافقة أو الرفض.',
+          subtitle: ' ',
           icon: Icons.person_add_alt_1_rounded,
           color: Colors.indigo,
         ),
@@ -277,7 +274,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
         _AdminAlertItem(
           title:
               'يوجد $pendingDeletionRequests طلب/طلبات حذف حساب بانتظار المراجعة',
-          subtitle: 'راجعي طلبات حذف الحسابات وحددي الموافقة أو الرفض.',
+          subtitle: ' ',
           icon: Icons.delete_forever_outlined,
           color: Colors.redAccent,
         ),
@@ -290,8 +287,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
       alerts.add(
         _AdminAlertItem(
           title: 'يوجد $openComplaints شكوى/شكاوى تحتاج متابعة',
-          subtitle:
-              'راجعي شكاوى أولياء الأمور المفتوحة وحددي حالتها أو أضيفي ردًا إداريًا.',
+          subtitle: ' ',
           icon: Icons.report_problem_outlined,
           color: Colors.deepPurple,
         ),
@@ -302,7 +298,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
       alerts.add(
        _AdminAlertItem(
        title: 'يوجد $unreadMessagesCount رسالة/رسائل غير مقروءة',
-       subtitle: 'راجعي تبويب الرسائل للرد على أولياء الأمور أو الموظفات.',
+       subtitle: ' ',
        icon: Icons.mark_chat_unread_outlined,
        color: Colors.blue,
        ),
@@ -313,8 +309,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
       alerts.add(
         const _AdminAlertItem(
           title: 'لا يوجد مستخدمون في النظام',
-          subtitle:
-              'ابدئي بإضافة حسابات الإدارة وموظفات الحضانة، ومراجعة طلبات أولياء الأمور.',
+          subtitle: ' ',
           icon: Icons.person_add_alt_1_rounded,
           color: Colors.redAccent,
         ),
@@ -410,8 +405,8 @@ class _AdminHomePageState extends State<AdminHomePage> {
     final section = (item['section'] ?? '').toString();
 
     final details = <String>[
-      'بواسطة: $createdByName',
-      if (section == 'Nursery') 'القسم: حضانة',
+      '$createdByName',
+      if (section == 'Nursery') '',
     ];
 
     return details.join(' • ');
@@ -582,7 +577,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
     final data = snapshot.data;
 
     if (data == null) {
-      return const Center(child: Text('لا توجد بيانات متاحة حالياً'));
+      return const Center(child: Text('لا توجد بيانات'));
     }
 
     switch (selectedIndex) {
@@ -605,7 +600,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
         setState(() {});
       },
       child: ListView(
-        children: [
+          children: [
           Text(
             'أهلاً بكِ في لوحة الإدارة 👋',
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(
@@ -614,7 +609,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
           ),
           const SizedBox(height: 8),
           Text(
-            'هذه الصفحة الرئيسية تعرض لكِ لمحة سريعة عن حالة نظام الحضانة.',
+            '',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: AppColors.textLight,
                 ),
@@ -623,7 +618,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
           Wrap(
             spacing: 12,
             runSpacing: 12,
-            children: [
+              children: [
               _DashboardStatCard(
                 title: 'إجمالي المستخدمين',
                 value: '${data.totalUsers}',
@@ -657,6 +652,22 @@ class _AdminHomePageState extends State<AdminHomePage> {
                     'معلقة ${data.pendingAddChildRequests} • مقبولة ${data.approvedAddChildRequests}',
                 icon: Icons.person_add_alt_1_rounded,
               ),
+              _AdminActionCard(
+                icon: Icons.child_care_rounded,
+                title: 'إدارة الأطفال',
+                subtitle: ' ',
+                onTap: () async {
+                await Navigator.push(
+                context,
+                MaterialPageRoute(
+                builder: (_) => const ManageChildrenPage(),
+                ),
+                 );
+
+                if (!mounted) return;
+                setState(() {});
+                },
+              ),
               _DashboardStatCard(
                 title: 'طلبات حذف الحسابات',
                 value: '${data.pendingDeletionRequests}',
@@ -675,37 +686,37 @@ class _AdminHomePageState extends State<AdminHomePage> {
                 title: 'الرسائل غير المقروءة',
                 value: '${data.unreadMessagesCount}',
                 subtitle: data.unreadMessagesCount > 0
-                  ? 'تحتاج متابعة من تبويب الرسائل'
-                  : 'لا توجد رسائل غير مقروءة',
+                  ? ''
+                  : '',
                 icon: Icons.mark_chat_unread_outlined,
               ),
             ],
           ),
           const SizedBox(height: 24),
           const _SectionTitle(
-            title: 'تنبيهات مختصرة',
+            title: 'التنبيهات',
             icon: Icons.notifications_active_rounded,
           ),
           const SizedBox(height: 12),
           if (data.alerts.isEmpty)
             const _EmptyDashboardBox(
               icon: Icons.verified_rounded,
-              title: 'لا توجد تنبيهات حالياً',
-              subtitle: 'الوضع يبدو جيداً داخل النظام.',
+              title: 'لا توجد تنبيهات',
+              subtitle: ' ',
             )
           else
             ...data.alerts.take(3).map((alert) => _AlertCard(item: alert)),
           const SizedBox(height: 24),
           const _SectionTitle(
-            title: 'آخر الأنشطة المختصرة',
+            title: 'آخر الأنشطة',
             icon: Icons.history_rounded,
           ),
           const SizedBox(height: 12),
           if (data.recentActivities.isEmpty)
             const _EmptyDashboardBox(
               icon: Icons.history_toggle_off_rounded,
-              title: 'لا توجد أنشطة حديثة',
-              subtitle: 'عند إضافة تحديثات للأطفال ستظهر هنا.',
+              title: 'لا توجد أنشطة',
+              subtitle: ' ',
             )
           else
             ...data.recentActivities.take(4).map(
@@ -721,12 +732,12 @@ class _AdminHomePageState extends State<AdminHomePage> {
   }
 
   Widget _buildFollowUpTab() {
-  return RefreshIndicator(
-    onRefresh: () async {
-      setState(() {});
-    },
-    child: ListView(
-      children: [
+    return RefreshIndicator(
+      onRefresh: () async {
+        setState(() {});
+      },
+      child: ListView(
+        children: [
         const _SectionTitle(
           title: 'الإجراءات الأساسية',
           icon: Icons.fact_check_rounded,
@@ -736,7 +747,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
         _AdminActionCard(
           icon: Icons.how_to_reg_rounded,
           title: 'طلبات تسجيل أولياء الأمور',
-          subtitle: 'مراجعة طلبات التسجيل الجديدة والموافقة أو الرفض',
+          subtitle: ' ',
           onTap: () async {
             await Navigator.push(
               context,
@@ -753,7 +764,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
         _AdminActionCard(
           icon: Icons.person_add_alt_1_outlined,
           title: 'طلبات إضافة الأطفال',
-          subtitle: 'مراجعة طلبات إضافة طفل جديد إلى حسابات أولياء الأمور',
+          subtitle: ' ',
           onTap: () async {
             await Navigator.push(
               context,
@@ -770,7 +781,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
         _AdminActionCard(
           icon: Icons.report_problem_outlined,
           title: 'شكاوى أولياء الأمور',
-          subtitle: 'متابعة الشكاوى والملاحظات من الأهالي',
+          subtitle: ' ',
           onTap: () async {
             await Navigator.push(
               context,
@@ -787,8 +798,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
         _AdminActionCard(
           icon: Icons.group_rounded,
           title: 'إدارة المستخدمين',
-          subtitle:
-              'مراجعة الحسابات الحالية، تعديلها، تفعيلها أو تعطيلها دون إنشاء حسابات جديدة',
+          subtitle: ' ',
           onTap: () async {
             await Navigator.push(
               context,
@@ -803,27 +813,9 @@ class _AdminHomePageState extends State<AdminHomePage> {
         ),
 
         _AdminActionCard(
-          icon: Icons.child_care_rounded,
-          title: 'إدارة الأطفال',
-          subtitle: 'متابعة بيانات الأطفال، الأرشفة، والحالة الحالية',
-          onTap: () async {
-            await Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const ManageChildrenPage(),
-              ),
-            );
-
-            if (!mounted) return;
-            setState(() {});
-          },
-        ),
-
-        _AdminActionCard(
           icon: Icons.groups_2_rounded,
           title: 'إدارة المجموعات',
-          subtitle:
-              'إنشاء مجموعات الحضانة وربطها بالموظفات ومتابعة عدد الأطفال داخل كل مجموعة',
+          subtitle: ' ',
           onTap: () async {
             await Navigator.push(
               context,
@@ -839,8 +831,8 @@ class _AdminHomePageState extends State<AdminHomePage> {
 
         _AdminActionCard(
           icon: Icons.assignment_turned_in_outlined,
-          title: 'مهام الموظفات اليومية',
-          subtitle: 'توزيع ومتابعة مهام الموظفات',
+          title: 'تحديد مهام الموظفات',
+          subtitle: ' ',
           onTap: () async {
             await Navigator.push(
               context,
@@ -857,7 +849,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
         _AdminActionCard(
           icon: Icons.fact_check_outlined,
           title: 'متابعة مهام الموظفات',
-          subtitle: 'عرض المهام وتعديل حالتها',
+          subtitle: ' ',
           onTap: () async {
             await Navigator.push(
               context,
@@ -874,7 +866,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
         _AdminActionCard(
           icon: Icons.calendar_month_outlined,
           title: 'المناوبة الأسبوعية',
-          subtitle: 'تحديد موظفة المناوبة لهذا الأسبوع',
+          subtitle: ' ',
           onTap: () async {
             await Navigator.push(
               context,
@@ -890,7 +882,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
         _AdminActionCard(
   icon: Icons.star_rate_outlined,
   title: 'تقييم الموظفات',
-  subtitle: 'تقييم أسبوعي أو شهري لأداء موظفات الحضانة',
+  subtitle: ' ',
   onTap: () async {
     await Navigator.push(
       context,
@@ -906,7 +898,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
 _AdminActionCard(
   icon: Icons.access_time_outlined,
   title: 'دوام الموظفات',
-  subtitle: 'تسجيل حضور وانصراف الموظفات وحساب ساعات العمل',
+  subtitle: ' ',
   onTap: () async {
     await Navigator.push(
       context,
@@ -922,7 +914,7 @@ _AdminActionCard(
 _AdminActionCard(
   icon: Icons.payments_outlined,
   title: 'رواتب الموظفات',
-  subtitle: 'اعتماد راتب الموظفة الشهري حسب الدوام والخصم والعلاوة',
+  subtitle: ' ',
   onTap: () async {
     await Navigator.push(
       context,
@@ -938,7 +930,7 @@ _AdminActionCard(
         _AdminActionCard(
           icon: Icons.person_add_alt_1_rounded,
           title: 'إنشاء حسابات الموظفين',
-          subtitle: 'إنشاء حسابات موظفات الحضانة والإدارة فقط',
+          subtitle: ' ',
           onTap: () async {
             final result = await Navigator.push(
               context,
@@ -956,7 +948,7 @@ _AdminActionCard(
         _AdminActionCard(
           icon: Icons.receipt_long_rounded,
           title: 'إدارة الفواتير',
-          subtitle: 'عرض الفواتير وإنشاء فاتورة حضانة جديدة من خلال الأدمن',
+          subtitle: ' ',
           onTap: () async {
             await Navigator.push(
               context,
@@ -973,8 +965,7 @@ _AdminActionCard(
         _AdminActionCard(
           icon: Icons.local_offer_rounded,
           title: 'العروض والاشتراكات',
-          subtitle:
-              'إدارة عروض الحضانة والاشتراكات والخصومات الخاصة بأولياء الأمور',
+          subtitle: ' ',
           onTap: () async {
             await Navigator.push(
               context,
@@ -991,8 +982,7 @@ _AdminActionCard(
         _AdminActionCard(
           icon: Icons.psychology_alt_rounded,
           title: 'الاستشارات',
-          subtitle:
-              'إدارة استشارات الأطفال وموافقة أولياء الأمور وربطها بالفواتير',
+          subtitle: ' ',
           onTap: () async {
             await Navigator.push(
               context,
@@ -1009,32 +999,15 @@ _AdminActionCard(
         const SizedBox(height: 24),
 
         const _SectionTitle(
-          title: 'أدوات الإدارة المتقدمة',
+          title: 'أدوات إضافية',
           icon: Icons.admin_panel_settings_rounded,
         ),
         const SizedBox(height: 12),
 
         _AdminActionCard(
-          icon: Icons.video_call_rounded,
-          title: 'طلبات البث المباشر',
-          subtitle: 'مراجعة طلبات أولياء الأمور وبدء بث خاص لكل طفل',
-          onTap: () async {
-            await Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const AdminLiveStreamRequestsPage(),
-              ),
-            );
-
-            if (!mounted) return;
-            setState(() {});
-          },
-        ),
-
-        _AdminActionCard(
           icon: Icons.dynamic_feed_rounded,
           title: 'سجل التحديثات الإداري',
-          subtitle: 'متابعة آخر تحديثات موظفات الحضانة داخل النظام',
+          subtitle: ' ',
           onTap: () async {
             await Navigator.push(
               context,
@@ -1051,7 +1024,7 @@ _AdminActionCard(
         _AdminActionCard(
   icon: Icons.bar_chart_rounded,
   title: 'التقارير العامة',
-  subtitle: 'عرض ملخص شامل عن الأطفال، الموظفات، الفواتير والخدمات',
+  subtitle: ' ',
   onTap: () {
     Navigator.push(
       context,
@@ -1072,7 +1045,7 @@ _AdminActionCard(
 
   Widget _buildSettingsTab() {
     return ListView(
-      children: [
+        children: [
         Card(
           child: FutureBuilder<AccountSettingsData>(
             future: _accountSettingsService.getCurrentUserData(),
@@ -1084,7 +1057,7 @@ _AdminActionCard(
                   : 'الأدمن';
 
               final subtitle = data == null
-                  ? 'إدارة النظام'
+                  ? ''
                   : '${data.roleLabel} • ${data.username.isNotEmpty ? data.username : "بدون اسم مستخدم"}';
 
               return ListTile(
@@ -1145,7 +1118,7 @@ _AdminActionCard(
         const SizedBox(height: 8),
         Card(
           child: Column(
-            children: [
+              children: [
               ListTile(
                 leading: CircleAvatar(
                   backgroundColor: Colors.green.withOpacity(0.12),
@@ -1155,7 +1128,7 @@ _AdminActionCard(
                   ),
                 ),
                 title: const Text('التنبيهات'),
-                subtitle: const Text('عرض وإدارة التنبيهات'),
+                subtitle: const Text(''),
                 onTap: () async {
                   final data = await _loadDashboardData();
 
@@ -1192,15 +1165,6 @@ Card(
   ),
 ),
         const SizedBox(height: 20),
-        Center(
-          child: Text(
-            'إصدار النظام V1.0.0',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: AppColors.textLight,
-                ),
-          ),
-        ),
-        const SizedBox(height: 12),
       ],
     );
   }
@@ -1218,7 +1182,7 @@ class _SectionTitle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
-      children: [
+        children: [
         Icon(icon, color: AppColors.primary),
         const SizedBox(width: 8),
         Expanded(
@@ -1258,7 +1222,7 @@ class _DashboardStatCard extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Row(
-            children: [
+              children: [
               CircleAvatar(
                 radius: 24,
                 backgroundColor: AppColors.primary.withOpacity(0.12),
@@ -1268,7 +1232,7 @@ class _DashboardStatCard extends StatelessWidget {
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+                    children: [
                     Text(
                       title,
                       style: const TextStyle(
@@ -1327,7 +1291,7 @@ class _AdminActionCard extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Row(
-            children: [
+              children: [
               CircleAvatar(
                 radius: 24,
                 backgroundColor: AppColors.primary.withOpacity(0.10),
@@ -1337,7 +1301,7 @@ class _AdminActionCard extends StatelessWidget {
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+                    children: [
                     Text(
                       title,
                       style: const TextStyle(
@@ -1387,7 +1351,7 @@ class _EmptyDashboardBox extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
-          children: [
+            children: [
             CircleAvatar(
               radius: 26,
               backgroundColor: AppColors.primary.withOpacity(0.10),
@@ -1432,7 +1396,7 @@ class _AlertCard extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Row(
-            children: [
+              children: [
               CircleAvatar(
                 backgroundColor: item.color.withOpacity(0.12),
                 child: Icon(item.icon, color: item.color),
@@ -1441,7 +1405,7 @@ class _AlertCard extends StatelessWidget {
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+                    children: [
                     Text(
                       item.title,
                       style: const TextStyle(
@@ -1484,7 +1448,7 @@ class _ActivityCard extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Row(
-          children: [
+            children: [
             CircleAvatar(
               backgroundColor: AppColors.primary.withOpacity(0.10),
               child: Icon(item.icon, color: AppColors.primary),
@@ -1493,7 +1457,7 @@ class _ActivityCard extends StatelessWidget {
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+                  children: [
                   Text(
                     item.title,
                     style: const TextStyle(
@@ -1542,7 +1506,7 @@ class _AdminNotificationsPage extends StatelessWidget {
           ? const _EmptyDashboardBox(
               icon: Icons.notifications_off_rounded,
               title: 'لا توجد إشعارات حالياً',
-              subtitle: 'عند وجود تنبيهات جديدة ستظهر هنا.',
+              subtitle: 'لا توجد تنبيهات.',
             )
           : ListView(
               children: alerts.map((alert) => _AlertCard(item: alert)).toList(),
@@ -1567,8 +1531,8 @@ class _AdminActivitiesPage extends StatelessWidget {
       child: activities.isEmpty
           ? const _EmptyDashboardBox(
               icon: Icons.history_toggle_off_rounded,
-              title: 'لا توجد أنشطة حديثة',
-              subtitle: 'عند إضافة تحديثات للأطفال ستظهر هنا.',
+              title: 'لا توجد أنشطة',
+              subtitle: ' ',
             )
           : ListView(
               children: activities
@@ -1672,4 +1636,3 @@ class _AdminActivityItem {
     required this.icon,
   });
 }
-

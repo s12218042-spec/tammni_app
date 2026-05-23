@@ -25,6 +25,11 @@ class UpdateModel {
   final String createdByName;
   final String createdByRole;
 
+  // نوع الطفل: دائم / مؤقت / تجربة
+  final String childType;
+  final String childStatus;
+  final bool isTemporaryChild;
+
   // بيانات المجموعة
   final String groupId;
   final String groupName;
@@ -71,6 +76,9 @@ class UpdateModel {
     this.createdByUid = '',
     this.createdByName = '',
     this.createdByRole = '',
+    this.childType = 'permanent',
+    this.childStatus = 'active',
+    this.isTemporaryChild = false,
     this.groupId = '',
     this.groupName = '',
     this.group = '',
@@ -124,6 +132,7 @@ class UpdateModel {
   static int _intOrZero(dynamic value) {
     if (value == null) return 0;
     if (value is int) return value;
+    if (value is num) return value.toInt();
     return int.tryParse(value.toString().trim()) ?? 0;
   }
 
@@ -165,6 +174,66 @@ class UpdateModel {
     }
 
     return role;
+  }
+
+  static String normalizeChildType(dynamic value) {
+    final type = _string(value).toLowerCase();
+
+    switch (type) {
+      case 'temporary':
+      case 'temp':
+      case 'temporary_child':
+      case 'مؤقت':
+        return 'temporary';
+      case 'trial':
+      case 'تجربة':
+      case 'فترة تجربة':
+        return 'trial';
+      case 'permanent':
+      case 'regular':
+      case 'active':
+      case 'دائم':
+      default:
+        return type.isEmpty ? 'permanent' : type;
+    }
+  }
+
+  static String normalizeChildStatus(dynamic value) {
+    final status = _string(value).toLowerCase();
+
+    switch (status) {
+      case 'pending':
+      case 'trial':
+      case 'temporary':
+      case 'active':
+      case 'rejected_after_trial':
+      case 'withdrawn':
+      case 'archived':
+        return status;
+      default:
+        return status.isEmpty ? 'active' : status;
+    }
+  }
+
+  static bool detectTemporaryChild(Map<String, dynamic> map) {
+    final type = normalizeChildType(
+      _firstNonEmpty([
+        map['childType'],
+        map['enrollmentType'],
+        map['typeOfChild'],
+      ]),
+    );
+
+    final status = normalizeChildStatus(
+      _firstNonEmpty([
+        map['childStatus'],
+        map['status'],
+      ]),
+    );
+
+    return _bool(map['isTemporaryChild']) ||
+        type == 'temporary' ||
+        status == 'temporary';
   }
 
   static bool detectGroupUpdate(Map<String, dynamic> map) {
@@ -223,6 +292,24 @@ class UpdateModel {
               : '',
     ]);
 
+    final resolvedChildType = normalizeChildType(
+      _firstNonEmpty([
+        map['childType'],
+        map['enrollmentType'],
+        map['typeOfChild'],
+      ]),
+    );
+
+    final resolvedChildStatus = normalizeChildStatus(
+      _firstNonEmpty([
+        map['childStatus'],
+        map['childState'],
+        resolvedChildType == 'temporary' ? 'temporary' : '',
+      ]),
+    );
+
+    final temporaryChild = detectTemporaryChild(map);
+
     return UpdateModel(
       id: _firstNonEmpty([
         map['id'],
@@ -257,6 +344,9 @@ class UpdateModel {
       createdByUid: _string(map['createdByUid']),
       createdByName: _string(map['createdByName']),
       createdByRole: normalizeRole(map['createdByRole']),
+      childType: resolvedChildType,
+      childStatus: resolvedChildStatus,
+      isTemporaryChild: temporaryChild,
       groupId: _string(map['groupId']),
       groupName: _firstNonEmpty([
         map['groupName'],
@@ -274,10 +364,13 @@ class UpdateModel {
         map['mediaUrl'],
         map['url'],
         map['signedUrl'],
+        map['downloadUrl'],
+        map['publicUrl'],
       ]),
       mediaPath: _firstNonEmpty([
         map['mediaPath'],
         map['path'],
+        map['storagePath'],
       ]),
       mediaType: _firstNonEmpty([
         map['mediaType'],
@@ -305,6 +398,17 @@ class UpdateModel {
   }
 
   Map<String, dynamic> toMap() {
+    final resolvedChildType = normalizeChildType(childType);
+    final resolvedChildStatus = normalizeChildStatus(
+      childStatus.trim().isNotEmpty
+          ? childStatus
+          : resolvedChildType == 'temporary'
+              ? 'temporary'
+              : 'active',
+    );
+
+    final resolvedGroup = group.isNotEmpty ? group : groupName;
+
     return {
       'id': id,
       'updateId': id,
@@ -322,8 +426,10 @@ class UpdateModel {
       'description': description,
 
       'time': Timestamp.fromDate(time),
-      'eventAt': eventAt == null ? Timestamp.fromDate(time) : Timestamp.fromDate(eventAt!),
-      'createdAt': createdAt == null ? FieldValue.serverTimestamp() : Timestamp.fromDate(createdAt!),
+      'eventAt':
+          eventAt == null ? Timestamp.fromDate(time) : Timestamp.fromDate(eventAt!),
+      'createdAt':
+          createdAt == null ? FieldValue.serverTimestamp() : Timestamp.fromDate(createdAt!),
       'updatedAt': FieldValue.serverTimestamp(),
 
       'byRole': normalizeRole(byRole),
@@ -331,9 +437,14 @@ class UpdateModel {
       'createdByName': createdByName,
       'createdByRole': normalizeRole(createdByRole),
 
+      'childType': resolvedChildType,
+      'enrollmentType': resolvedChildType,
+      'childStatus': resolvedChildStatus,
+      'isTemporaryChild': isTemporaryChild || resolvedChildType == 'temporary',
+
       'groupId': groupId,
       'groupName': groupName,
-      'group': group.isNotEmpty ? group : groupName,
+      'group': resolvedGroup,
 
       'isGroupUpdate': isGroupUpdate,
       'groupUpdateId': groupUpdateId,
@@ -374,6 +485,27 @@ class UpdateModel {
     return lowerMediaType == 'image' || lowerMime.startsWith('image/');
   }
 
+  bool get isTemporary {
+    return isTemporaryChild ||
+        normalizeChildType(childType) == 'temporary' ||
+        normalizeChildStatus(childStatus) == 'temporary';
+  }
+
+  bool get isTrial {
+    return normalizeChildType(childType) == 'trial' ||
+        normalizeChildStatus(childStatus) == 'trial';
+  }
+
+  bool get isPermanent {
+    return !isTemporary && !isTrial;
+  }
+
+  String get displayChildType {
+    if (isTemporary) return 'طفل مؤقت';
+    if (isTrial) return 'فترة تجربة';
+    return 'طفل دائم';
+  }
+
   String get displayType {
     if (isGroupUpdate) return 'تحديث جماعي';
     return type.trim().isEmpty ? 'ملاحظة' : type;
@@ -402,6 +534,9 @@ class UpdateModel {
     String? createdByUid,
     String? createdByName,
     String? createdByRole,
+    String? childType,
+    String? childStatus,
+    bool? isTemporaryChild,
     String? groupId,
     String? groupName,
     String? group,
@@ -441,6 +576,9 @@ class UpdateModel {
       createdByUid: createdByUid ?? this.createdByUid,
       createdByName: createdByName ?? this.createdByName,
       createdByRole: createdByRole ?? this.createdByRole,
+      childType: childType ?? this.childType,
+      childStatus: childStatus ?? this.childStatus,
+      isTemporaryChild: isTemporaryChild ?? this.isTemporaryChild,
       groupId: groupId ?? this.groupId,
       groupName: groupName ?? this.groupName,
       group: group ?? this.group,

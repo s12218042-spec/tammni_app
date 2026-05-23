@@ -737,11 +737,6 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
-                  'يمكنك إضافة سبب للتعطيل المؤقت:',
-                  style: TextStyle(height: 1.5),
-                ),
-                const SizedBox(height: 12),
                 TextField(
                   controller: reasonController,
                   maxLines: 3,
@@ -1436,15 +1431,6 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                         icon: Icons.notes_outlined,
                         maxLines: 3,
                       ),
-                      const SizedBox(height: 6),
-                      const Text(
-                        'لا يمكن تغيير الدور أو البريد الإلكتروني من هنا.',
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          color: Colors.black54,
-                          height: 1.5,
-                        ),
-                      ),
                     ],
                   ),
                 ),
@@ -1769,8 +1755,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
           ),
           title: const Text('حذف ولي الأمر'),
           content: Text(
-            'الحساب "$parentName" مرتبط بـ $childrenCount طفل/أطفال.\n\n'
-            'ماذا تريدين أن تفعلي بالأطفال المرتبطين؟',
+            'الحساب "$parentName" مرتبط بـ $childrenCount طفل/أطفال.',
             style: const TextStyle(height: 1.6),
           ),
           actions: [
@@ -1954,8 +1939,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
               controller: _searchCtrl,
               textAlign: TextAlign.right,
               decoration: InputDecoration(
-                hintText:
-                    'ابحثي بالاسم أو اسم المستخدم أو الإيميل أو الجوال أو الهوية',
+                hintText: 'بحث',
                 prefixIcon: const Icon(Icons.search_rounded),
                 suffixIcon: searchText.trim().isEmpty
                     ? null
@@ -2121,14 +2105,6 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
 
           return ListView(
             children: [
-              Text(
-                'إدارة الحسابات',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-
-              const SizedBox(height: 16),
               buildFiltersCard(),
               const SizedBox(height: 20),
               if (filteredDocs.isEmpty)

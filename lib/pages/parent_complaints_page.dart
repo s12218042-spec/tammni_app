@@ -138,7 +138,6 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
         };
       }
     } catch (_) {
-      // fallback عام للإدارة
     }
 
     return {
@@ -195,14 +194,12 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
         'message': message,
         'status': 'pending',
 
-        // Parent fields
         'parentUid': parentUid,
         'parentName': parentName,
         'parentUsername': parentUsername,
         'parentEmail': _safeText(parentInfo['email']),
         'parentPhone': _safeText(parentInfo['phone']),
 
-        // Review fields
         'adminReply': '',
         'reviewNote': '',
         'reviewedByName': '',
@@ -211,23 +208,18 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
         'reviewedAt': null,
         'resolvedAt': null,
 
-        // Created by fields
         'createdByUid': parentUid,
         'createdByName': parentName,
         'createdByRole': 'parent',
         'createdByUsername': parentUsername,
 
-        // Time fields
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
-  
-
-
       await batch.commit();
 
-  await AppNotificationService.instance.notifyAdmin(
+      await AppNotificationService.instance.notifyAdmin(
   title: 'شكوى جديدة من ولي أمر',
   body: 'أرسل $parentName شكوى جديدة بعنوان: $title',
   type: 'complaint_created',
@@ -274,7 +266,7 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('تم إرسال الشكوى بنجاح وإشعار الإدارة'),
+          content: Text('تم إرسال الشكوى بنجاح'),
         ),
       );
     } catch (e) {
@@ -534,7 +526,7 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
                       const SizedBox(width: 12),
                       const Expanded(
                         child: Text(
-                          'إرسال شكوى أو ملاحظة للإدارة',
+                          'إرسال شكوى',
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 16,
@@ -543,12 +535,11 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 14),
                   TextField(
                     controller: _titleController,
                     decoration: const InputDecoration(
                       labelText: 'عنوان الشكوى',
-                      hintText: 'مثال: ملاحظة على المتابعة أو الفواتير',
                       prefixIcon: Icon(Icons.title_rounded),
                     ),
                   ),
@@ -558,7 +549,6 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
                     maxLines: 5,
                     decoration: const InputDecoration(
                       labelText: 'تفاصيل الشكوى',
-                      hintText: 'اكتبي هنا تفاصيل الشكوى أو الملاحظة بشكل واضح',
                       prefixIcon: Icon(Icons.edit_note_rounded),
                       alignLabelWithHint: true,
                     ),
@@ -596,7 +586,7 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
                   });
                 },
                 decoration: InputDecoration(
-                  hintText: 'ابحث في شكاواك السابقة',
+                  hintText: 'بحث',
                   prefixIcon: const Icon(Icons.search_rounded),
                   suffixIcon: _searchQuery.isEmpty
                       ? null
@@ -650,20 +640,11 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
                               ),
                               SizedBox(height: 12),
                               Text(
-                                'لا توجد شكاوى مرسلة حتى الآن',
+                                'لا توجد شكاوى',
                                 style: TextStyle(
                                   color: AppColors.textDark,
                                   fontWeight: FontWeight.w800,
                                   fontSize: 16,
-                                ),
-                              ),
-                              SizedBox(height: 6),
-                              Text(
-                                'عند إرسال شكوى أو ملاحظة ستظهر هنا لمتابعة حالتها ورد الإدارة عليها.',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color: AppColors.textLight,
-                                  height: 1.5,
                                 ),
                               ),
                             ],
@@ -745,9 +726,7 @@ class _ParentComplaintsPageState extends State<ParentComplaintsPage> {
                                   borderRadius: BorderRadius.circular(14),
                                 ),
                                 child: Text(
-                                  message.isEmpty
-                                      ? 'لا يوجد وصف مرفق'
-                                      : message,
+                                  message.isEmpty ? '-' : message,
                                   maxLines: 3,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(

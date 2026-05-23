@@ -273,26 +273,160 @@ String get targetScopeLabel {
     return <String, dynamic>{};
   }
 
-  Future<void> _pickMedia() async {
-    final res = await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => const CameraCheckinPage(),
+ Future<void> _pickMedia() async {
+  if (isLoading) return;
+
+  await showModalBottomSheet(
+    context: context,
+    backgroundColor: Colors.white,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(
+        top: Radius.circular(24),
       ),
-    );
+    ),
+    builder: (sheetContext) {
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 42,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.border,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'إضافة صورة أو فيديو',
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w900,
+                  color: AppColors.textDark,
+                ),
+              ),
+              const SizedBox(height: 14),
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: AppColors.primary.withOpacity(0.12),
+                  child: const Icon(
+                    Icons.photo_camera_outlined,
+                    color: AppColors.primary,
+                  ),
+                ),
+                title: const Text(
+                  'تصوير بالكاميرا',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _pickFromCamera();
+                },
+              ),
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: AppColors.secondary.withOpacity(0.12),
+                  child: const Icon(
+                    Icons.image_outlined,
+                    color: AppColors.primary,
+                  ),
+                ),
+                title: const Text(
+                  'اختيار صورة من المعرض',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _pickFromGallery('image');
+                },
+              ),
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: AppColors.secondary.withOpacity(0.12),
+                  child: const Icon(
+                    Icons.video_library_outlined,
+                    color: AppColors.primary,
+                  ),
+                ),
+                title: const Text(
+                  'اختيار فيديو من المعرض',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _pickFromGallery('video');
+                },
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
 
-    if (res is! Map) return;
+Future<void> _pickFromCamera() async {
+  final res = await Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => const CameraCheckinPage(),
+    ),
+  );
 
-    final path = res['path'] as String?;
-    final mediaType = res['type'] as String?;
-    final file = res['file'] as XFile?;
-    final description = (res['description'] ?? '').toString().trim();
+  if (res is! Map) return;
 
-    if (path == null || path.trim().isEmpty || mediaType == null) return;
+  final path = res['path'] as String?;
+  final mediaType = res['type'] as String?;
+  final file = res['file'] as XFile?;
+  final description = (res['description'] ?? '').toString().trim();
+
+  if (path == null || path.trim().isEmpty || mediaType == null) return;
+
+  Uint8List? bytes;
+
+  if (mediaType == 'image' && file != null) {
+    try {
+      bytes = await file.readAsBytes();
+    } catch (_) {
+      bytes = null;
+    }
+  }
+
+  if (!mounted) return;
+
+  setState(() {
+    selectedMediaPath = path;
+    selectedMediaType = mediaType;
+    selectedMediaFile = file;
+    selectedImageBytes = bytes;
+
+    if (description.isNotEmpty && noteCtrl.text.trim().isEmpty) {
+      noteCtrl.text = description;
+    }
+  });
+}
+
+Future<void> _pickFromGallery(String mediaType) async {
+  try {
+    final picker = ImagePicker();
+
+    final XFile? file = mediaType == 'image'
+        ? await picker.pickImage(
+            source: ImageSource.gallery,
+            imageQuality: 85,
+          )
+        : await picker.pickVideo(
+            source: ImageSource.gallery,
+          );
+
+    if (file == null) return;
 
     Uint8List? bytes;
 
-    if (mediaType == 'image' && file != null) {
+    if (mediaType == 'image') {
       try {
         bytes = await file.readAsBytes();
       } catch (_) {
@@ -303,16 +437,15 @@ String get targetScopeLabel {
     if (!mounted) return;
 
     setState(() {
-      selectedMediaPath = path;
+      selectedMediaPath = file.path;
       selectedMediaType = mediaType;
       selectedMediaFile = file;
       selectedImageBytes = bytes;
-
-      if (description.isNotEmpty && noteCtrl.text.trim().isEmpty) {
-        noteCtrl.text = description;
-      }
     });
+  } catch (e) {
+    _showSnack('تعذر اختيار الوسائط من المعرض: $e');
   }
+}
 
   void _removeMedia() {
     setState(() {

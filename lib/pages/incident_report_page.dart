@@ -301,26 +301,104 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
 }
 
   Future<void> pickImage() async {
-    try {
-      final XFile? picked = await _picker.pickImage(
-        source: ImageSource.camera,
-        imageQuality: 75,
+  if (isSaving) return;
+
+  await showModalBottomSheet(
+    context: context,
+    backgroundColor: Colors.white,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(
+        top: Radius.circular(24),
+      ),
+    ),
+    builder: (sheetContext) {
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 42,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.border,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'إضافة صورة الحادث',
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w900,
+                  color: AppColors.textDark,
+                ),
+              ),
+              const SizedBox(height: 14),
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: AppColors.primary.withOpacity(0.12),
+                  child: const Icon(
+                    Icons.photo_camera_outlined,
+                    color: AppColors.primary,
+                  ),
+                ),
+                title: const Text(
+                  'التقاط صورة بالكاميرا',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  pickIncidentImage(ImageSource.camera);
+                },
+              ),
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: AppColors.secondary.withOpacity(0.12),
+                  child: const Icon(
+                    Icons.image_outlined,
+                    color: AppColors.primary,
+                  ),
+                ),
+                title: const Text(
+                  'اختيار صورة من المعرض',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  pickIncidentImage(ImageSource.gallery);
+                },
+              ),
+            ],
+          ),
+        ),
       );
+    },
+  );
+}
 
-      if (picked == null) return;
+Future<void> pickIncidentImage(ImageSource source) async {
+  try {
+    final XFile? picked = await _picker.pickImage(
+      source: source,
+      imageQuality: 75,
+    );
 
-      final bytes = await picked.readAsBytes();
+    if (picked == null) return;
 
-      if (!mounted) return;
+    final bytes = await picked.readAsBytes();
 
-      setState(() {
-        selectedImage = picked;
-        selectedImageBytes = bytes;
-      });
-    } catch (e) {
-      _showSnack('تعذر التقاط الصورة: $e');
-    }
+    if (!mounted) return;
+
+    setState(() {
+      selectedImage = picked;
+      selectedImageBytes = bytes;
+    });
+  } catch (e) {
+    _showSnack('تعذر اختيار الصورة: $e');
   }
+}
 
   void removeImage() {
     setState(() {
@@ -331,49 +409,54 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
 
 
 
-  Future<Map<String, dynamic>> _uploadIncidentImageIfNeeded() async {
-    if (selectedImage == null) {
-      return {
-        'hasImage': false,
-        'hasMedia': false,
-        'imagePath': '',
-        'imageUrl': '',
-        'imageType': '',
-        'mediaPath': '',
-        'mediaUrl': '',
-        'mediaType': '',
-        'storageProvider': '',
-        'bucket': '',
-        'mimeType': '',
-        'sizeBytes': 0,
-      };
-    }
-
-    final uploaded = await _galleryService.uploadChildMediaDetailed(
-      childId: widget.child.id,
-      file: selectedImage!,
-      mediaType: 'image',
-    );
-
-    if (uploaded == null) {
-      throw Exception('فشل رفع صورة الحادث');
-    }
-
+Future<Map<String, dynamic>> _uploadIncidentImageIfNeeded() async {
+  if (selectedImage == null) {
     return {
-      'hasImage': true,
-      'hasMedia': true,
-      'imagePath': uploaded.path,
-      'imageUrl': uploaded.signedUrl,
-      'imageType': 'image',
-      'mediaPath': uploaded.path,
-      'mediaUrl': uploaded.signedUrl,
-      'mediaType': 'image',
-      'storageProvider': uploaded.storageProvider,
-      'bucket': uploaded.bucket,
-      'mimeType': uploaded.mimeType,
-      'sizeBytes': uploaded.sizeBytes,
+      'hasImage': false,
+      'hasMedia': false,
+      'imagePath': '',
+      'imageUrl': '',
+      'imageType': '',
+      'mediaPath': '',
+      'mediaUrl': '',
+      'publicUrl': '',
+      'mediaType': '',
+      'storageProvider': '',
+      'bucket': '',
+      'mimeType': '',
+      'sizeBytes': 0,
+      'isSignedUrl': false,
     };
   }
+
+  final uploaded = await _galleryService.uploadChildMediaDetailed(
+    childId: widget.child.id,
+    file: selectedImage!,
+    mediaType: 'image',
+  );
+
+  if (uploaded == null) {
+    throw Exception('فشل رفع صورة الحادث');
+  }
+
+  return {
+    ...uploaded.toMap(),
+    'hasImage': true,
+    'hasMedia': true,
+    'imagePath': uploaded.path,
+    'imageUrl': uploaded.publicUrl,
+    'imageType': 'image',
+    'mediaPath': uploaded.path,
+    'mediaUrl': uploaded.publicUrl,
+    'publicUrl': uploaded.publicUrl,
+    'mediaType': 'image',
+    'storageProvider': uploaded.storageProvider,
+    'bucket': uploaded.bucket,
+    'mimeType': uploaded.mimeType,
+    'sizeBytes': uploaded.sizeBytes,
+    'isSignedUrl': false,
+  };
+}
 
  String _buildIncidentSummary({
   required String autoRisk,
@@ -766,8 +849,8 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
                         onPressed: isSaving ? null : pickImage,
                         icon: const Icon(Icons.camera_alt_outlined),
                         label: Text(
-                          selectedImage == null ? 'التقاط صورة' : 'تغيير الصورة',
-                        ),
+                          selectedImage == null ? 'إضافة صورة' : 'تغيير الصورة',
+                         ),
                       ),
                     ),
                     if (selectedImage != null) ...[

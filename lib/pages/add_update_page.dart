@@ -116,6 +116,23 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
     }
   }
 
+  String _typeKey(String value) {
+    switch (value.trim()) {
+      case 'وجبة':
+        return 'meal';
+      case 'نوم':
+        return 'sleep';
+      case 'حفاض':
+        return 'diaper';
+      case 'صحة':
+        return 'health';
+      case 'نشاط':
+        return 'activity';
+      default:
+        return 'note';
+    }
+  }
+
   String sectionLabel(String section) {
     return 'حضانة';
   }
@@ -240,6 +257,13 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
     String parentUid = widget.child.parentUid.trim();
     String parentUsername = widget.child.parentUsername.trim().toLowerCase();
     String parentName = widget.child.parentName.trim();
+    String parentPhone = '';
+    String childType = 'permanent';
+    String groupId = '';
+    String groupName = widget.child.group.trim();
+    String assignedStaffUid = '';
+    String assignedStaffName = '';
+    String assignedStaffUsername = '';
 
     try {
       final childDoc =
@@ -252,10 +276,45 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
         final docParentUsername =
             (data['parentUsername'] ?? '').toString().trim().toLowerCase();
         final docParentName = (data['parentName'] ?? '').toString().trim();
+        final docParentPhone = (data['parentPhone'] ?? '').toString().trim();
+        final docChildType = (data['childType'] ??
+        data['enrollmentType'] ??
+        data['childStatus'] ??
+          '')
+         .toString()
+         .trim()
+         .toLowerCase();
+
+        final isTemporaryChild = data['isTemporaryChild'] == true;
+        final isTrialChild = data['isTrialChild'] == true;
+        final docGroupId = (data['groupId'] ?? '').toString().trim();
+        final docGroupName =
+            (data['groupName'] ?? data['group'] ?? '').toString().trim();
+        final docStaffUid =
+            (data['assignedStaffUid'] ?? '').toString().trim();
+        final docStaffName =
+            (data['assignedStaffName'] ?? '').toString().trim();
+        final docStaffUsername =
+            (data['assignedStaffUsername'] ?? '').toString().trim();
 
         if (docParentUid.isNotEmpty) parentUid = docParentUid;
         if (docParentUsername.isNotEmpty) parentUsername = docParentUsername;
         if (docParentName.isNotEmpty) parentName = docParentName;
+        if (docParentPhone.isNotEmpty) parentPhone = docParentPhone;
+
+        if (isTrialChild || docChildType == 'trial') {
+         childType = 'trial';
+        } else if (isTemporaryChild || docChildType == 'temporary') {
+         childType = 'temporary';
+        }
+
+        if (docGroupId.isNotEmpty) groupId = docGroupId;
+        if (docGroupName.isNotEmpty) groupName = docGroupName;
+        if (docStaffUid.isNotEmpty) assignedStaffUid = docStaffUid;
+        if (docStaffName.isNotEmpty) assignedStaffName = docStaffName;
+        if (docStaffUsername.isNotEmpty) {
+          assignedStaffUsername = docStaffUsername;
+        }
       }
     } catch (_) {}
 
@@ -263,29 +322,170 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
       'parentUid': parentUid,
       'parentUsername': parentUsername,
       'parentName': parentName,
+      'parentPhone': parentPhone,
+      'childType': childType,
+      'groupId': groupId,
+      'groupName': groupName,
+      'assignedStaffUid': assignedStaffUid,
+      'assignedStaffName': assignedStaffName,
+      'assignedStaffUsername': assignedStaffUsername,
     };
   }
 
-  Future<void> pickMedia() async {
-    final res = await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => const CameraCheckinPage(),
+Future<void> pickMedia() async {
+  if (isLoading) return;
+
+  await showModalBottomSheet(
+    context: context,
+    backgroundColor: Colors.white,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(
+        top: Radius.circular(24),
       ),
-    );
+    ),
+    builder: (sheetContext) {
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 42,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.border,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'إضافة صورة أو فيديو',
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w900,
+                  color: AppColors.textDark,
+                ),
+              ),
+              const SizedBox(height: 14),
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: AppColors.primary.withOpacity(0.12),
+                  child: const Icon(
+                    Icons.photo_camera_outlined,
+                    color: AppColors.primary,
+                  ),
+                ),
+                title: const Text(
+                  'تصوير بالكاميرا',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  pickFromCamera();
+                },
+              ),
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: AppColors.secondary.withOpacity(0.12),
+                  child: const Icon(
+                    Icons.image_outlined,
+                    color: AppColors.primary,
+                  ),
+                ),
+                title: const Text(
+                  'اختيار صورة من المعرض',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  pickFromGallery('image');
+                },
+              ),
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: AppColors.secondary.withOpacity(0.12),
+                  child: const Icon(
+                    Icons.video_library_outlined,
+                    color: AppColors.primary,
+                  ),
+                ),
+                title: const Text(
+                  'اختيار فيديو من المعرض',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  pickFromGallery('video');
+                },
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
 
-    if (res is! Map) return;
+Future<void> pickFromCamera() async {
+  final res = await Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => const CameraCheckinPage(),
+    ),
+  );
 
-    final path = res['path'] as String?;
-    final mediaType = res['type'] as String?;
-    final file = res['file'] as XFile?;
-    final description = (res['description'] ?? '').toString().trim();
+  if (res is! Map) return;
 
-    if (path == null || path.trim().isEmpty || mediaType == null) return;
+  final path = res['path'] as String?;
+  final mediaType = res['type'] as String?;
+  final file = res['file'] as XFile?;
+  final description = (res['description'] ?? '').toString().trim();
+
+  if (path == null || path.trim().isEmpty || mediaType == null) return;
+
+  Uint8List? bytes;
+
+  if (mediaType == 'image' && file != null) {
+    try {
+      bytes = await file.readAsBytes();
+    } catch (_) {
+      bytes = null;
+    }
+  }
+
+  if (!mounted) return;
+
+  setState(() {
+    selectedMediaPath = path;
+    selectedMediaType = mediaType;
+    selectedMediaFile = file;
+    selectedImageBytes = bytes;
+
+    if (description.isNotEmpty && noteCtrl.text.trim().isEmpty) {
+      noteCtrl.text = description;
+    }
+  });
+}
+
+Future<void> pickFromGallery(String mediaType) async {
+  try {
+    final picker = ImagePicker();
+
+    final XFile? file = mediaType == 'image'
+        ? await picker.pickImage(
+            source: ImageSource.gallery,
+            imageQuality: 85,
+          )
+        : await picker.pickVideo(
+            source: ImageSource.gallery,
+          );
+
+    if (file == null) return;
 
     Uint8List? bytes;
 
-    if (mediaType == 'image' && file != null) {
+    if (mediaType == 'image') {
       try {
         bytes = await file.readAsBytes();
       } catch (_) {
@@ -296,16 +496,15 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
     if (!mounted) return;
 
     setState(() {
-      selectedMediaPath = path;
+      selectedMediaPath = file.path;
       selectedMediaType = mediaType;
       selectedMediaFile = file;
       selectedImageBytes = bytes;
-
-      if (description.isNotEmpty && noteCtrl.text.trim().isEmpty) {
-        noteCtrl.text = description;
-      }
     });
+  } catch (e) {
+    _showSnack('تعذر اختيار الوسائط من المعرض: $e');
   }
+}
 
   void removeMedia() {
     setState(() {
@@ -392,17 +591,10 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
     final note = noteCtrl.text.trim();
     final extra = extraCtrl.text.trim();
 
-    final now = DateTime.now();
-
     final parts = <String>[
       if (base.isNotEmpty) base,
       if (note.isNotEmpty) note,
       if (extra.isNotEmpty) extra,
-      'المزاج: $selectedMood',
-      'النشاط: $selectedEnergy',
-      'المكان: $selectedLocation',
-      'الأهمية: $importance',
-      'الوقت: ${formatDate(now)} - ${formatTime(now)}',
     ];
 
     return parts.join(' | ');
@@ -476,6 +668,7 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
       final now = Timestamp.fromDate(nowDate);
       final priority = _priorityValue(importance);
       final finalNote = buildFinalNote();
+      final updateTypeKey = _typeKey(type);
 
       final userInfo = await fetchCurrentUserInfo();
       final parentInfo = await fetchParentLinkInfo();
@@ -485,6 +678,14 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
       final parentUsername =
           (parentInfo['parentUsername'] ?? '').trim().toLowerCase();
       final parentName = (parentInfo['parentName'] ?? '').trim();
+      final parentPhone = (parentInfo['parentPhone'] ?? '').trim();
+      final childType = (parentInfo['childType'] ?? 'permanent').trim();
+      final groupId = (parentInfo['groupId'] ?? '').trim();
+      final groupName = (parentInfo['groupName'] ?? widget.child.group).trim();
+      final assignedStaffUid = (parentInfo['assignedStaffUid'] ?? '').trim();
+      final assignedStaffName = (parentInfo['assignedStaffName'] ?? '').trim();
+      final assignedStaffUsername =
+          (parentInfo['assignedStaffUsername'] ?? '').trim();
 
       final canNotifyParent = parentUid.isNotEmpty || parentUsername.isNotEmpty;
 
@@ -495,14 +696,22 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
         'updateId': updateRef.id,
         'childId': widget.child.id,
         'childName': widget.child.name,
+        'childType': childType,
         'parentUid': parentUid,
         'parentUsername': parentUsername,
         'parentName': parentName,
+        'parentPhone': parentPhone,
         'section': 'Nursery',
-        'group': widget.child.group,
+        'group': groupName,
+        'groupId': groupId,
+        'groupName': groupName,
+        'assignedStaffUid': assignedStaffUid,
+        'assignedStaffName': assignedStaffName,
+        'assignedStaffUsername': assignedStaffUsername,
         'type': type,
-        'updateType': type,
-        'category': type,
+        'typeKey': updateTypeKey,
+        'updateType': updateTypeKey,
+        'category': updateTypeKey,
         'title': autoTitle(),
         'note': finalNote,
         'message': finalNote,
@@ -519,6 +728,7 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
         'senderName': userInfo['name'],
         'senderRole': userInfo['role'],
         ...mediaData,
+        'mediaCategory': mediaData['hasMedia'] == true ? 'media' : '',
         'importance': priority,
         'priority': priority,
         'importanceLabel': importance,
@@ -552,13 +762,13 @@ if (canNotifyParent) {
     childId: widget.child.id,
     childName: widget.child.name,
     section: 'Nursery',
-    group: widget.child.group,
+    group: groupName,
     priority: priority,
     createdByUid: userInfo['uid'] ?? '',
     createdByName: userInfo['name'] ?? 'مستخدم',
     createdByRole: userInfo['role'] ?? 'nursery_staff',
     extraData: {
-      'category': type,
+      'category': updateTypeKey,
       'templateType': type,
       'updateId': updateRef.id,
       'notificationType': 'update_notification',
@@ -574,6 +784,10 @@ if (canNotifyParent) {
       'screen': 'notifications',
       'route': 'parent_notifications',
       'relatedCollection': 'updates',
+      'childType': childType,
+      'parentPhone': parentPhone,
+      'groupId': groupId,
+      'groupName': groupName,
       ...mediaData,
     },
   );
@@ -749,11 +963,11 @@ if (canNotifyParent) {
   }
 
   @override
-  Widget build(BuildContext context) {
-    final hasMedia = selectedMediaPath != null && selectedMediaType != null;
-    final previewText = buildFinalNote();
+Widget build(BuildContext context) {
+  final hasMedia = selectedMediaPath != null && selectedMediaType != null;
+  final previewText = buildFinalNote();
 
-    return AppPageScaffold(
+  return AppPageScaffold(
       title: 'إضافة تحديث',
       child: ListView(
         children: [
@@ -765,17 +979,17 @@ if (canNotifyParent) {
           const SizedBox(height: 18),
           _buildTypeSection(context),
           const SizedBox(height: 18),
-          _buildTimeAndLocationSection(),
-          const SizedBox(height: 18),
           _buildStatusSection(),
+          const SizedBox(height: 18),
+          _buildTimeAndLocationSection(),
           const SizedBox(height: 18),
           buildDynamicFields(),
           const SizedBox(height: 18),
           _buildNoteSection(),
           const SizedBox(height: 18),
-          _buildPreviewSection(previewText),
-          const SizedBox(height: 20),
           _buildMediaSection(context, hasMedia),
+          const SizedBox(height: 18),
+          _buildPreviewSection(previewText),
           const SizedBox(height: 24),
           ElevatedButton.icon(
             onPressed: isLoading ? null : save,
@@ -838,7 +1052,7 @@ if (canNotifyParent) {
           const SizedBox(width: 14),
           Expanded(
             child: Text(
-              'إضافة تحديث جديد',
+              'إضافة تحديث',
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.w800,
                     color: AppColors.textDark,
@@ -910,12 +1124,7 @@ if (canNotifyParent) {
             label: 'القسم',
             value: sectionLabel(widget.child.section),
           ),
-          const SizedBox(height: 10),
-          _infoRow(
-            icon: Icons.badge_outlined,
-            label: 'بواسطة',
-            value: roleLabel(),
-          ),
+
         ],
       ),
     );

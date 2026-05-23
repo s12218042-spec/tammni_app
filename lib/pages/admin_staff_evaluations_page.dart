@@ -251,7 +251,7 @@ class _AdminStaffEvaluationsPageState
         .timeout(
       const Duration(seconds: 12),
       onTimeout: () {
-        throw Exception('انتهت مهلة تحميل أرشيف التقييمات');
+        throw Exception('تعذر تحميل التقييمات');
       },
     );
 
@@ -343,7 +343,7 @@ class _AdminStaffEvaluationsPageState
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Text(
-                'حدث خطأ أثناء تحميل الموظفات:\n${snapshot.error}',
+                'تعذر تحميل الموظفات',
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: Colors.red),
               ),
@@ -375,7 +375,7 @@ class _AdminStaffEvaluationsPageState
             child: Padding(
               padding: EdgeInsets.all(16),
               child: Text(
-                'لا يوجد موظفات حضانة.\nتأكدي أن role = nursery_staff داخل users.',
+                'لا يوجد موظفات حضانة',
                 textAlign: TextAlign.center,
               ),
             ),
@@ -457,14 +457,6 @@ class _AdminStaffEvaluationsPageState
               style: TextStyle(
                 fontWeight: FontWeight.bold,
                 fontSize: 16,
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'كل معيار من 1 إلى 5',
-              style: TextStyle(
-                color: Colors.grey,
-                fontWeight: FontWeight.w600,
               ),
             ),
             const SizedBox(height: 12),
@@ -600,7 +592,6 @@ class _AdminStaffEvaluationsPageState
               textAlign: TextAlign.right,
               decoration: const InputDecoration(
                 labelText: 'ملاحظات الإدارة',
-                hintText: 'اكتبي ملاحظات حول أداء الموظفة',
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.notes_outlined),
               ),
@@ -649,7 +640,7 @@ class _AdminStaffEvaluationsPageState
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Text(
-                'حدث خطأ أثناء تحميل أرشيف التقييمات:\n${snapshot.error}',
+                'تعذر تحميل التقييمات',
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: Colors.red),
               ),
@@ -665,7 +656,7 @@ class _AdminStaffEvaluationsPageState
             child: Padding(
               padding: EdgeInsets.all(16),
               child: Text(
-                'لا يوجد أرشيف تقييمات بعد.',
+                'لا توجد تقييمات',
                 textAlign: TextAlign.center,
               ),
             ),

@@ -19,21 +19,15 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final EmployeeAccountCreationService _accountCreationService =
       EmployeeAccountCreationService();
-
-  // بيانات الحساب
   final fullNameCtrl = TextEditingController();
   final usernameCtrl = TextEditingController();
   final emailCtrl = TextEditingController();
   final passwordCtrl = TextEditingController();
   final confirmPasswordCtrl = TextEditingController();
-
-  // البيانات الشخصية
   final nationalIdCtrl = TextEditingController();
   final phoneCtrl = TextEditingController();
   final alternativePhoneCtrl = TextEditingController();
   final addressCtrl = TextEditingController();
-
-  // البيانات المهنية / التعليمية
   final jobTitleCtrl = TextEditingController(text: 'موظفة حضانة');
   final specializationCtrl = TextEditingController();
   final universityCtrl = TextEditingController();
@@ -43,8 +37,6 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
   final responsibilitiesCtrl = TextEditingController();
   final certificationsCtrl = TextEditingController();
   final cvNotesCtrl = TextEditingController();
-
-  // ملاحظات إدارية
   final extraPermissionsCtrl = TextEditingController();
   final adminNotesCtrl = TextEditingController();
 
@@ -113,92 +105,13 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
     );
   }
 
-  Widget buildSectionTitle(String title, String subtitle) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w800,
-                color: AppColors.textDark,
-              ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          subtitle,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: AppColors.textLight,
-              ),
-        ),
-      ],
-    );
-  }
-
-  Widget buildHeaderCard() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            AppColors.nursery.withOpacity(0.18),
-            AppColors.secondary.withOpacity(0.10),
-          ],
-          begin: Alignment.topRight,
-          end: Alignment.bottomLeft,
-        ),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: AppColors.nursery.withOpacity(0.18),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.shadow.withOpacity(0.08),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
+  Widget buildSectionTitle(String title) {
+    return Text(
+      title,
+      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w800,
+            color: AppColors.textDark,
           ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 58,
-            height: 58,
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.75),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.child_friendly_rounded,
-              color: AppColors.nursery,
-              size: 28,
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'إضافة موظفة حضانة',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.textDark,
-                      ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'إنشاء حساب موظفة حضانة بالبيانات الأساسية والمهنية اللازمة فقط.',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: AppColors.textLight,
-                        height: 1.45,
-                      ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -211,7 +124,6 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
       initialDate: initial,
       firstDate: DateTime(now.year - 70),
       lastDate: DateTime(now.year - 18),
-      helpText: 'اختيار تاريخ الميلاد',
     );
 
     if (picked != null) {
@@ -230,7 +142,6 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
       initialDate: initial,
       firstDate: DateTime(now.year - 30),
       lastDate: now,
-      helpText: 'اختيار تاريخ التعيين',
     );
 
     if (picked != null) {
@@ -550,17 +461,11 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
         key: _formKey,
         child: ListView(
           children: [
-            buildHeaderCard(),
-            const SizedBox(height: 18),
-
             buildMainCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  buildSectionTitle(
-                    'بيانات الحساب',
-                    'هذه البيانات تستخدم لتسجيل دخول الموظفة إلى التطبيق.',
-                  ),
+                  buildSectionTitle('بيانات الحساب'),
                   const SizedBox(height: 14),
 
                   TextFormField(
@@ -569,7 +474,6 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     decoration: customDecoration(
                       label: 'الاسم الكامل',
                       icon: Icons.badge_rounded,
-                      hint: 'مثال: آية عبد الحق',
                     ),
                     validator: (value) {
                       final text = value?.trim() ?? '';
@@ -586,7 +490,6 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     decoration: customDecoration(
                       label: 'اسم المستخدم',
                       icon: Icons.alternate_email_rounded,
-                      hint: 'مثال: aya.nursery',
                     ),
                     validator: (value) {
                       final text = value?.trim() ?? '';
@@ -606,7 +509,6 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     decoration: customDecoration(
                       label: 'البريد الإلكتروني',
                       icon: Icons.email_outlined,
-                      hint: 'nursery@example.com',
                     ),
                     validator: (value) {
                       final text = value?.trim() ?? '';
@@ -626,7 +528,6 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     decoration: customDecoration(
                       label: 'كلمة المرور',
                       icon: Icons.lock_outline_rounded,
-                      hint: '8 أحرف فأكثر',
                       suffixIcon: IconButton(
                         onPressed: isLoading
                             ? null
@@ -660,7 +561,6 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     decoration: customDecoration(
                       label: 'تأكيد كلمة المرور',
                       icon: Icons.lock_reset_rounded,
-                      hint: 'أعيدي كتابة كلمة المرور',
                       suffixIcon: IconButton(
                         onPressed: isLoading
                             ? null
@@ -696,10 +596,7 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  buildSectionTitle(
-                    'البيانات الشخصية',
-                    'معلومات الهوية والتواصل الأساسية.',
-                  ),
+                  buildSectionTitle('البيانات الشخصية'),
                   const SizedBox(height: 14),
 
                   TextFormField(
@@ -709,7 +606,6 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     decoration: customDecoration(
                       label: 'رقم الهوية',
                       icon: Icons.credit_card_rounded,
-                      hint: '9 أرقام',
                     ),
                     validator: (value) {
                       final text = value?.trim() ?? '';
@@ -755,7 +651,6 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     decoration: customDecoration(
                       label: 'رقم الجوال',
                       icon: Icons.phone_rounded,
-                      hint: '059xxxxxxx أو 056xxxxxxx أو 052xxxxxxx',
                     ),
                     validator: (value) {
                       final text = value?.trim() ?? '';
@@ -775,7 +670,6 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     decoration: customDecoration(
                       label: 'رقم جوال بديل',
                       icon: Icons.phone_in_talk_rounded,
-                      hint: 'اختياري',
                     ),
                     validator: (value) {
                       final text = value?.trim() ?? '';
@@ -798,7 +692,6 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     decoration: customDecoration(
                       label: 'العنوان',
                       icon: Icons.home_outlined,
-                      hint: 'مثال: نابلس - رفيديا',
                     ),
                     validator: (value) {
                       final text = value?.trim() ?? '';
@@ -817,10 +710,7 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  buildSectionTitle(
-                    'البيانات المهنية والتعليمية',
-                    'بيانات العمل والمؤهل والخبرة. يتم تحديد المجموعة لاحقًا من إدارة المجموعات.',
-                  ),
+                  buildSectionTitle('البيانات المهنية والتعليمية'),
                   const SizedBox(height: 14),
 
                   TextFormField(
@@ -829,7 +719,6 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     decoration: customDecoration(
                       label: 'المسمى الوظيفي',
                       icon: Icons.work_outline_rounded,
-                      hint: 'مثال: مشرفة حضانة / مقدمة رعاية',
                     ),
                     validator: (value) {
                       final text = value?.trim() ?? '';
@@ -879,7 +768,6 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     decoration: customDecoration(
                       label: 'الجامعة',
                       icon: Icons.account_balance_rounded,
-                      hint: 'مثال: جامعة النجاح الوطنية',
                     ),
                     validator: (value) {
                       final text = value?.trim() ?? '';
@@ -895,7 +783,6 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     decoration: customDecoration(
                       label: 'الكلية',
                       icon: Icons.apartment_rounded,
-                      hint: 'مثال: كلية التربية',
                     ),
                     validator: (value) {
                       final text = value?.trim() ?? '';
@@ -911,7 +798,6 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     decoration: customDecoration(
                       label: 'التخصص',
                       icon: Icons.auto_stories_rounded,
-                      hint: 'مثال: تربية طفل / رياض أطفال / تمريض',
                     ),
                     validator: (value) {
                       final text = value?.trim() ?? '';
@@ -928,7 +814,6 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     decoration: customDecoration(
                       label: 'سنة التخرج',
                       icon: Icons.calendar_today_rounded,
-                      hint: 'مثال: 2021',
                     ),
                     validator: (value) {
                       final text = value?.trim() ?? '';
@@ -953,7 +838,6 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     decoration: customDecoration(
                       label: 'سنوات الخبرة',
                       icon: Icons.workspace_premium_rounded,
-                      hint: 'مثال: 2',
                     ),
                     validator: (value) {
                       final text = value?.trim() ?? '';
@@ -977,7 +861,6 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     decoration: customDecoration(
                       label: 'المسؤوليات / المهام',
                       icon: Icons.checklist_rounded,
-                      hint: 'مثال: رعاية, متابعة نوم, متابعة وجبات',
                     ),
                     validator: (value) {
                       final items = splitCommaValues(value ?? '');
@@ -1038,7 +921,6 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     decoration: customDecoration(
                       label: 'الدورات / الشهادات',
                       icon: Icons.card_membership_rounded,
-                      hint: 'مثال: سلامة أطفال, رعاية مبكرة',
                     ),
                   ),
                   const SizedBox(height: 14),
@@ -1050,7 +932,6 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     decoration: customDecoration(
                       label: 'ملاحظات السيرة الذاتية / CV',
                       icon: Icons.description_outlined,
-                      hint: 'ملاحظات مختصرة حول الخبرة أو السيرة الذاتية',
                     ),
                   ),
                 ],
@@ -1063,10 +944,7 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  buildSectionTitle(
-                    'ملاحظات إدارية',
-                    'ملاحظات داخلية وصلاحيات إضافية إن لزم.',
-                  ),
+                  buildSectionTitle('ملاحظات إدارية'),
                   const SizedBox(height: 14),
 
                   TextFormField(
@@ -1076,7 +954,6 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     decoration: customDecoration(
                       label: 'صلاحيات إضافية',
                       icon: Icons.admin_panel_settings_outlined,
-                      hint: 'مثال: تقارير خاصة, صلاحيات متابعة محددة',
                     ),
                   ),
                   const SizedBox(height: 14),
@@ -1088,7 +965,6 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     decoration: customDecoration(
                       label: 'ملاحظات إدارية',
                       icon: Icons.notes_rounded,
-                      hint: 'أي ملاحظات إضافية حول هذه الموظفة...',
                     ),
                   ),
                 ],
@@ -1106,30 +982,6 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
               ),
               child: Column(
                 children: [
-                  Row(
-                    children: [
-                      CircleAvatar(
-                        backgroundColor: AppColors.nursery.withOpacity(0.15),
-                        child: const Icon(
-                          Icons.child_friendly_rounded,
-                          color: AppColors.nursery,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'سيتم إنشاء حساب من نوع: موظفة حضانة',
-                          style:
-                              Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                    fontWeight: FontWeight.w700,
-                                    color: AppColors.textDark,
-                                  ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-
                   SizedBox(
                     height: 54,
                     width: double.infinity,

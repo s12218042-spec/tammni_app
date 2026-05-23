@@ -1,7 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:pdf/widgets.dart' as pw;
-import 'package:printing/printing.dart';
+
 import '../services/app_notification_service.dart';
 
 class AdminWeeklyDutyPage extends StatefulWidget {
@@ -87,15 +86,12 @@ class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
       });
     }
 
-    list.sort((a, b) {
-      return _clean(a['name']).compareTo(_clean(b['name']));
-    });
-
+    list.sort((a, b) => _clean(a['name']).compareTo(_clean(b['name'])));
     return list;
   }
 
   String _staffNamesFromDutyData(Map<String, dynamic>? data) {
-    if (data == null) return 'لم يتم تحديد موظفات';
+    if (data == null) return 'لم يتم التحديد';
 
     final rawDutyStaff = data['dutyStaff'];
 
@@ -110,36 +106,19 @@ class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
           .where((name) => name.isNotEmpty)
           .toList();
 
-      if (names.isNotEmpty) {
-        return names.join('، ');
-      }
+      if (names.isNotEmpty) return names.join('، ');
     }
 
     final legacyName = _clean(data['staffName']);
     if (legacyName.isNotEmpty) return legacyName;
 
-    return 'موظفات غير محددات';
-  }
-
-  int _staffCountFromDutyData(Map<String, dynamic>? data) {
-    if (data == null) return 0;
-
-    final count = data['dutyStaffCount'];
-    if (count is num) return count.toInt();
-
-    final rawUids = data['dutyStaffUids'];
-    if (rawUids is List) return rawUids.length;
-
-    final legacyUid = _clean(data['staffUid']);
-    if (legacyUid.isNotEmpty) return 1;
-
-    return 0;
+    return 'لم يتم التحديد';
   }
 
   Future<void> _saveWeeklyDuty() async {
     if (selectedStaffUids.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('اختاري موظفة واحدة على الأقل للمناوبة')),
+        const SnackBar(content: Text('اختاري موظفة للمناوبة')),
       );
       return;
     }
@@ -151,7 +130,6 @@ class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
     try {
       final dutyStaff = _selectedDutyStaffList();
       final dutyStaffUids = dutyStaff.map((e) => _clean(e['uid'])).toList();
-
       final firstStaff = dutyStaff.isNotEmpty ? dutyStaff.first : null;
 
       await _firestore.collection('weekly_duties').doc(weekKey).set({
@@ -161,59 +139,54 @@ class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
         'weekEndDate': Timestamp.fromDate(weekEnd),
         'weekStartDateKey': _formatDate(weekStart),
         'weekEndDateKey': _formatDate(weekEnd),
-
-        // الشكل الجديد: أكثر من موظفة مناوبة
         'dutyStaffUids': dutyStaffUids,
         'dutyStaff': dutyStaff,
         'dutyStaffCount': dutyStaff.length,
-
-        // حقول توافق مع الكود القديم لأول موظفة فقط
         'staffUid': firstStaff == null ? '' : _clean(firstStaff['uid']),
         'staffName': firstStaff == null ? '' : _clean(firstStaff['name']),
         'staffUsername':
             firstStaff == null ? '' : _clean(firstStaff['username']),
-
         'isActive': true,
         'createdByRole': 'admin',
         'updatedAt': FieldValue.serverTimestamp(),
         'createdAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
-    for (final staff in dutyStaff) {
-  final staffUid = _clean(staff['uid']);
-  final staffName = _clean(staff['name']);
-  final staffUsername = _clean(staff['username']);
+      for (final staff in dutyStaff) {
+        final staffUid = _clean(staff['uid']);
+        final staffName = _clean(staff['name']);
+        final staffUsername = _clean(staff['username']);
 
-  if (staffUid.isEmpty) continue;
+        if (staffUid.isEmpty) continue;
 
-  await AppNotificationService.instance.notifyUser(
-    targetUid: staffUid,
-    targetUsername: staffUsername,
-    targetRole: 'nursery_staff',
-    title: 'تم تحديدك ضمن مناوبة الأسبوع',
-    body:
-        'تم تحديدك ضمن مناوبة هذا الأسبوع من ${_formatDate(weekStart)} إلى ${_formatDate(weekEnd)}.',
-    type: 'weekly_duty',
-    priority: 'important',
-    createdByRole: 'admin',
-    extraData: {
-      'weekKey': weekKey,
-      'weekStartDateKey': _formatDate(weekStart),
-      'weekEndDateKey': _formatDate(weekEnd),
-      'staffName': staffName,
-      'category': 'weekly_duty',
-      'notificationType': 'weekly_duty',
-      'screen': 'weekly_duty',
-      'route': 'staff_weekly_duty',
-      'relatedCollection': 'weekly_duties',
-    },
-  );
-}
+        await AppNotificationService.instance.notifyUser(
+          targetUid: staffUid,
+          targetUsername: staffUsername,
+          targetRole: 'nursery_staff',
+          title: 'مناوبة الأسبوع',
+          body:
+              'تم تحديدك ضمن مناوبة الأسبوع من ${_formatDate(weekStart)} إلى ${_formatDate(weekEnd)}.',
+          type: 'weekly_duty',
+          priority: 'important',
+          createdByRole: 'admin',
+          extraData: {
+            'weekKey': weekKey,
+            'weekStartDateKey': _formatDate(weekStart),
+            'weekEndDateKey': _formatDate(weekEnd),
+            'staffName': staffName,
+            'category': 'weekly_duty',
+            'notificationType': 'weekly_duty',
+            'screen': 'weekly_duty',
+            'route': 'staff_weekly_duty',
+            'relatedCollection': 'weekly_duties',
+          },
+        );
+      }
 
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم حفظ مناوبات الأسبوع بنجاح')),
+        const SnackBar(content: Text('تم حفظ المناوبة')),
       );
 
       setState(() {
@@ -224,7 +197,7 @@ class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('حدث خطأ أثناء حفظ المناوبة: $e')),
+        SnackBar(content: Text('تعذر حفظ المناوبة: $e')),
       );
     } finally {
       if (mounted) {
@@ -232,60 +205,6 @@ class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
           isSaving = false;
         });
       }
-    }
-  }
-
-  Future<void> _printWeeklyDuty() async {
-    try {
-      final dutyDoc =
-          await _firestore.collection('weekly_duties').doc(weekKey).get();
-
-      final data = dutyDoc.data();
-
-      final staffNames = _staffNamesFromDutyData(data);
-      final staffCount = _staffCountFromDutyData(data);
-
-      final pdf = pw.Document();
-
-      pdf.addPage(
-        pw.Page(
-          build: (context) {
-            return pw.Directionality(
-              textDirection: pw.TextDirection.rtl,
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Text(
-                    'تقرير المناوبات الأسبوعية',
-                    style: pw.TextStyle(
-                      fontSize: 22,
-                      fontWeight: pw.FontWeight.bold,
-                    ),
-                  ),
-                  pw.SizedBox(height: 16),
-                  pw.Text('تاريخ اليوم: ${_formatDate(today)}'),
-                  pw.Text('رمز الأسبوع: $weekKey'),
-                  pw.Text('بداية الأسبوع: ${_formatDate(weekStart)}'),
-                  pw.Text('نهاية الأسبوع: ${_formatDate(weekEnd)}'),
-                  pw.SizedBox(height: 16),
-                  pw.Text('عدد المناوبات: $staffCount'),
-                  pw.Text('الموظفات المناوبات: $staffNames'),
-                ],
-              ),
-            );
-          },
-        ),
-      );
-
-      await Printing.layoutPdf(
-        onLayout: (_) async => pdf.save(),
-      );
-    } catch (e) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('حدث خطأ أثناء الطباعة: $e')),
-      );
     }
   }
 
@@ -299,16 +218,7 @@ class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
 
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
       _loadDutyArchive() async {
-    final snapshot = await _firestore
-        .collection('weekly_duties')
-        .limit(40)
-        .get()
-        .timeout(
-      const Duration(seconds: 12),
-      onTimeout: () {
-        throw Exception('انتهت مهلة تحميل أرشيف المناوبات');
-      },
-    );
+    final snapshot = await _firestore.collection('weekly_duties').limit(40).get();
 
     final docs = snapshot.docs;
 
@@ -353,22 +263,9 @@ class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
               ],
             ),
             const SizedBox(height: 12),
-            _infoRow('تاريخ اليوم', _formatDate(today)),
+            _infoRow('من', _formatDate(weekStart)),
             const SizedBox(height: 6),
-            _infoRow('رمز الأسبوع', weekKey),
-            const SizedBox(height: 6),
-            _infoRow('بداية الأسبوع', _formatDate(weekStart)),
-            const SizedBox(height: 6),
-            _infoRow('نهاية الأسبوع', _formatDate(weekEnd)),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: _printWeeklyDuty,
-                icon: const Icon(Icons.print_outlined),
-                label: const Text('طباعة المناوبات'),
-              ),
-            ),
+            _infoRow('إلى', _formatDate(weekEnd)),
           ],
         ),
       ),
@@ -398,25 +295,18 @@ class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(18),
             ),
-            child: Padding(
-              padding: const EdgeInsets.all(14),
+            child: const Padding(
+              padding: EdgeInsets.all(14),
               child: Row(
                 children: [
                   CircleAvatar(
-                    backgroundColor: Colors.orange.withOpacity(0.12),
-                    child: const Icon(
-                      Icons.info_outline,
-                      color: Colors.orange,
-                    ),
+                    child: Icon(Icons.info_outline),
                   ),
-                  const SizedBox(width: 10),
-                  const Expanded(
+                  SizedBox(width: 10),
+                  Expanded(
                     child: Text(
-                      'لم يتم تحديد موظفات مناوبة لهذا الأسبوع بعد.',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        height: 1.4,
-                      ),
+                      'لم يتم تحديد مناوبة هذا الأسبوع',
+                      style: TextStyle(fontWeight: FontWeight.bold),
                     ),
                   ),
                 ],
@@ -426,7 +316,6 @@ class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
         }
 
         final staffNames = _staffNamesFromDutyData(data);
-        final staffCount = _staffCountFromDutyData(data);
 
         return Card(
           margin: const EdgeInsets.fromLTRB(12, 0, 12, 10),
@@ -450,7 +339,7 @@ class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'الموظفات المناوبات لهذا الأسبوع',
+                        'مناوبة هذا الأسبوع',
                         style: TextStyle(
                           color: Colors.grey,
                           fontWeight: FontWeight.bold,
@@ -463,11 +352,6 @@ class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
                           fontWeight: FontWeight.bold,
                           fontSize: 16,
                         ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'العدد: $staffCount',
-                        style: const TextStyle(color: Colors.grey),
                       ),
                     ],
                   ),
@@ -490,7 +374,7 @@ class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Text(
-                'حدث خطأ أثناء تحميل الموظفات:\n${snapshot.error}',
+                'تعذر تحميل الموظفات',
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: Colors.red),
               ),
@@ -522,7 +406,7 @@ class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
             child: Padding(
               padding: EdgeInsets.all(16),
               child: Text(
-                'لا يوجد موظفات حضانة.\nتأكدي أن role = nursery_staff داخل users.',
+                'لا توجد موظفات حضانة',
                 textAlign: TextAlign.center,
               ),
             ),
@@ -540,40 +424,13 @@ class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'اختيار الموظفات المناوبات',
+                  'تحديد المناوبة',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 16,
                   ),
                 ),
-                const SizedBox(height: 6),
-                const Text(
-                  'اختاري موظفة واحدة أو أكثر لهذا الأسبوع.',
-                  style: TextStyle(
-                    color: Colors.grey,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
                 const SizedBox(height: 12),
-
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Colors.blueGrey.withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    'عدد الموظفات المختارات: ${selectedStaffUids.length}',
-                    style: const TextStyle(
-                      color: Colors.blueGrey,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 12),
-
                 ...staffDocs.map((doc) {
                   final data = doc.data();
                   final uid = doc.id;
@@ -629,9 +486,7 @@ class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
                     ),
                   );
                 }),
-
                 const SizedBox(height: 12),
-
                 SizedBox(
                   width: double.infinity,
                   height: 48,
@@ -644,9 +499,7 @@ class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.save_outlined),
-                    label: Text(
-                      isSaving ? 'جاري الحفظ...' : 'حفظ المناوبات',
-                    ),
+                    label: Text(isSaving ? 'جاري الحفظ...' : 'حفظ المناوبة'),
                   ),
                 ),
               ],
@@ -672,14 +525,14 @@ class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
         }
 
         if (snapshot.hasError) {
-          return Card(
-            margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          return const Card(
+            margin: EdgeInsets.fromLTRB(12, 0, 12, 12),
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.all(16),
               child: Text(
-                'حدث خطأ أثناء تحميل الأرشيف:\n${snapshot.error}',
+                'تعذر تحميل الأرشيف',
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.red),
+                style: TextStyle(color: Colors.red),
               ),
             ),
           );
@@ -693,7 +546,7 @@ class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
             child: Padding(
               padding: EdgeInsets.all(16),
               child: Text(
-                'لا يوجد أرشيف مناوبات بعد.',
+                'لا يوجد أرشيف مناوبات',
                 textAlign: TextAlign.center,
               ),
             ),
@@ -711,7 +564,7 @@ class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'أرشيف المناوبات',
+                  'الأرشيف',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 16,
@@ -722,9 +575,6 @@ class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
                   final data = doc.data();
 
                   final staffNames = _staffNamesFromDutyData(data);
-                  final staffCount = _staffCountFromDutyData(data);
-
-                  final key = _clean(data['weekKey']);
                   final start = _clean(data['weekStartDateKey']);
                   final end = _clean(data['weekEndDateKey']);
 
@@ -753,7 +603,7 @@ class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
                                 ),
                               ),
                               Text(
-                                '$key • من $start إلى $end • العدد: $staffCount',
+                                '$start - $end',
                                 style: const TextStyle(
                                   color: Colors.grey,
                                   fontSize: 12.5,
@@ -801,7 +651,7 @@ class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
       child: Scaffold(
         backgroundColor: const Color(0xffF7F7F7),
         appBar: AppBar(
-          title: const Text('المناوبات الأسبوعية'),
+          title: const Text('المناوبة الأسبوعية'),
           centerTitle: true,
         ),
         body: RefreshIndicator(

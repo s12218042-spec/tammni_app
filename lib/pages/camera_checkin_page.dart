@@ -103,47 +103,54 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
   }
 
   Future<void> pickFromGallery() async {
-    try {
-      if (!mounted) return;
+  try {
+    if (!mounted) return;
 
-      setState(() {
-        isBusy = true;
-      });
+    setState(() {
+      isBusy = true;
+    });
 
-      final x = await _picker.pickImage(
-        source: ImageSource.gallery,
-        imageQuality: 75,
-      );
+    final XFile? x = mediaType == 'image'
+        ? await _picker.pickImage(
+            source: ImageSource.gallery,
+            imageQuality: 75,
+          )
+        : await _picker.pickVideo(
+            source: ImageSource.gallery,
+          );
 
-      if (!mounted) return;
+    if (!mounted) return;
 
-      if (x == null) {
-        setState(() {
-          isBusy = false;
-        });
-        return;
-      }
-
-      final bytes = await x.readAsBytes();
-
-      if (!mounted) return;
-
-      setState(() {
-        picked = x;
-        imageBytes = bytes;
-        mediaType = 'image';
-        isBusy = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-
+    if (x == null) {
       setState(() {
         isBusy = false;
       });
-
-      _showSnack('حدث خطأ أثناء اختيار الصورة: $e');
+      return;
     }
+
+    Uint8List? bytes;
+
+    if (mediaType == 'image') {
+      bytes = await x.readAsBytes();
+    }
+
+    if (!mounted) return;
+
+    setState(() {
+      picked = x;
+      imageBytes = bytes;
+      isBusy = false;
+    });
+  } catch (e) {
+    if (!mounted) return;
+
+    setState(() {
+      isBusy = false;
+    });
+
+    _showSnack('حدث خطأ أثناء اختيار الوسائط $e');
   }
+}
 
   Future<void> takeVideo() async {
     try {
@@ -648,11 +655,9 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
             const SizedBox(width: 12),
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: isBusy || mediaType != 'image'
-                    ? null
-                    : pickFromGallery,
+                onPressed: isBusy ? null : pickFromGallery,
                 icon: const Icon(Icons.photo_library_outlined),
-                label: const Text('من المعرض'),
+                label: Text(mediaType == 'image' ? 'صورة من المعرض' : 'فيديو من المعرض'),
                 style: OutlinedButton.styleFrom(
                   minimumSize: const Size(double.infinity, 54),
                   shape: RoundedRectangleBorder(

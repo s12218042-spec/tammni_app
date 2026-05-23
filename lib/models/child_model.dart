@@ -90,15 +90,12 @@ class ChildModel {
   final String fullName;
   final String gender;
 
-  // الحضانة فقط، لكن نبقيها للتوافق مع الصفحات والرولز
   final String section;
 
-  // للتوافق القديم + النظام الجديد
   final String group;
   final String groupId;
   final String groupName;
 
-  // الموظفة المسؤولة عن المجموعة/الطفل
   final String assignedStaffUid;
   final String assignedStaffName;
   final String assignedStaffUsername;
@@ -111,21 +108,25 @@ class ChildModel {
 
   final bool isActive;
 
-  /// status قديم
-  /// childStatus جديد
-  /// القيم المتوقعة:
-  /// pending / trial / active / rejected_after_trial / withdrawn / archived
+  /// permanent / temporary / trial
+  final String childType;
+
+  /// active / temporary / trial / pending / rejected_after_trial / withdrawn / archived
   final String status;
   final String childStatus;
 
-  // فترة التجربة
+  final DateTime? temporaryStartAt;
+  final DateTime? temporaryEndAt;
+  final String temporaryReason;
+  final String temporaryNote;
+  final bool hasConsultation;
+
   final DateTime? trialStartAt;
   final DateTime? trialEndAt;
   final DateTime? trialDecisionAt;
   final String trialDecision;
   final String trialNote;
 
-  // بيانات صحية
   final String allergies;
   final String chronicDiseases;
   final String medications;
@@ -158,8 +159,14 @@ class ChildModel {
     this.assignedStaffUsername = '',
     this.birthDate,
     this.isActive = true,
+    this.childType = 'permanent',
     this.status = 'active',
     this.childStatus = 'active',
+    this.temporaryStartAt,
+    this.temporaryEndAt,
+    this.temporaryReason = '',
+    this.temporaryNote = '',
+    this.hasConsultation = false,
     this.trialStartAt,
     this.trialEndAt,
     this.trialDecisionAt,
@@ -188,12 +195,35 @@ class ChildModel {
     return section.isEmpty ? 'Nursery' : section;
   }
 
+  static String normalizeChildType(dynamic value) {
+    final type = _string(value).trim().toLowerCase();
+
+    switch (type) {
+      case 'temporary':
+      case 'temp':
+      case 'temporary_child':
+      case 'مؤقت':
+        return 'temporary';
+      case 'trial':
+      case 'تجربة':
+      case 'فترة تجربة':
+        return 'trial';
+      case 'permanent':
+      case 'regular':
+      case 'active':
+      case 'دائم':
+      default:
+        return type.isEmpty ? 'permanent' : type;
+    }
+  }
+
   static String normalizeChildStatus(dynamic value) {
     final status = _string(value).toLowerCase();
 
     switch (status) {
       case 'pending':
       case 'trial':
+      case 'temporary':
       case 'active':
       case 'rejected_after_trial':
       case 'withdrawn':
@@ -219,10 +249,19 @@ class ChildModel {
       data['group'],
     ]);
 
+    final resolvedType = normalizeChildType(
+      _firstNonEmpty([
+        data['childType'],
+        data['enrollmentType'],
+        data['type'],
+      ]),
+    );
+
     final resolvedStatus = normalizeChildStatus(
       _firstNonEmpty([
         data['childStatus'],
         data['status'],
+        resolvedType == 'temporary' ? 'temporary' : '',
       ]),
     );
 
@@ -255,8 +294,18 @@ class ChildModel {
       parentUsername: _string(data['parentUsername']),
       birthDate: _parseDate(data['birthDate']),
       isActive: (data['isActive'] ?? true) == true,
+      childType: resolvedType,
       status: resolvedStatus,
       childStatus: resolvedStatus,
+      temporaryStartAt: _parseDate(
+        data['temporaryStartAt'] ?? data['temporaryStartDate'],
+      ),
+      temporaryEndAt: _parseDate(
+        data['temporaryEndAt'] ?? data['temporaryEndDate'],
+      ),
+      temporaryReason: _string(data['temporaryReason']),
+      temporaryNote: _string(data['temporaryNote']),
+      hasConsultation: data['hasConsultation'] == true,
       trialStartAt: _parseDate(data['trialStartAt']),
       trialEndAt: _parseDate(data['trialEndAt']),
       trialDecisionAt: _parseDate(data['trialDecisionAt']),
@@ -288,8 +337,17 @@ class ChildModel {
   Map<String, dynamic> toMap() {
     final resolvedGroupName = groupName.trim().isNotEmpty ? groupName : group;
     final resolvedGroup = group.trim().isNotEmpty ? group : resolvedGroupName;
+
+    final resolvedType = normalizeChildType(childType);
+
     final resolvedStatus = normalizeChildStatus(
-      childStatus.trim().isNotEmpty ? childStatus : status,
+      childStatus.trim().isNotEmpty
+          ? childStatus
+          : status.trim().isNotEmpty
+              ? status
+              : resolvedType == 'temporary'
+                  ? 'temporary'
+                  : 'active',
     );
 
     return {
@@ -300,7 +358,6 @@ class ChildModel {
 
       'section': normalizeSection(section),
 
-      // توافق قديم وجديد
       'group': resolvedGroup,
       'groupId': groupId,
       'groupName': resolvedGroupName,
@@ -316,8 +373,21 @@ class ChildModel {
       'birthDate': birthDate == null ? null : Timestamp.fromDate(birthDate!),
 
       'isActive': isActive,
+
+      'childType': resolvedType,
+      'enrollmentType': resolvedType,
+      'isTemporaryChild': resolvedType == 'temporary',
       'status': resolvedStatus,
       'childStatus': resolvedStatus,
+
+      'temporaryStartAt': temporaryStartAt == null
+          ? null
+          : Timestamp.fromDate(temporaryStartAt!),
+      'temporaryEndAt':
+          temporaryEndAt == null ? null : Timestamp.fromDate(temporaryEndAt!),
+      'temporaryReason': temporaryReason,
+      'temporaryNote': temporaryNote,
+      'hasConsultation': hasConsultation,
 
       'trialStartAt':
           trialStartAt == null ? null : Timestamp.fromDate(trialStartAt!),
@@ -348,8 +418,18 @@ class ChildModel {
     return normalizeSection(section) == 'Nursery';
   }
 
+  bool get isTemporaryChild {
+    final type = normalizeChildType(childType);
+    final resolvedStatus = normalizeChildStatus(
+      childStatus.trim().isNotEmpty ? childStatus : status,
+    );
+
+    return type == 'temporary' || resolvedStatus == 'temporary';
+  }
+
   bool get isTrial {
-    return childStatus == 'trial' || status == 'trial';
+    final type = normalizeChildType(childType);
+    return type == 'trial' || childStatus == 'trial' || status == 'trial';
   }
 
   bool get isActiveChild {
@@ -357,7 +437,14 @@ class ChildModel {
       childStatus.trim().isNotEmpty ? childStatus : status,
     );
 
-    return isActive && resolvedStatus == 'active';
+    return isActive &&
+        (resolvedStatus == 'active' ||
+            resolvedStatus == 'temporary' ||
+            resolvedStatus == 'trial');
+  }
+
+  bool get isPermanentChild {
+    return !isTemporaryChild && !isTrial;
   }
 
   bool get isPending {
@@ -396,6 +483,12 @@ class ChildModel {
             : 'بدون مجموعة';
   }
 
+  String get displayChildType {
+    if (isTemporaryChild) return 'طفل مؤقت';
+    if (isTrial) return 'فترة تجربة';
+    return 'طفل دائم';
+  }
+
   String get displayStatus {
     final resolvedStatus = normalizeChildStatus(
       childStatus.trim().isNotEmpty ? childStatus : status,
@@ -406,6 +499,8 @@ class ChildModel {
         return 'قيد المراجعة';
       case 'trial':
         return 'فترة تجربة';
+      case 'temporary':
+        return 'طفل مؤقت';
       case 'active':
         return 'نشط';
       case 'rejected_after_trial':
@@ -436,8 +531,14 @@ class ChildModel {
     String? parentUsername,
     DateTime? birthDate,
     bool? isActive,
+    String? childType,
     String? status,
     String? childStatus,
+    DateTime? temporaryStartAt,
+    DateTime? temporaryEndAt,
+    String? temporaryReason,
+    String? temporaryNote,
+    bool? hasConsultation,
     DateTime? trialStartAt,
     DateTime? trialEndAt,
     DateTime? trialDecisionAt,
@@ -473,8 +574,14 @@ class ChildModel {
       parentUsername: parentUsername ?? this.parentUsername,
       birthDate: birthDate ?? this.birthDate,
       isActive: isActive ?? this.isActive,
+      childType: childType ?? this.childType,
       status: status ?? this.status,
       childStatus: childStatus ?? this.childStatus,
+      temporaryStartAt: temporaryStartAt ?? this.temporaryStartAt,
+      temporaryEndAt: temporaryEndAt ?? this.temporaryEndAt,
+      temporaryReason: temporaryReason ?? this.temporaryReason,
+      temporaryNote: temporaryNote ?? this.temporaryNote,
+      hasConsultation: hasConsultation ?? this.hasConsultation,
       trialStartAt: trialStartAt ?? this.trialStartAt,
       trialEndAt: trialEndAt ?? this.trialEndAt,
       trialDecisionAt: trialDecisionAt ?? this.trialDecisionAt,

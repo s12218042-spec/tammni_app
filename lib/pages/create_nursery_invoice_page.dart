@@ -23,16 +23,20 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
   final titleCtrl = TextEditingController();
   final descriptionCtrl = TextEditingController();
 
-  // هذا المبلغ هو سعر الطفل الواحد بالشهر.
   final baseAmountCtrl = TextEditingController(text: '700');
   final transportFeeCtrl = TextEditingController();
   final mealsFeeCtrl = TextEditingController();
   final registrationFeeCtrl = TextEditingController();
   final lateFeeCtrl = TextEditingController();
+
+  final paidAmountCtrl = TextEditingController(text: '0');
+  final manualDiscountCtrl = TextEditingController(text: '0');
+  final discountNotesCtrl = TextEditingController();
   final notesCtrl = TextEditingController();
 
   String selectedBillingType = 'monthly';
-  String selectedPaymentStatus = 'unpaid';
+  String selectedPaymentMethod = 'cash';
+
   Map<String, dynamic>? selectedChild;
   Map<String, dynamic>? selectedSecondChild;
   Map<String, dynamic>? selectedOffer;
@@ -59,6 +63,9 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
     mealsFeeCtrl.dispose();
     registrationFeeCtrl.dispose();
     lateFeeCtrl.dispose();
+    paidAmountCtrl.dispose();
+    manualDiscountCtrl.dispose();
+    discountNotesCtrl.dispose();
     notesCtrl.dispose();
     super.dispose();
   }
@@ -125,11 +132,64 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
     return double.tryParse(value?.toString() ?? '') ?? 0;
   }
 
+  bool _isBillableMonthlyChild(Map<String, dynamic> data) {
+    final status = (data['status'] ?? data['childStatus'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+
+    final childType = (data['childType'] ??
+            data['enrollmentType'] ??
+            data['type'] ??
+            data['childStatus'] ??
+            '')
+        .toString()
+        .trim()
+        .toLowerCase();
+
+    final isActiveValue = data['isActive'];
+    final isActive = isActiveValue == null
+        ? status != 'inactive' &&
+            status != 'withdrawn' &&
+            status != 'rejected_after_trial' &&
+            status != 'archived'
+        : isActiveValue == true;
+
+    final isTrial = childType == 'trial' ||
+        status == 'trial' ||
+        data['isTrialChild'] == true;
+
+    final isTemporary = childType == 'temporary' ||
+        childType == 'temp' ||
+        childType == 'temporary_child' ||
+        childType == 'مؤقت' ||
+        status == 'temporary' ||
+        data['isTemporaryChild'] == true;
+
+    final excludedFromMonthly =
+        data['excludeFromMonthlyInvoice'] == true || data['isBillable'] == false;
+
+    return isActive && !isTrial && !isTemporary && !excludedFromMonthly;
+  }
+
+  String formatMoney(dynamic value) {
+    final val = _numValue(value);
+    if (val == val.roundToDouble()) return val.toInt().toString();
+    return val.toStringAsFixed(2);
+  }
+
   double get baseAmount => _parseAmount(baseAmountCtrl);
   double get transportFee => _parseAmount(transportFeeCtrl);
   double get mealsFee => _parseAmount(mealsFeeCtrl);
   double get registrationFee => _parseAmount(registrationFeeCtrl);
   double get lateFee => _parseAmount(lateFeeCtrl);
+  double get paidAmountRaw => _parseAmount(paidAmountCtrl);
+  double get manualDiscountRaw => _parseAmount(manualDiscountCtrl);
+
+  double get manualDiscount {
+    if (manualDiscountRaw < 0) return 0;
+    return manualDiscountRaw;
+  }
 
   double get childrenBaseAmount {
     if (isRegistrationInvoice || isLateFeeInvoice) return baseAmount;
@@ -172,6 +232,10 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
     return discountValue;
   }
 
+  double get totalDiscount {
+    return offerDiscount + manualDiscount;
+  }
+
   double get subtotalAmount {
     if (isRegistrationInvoice) return registrationFee;
     if (isLateFeeInvoice) return lateFee;
@@ -181,9 +245,55 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
 
   double get totalAmount {
     final total =
-        subtotalAmount - offerDiscount + extraHoursAmount + consultationsAmount;
+        subtotalAmount - totalDiscount + extraHoursAmount + consultationsAmount;
 
     return total < 0 ? 0 : total;
+  }
+
+  double get paidAmount {
+    if (paidAmountRaw < 0) return 0;
+    if (paidAmountRaw > totalAmount) return totalAmount;
+    return paidAmountRaw;
+  }
+
+  double get remainingAmount {
+    final remaining = totalAmount - paidAmount;
+    return remaining < 0 ? 0 : remaining;
+  }
+
+  String get calculatedPaymentStatus {
+    if (totalAmount <= 0) return 'unpaid';
+    if (paidAmount <= 0) return 'unpaid';
+    if (paidAmount >= totalAmount) return 'paid';
+    return 'partial';
+  }
+
+  String paymentStatusLabel(String status) {
+    switch (status.trim().toLowerCase()) {
+      case 'paid':
+        return 'مدفوعة';
+      case 'partial':
+        return 'مدفوعة جزئيًا';
+      case 'unpaid':
+      default:
+        return 'غير مدفوعة';
+    }
+  }
+
+  String paymentMethodLabel(String method) {
+    switch (method.trim().toLowerCase()) {
+      case 'cash':
+        return 'كاش';
+      case 'card':
+        return 'بطاقة / فيزا';
+      case 'bank_transfer':
+        return 'تحويل بنكي';
+      case 'other':
+        return 'أخرى';
+      case 'none':
+      default:
+        return 'غير محدد';
+    }
   }
 
   String _monthKey(DateTime date) {
@@ -251,8 +361,10 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
     } else if (parentUsername.trim().isNotEmpty) {
       snapshot = await _firestore
           .collection('invoices')
-          .where('parentUsername',
-              isEqualTo: parentUsername.trim().toLowerCase())
+          .where(
+            'parentUsername',
+            isEqualTo: parentUsername.trim().toLowerCase(),
+          )
           .get();
     } else {
       return [];
@@ -329,7 +441,8 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
       final isActive = isActiveValue == null
           ? status != 'inactive' &&
               status != 'withdrawn' &&
-              status != 'rejected_after_trial'
+              status != 'rejected_after_trial' &&
+              status != 'archived'
           : isActiveValue == true;
 
       return {
@@ -344,7 +457,21 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
         'parentName': (data['parentName'] ?? '').toString(),
         'parentUid': (data['parentUid'] ?? '').toString(),
         'parentUsername': (data['parentUsername'] ?? '').toString(),
+        'childType': (data['childType'] ??
+                data['enrollmentType'] ??
+                data['type'] ??
+                data['childStatus'] ??
+                '')
+            .toString()
+            .trim()
+            .toLowerCase(),
+        'childStatus': status,
+        'isTemporaryChild': data['isTemporaryChild'] == true,
+        'isTrialChild': data['isTrialChild'] == true,
+        'isBillable': data['isBillable'],
+        'excludeFromMonthlyInvoice': data['excludeFromMonthlyInvoice'] == true,
         'isActive': isActive,
+        '_rawData': data,
       };
     }).where((item) {
       final section = (item['section'] ?? '').toString().trim().toLowerCase();
@@ -353,7 +480,12 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
           section == 'حضانة' ||
           section == 'nursery_section';
 
-      return item['isActive'] == true && isNurseryLike;
+      final rawData = item['_rawData'];
+
+      return item['isActive'] == true &&
+          isNurseryLike &&
+          rawData is Map<String, dynamic> &&
+          _isBillableMonthlyChild(rawData);
     }).toList();
 
     return children;
@@ -418,10 +550,35 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
           .trim()
           .toLowerCase();
 
+      final childType = (data['childType'] ??
+              data['enrollmentType'] ??
+              data['type'] ??
+              data['childStatus'] ??
+              '')
+          .toString()
+          .trim()
+          .toLowerCase();
+
+      final isTemporary = childType == 'temporary' ||
+          childType == 'temp' ||
+          childType == 'temporary_child' ||
+          childType == 'مؤقت' ||
+          status == 'temporary' ||
+          data['isTemporaryChild'] == true;
+
+      final isTrial = childType == 'trial' ||
+          status == 'trial' ||
+          data['isTrialChild'] == true;
+
+      final excludedFromMonthly =
+          data['excludeFromMonthlyInvoice'] == true ||
+              data['isBillable'] == false;
+
       final isActive = isActiveValue == null
           ? status != 'inactive' &&
               status != 'withdrawn' &&
-              status != 'rejected_after_trial'
+              status != 'rejected_after_trial' &&
+              status != 'archived'
           : isActiveValue == true;
 
       return {
@@ -436,6 +593,12 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
         'parentName': (data['parentName'] ?? '').toString(),
         'parentUsername': (data['parentUsername'] ?? '').toString(),
         'parentUid': (data['parentUid'] ?? '').toString(),
+        'childType': childType,
+        'childStatus': status,
+        'isTemporaryChild': isTemporary,
+        'isTrialChild': isTrial,
+        'isBillable': data['isBillable'],
+        'excludeFromMonthlyInvoice': excludedFromMonthly,
         'isActive': isActive,
       };
     }).where((child) {
@@ -448,7 +611,18 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
           section == 'حضانة' ||
           section == 'nursery_section';
 
-      return name.isNotEmpty && isActive && isNurseryLike;
+      final isTrial = child['isTrialChild'] == true;
+      final isTemporary = child['isTemporaryChild'] == true;
+      final excludedFromMonthly = child['excludeFromMonthlyInvoice'] == true;
+      final notBillable = child['isBillable'] == false;
+
+      return name.isNotEmpty &&
+          isActive &&
+          isNurseryLike &&
+          !isTrial &&
+          !isTemporary &&
+          !excludedFromMonthly &&
+          !notBillable;
     }).toList();
 
     children.sort(
@@ -602,15 +776,37 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
       final snapshot = await _firestore
           .collection('child_consultations')
           .where('childId', isEqualTo: childId)
-          .where('parentApprovalStatus', isEqualTo: 'approved')
-          .where(
-            'invoiceStatus',
-            whereIn: ['pending_invoice', 'ready_for_invoice'],
-          )
           .get();
 
       for (final doc in snapshot.docs) {
-        if (seenIds.add(doc.id)) {
+        final data = doc.data();
+
+        final approval =
+            (data['parentApprovalStatus'] ?? '').toString().trim().toLowerCase();
+
+        final invoiceStatus =
+            (data['invoiceStatus'] ?? '').toString().trim().toLowerCase();
+
+        final billingStatus =
+            (data['billingStatus'] ?? '').toString().trim().toLowerCase();
+
+        final consultationStatus = (data['consultationStatus'] ?? '')
+            .toString()
+            .trim()
+            .toLowerCase();
+
+        final addedToInvoice = data['addedToInvoice'] == true;
+        final billable = data['billable'] == true;
+
+        final isReady = invoiceStatus == 'ready_for_invoice' ||
+            billingStatus == 'ready_for_invoice';
+
+        if (approval == 'approved' &&
+            consultationStatus == 'completed' &&
+            billable &&
+            isReady &&
+            !addedToInvoice &&
+            seenIds.add(doc.id)) {
           docs.add(doc);
         }
       }
@@ -692,70 +888,72 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
   }
 
   Future<void> sendInvoiceCreatedNotification({
-  required String invoiceId,
-  required bool isUpdatingExistingInvoice,
-  required Map<String, String> currentUser,
-  required List<String> childrenNames,
-}) async {
-  final parentUid = (selectedChild?['parentUid'] ?? '').toString().trim();
-  final parentUsername =
-      (selectedChild?['parentUsername'] ?? '').toString().trim().toLowerCase();
-  final parentName = (selectedChild?['parentName'] ?? '').toString().trim();
+    required String invoiceId,
+    required bool isUpdatingExistingInvoice,
+    required Map<String, String> currentUser,
+    required List<String> childrenNames,
+  }) async {
+    final parentUid = (selectedChild?['parentUid'] ?? '').toString().trim();
+    final parentUsername =
+        (selectedChild?['parentUsername'] ?? '').toString().trim().toLowerCase();
+    final parentName = (selectedChild?['parentName'] ?? '').toString().trim();
 
-  if (parentUid.isEmpty && parentUsername.isEmpty) return;
+    if (parentUid.isEmpty && parentUsername.isEmpty) return;
 
-  final cleanChildrenNames = childrenNames
-      .map((e) => e.trim())
-      .where((e) => e.isNotEmpty)
-      .toList();
+    final cleanChildrenNames = childrenNames
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
 
-  final childrenText = cleanChildrenNames.isEmpty
-      ? (selectedChild?['name'] ?? 'الطفل').toString()
-      : cleanChildrenNames.join('، ');
+    final childrenText = cleanChildrenNames.isEmpty
+        ? (selectedChild?['name'] ?? 'الطفل').toString()
+        : cleanChildrenNames.join('، ');
 
-  final invoiceTitle = titleCtrl.text.trim().isEmpty
-      ? 'فاتورة حضانة'
-      : titleCtrl.text.trim();
+    final invoiceTitle =
+        titleCtrl.text.trim().isEmpty ? 'فاتورة حضانة' : titleCtrl.text.trim();
 
-  final actionText =
-      isUpdatingExistingInvoice ? 'تم تحديث الفاتورة' : 'تم إنشاء فاتورة جديدة';
+    final actionText =
+        isUpdatingExistingInvoice ? 'تم تحديث الفاتورة' : 'تم إنشاء فاتورة جديدة';
 
-  await AppNotificationService.instance.notifyParent(
-    parentUid: parentUid,
-    parentUsername: parentUsername,
-    parentName: parentName,
-    title: isUpdatingExistingInvoice
-        ? 'تم تحديث فاتورة الحضانة'
-        : 'فاتورة حضانة جديدة',
-    body:
-        '$actionText "$invoiceTitle" للأطفال: $childrenText. المبلغ: ${totalAmount.toStringAsFixed(0)} شيكل، تاريخ الاستحقاق: ${formatDate(dueDate)}.',
-    type: isUpdatingExistingInvoice ? 'invoice_updated' : 'invoice_created',
-    childId: (selectedChild?['id'] ?? '').toString(),
-    childName: childrenText,
-    section: (selectedChild?['section'] ?? 'Nursery').toString(),
-    group: (selectedChild?['group'] ?? '').toString(),
-    priority: selectedPaymentStatus == 'unpaid' ? 'important' : 'normal',
-    createdByUid: currentUser['uid'] ?? '',
-    createdByName: currentUser['name'] ?? 'الإدارة',
-    createdByRole: currentUser['role'] ?? 'admin',
-    extraData: {
-      'invoiceId': invoiceId,
-      'invoiceStatus': selectedPaymentStatus,
-      'paymentStatus': selectedPaymentStatus,
-      'billingType': selectedBillingType,
-      'invoiceCategory': invoiceCategory,
-      'totalAmount': totalAmount,
-      'childrenNames': childrenText,
-      'childrenCount': invoiceChildrenCount,
-      'category': 'invoice',
-      'notificationType':
-          isUpdatingExistingInvoice ? 'invoice_updated' : 'invoice_created',
-      'screen': 'invoices',
-      'route': 'parent_invoices',
-      'relatedCollection': 'invoices',
-    },
-  );
-}
+    await AppNotificationService.instance.notifyParent(
+      parentUid: parentUid,
+      parentUsername: parentUsername,
+      parentName: parentName,
+      title: isUpdatingExistingInvoice
+          ? 'تم تحديث فاتورة الحضانة'
+          : 'فاتورة حضانة جديدة',
+      body:
+          '$actionText "$invoiceTitle" للأطفال: $childrenText. الإجمالي: ${formatMoney(totalAmount)} شيكل، المدفوع: ${formatMoney(paidAmount)} شيكل، المتبقي: ${formatMoney(remainingAmount)} شيكل.',
+      type: isUpdatingExistingInvoice ? 'invoice_updated' : 'invoice_created',
+      childId: (selectedChild?['id'] ?? '').toString(),
+      childName: childrenText,
+      section: (selectedChild?['section'] ?? 'Nursery').toString(),
+      group: (selectedChild?['group'] ?? '').toString(),
+      priority: calculatedPaymentStatus == 'paid' ? 'normal' : 'important',
+      createdByUid: currentUser['uid'] ?? '',
+      createdByName: currentUser['name'] ?? 'الإدارة',
+      createdByRole: currentUser['role'] ?? 'admin',
+      extraData: {
+        'invoiceId': invoiceId,
+        'invoiceStatus': calculatedPaymentStatus,
+        'paymentStatus': calculatedPaymentStatus,
+        'paymentMethod': selectedPaymentMethod,
+        'billingType': selectedBillingType,
+        'invoiceCategory': invoiceCategory,
+        'totalAmount': totalAmount,
+        'paidAmount': paidAmount,
+        'remainingAmount': remainingAmount,
+        'childrenNames': childrenText,
+        'childrenCount': invoiceChildrenCount,
+        'category': 'invoice',
+        'notificationType':
+            isUpdatingExistingInvoice ? 'invoice_updated' : 'invoice_created',
+        'screen': 'invoices',
+        'route': 'parent_invoices',
+        'relatedCollection': 'invoices',
+      },
+    );
+  }
 
   Future<void> saveInvoice() async {
     if (!_formKey.currentState!.validate()) return;
@@ -796,6 +994,26 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
 
     if (totalAmount <= 0) {
       _showSnack('المبلغ الإجمالي يجب أن يكون أكبر من صفر');
+      return;
+    }
+
+    if (paidAmountRaw < 0) {
+      _showSnack('المبلغ المدفوع لا يمكن أن يكون أقل من صفر');
+      return;
+    }
+
+    if (paidAmountRaw > totalAmount) {
+      _showSnack('المبلغ المدفوع لا يمكن أن يكون أكبر من الإجمالي');
+      return;
+    }
+
+    if (manualDiscountRaw < 0) {
+      _showSnack('الخصم لا يمكن أن يكون أقل من صفر');
+      return;
+    }
+
+    if (manualDiscount > subtotalAmount + extraHoursAmount + consultationsAmount) {
+      _showSnack('قيمة الخصم كبيرة جدًا');
       return;
     }
 
@@ -851,6 +1069,7 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
       final childrenIds = invoiceChildren
           .map((child) => (child['id'] ?? '').toString())
           .toList();
+
       final childrenNames = invoiceChildren
           .map((child) => (child['name'] ?? '').toString())
           .toList();
@@ -862,9 +1081,7 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
       linkedExtraHoursIds = extraHoursDocs.map((doc) => doc.id).toList();
 
       final consultationDocs = await fetchPendingConsultationsDocs(childrenIds);
-
       consultationsAmount = calculateConsultationsTotal(consultationDocs);
-
       linkedConsultationIds = consultationDocs.map((doc) => doc.id).toList();
 
       selectedConsultations = consultationDocs.map((doc) {
@@ -876,18 +1093,20 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
           'childId': data['childId'] ?? '',
           'childName': data['childName'] ?? '',
           'hours': data['hours'] ?? 1,
+          'hourlyPrice': data['hourlyPrice'] ?? 50,
           'totalAmount': data['totalAmount'] ?? 0,
+          'childType': data['childType'] ?? '',
+          'isTemporaryChild': data['isTemporaryChild'] == true,
         };
       }).toList();
 
+      final finalPaymentStatus = calculatedPaymentStatus;
+      final paidAt = paidAmount > 0 ? Timestamp.fromDate(now) : null;
+
       await docRef.set({
         'id': docRef.id,
-
-        // حقول قديمة حتى لا تنكسر صفحات العرض الحالية.
         'childId': selectedChild!['id'] ?? '',
         'childName': selectedChild!['name'] ?? '',
-
-        // حقول جديدة لدعم فاتورة طفلين/أكثر.
         'childrenCount': invoiceChildren.length,
         'childrenIds': childrenIds,
         'childrenNames': childrenNames,
@@ -900,10 +1119,16 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
                 'section': child['section'] ?? 'Nursery',
                 'parentUid': child['parentUid'] ?? '',
                 'parentUsername': child['parentUsername'] ?? '',
+                'childType': child['childType'] ?? '',
+                'childStatus': child['childStatus'] ?? '',
+                'isTemporaryChild': child['isTemporaryChild'] == true,
+                'isTrialChild': child['isTrialChild'] == true,
+                'isBillable': child['isBillable'],
+                'excludeFromMonthlyInvoice':
+                    child['excludeFromMonthlyInvoice'] == true,
               },
             )
             .toList(),
-
         'parentName': selectedChild!['parentName'] ?? '',
         'parentUsername': parentUsername,
         'parentUid': parentUid,
@@ -919,13 +1144,9 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
         'startDate': startDate == null ? null : Timestamp.fromDate(startDate!),
         'endDate': endDate == null ? null : Timestamp.fromDate(endDate!),
         'dueDate': Timestamp.fromDate(dueDate!),
-        'paidAt': null,
-
-        // baseAmount = سعر الطفل الواحد.
         'baseAmount': baseAmount,
         'baseAmountPerChild': baseAmount,
         'childrenBaseAmount': childrenBaseAmount,
-
         'transportFee': transportFee,
         'mealsFee': mealsFee,
         'registrationFee': registrationFee,
@@ -934,26 +1155,30 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
         'extraHoursAmount': extraHoursAmount,
         'extraHoursTotal': extraHoursAmount,
         'extraHoursIds': linkedExtraHoursIds,
-
         'consultationsAmount': consultationsAmount,
         'consultationIds': linkedConsultationIds,
         'consultations': selectedConsultations,
-
         'offerId': selectedOffer?['id'] ?? '',
         'offerTitle':
-            (selectedOffer?['title'] ?? selectedOffer?['name'] ?? '')
-                .toString(),
+            (selectedOffer?['title'] ?? selectedOffer?['name'] ?? '').toString(),
         'offerCollectionName': selectedOffer?['collectionName'] ?? '',
         'isDefaultOffer': selectedOffer?['isDefaultOffer'] == true,
         'isTwoChildrenOffer': isTwoChildrenOffer,
         'offerDiscount': offerDiscount,
-
+        'manualDiscount': manualDiscount,
+        'discountAmount': manualDiscount,
+        'totalDiscount': totalDiscount,
+        'discountNotes': discountNotesCtrl.text.trim(),
         'totalAmount': totalAmount,
-        'status': selectedPaymentStatus,
-        'paymentStatus': selectedPaymentStatus,
-        'paymentMethod': '',
+        'paidAmount': paidAmount,
+        'remainingAmount': remainingAmount,
+        'status': finalPaymentStatus,
+        'paymentStatus': finalPaymentStatus,
+        'invoiceStatus': finalPaymentStatus,
+        'paymentMethod': selectedPaymentMethod,
+        'paymentMethodLabel': paymentMethodLabel(selectedPaymentMethod),
+        'paidAt': paidAt,
         'notes': notesCtrl.text.trim(),
-
         'updatedExistingInvoice': isUpdatingExistingInvoice,
         'createdByUid': isUpdatingExistingInvoice
             ? FieldValue.delete()
@@ -973,12 +1198,13 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
         'updatedAt': Timestamp.fromDate(now),
       }, SetOptions(merge: true));
 
-await sendInvoiceCreatedNotification(
-  invoiceId: docRef.id,
-  isUpdatingExistingInvoice: isUpdatingExistingInvoice,
-  currentUser: currentUser,
-  childrenNames: childrenNames,
-);
+      await sendInvoiceCreatedNotification(
+        invoiceId: docRef.id,
+        isUpdatingExistingInvoice: isUpdatingExistingInvoice,
+        currentUser: currentUser,
+        childrenNames: childrenNames,
+      );
+
       if (sameParentInvoices.length > 1) {
         final batch = _firestore.batch();
 
@@ -1004,7 +1230,10 @@ await sendInvoiceCreatedNotification(
           batch.update(doc.reference, {
             'invoiceId': docRef.id,
             'invoiceStatus': 'invoiced',
+            'billingStatus': 'invoiced',
             'consultationStatus': 'completed',
+            'addedToInvoice': true,
+            'invoicedAt': Timestamp.fromDate(now),
             'updatedAt': Timestamp.fromDate(now),
           });
         }
@@ -1033,8 +1262,8 @@ await sendInvoiceCreatedNotification(
         SnackBar(
           content: Text(
             isUpdatingExistingInvoice
-                ? 'تم تحديث فاتورة الشهر بدل إنشاء فاتورة مكررة ✅'
-                : 'تم إنشاء الفاتورة بنجاح ✅',
+                ? 'تم تحديث فاتورة الشهر بدل إنشاء فاتورة مكررة'
+                : 'تم إنشاء الفاتورة بنجاح',
           ),
         ),
       );
@@ -1065,29 +1294,19 @@ await sendInvoiceCreatedNotification(
       labelText: label,
       hintText: hint,
       prefixIcon: Icon(icon, color: AppColors.textLight),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
     );
   }
 
-  Widget sectionTitle(String title, String subtitle) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w800,
-                color: AppColors.textDark,
-              ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          subtitle,
-          style: Theme.of(context)
-              .textTheme
-              .bodySmall
-              ?.copyWith(color: AppColors.textLight),
-        ),
-      ],
+  Widget sectionTitle(String title) {
+    return Text(
+      title,
+      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w800,
+            color: AppColors.textDark,
+          ),
     );
   }
 
@@ -1106,17 +1325,27 @@ await sendInvoiceCreatedNotification(
       offer['discountValue'] ?? offer['discount'] ?? offer['amount'],
     );
 
-    if (price > 0) return '$title • ${price.toStringAsFixed(0)} شيكل';
-    if (discount > 0) return '$title • خصم ${discount.toStringAsFixed(0)}';
+    if (price > 0) return '$title • ${formatMoney(price)} شيكل';
+    if (discount > 0) return '$title • خصم ${formatMoney(discount)}';
     return title;
   }
 
   String childLabel(Map<String, dynamic> child) {
     final group = (child['group'] ?? '').toString();
     final parent = (child['parentName'] ?? '').toString();
+    final childType = (child['childType'] ?? '').toString().trim().toLowerCase();
+
+    String typeLabel = 'دائم';
+
+    if (childType == 'temporary' || child['isTemporaryChild'] == true) {
+      typeLabel = 'مؤقت';
+    } else if (childType == 'trial' || child['isTrialChild'] == true) {
+      typeLabel = 'تجربة';
+    }
 
     final parts = [
       (child['name'] ?? 'طفل بدون اسم').toString(),
+      typeLabel,
       group.isEmpty ? 'بدون مجموعة' : group,
       if (parent.isNotEmpty) parent,
     ];
@@ -1147,6 +1376,68 @@ await sendInvoiceCreatedNotification(
           Text(
             'المجموعة: ${(child['group'] ?? '').toString().isEmpty ? 'غير محدد' : child['group']}',
           ),
+          const SizedBox(height: 6),
+          Text(
+            'نوع الطفل: ${(child['childType'] ?? '').toString() == 'temporary' ? 'مؤقت' : (child['childType'] ?? '').toString() == 'trial' ? 'تجربة' : 'دائم'}',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget amountSummaryCard() {
+    return mainCard(
+      child: Column(
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.calculate_rounded,
+                color: AppColors.primary,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'عدد الأطفال: $invoiceChildrenCount\n'
+                  'رسوم الأطفال: ${formatMoney(childrenBaseAmount)} شيكل\n'
+                  'الإجمالي قبل الخصم: ${formatMoney(subtotalAmount)} شيكل\n'
+                  'خصم العرض: ${formatMoney(offerDiscount)} شيكل\n'
+                  'خصم إضافي: ${formatMoney(manualDiscount)} شيكل\n'
+                  'الساعات الإضافية: ${formatMoney(extraHoursAmount)} شيكل\n'
+                  'الاستشارات الجاهزة للفوترة: ${formatMoney(consultationsAmount)} شيكل\n'
+                  'الإجمالي النهائي: ${formatMoney(totalAmount)} شيكل\n'
+                  'المدفوع: ${formatMoney(paidAmount)} شيكل\n'
+                  'المتبقي: ${formatMoney(remainingAmount)} شيكل\n'
+                  'حالة الدفع: ${paymentStatusLabel(calculatedPaymentStatus)}',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.textDark,
+                      ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: ElevatedButton.icon(
+              onPressed: isLoading ? null : saveInvoice,
+              icon: isLoading
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.save_outlined),
+              label: Text(
+                isLoading ? 'جارٍ حفظ الفاتورة...' : 'حفظ الفاتورة',
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -1171,16 +1462,20 @@ await sendInvoiceCreatedNotification(
               selectedSecondChild = null;
             }
 
+            if (selectedChild != null &&
+                !children.any((child) => child['id'] == selectedChild!['id'])) {
+              selectedChild = null;
+              selectedSecondChild = null;
+            }
+
             return ListView(
+              padding: const EdgeInsets.only(bottom: 24),
               children: [
                 mainCard(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      sectionTitle(
-                        'اختيار الطفل',
-                        'اختاري الطفل الذي سيتم إنشاء الفاتورة له من طرف الأدمن.',
-                      ),
+                      sectionTitle('اختيار الطفل'),
                       const SizedBox(height: 14),
                       if (snapshot.connectionState == ConnectionState.waiting)
                         const Center(child: CircularProgressIndicator())
@@ -1194,7 +1489,7 @@ await sendInvoiceCreatedNotification(
                             border: Border.all(color: AppColors.border),
                           ),
                           child: const Text(
-                            'لا يوجد أطفال ظاهرين حاليًا. تأكدي أن الأطفال موجودون في children وأن حالتهم ليست inactive.',
+                            'لا يوجد أطفال دائمون قابلون للفوترة الشهرية حاليًا',
                           ),
                         )
                       else
@@ -1237,10 +1532,7 @@ await sendInvoiceCreatedNotification(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      sectionTitle(
-                        'نوع الفاتورة',
-                        'اختاري نوع الرسوم المناسبة.',
-                      ),
+                      sectionTitle('نوع الفاتورة'),
                       const SizedBox(height: 14),
                       DropdownButtonFormField<String>(
                         value: selectedBillingType,
@@ -1293,7 +1585,6 @@ await sendInvoiceCreatedNotification(
                         decoration: customDecoration(
                           label: 'عنوان الفاتورة',
                           icon: Icons.title_rounded,
-                          hint: 'مثال: رسوم حضانة شهرية',
                         ),
                         validator: (value) {
                           if ((value?.trim() ?? '').isEmpty) {
@@ -1309,7 +1600,6 @@ await sendInvoiceCreatedNotification(
                         decoration: customDecoration(
                           label: 'وصف الفاتورة',
                           icon: Icons.description_outlined,
-                          hint: 'تفاصيل إضافية عن الفاتورة',
                         ),
                       ),
                     ],
@@ -1321,10 +1611,7 @@ await sendInvoiceCreatedNotification(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        sectionTitle(
-                          'فترة الفاتورة',
-                          'حددي تاريخ البداية والنهاية.',
-                        ),
+                        sectionTitle('فترة الفاتورة'),
                         const SizedBox(height: 14),
                         ListTile(
                           contentPadding: EdgeInsets.zero,
@@ -1362,12 +1649,7 @@ await sendInvoiceCreatedNotification(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      sectionTitle(
-                        'تفاصيل الرسوم',
-                        isTwoChildrenOffer
-                            ? 'سعر الطفل الواحد 700، وعرض الطفلين يحسب طفلين تلقائيًا.'
-                            : 'أدخلي الرسوم المطلوبة حسب نوع الفاتورة.',
-                      ),
+                      sectionTitle('تفاصيل الرسوم'),
                       const SizedBox(height: 14),
                       if (!isRegistrationInvoice && !isLateFeeInvoice) ...[
                         TextFormField(
@@ -1382,7 +1664,7 @@ await sendInvoiceCreatedNotification(
                         if (isTwoChildrenOffer) ...[
                           const SizedBox(height: 10),
                           Text(
-                            'عدد الأطفال: 2 • مجموع رسوم الأطفال قبل الخصم: ${childrenBaseAmount.toStringAsFixed(2)} شيكل',
+                            'عدد الأطفال: 2 • رسوم الأطفال قبل الخصم: ${formatMoney(childrenBaseAmount)} شيكل',
                             style: Theme.of(context)
                                 .textTheme
                                 .bodyMedium
@@ -1447,16 +1729,13 @@ await sendInvoiceCreatedNotification(
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            sectionTitle(
-                              'العروض والاشتراكات',
-                              'اختاري عرضًا فعالًا ليتم احتساب الخصم داخل الفاتورة.',
-                            ),
+                            sectionTitle('العروض والاشتراكات'),
                             const SizedBox(height: 14),
                             if (offerSnapshot.connectionState ==
                                 ConnectionState.waiting)
                               const Center(child: CircularProgressIndicator())
                             else if (offers.isEmpty)
-                              const Text('لا توجد عروض فعالة حاليًا.')
+                              const Text('لا توجد عروض فعالة حاليًا')
                             else
                               DropdownButtonFormField<String>(
                                 value: selectedOffer?['dropdownValue'],
@@ -1497,13 +1776,9 @@ await sendInvoiceCreatedNotification(
                             if (isTwoChildrenOffer) ...[
                               const SizedBox(height: 14),
                               if (selectedChild == null)
-                                const Text(
-                                  'اختاري الطفل الأول أولًا حتى يظهر اختيار الطفل الثاني.',
-                                )
+                                const Text('اختاري الطفل الأول أولًا')
                               else if (secondOptions.isEmpty)
-                                const Text(
-                                  'لا يوجد طفل ثاني لنفس ولي الأمر. تأكدي من ربط الطفلين بنفس parentUid أو parentUsername.',
-                                )
+                                const Text('لا يوجد طفل ثاني لنفس ولي الأمر')
                               else
                                 DropdownButtonFormField<String>(
                                   value: selectedSecondChild?['id'],
@@ -1528,17 +1803,14 @@ await sendInvoiceCreatedNotification(
                                   validator: (value) {
                                     if (isTwoChildrenOffer &&
                                         (value == null || value.isEmpty)) {
-                                      return 'اختاري الطفل الثاني لعرض طفلين';
+                                      return 'اختاري الطفل الثاني';
                                     }
                                     return null;
                                   },
                                 ),
                             ],
                             const SizedBox(height: 12),
-                            Text(
-                              'قيمة الخصم: ${offerDiscount.toStringAsFixed(2)} شيكل',
-                              style: Theme.of(context).textTheme.bodyMedium,
-                            ),
+                            Text('خصم العرض: ${formatMoney(offerDiscount)} شيكل'),
                           ],
                         );
                       },
@@ -1549,37 +1821,76 @@ await sendInvoiceCreatedNotification(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      sectionTitle(
-                        'الاستحقاق والملاحظات',
-                        'حددي موعد الدفع وأضيفي أي ملاحظات.',
+                      sectionTitle('الخصم والدفع'),
+                      const SizedBox(height: 14),
+                      TextFormField(
+                        controller: manualDiscountCtrl,
+                        keyboardType: TextInputType.number,
+                        decoration: customDecoration(
+                          label: 'خصم إضافي',
+                          icon: Icons.discount_outlined,
+                        ),
+                        onChanged: (_) => setState(() {}),
+                      ),
+                      const SizedBox(height: 14),
+                      TextFormField(
+                        controller: discountNotesCtrl,
+                        maxLines: 2,
+                        decoration: customDecoration(
+                          label: 'ملاحظات الخصم',
+                          icon: Icons.notes_outlined,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      TextFormField(
+                        controller: paidAmountCtrl,
+                        keyboardType: TextInputType.number,
+                        decoration: customDecoration(
+                          label: 'المبلغ المدفوع',
+                          icon: Icons.price_check_rounded,
+                        ),
+                        onChanged: (_) => setState(() {}),
                       ),
                       const SizedBox(height: 14),
                       DropdownButtonFormField<String>(
-                        value: selectedPaymentStatus,
+                        value: selectedPaymentMethod,
                         decoration: customDecoration(
-                          label: 'حالة الدفع',
-                          icon: Icons.payments_rounded,
+                          label: 'طريقة الدفع',
+                          icon: Icons.account_balance_wallet_outlined,
                         ),
                         items: const [
                           DropdownMenuItem(
-                            value: 'unpaid',
-                            child: Text('غير مدفوعة'),
+                            value: 'cash',
+                            child: Text('كاش'),
                           ),
                           DropdownMenuItem(
-                            value: 'partial',
-                            child: Text('مدفوعة جزئيًا'),
+                            value: 'card',
+                            child: Text('بطاقة / فيزا'),
                           ),
                           DropdownMenuItem(
-                            value: 'paid',
-                            child: Text('مدفوعة'),
+                            value: 'bank_transfer',
+                            child: Text('تحويل بنكي'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'other',
+                            child: Text('أخرى'),
                           ),
                         ],
                         onChanged: (value) {
                           setState(() {
-                            selectedPaymentStatus = value ?? 'unpaid';
+                            selectedPaymentMethod = value ?? 'cash';
                           });
                         },
                       ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                mainCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      sectionTitle('الاستحقاق والملاحظات'),
                       const SizedBox(height: 14),
                       ListTile(
                         contentPadding: EdgeInsets.zero,
@@ -1602,68 +1913,13 @@ await sendInvoiceCreatedNotification(
                         decoration: customDecoration(
                           label: 'ملاحظات',
                           icon: Icons.notes_rounded,
-                          hint: 'أي تفاصيل إضافية...',
                         ),
                       ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 14),
-                mainCard(
-                  child: Column(
-                    children: [
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.calculate_rounded,
-                            color: AppColors.primary,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              'عدد الأطفال: $invoiceChildrenCount\n'
-                              'رسوم الأطفال: ${childrenBaseAmount.toStringAsFixed(2)} شيكل\n'
-                              'الإجمالي قبل الخصم: ${subtotalAmount.toStringAsFixed(2)} شيكل\n'
-                              'الخصم: ${offerDiscount.toStringAsFixed(2)} شيكل\n'
-                              'الساعات الإضافية غير المفوترة: ${extraHoursAmount.toStringAsFixed(2)} شيكل\n'
-                              'الاستشارات: ${consultationsAmount.toStringAsFixed(2)} شيكل\n'
-                              'الإجمالي النهائي: ${totalAmount.toStringAsFixed(2)} شيكل',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleMedium
-                                  ?.copyWith(
-                                    fontWeight: FontWeight.w800,
-                                    color: AppColors.textDark,
-                                  ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 52,
-                        child: ElevatedButton.icon(
-                          onPressed: isLoading ? null : saveInvoice,
-                          icon: isLoading
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2.2,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : const Icon(Icons.save_outlined),
-                          label: Text(
-                            isLoading ? 'جارٍ حفظ الفاتورة...' : 'حفظ الفاتورة',
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 10),
+                amountSummaryCard(),
               ],
             );
           },

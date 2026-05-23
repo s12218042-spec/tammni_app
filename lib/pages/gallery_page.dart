@@ -95,26 +95,33 @@ class _GalleryPageState extends State<GalleryPage> {
     return trimmed.startsWith('http://') || trimmed.startsWith('https://');
   }
 
-  String _resolveMediaUrl(Map<String, dynamic> data) {
-    final directUrl = _firstNonEmpty([
-      data['mediaUrl'],
-      data['imageUrl'],
-      data['videoUrl'],
-      data['url'],
-    ]);
+String _resolveMediaUrl(Map<String, dynamic> data) {
+  final publicUrl = _firstNonEmpty([
+    data['publicUrl'],
+    data['mediaPublicUrl'],
+  ]);
 
-    if (_isUsableRemoteUrl(directUrl)) return directUrl;
+  if (_isUsableRemoteUrl(publicUrl)) return publicUrl;
 
-    final mediaUrls = data['mediaUrls'];
-    if (mediaUrls is List && mediaUrls.isNotEmpty) {
-      for (final item in mediaUrls) {
-        final candidate = item?.toString().trim() ?? '';
-        if (_isUsableRemoteUrl(candidate)) return candidate;
-      }
+  final directUrl = _firstNonEmpty([
+    data['mediaUrl'],
+    data['imageUrl'],
+    data['videoUrl'],
+    data['url'],
+  ]);
+
+  if (_isUsableRemoteUrl(directUrl)) return directUrl;
+
+  final mediaUrls = data['mediaUrls'];
+  if (mediaUrls is List && mediaUrls.isNotEmpty) {
+    for (final item in mediaUrls) {
+      final candidate = item?.toString().trim() ?? '';
+      if (_isUsableRemoteUrl(candidate)) return candidate;
     }
-
-    return '';
   }
+
+  return '';
+}
 
   String _resolveMediaPath(Map<String, dynamic> data) {
     final path = _firstNonEmpty([
@@ -358,7 +365,11 @@ class _GalleryPageState extends State<GalleryPage> {
             context,
             MaterialPageRoute(
               builder: (_) => VideoPreviewPage(
-                path: mediaUrl.isNotEmpty ? mediaUrl : mediaPath,
+                path: publicUrl.isNotEmpty
+                 ? publicUrl
+                 : mediaUrl.isNotEmpty
+                 ? mediaUrl
+                 : mediaPath,
                 mediaPath: mediaPath,
                 mediaUrl: mediaUrl,
                 publicUrl: publicUrl,

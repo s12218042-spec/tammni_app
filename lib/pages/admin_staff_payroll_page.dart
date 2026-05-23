@@ -1,5 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+
+import '../widgets/app_page_scaffold.dart';
 
 class AdminStaffPayrollPage extends StatefulWidget {
   const AdminStaffPayrollPage({super.key});
@@ -10,6 +13,7 @@ class AdminStaffPayrollPage extends StatefulWidget {
 
 class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
 
   bool isLoading = false;
   bool isSaving = false;
@@ -20,16 +24,17 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
   String? selectedStaffUid;
   Map<String, dynamic>? selectedStaffData;
 
-  final TextEditingController deductionController = TextEditingController();
   final TextEditingController bonusController = TextEditingController();
   final TextEditingController adminNoteController = TextEditingController();
 
-  double baseSalary = 1800.0;
+  static const double defaultHourlyRate = 8.0;
 
   int attendanceDays = 0;
   double totalRequiredHours = 0.0;
   double totalWorkedHours = 0.0;
   double totalMissingHours = 0.0;
+  double totalAttendanceAmount = 0.0;
+  double resolvedHourlyRate = defaultHourlyRate;
 
   String? loadError;
 
@@ -52,8 +57,17 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
     return value.toString().trim();
   }
 
+  double _num(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? 0.0;
+  }
+
   double _toDouble(String value) {
     return double.tryParse(value.trim()) ?? 0.0;
+  }
+
+  double _round2(double value) {
+    return double.parse(value.toStringAsFixed(2));
   }
 
   String _money(double value) {
@@ -76,33 +90,81 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
   }
 
   String _staffName(Map<String, dynamic> data) {
+    final displayName = _clean(data['displayName']);
     final name = _clean(data['name']);
     final fullName = _clean(data['fullName']);
-    final displayName = _clean(data['displayName']);
     final username = _clean(data['username']);
 
+    if (displayName.isNotEmpty) return displayName;
     if (name.isNotEmpty) return name;
     if (fullName.isNotEmpty) return fullName;
-    if (displayName.isNotEmpty) return displayName;
     if (username.isNotEmpty) return username;
 
     return 'موظفة بدون اسم';
   }
 
-  double get deductionAmount => _toDouble(deductionController.text);
-  double get bonusAmount => _toDouble(bonusController.text);
+  double get bonusAmount {
+    final value = _toDouble(bonusController.text);
+    return value < 0 ? 0 : value;
+  }
+
+  double get grossSalary {
+    if (totalAttendanceAmount > 0) {
+      return _round2(totalAttendanceAmount);
+    }
+
+    return _round2(totalWorkedHours * resolvedHourlyRate);
+  }
 
   double get finalSalary {
-    final value = baseSalary - deductionAmount + bonusAmount;
-    return value < 0 ? 0 : value;
+    final value = grossSalary + bonusAmount;
+    return value < 0 ? 0 : _round2(value);
   }
 
   @override
   void dispose() {
-    deductionController.dispose();
     bonusController.dispose();
     adminNoteController.dispose();
     super.dispose();
+  }
+
+  Future<Map<String, String>> _currentAdminInfo() async {
+    final user = _auth.currentUser;
+
+    if (user == null) {
+      return {
+        'uid': '',
+        'name': 'الإدارة',
+        'role': 'admin',
+      };
+    }
+
+    try {
+      final doc = await _firestore.collection('users').doc(user.uid).get();
+      final data = doc.data() ?? {};
+
+      final name = _clean(data['displayName']).isNotEmpty
+          ? _clean(data['displayName'])
+          : _clean(data['name']).isNotEmpty
+              ? _clean(data['name'])
+              : _clean(data['fullName']).isNotEmpty
+                  ? _clean(data['fullName'])
+                  : _clean(data['username']).isNotEmpty
+                      ? _clean(data['username'])
+                      : 'الإدارة';
+
+      return {
+        'uid': user.uid,
+        'name': name,
+        'role': _clean(data['role']).isNotEmpty ? _clean(data['role']) : 'admin',
+      };
+    } catch (_) {
+      return {
+        'uid': user.uid,
+        'name': 'الإدارة',
+        'role': 'admin',
+      };
+    }
   }
 
   Future<void> _pickMonth() async {
@@ -111,7 +173,6 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
       initialDate: selectedMonth,
       firstDate: DateTime(2025),
       lastDate: DateTime(2035),
-      helpText: 'اختاري أي يوم من الشهر المطلوب',
     );
 
     if (picked == null) return;
@@ -132,11 +193,36 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
     totalRequiredHours = 0.0;
     totalWorkedHours = 0.0;
     totalMissingHours = 0.0;
+    totalAttendanceAmount = 0.0;
+    resolvedHourlyRate = defaultHourlyRate;
     loadError = null;
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> _staffStream() {
     return _firestore.collection('users').snapshots();
+  }
+
+  Future<void> _loadExistingPayroll() async {
+    if (selectedStaffUid == null) return;
+
+    final payrollId = '${selectedStaffUid}_$monthKey';
+
+    try {
+      final doc = await _firestore.collection('staff_payroll').doc(payrollId).get();
+
+      if (!doc.exists) {
+        bonusController.text = '';
+        adminNoteController.text = '';
+        return;
+      }
+
+      final data = doc.data() ?? {};
+
+      final bonus = _num(data['bonusAmount']);
+      bonusController.text = bonus == 0 ? '' : _money(bonus);
+
+      adminNoteController.text = _clean(data['adminNote']);
+    } catch (_) {}
   }
 
   Future<void> _loadPayrollSummary() async {
@@ -162,9 +248,13 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
       totalRequiredHours = 0.0;
       totalWorkedHours = 0.0;
       totalMissingHours = 0.0;
+      totalAttendanceAmount = 0.0;
+      resolvedHourlyRate = defaultHourlyRate;
     });
 
     try {
+      await _loadExistingPayroll();
+
       final startKey = _formatDate(monthStart);
       final endKey = _formatDate(monthEnd);
 
@@ -173,7 +263,7 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
           .where('staffUid', isEqualTo: selectedStaffUid)
           .where('dateKey', isGreaterThanOrEqualTo: startKey)
           .where('dateKey', isLessThanOrEqualTo: endKey)
-          .limit(80)
+          .limit(120)
           .get()
           .timeout(
         const Duration(seconds: 12),
@@ -185,26 +275,47 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
       double required = 0;
       double worked = 0;
       double missing = 0;
+      double attendanceAmount = 0;
+      double latestHourlyRate = defaultHourlyRate;
+      int countedDays = 0;
 
       for (final doc in snapshot.docs) {
         final data = doc.data();
 
-        final requiredRaw = data['requiredHours'];
-        final workedRaw = data['workedHours'];
-        final missingRaw = data['missingHours'];
+        if (data['isActive'] == false) continue;
 
-        if (requiredRaw is num) required += requiredRaw.toDouble();
-        if (workedRaw is num) worked += workedRaw.toDouble();
-        if (missingRaw is num) missing += missingRaw.toDouble();
+        final requiredHours = _num(data['requiredHours']);
+        final workedHours = _num(data['workedHours']);
+        final missingHours = _num(data['missingHours']);
+        final dayHourlyRate = _num(data['hourlyRate']);
+        final dailyAmount = _num(data['dailyAmount']);
+
+        if (dayHourlyRate > 0) {
+          latestHourlyRate = dayHourlyRate;
+        }
+
+        required += requiredHours;
+        worked += workedHours;
+        missing += missingHours;
+
+        if (dailyAmount > 0) {
+          attendanceAmount += dailyAmount;
+        } else {
+          attendanceAmount += workedHours * (dayHourlyRate > 0 ? dayHourlyRate : latestHourlyRate);
+        }
+
+        countedDays++;
       }
 
       if (!mounted) return;
 
       setState(() {
-        attendanceDays = snapshot.docs.length;
-        totalRequiredHours = double.parse(required.toStringAsFixed(2));
-        totalWorkedHours = double.parse(worked.toStringAsFixed(2));
-        totalMissingHours = double.parse(missing.toStringAsFixed(2));
+        attendanceDays = countedDays;
+        totalRequiredHours = _round2(required);
+        totalWorkedHours = _round2(worked);
+        totalMissingHours = _round2(missing);
+        totalAttendanceAmount = _round2(attendanceAmount);
+        resolvedHourlyRate = latestHourlyRate;
         isLoading = false;
         hasLoadedPayrollSummary = true;
       });
@@ -227,6 +338,27 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
       return;
     }
 
+    if (!hasLoadedPayrollSummary || isLoading) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('حمّلي ملخص الدوام أولًا')),
+      );
+      return;
+    }
+
+    if (attendanceDays == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('لا يوجد دوام محفوظ لهذا الشهر')),
+      );
+      return;
+    }
+
+    if (bonusAmount < 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('العلاوة لا يمكن أن تكون أقل من صفر')),
+      );
+      return;
+    }
+
     if (isSaving) return;
 
     setState(() {
@@ -234,34 +366,80 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
     });
 
     try {
+      final adminInfo = await _currentAdminInfo();
+      final adminUid = _clean(adminInfo['uid']);
+      final adminName =
+          _clean(adminInfo['name']).isEmpty ? 'الإدارة' : _clean(adminInfo['name']);
+      final adminRole =
+          _clean(adminInfo['role']).isEmpty ? 'admin' : _clean(adminInfo['role']);
+
+      if (adminUid.isEmpty) {
+        throw Exception('يجب تسجيل الدخول كأدمن قبل اعتماد الراتب');
+      }
+
       final staffName = _staffName(selectedStaffData!);
       final staffUsername = _clean(selectedStaffData!['username']);
-
       final payrollId = '${selectedStaffUid}_$monthKey';
 
-      await _firestore.collection('staff_payroll').doc(payrollId).set({
+      final ref = _firestore.collection('staff_payroll').doc(payrollId);
+      final oldDoc = await ref.get();
+      final oldData = oldDoc.data() ?? {};
+
+      await ref.set({
         'payrollId': payrollId,
         'staffUid': selectedStaffUid,
         'staffName': staffName,
         'staffUsername': staffUsername,
+        'staffRole': 'nursery_staff',
+
         'monthKey': monthKey,
         'monthStartDate': Timestamp.fromDate(monthStart),
         'monthEndDate': Timestamp.fromDate(monthEnd),
         'monthStartDateKey': _formatDate(monthStart),
         'monthEndDateKey': _formatDate(monthEnd),
-        'baseSalary': baseSalary,
+
+        'salaryCalculationType': 'hourly',
+        'hourlyRate': resolvedHourlyRate,
+        'defaultHourlyRate': defaultHourlyRate,
+
         'attendanceDays': attendanceDays,
-        'totalRequiredHours': totalRequiredHours,
         'totalWorkedHours': totalWorkedHours,
+        'totalRequiredHours': totalRequiredHours,
         'totalMissingHours': totalMissingHours,
-        'deductionAmount': deductionAmount,
+
+        'attendanceAmount': grossSalary,
+        'grossSalary': grossSalary,
         'bonusAmount': bonusAmount,
-        'finalSalary': double.parse(finalSalary.toStringAsFixed(2)),
+        'deductionAmount': 0.0,
+        'finalSalary': finalSalary,
+
         'adminNote': adminNoteController.text.trim(),
+
         'isApproved': true,
-        'createdByRole': 'admin',
+        'status': 'approved',
+        'approvedAt': FieldValue.serverTimestamp(),
+        'approvedByUid': adminUid,
+        'approvedByName': adminName,
+        'approvedByRole': adminRole,
+
+        'createdByUid': oldDoc.exists
+            ? (oldData['createdByUid'] ?? adminUid)
+            : adminUid,
+        'createdByName': oldDoc.exists
+            ? (oldData['createdByName'] ?? adminName)
+            : adminName,
+        'createdByRole': oldDoc.exists
+            ? (oldData['createdByRole'] ?? adminRole)
+            : adminRole,
+
+        'updatedByUid': adminUid,
+        'updatedByName': adminName,
+        'updatedByRole': adminRole,
+
+        'createdAt': oldDoc.exists
+            ? (oldData['createdAt'] ?? FieldValue.serverTimestamp())
+            : FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
-        'createdAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
       if (!mounted) return;
@@ -307,39 +485,22 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
                     ),
                   ),
                 ),
-               Flexible(
-  fit: FlexFit.loose,
-  child: OutlinedButton.icon(
-    onPressed: isLoading || isSaving ? null : _pickMonth,
-    icon: const Icon(Icons.calendar_month_outlined),
-    label: const Text('اختيار شهر'),
-  ),
-),
+                Flexible(
+                  fit: FlexFit.loose,
+                  child: OutlinedButton.icon(
+                    onPressed: isLoading || isSaving ? null : _pickMonth,
+                    icon: const Icon(Icons.calendar_month_outlined),
+                    label: const Text('اختيار شهر'),
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 12),
             _infoRow('بداية الشهر', _formatDate(monthStart)),
             const SizedBox(height: 6),
             _infoRow('نهاية الشهر', _formatDate(monthEnd)),
-            const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.blueGrey.withOpacity(0.08),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.blueGrey.withOpacity(0.18)),
-              ),
-              child: const Text(
-                'هذه الصفحة خاصة برواتب الموظفات فقط، ولا علاقة لها بفواتير أولياء الأمور.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.blueGrey,
-                  fontWeight: FontWeight.bold,
-                  height: 1.4,
-                ),
-              ),
-            ),
+            const SizedBox(height: 6),
+            _infoRow('طريقة الحساب', 'بالساعات فقط'),
           ],
         ),
       ),
@@ -388,7 +549,7 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
             child: Padding(
               padding: EdgeInsets.all(16),
               child: Text(
-                'لا يوجد موظفات حضانة.\nتأكدي أن role = nursery_staff داخل users.',
+                'لا يوجد موظفات حضانة',
                 textAlign: TextAlign.center,
               ),
             ),
@@ -400,57 +561,44 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
           child: Padding(
             padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'اختيار الموظفة',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
+            child: DropdownButtonFormField<String>(
+              value: selectedStaffUid,
+              decoration: const InputDecoration(
+                labelText: 'الموظفة',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.person_outline),
+              ),
+              items: staffDocs.map((doc) {
+                final data = doc.data();
+                final name = _staffName(data);
+                final username = _clean(data['username']);
+
+                return DropdownMenuItem<String>(
+                  value: doc.id,
+                  child: Text(
+                    username.isEmpty ? name : '$name - @$username',
+                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  value: selectedStaffUid,
-                  decoration: const InputDecoration(
-                    labelText: 'الموظفة',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.person_outline),
-                  ),
-                  items: staffDocs.map((doc) {
-                    final data = doc.data();
-                    final name = _staffName(data);
-                    final username = _clean(data['username']);
+                );
+              }).toList(),
+              onChanged: isLoading || isSaving
+                  ? null
+                  : (value) async {
+                      if (value == null) return;
 
-                    return DropdownMenuItem<String>(
-                      value: doc.id,
-                      child: Text(
-                        username.isEmpty ? name : '$name - @$username',
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    );
-                  }).toList(),
-                  onChanged: isLoading || isSaving
-                      ? null
-                      : (value) async {
-                          if (value == null) return;
+                      final selectedDoc = staffDocs.firstWhere(
+                        (doc) => doc.id == value,
+                      );
 
-                          final selectedDoc = staffDocs.firstWhere(
-                            (doc) => doc.id == value,
-                          );
+                      setState(() {
+                        selectedStaffUid = selectedDoc.id;
+                        selectedStaffData = selectedDoc.data();
+                        _resetSummary();
+                        hasLoadedPayrollSummary = false;
+                      });
 
-                          setState(() {
-                            selectedStaffUid = selectedDoc.id;
-                            selectedStaffData = selectedDoc.data();
-                            _resetSummary();
-                            hasLoadedPayrollSummary = false;
-                          });
-
-                          await _loadPayrollSummary();
-                        },
-                ),
-              ],
+                      await _loadPayrollSummary();
+                    },
             ),
           ),
         );
@@ -468,7 +616,7 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'ملخص الدوام لهذا الشهر',
+              'ملخص الشهر',
               style: TextStyle(
                 fontWeight: FontWeight.bold,
                 fontSize: 16,
@@ -477,11 +625,10 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
             const SizedBox(height: 12),
             if (selectedStaffUid == null)
               const Text(
-                'اختاري موظفة أولًا لعرض ملخص الدوام والراتب.',
+                'اختاري موظفة أولًا',
                 style: TextStyle(
                   color: Colors.grey,
                   fontWeight: FontWeight.bold,
-                  height: 1.4,
                 ),
               )
             else if (isLoading || !hasLoadedPayrollSummary)
@@ -518,12 +665,11 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
                     border: Border.all(color: Colors.orange.withOpacity(0.22)),
                   ),
                   child: const Text(
-                    'لا يوجد دوام محفوظ لهذه الموظفة في هذا الشهر. يمكنك اعتماد الراتب يدويًا إذا قررت الإدارة ذلك.',
+                    'لا يوجد دوام محفوظ لهذه الموظفة في هذا الشهر',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: Colors.orange,
                       fontWeight: FontWeight.bold,
-                      height: 1.4,
                     ),
                   ),
                 ),
@@ -540,10 +686,10 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: _summaryBox(
-                      title: 'المطلوبة',
-                      value: totalRequiredHours.toStringAsFixed(2),
-                      color: Colors.teal,
-                      icon: Icons.schedule_outlined,
+                      title: 'الساعات',
+                      value: totalWorkedHours.toStringAsFixed(2),
+                      color: Colors.green,
+                      icon: Icons.timer_outlined,
                     ),
                   ),
                 ],
@@ -553,10 +699,10 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
                 children: [
                   Expanded(
                     child: _summaryBox(
-                      title: 'الفعلية',
-                      value: totalWorkedHours.toStringAsFixed(2),
-                      color: Colors.green,
-                      icon: Icons.timer_outlined,
+                      title: 'المطلوبة',
+                      value: totalRequiredHours.toStringAsFixed(2),
+                      color: Colors.teal,
+                      icon: Icons.schedule_outlined,
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -564,8 +710,7 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
                     child: _summaryBox(
                       title: 'النقص',
                       value: totalMissingHours.toStringAsFixed(2),
-                      color:
-                          totalMissingHours > 0 ? Colors.orange : Colors.green,
+                      color: totalMissingHours > 0 ? Colors.orange : Colors.green,
                       icon: Icons.warning_amber_outlined,
                     ),
                   ),
@@ -634,30 +779,19 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
               ),
             ),
             const SizedBox(height: 12),
-            _moneyRow('الراتب الأساسي', baseSalary),
-            const SizedBox(height: 8),
-            TextField(
-              controller: deductionController,
-              keyboardType: TextInputType.number,
-              enabled: !isSaving,
-              textAlign: TextAlign.right,
-              decoration: const InputDecoration(
-                labelText: 'الخصم الذي تحدده الإدارة',
-                hintText: 'مثال: 100',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.remove_circle_outline),
-              ),
-              onChanged: (_) => setState(() {}),
-            ),
-            const SizedBox(height: 10),
+            _hoursRow('عدد الساعات', totalWorkedHours),
+            const SizedBox(height: 6),
+            _moneyRow('سعر الساعة', resolvedHourlyRate),
+            const SizedBox(height: 6),
+            _moneyRow('أجر الساعات', grossSalary),
+            const SizedBox(height: 12),
             TextField(
               controller: bonusController,
               keyboardType: TextInputType.number,
               enabled: !isSaving,
               textAlign: TextAlign.right,
               decoration: const InputDecoration(
-                labelText: 'العلاوة التي تحددها الإدارة',
-                hintText: 'مثال: 50',
+                labelText: 'علاوة',
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.add_circle_outline),
               ),
@@ -671,7 +805,6 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
               textAlign: TextAlign.right,
               decoration: const InputDecoration(
                 labelText: 'ملاحظات الإدارة',
-                hintText: 'مثال: خصم بسبب نقص ساعات خلال الشهر',
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.notes_outlined),
               ),
@@ -687,7 +820,11 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
               ),
               child: Column(
                 children: [
-                  _moneyRow('الخصم', deductionAmount),
+                  _hoursRow('عدد الساعات', totalWorkedHours),
+                  const SizedBox(height: 6),
+                  _moneyRow('سعر الساعة', resolvedHourlyRate),
+                  const SizedBox(height: 6),
+                  _moneyRow('أجر الساعات', grossSalary),
                   const SizedBox(height: 6),
                   _moneyRow('العلاوة', bonusAmount),
                   const SizedBox(height: 6),
@@ -754,6 +891,35 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
     );
   }
 
+  Widget _hoursRow(
+    String title,
+    double value, {
+    bool isBold = false,
+    Color? color,
+  }) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            title,
+            style: TextStyle(
+              color: color ?? Colors.black87,
+              fontWeight: isBold ? FontWeight.bold : FontWeight.w600,
+            ),
+          ),
+        ),
+        Text(
+          '${value.toStringAsFixed(2)} ساعة',
+          style: TextStyle(
+            color: color ?? Colors.black87,
+            fontWeight: isBold ? FontWeight.bold : FontWeight.w600,
+            fontSize: isBold ? 16 : 14,
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _infoRow(String title, String value) {
     return Row(
       children: [
@@ -776,26 +942,20 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: Scaffold(
-        backgroundColor: const Color(0xffF7F7F7),
-        appBar: AppBar(
-          title: const Text('رواتب الموظفات'),
-          centerTitle: true,
-        ),
-        body: RefreshIndicator(
-          onRefresh: _loadPayrollSummary,
-          child: ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            children: [
-              _buildMonthCard(),
-              _buildStaffPicker(),
-              _buildSummaryCard(),
-              _buildSalaryCard(),
-              const SizedBox(height: 20),
-            ],
-          ),
+    return AppPageScaffold(
+      title: 'رواتب الموظفات',
+      padding: const EdgeInsets.fromLTRB(0, 0, 0, 16),
+      child: RefreshIndicator(
+        onRefresh: _loadPayrollSummary,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            _buildMonthCard(),
+            _buildStaffPicker(),
+            _buildSummaryCard(),
+            _buildSalaryCard(),
+            const SizedBox(height: 20),
+          ],
         ),
       ),
     );

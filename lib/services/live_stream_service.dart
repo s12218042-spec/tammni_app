@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+
 import 'app_notification_service.dart';
 
 class LiveStreamRequestResult {
@@ -163,131 +164,243 @@ class LiveStreamService {
     };
   }
 
+  Future<int> _nextQueuePosition() async {
+    final snapshot = await _firestore
+        .collection('live_stream_requests')
+        .where('status', whereIn: ['queued', 'waiting'])
+        .get();
+
+    return snapshot.docs.length + 1;
+  }
+
+  Future<bool> _hasActiveOrReadyLiveStreamRequest() async {
+    final snapshot = await _firestore
+        .collection('live_stream_requests')
+        .where('status', whereIn: ['active', 'ready'])
+        .limit(1)
+        .get();
+
+    return snapshot.docs.isNotEmpty;
+  }
+
+  DateTime? _dateFromDynamic(dynamic value) {
+  if (value is Timestamp) return value.toDate();
+  if (value is DateTime) return value;
+  return null;
+}
+
+Future<void> expireReadyRequestsIfNeeded() async {
+  try {
+    final now = DateTime.now();
+
+    final snapshot = await _firestore
+        .collection('live_stream_requests')
+        .where('status', isEqualTo: 'ready')
+        .limit(20)
+        .get();
+
+    bool expiredAnyRequest = false;
+
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      final expiresAt = _dateFromDynamic(data['readyExpiresAt']);
+
+      if (expiresAt == null) continue;
+      if (expiresAt.isAfter(now)) continue;
+
+      await doc.reference.update({
+        'status': 'expired',
+        'expiredAt': FieldValue.serverTimestamp(),
+        'expireReason': 'ready_timeout',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      expiredAnyRequest = true;
+
+      await _sendNotificationToParent(
+        type: 'live_stream_request_expired',
+        title: 'انتهت مهلة البث المباشر',
+        body:
+            'انتهت مهلة استخدام البث المباشر للطفل ${(data['childName'] ?? 'الطفل').toString()}، وتم الانتقال للطلب التالي.',
+        parentUid: (data['parentUid'] ?? '').toString(),
+        parentUsername: (data['parentUsername'] ?? '').toString(),
+        parentName: (data['parentName'] ?? '').toString(),
+        childId: (data['childId'] ?? '').toString(),
+        childName: (data['childName'] ?? '').toString(),
+        roomId: '',
+        requestId: doc.id,
+        actorUid: 'system',
+        actorName: 'النظام',
+        actorRole: 'admin',
+      );
+    }
+
+    if (expiredAnyRequest) {
+      await _promoteNextQueuedRequest();
+    }
+  } catch (e) {
+    debugPrint('expire ready live stream requests error: $e');
+  }
+}
+
   Future<LiveStreamRequestResult> requestLiveStreamForChild({
-  required String childId,
-  required String childName,
-  required String parentUid,
-  required String parentUsername,
-  required String parentName,
-  String section = 'Nursery',
-  String group = '',
-  String note = '',
-}) async {
-  final cleanParentUid = parentUid.trim();
-  final cleanParentUsername = parentUsername.trim().toLowerCase();
-  final cleanChildId = childId.trim();
-  final cleanChildName = childName.trim();
-  final cleanParentName = parentName.trim();
+    required String childId,
+    required String childName,
+    required String parentUid,
+    required String parentUsername,
+    required String parentName,
+    String section = 'Nursery',
+    String group = '',
+    String note = '',
+  }) async {
+    final cleanParentUid = parentUid.trim();
+    final cleanParentUsername = parentUsername.trim().toLowerCase();
+    final cleanChildId = childId.trim();
+    final cleanChildName = childName.trim();
+    final cleanParentName = parentName.trim();
 
-  if (cleanChildId.isEmpty) {
-    throw Exception('تعذر تحديد الطفل لطلب البث.');
-  }
+    if (cleanChildId.isEmpty) {
+      throw Exception('تعذر تحديد الطفل للبث المباشر.');
+    }
 
-  if (cleanParentUid.isEmpty) {
-    throw Exception('تعذر تحديد ولي الأمر لطلب البث.');
-  }
+    if (cleanParentUid.isEmpty) {
+      throw Exception('تعذر تحديد ولي الأمر للبث المباشر.');
+    }
 
-  if (cleanParentUsername.isEmpty) {
-    throw Exception('تعذر تحديد اسم مستخدم ولي الأمر.');
-  }
+    if (cleanParentUsername.isEmpty) {
+      throw Exception('تعذر تحديد اسم مستخدم ولي الأمر.');
+    }
 
-  // مهم:
-  // لا نفحص live_streams هنا من حساب ولي الأمر.
-  // ولي الأمر لا يملك صلاحية قراءة كل البثوث النشطة.
-  // الطلب يبدأ pending، والإدارة لاحقًا تقرر البدء أو الانتظار.
+    await expireReadyRequestsIfNeeded();
 
-  final existingSnapshot = await _firestore
-      .collection('live_stream_requests')
-      .where('parentUid', isEqualTo: cleanParentUid)
-      .where('childId', isEqualTo: cleanChildId)
-      .where('status', whereIn: ['pending', 'queued', 'approved', 'active'])
-      .limit(1)
-      .get();
+    final existingSnapshot = await _firestore
+        .collection('live_stream_requests')
+        .where('parentUid', isEqualTo: cleanParentUid)
+        .where('childId', isEqualTo: cleanChildId)
+        .where('status', whereIn: ['ready', 'queued', 'waiting', 'active'])
+        .limit(1)
+        .get();
 
-  if (existingSnapshot.docs.isNotEmpty) {
-    final doc = existingSnapshot.docs.first;
-    final data = doc.data();
+    if (existingSnapshot.docs.isNotEmpty) {
+      final doc = existingSnapshot.docs.first;
+      final data = doc.data();
+
+      return LiveStreamRequestResult(
+        requestId: doc.id,
+        status: (data['status'] ?? 'queued').toString(),
+        queuePosition: (data['queuePosition'] is int)
+            ? data['queuePosition'] as int
+            : 0,
+        hasActiveStream: (data['status'] ?? '').toString() == 'active',
+      );
+    }
+
+    final hasActiveOrReady = await _hasActiveOrReadyLiveStreamRequest();
+
+    final status = hasActiveOrReady ? 'queued' : 'ready';
+    final queuePosition = hasActiveOrReady ? await _nextQueuePosition() : 0;
+
+    final now = Timestamp.now();
+    final requestRef = _firestore.collection('live_stream_requests').doc();
+
+    await requestRef.set({
+      'requestId': requestRef.id,
+      'requestType': 'live_stream_direct',
+      'status': status,
+      'queuePosition': queuePosition,
+      'childId': cleanChildId,
+      'childName': cleanChildName.isEmpty ? 'الطفل' : cleanChildName,
+      'parentUid': cleanParentUid,
+      'parentUsername': cleanParentUsername,
+      'parentName': cleanParentName,
+      'requestedByUid': cleanParentUid,
+      'requestedByRole': 'parent',
+      'requestedByUsername': cleanParentUsername,
+      'section': section.trim().isEmpty ? 'Nursery' : section.trim(),
+      'group': group.trim(),
+      'note': note.trim(),
+      'activeStreamAtRequest': hasActiveOrReady,
+      'activeRoomIdAtRequest': '',
+      'requestedAt': now,
+      'createdAt': now,
+      'updatedAt': now,
+      'readyAt': status == 'ready' ? now : null,
+      'readyExpiresAt': status == 'ready'
+          ? Timestamp.fromDate(
+              DateTime.now().add(const Duration(minutes: 10)),
+            )
+          : null,
+      'approvedAt': null,
+      'startedAt': null,
+      'endedAt': null,
+      'approvedByUid': '',
+      'approvedByName': '',
+      'approvedByRole': '',
+      'startedRoomId': '',
+      'cancelledAt': null,
+      'cancelledByUid': '',
+      'cancelledByRole': '',
+    });
+
+    if (status == 'ready') {
+      await _sendNotificationToAdmins(
+        type: 'live_stream_request_ready',
+        title: 'ولي أمر جاهز للبث المباشر',
+        body:
+            'ولي الأمر يريد فتح بث مباشر الآن للطفل ${cleanChildName.isEmpty ? "الطفل" : cleanChildName}.',
+        childId: cleanChildId,
+        childName: cleanChildName,
+        requestId: requestRef.id,
+        parentUid: cleanParentUid,
+        parentUsername: cleanParentUsername,
+        parentName: cleanParentName,
+      );
+
+      await _sendNotificationToParent(
+        type: 'live_stream_request_ready',
+        title: 'يمكنك الآن استخدام البث المباشر',
+        body:
+            'طلب البث المباشر للطفل ${cleanChildName.isEmpty ? "الطفل" : cleanChildName} أصبح جاهزًا. لديك 10 دقائق للبدء.',
+        parentUid: cleanParentUid,
+        parentUsername: cleanParentUsername,
+        parentName: cleanParentName,
+        childId: cleanChildId,
+        childName: cleanChildName,
+        roomId: '',
+        requestId: requestRef.id,
+        actorUid: 'system',
+        actorName: 'النظام',
+        actorRole: 'admin',
+      );
+    } else {
+      await _sendNotificationToParent(
+        type: 'live_stream_queued',
+        title: 'تمت إضافتك إلى قائمة انتظار البث',
+        body:
+            'يوجد بث مباشر قائم حاليًا. تم وضعك في قائمة الانتظار، ورقمك: $queuePosition.',
+        parentUid: cleanParentUid,
+        parentUsername: cleanParentUsername,
+        parentName: cleanParentName,
+        childId: cleanChildId,
+        childName: cleanChildName,
+        roomId: '',
+        requestId: requestRef.id,
+        actorUid: 'system',
+        actorName: 'النظام',
+        actorRole: 'admin',
+      );
+    }
 
     return LiveStreamRequestResult(
-      requestId: doc.id,
-      status: (data['status'] ?? 'pending').toString(),
-      queuePosition: (data['queuePosition'] is int)
-          ? data['queuePosition'] as int
-          : 0,
-      hasActiveStream: false,
+      requestId: requestRef.id,
+      status: status,
+      queuePosition: queuePosition,
+      hasActiveStream: hasActiveOrReady,
     );
   }
 
-  final now = Timestamp.now();
-  final requestRef = _firestore.collection('live_stream_requests').doc();
-
-  await requestRef.set({
-    'requestId': requestRef.id,
-    'requestType': 'live_stream_request',
-
-    'status': 'pending',
-    'queuePosition': 0,
-
-    'childId': cleanChildId,
-    'childName': cleanChildName.isEmpty ? 'الطفل' : cleanChildName,
-
-    'parentUid': cleanParentUid,
-    'parentUsername': cleanParentUsername,
-    'parentName': cleanParentName,
-
-    'requestedByUid': cleanParentUid,
-    'requestedByRole': 'parent',
-    'requestedByUsername': cleanParentUsername,
-
-    'section': section.trim().isEmpty ? 'Nursery' : section.trim(),
-    'group': group.trim(),
-    'note': note.trim(),
-
-    'activeStreamAtRequest': false,
-    'activeRoomIdAtRequest': '',
-
-    'requestedAt': now,
-    'createdAt': now,
-    'updatedAt': now,
-
-    'approvedAt': null,
-    'startedAt': null,
-    'endedAt': null,
-
-    'approvedByUid': '',
-    'approvedByName': '',
-    'approvedByRole': '',
-
-    'startedRoomId': '',
-
-    'cancelledAt': null,
-    'cancelledByUid': '',
-    'cancelledByRole': '',
-  });
-
-  await _sendNotificationToAdmins(
-    type: 'live_stream_request',
-    title: 'طلب بث مباشر جديد',
-    body:
-        'طلب ولي الأمر مشاهدة بث مباشر للطفل ${cleanChildName.isEmpty ? "الطفل" : cleanChildName}.',
-    childId: cleanChildId,
-    childName: cleanChildName,
-    requestId: requestRef.id,
-    parentUid: cleanParentUid,
-    parentUsername: cleanParentUsername,
-    parentName: cleanParentName,
-  );
-
-  return LiveStreamRequestResult(
-    requestId: requestRef.id,
-    status: 'pending',
-    queuePosition: 0,
-    hasActiveStream: false,
-  );
-}
-
   Stream<QuerySnapshot<Map<String, dynamic>>> watchLiveStreamRequests({
-    List<String> statuses = const ['pending', 'queued', 'approved', 'active'],
+    List<String> statuses = const ['ready', 'queued', 'waiting', 'active'],
   }) {
     return _firestore
         .collection('live_stream_requests')
@@ -321,10 +434,13 @@ class LiveStreamService {
     final status = (data['status'] ?? '').toString();
 
     if (status == 'active') {
-      throw Exception('لا يمكن إلغاء طلب بدأ بثه بالفعل.');
+      throw Exception('لا يمكن إلغاء بث بدأ بالفعل.');
     }
 
-    if (status == 'completed' || status == 'cancelled' || status == 'rejected') {
+    if (status == 'completed' ||
+        status == 'cancelled' ||
+        status == 'rejected' ||
+        status == 'expired') {
       return;
     }
 
@@ -383,55 +499,51 @@ class LiveStreamService {
   }
 
   Future<String> startLiveStream({
-  required String title,
-  required String startedByUid,
-  required String startedByName,
-  required String startedByRole,
-  String? startedByPhotoUrl,
-  String section = 'Nursery',
-  String group = '',
-  String allowedViewersType = 'all',
-  bool notifyParents = true,
-
-  // أسماء قديمة / عامة
-  String? requestId,
-  String? childId,
-  String? childName,
-  String? parentUid,
-  String? parentUsername,
-  String? parentName,
-
-  // أسماء مستخدمة من StartLiveStreamPage
-  String liveStreamRequestId = '',
-  String requestedChildId = '',
-  String requestedChildName = '',
-  String requestedParentUid = '',
-  String requestedParentUsername = '',
-}) async {
+    required String title,
+    required String startedByUid,
+    required String startedByName,
+    required String startedByRole,
+    String? startedByPhotoUrl,
+    String section = 'Nursery',
+    String group = '',
+    String allowedViewersType = 'all',
+    bool notifyParents = true,
+    String? requestId,
+    String? childId,
+    String? childName,
+    String? parentUid,
+    String? parentUsername,
+    String? parentName,
+    String liveStreamRequestId = '',
+    String requestedChildId = '',
+    String requestedChildName = '',
+    String requestedParentUid = '',
+    String requestedParentUsername = '',
+  }) async {
     try {
       _isDisposed = false;
 
       _localStream ??= await openUserMedia();
 
       final cleanRequestId = liveStreamRequestId.trim().isNotEmpty
-      ? liveStreamRequestId.trim()
-      : (requestId?.trim() ?? '');
+          ? liveStreamRequestId.trim()
+          : (requestId?.trim() ?? '');
 
       final cleanParentUid = requestedParentUid.trim().isNotEmpty
-      ? requestedParentUid.trim()
-      : (parentUid?.trim() ?? '');
+          ? requestedParentUid.trim()
+          : (parentUid?.trim() ?? '');
 
       final cleanParentUsername = requestedParentUsername.trim().isNotEmpty
-      ? requestedParentUsername.trim().toLowerCase()
-      : (parentUsername?.trim().toLowerCase() ?? '');
+          ? requestedParentUsername.trim().toLowerCase()
+          : (parentUsername?.trim().toLowerCase() ?? '');
 
       final cleanChildId = requestedChildId.trim().isNotEmpty
-      ? requestedChildId.trim()
-      : (childId?.trim() ?? '');
+          ? requestedChildId.trim()
+          : (childId?.trim() ?? '');
 
       final cleanChildName = requestedChildName.trim().isNotEmpty
-      ? requestedChildName.trim()
-      : (childName?.trim() ?? '');
+          ? requestedChildName.trim()
+          : (childName?.trim() ?? '');
 
       final isIndividualStream = cleanRequestId.isNotEmpty ||
           cleanParentUid.isNotEmpty ||
@@ -489,11 +601,7 @@ class LiveStreamService {
             .set({
           'status': 'active',
           'startedRoomId': roomId,
-          'approvedAt': FieldValue.serverTimestamp(),
           'startedAt': FieldValue.serverTimestamp(),
-          'approvedByUid': startedByUid,
-          'approvedByName': startedByName,
-          'approvedByRole': _normalizeRole(startedByRole),
           'updatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
       }
@@ -877,163 +985,165 @@ class LiveStreamService {
   }
 
   Future<void> _sendNotificationToAdmins({
-  required String type,
-  required String title,
-  required String body,
-  required String childId,
-  required String childName,
-  required String requestId,
-  required String parentUid,
-  required String parentUsername,
-  required String parentName,
-}) async {
-  try {
-    await AppNotificationService.instance.notifyAdmin(
-      title: title,
-      body: body,
-      type: type,
-      priority: 'important',
-      parentUid: parentUid,
-      parentUsername: parentUsername,
-      parentName: parentName,
-      childId: childId,
-      childName: childName,
-      section: 'Nursery',
-      createdByUid: parentUid,
-      createdByName: parentName.isEmpty ? 'ولي الأمر' : parentName,
-      createdByRole: 'parent',
-      extraData: {
-        'notificationType': type,
-        'category': 'live_stream',
-        'templateType': 'live_stream_request',
-        'requestId': requestId,
-        'liveStreamRequestId': requestId,
-        'route': 'live_stream_requests',
-        'screen': 'live_stream',
-      },
-    );
-  } catch (e) {
-    debugPrint('send admin live stream request notification error: $e');
-  }
-}
-
-Future<void> _sendNotificationToParent({
-  required String type,
-  required String title,
-  required String body,
-  required String parentUid,
-  required String parentUsername,
-  required String parentName,
-  required String childId,
-  required String childName,
-  required String roomId,
-  required String requestId,
-  required String actorUid,
-  required String actorName,
-  required String actorRole,
-}) async {
-  try {
-    if (parentUid.trim().isEmpty && parentUsername.trim().isEmpty) return;
-
-    await AppNotificationService.instance.notifyParent(
-      parentUid: parentUid,
-      parentUsername: parentUsername,
-      parentName: parentName,
-      title: title,
-      body: body,
-      type: type,
-      childId: childId,
-      childName: childName,
-      section: 'Nursery',
-      priority: type == 'live_stream_request_rejected' ? 'important' : 'normal',
-      createdByUid: actorUid,
-      createdByName: actorName,
-      createdByRole: actorRole,
-      extraData: {
-        'notificationType': type,
-        'category': 'live_stream',
-        'templateType': 'live_stream',
-        'roomId': roomId,
-        'liveStreamId': roomId,
-        'requestId': requestId,
-        'liveStreamRequestId': requestId,
-        'route': 'live_stream',
-        'screen': 'live_stream',
-      },
-    );
-  } catch (e) {
-    debugPrint('send parent live stream notification error: $e');
-  }
-}
-
-Future<void> _sendLiveStreamNotificationToParents({
-  required String type,
-  required String title,
-  required String body,
-  required String roomId,
-  required String streamTitle,
-  required String actorUid,
-  required String actorName,
-  required String actorRole,
-}) async {
-  try {
-    final parentsSnapshot = await _firestore
-        .collection('users')
-        .where('role', isEqualTo: 'parent')
-        .where('isActive', isEqualTo: true)
-        .get();
-
-    if (parentsSnapshot.docs.isEmpty) return;
-
-    for (final parentDoc in parentsSnapshot.docs) {
-      final parentData = parentDoc.data();
-
-      final parentUid = parentDoc.id;
-      final parentUsername =
-          (parentData['username'] ?? '').toString().trim().toLowerCase();
-
-      final parentName = (parentData['displayName'] ??
-              parentData['name'] ??
-              parentData['fullName'] ??
-              parentData['username'] ??
-              '')
-          .toString()
-          .trim();
-
-      try {
-        await AppNotificationService.instance.notifyParent(
-          parentUid: parentUid,
-          parentUsername: parentUsername,
-          parentName: parentName,
-          title: title,
-          body: body,
-          type: type,
-          section: 'Nursery',
-          priority: 'normal',
-          createdByUid: actorUid,
-          createdByName: actorName,
-          createdByRole: actorRole,
-          extraData: {
-            'notificationType': type,
-            'category': 'live_stream',
-            'templateType': 'live_stream',
-            'roomId': roomId,
-            'liveStreamId': roomId,
-            'streamTitle': streamTitle,
-            'route': 'live_stream',
-            'screen': 'live_stream',
-          },
-        );
-      } catch (e) {
-        debugPrint(
-          'send live stream notification to parent $parentUid error: $e',
-        );
-      }
+    required String type,
+    required String title,
+    required String body,
+    required String childId,
+    required String childName,
+    required String requestId,
+    required String parentUid,
+    required String parentUsername,
+    required String parentName,
+  }) async {
+    try {
+      await AppNotificationService.instance.notifyAdmin(
+        title: title,
+        body: body,
+        type: type,
+        priority: 'important',
+        parentUid: parentUid,
+        parentUsername: parentUsername,
+        parentName: parentName,
+        childId: childId,
+        childName: childName,
+        section: 'Nursery',
+        createdByUid: parentUid,
+        createdByName: parentName.isEmpty ? 'ولي الأمر' : parentName,
+        createdByRole: 'parent',
+        extraData: {
+          'notificationType': type,
+          'category': 'live_stream',
+          'templateType': 'live_stream_request',
+          'requestId': requestId,
+          'liveStreamRequestId': requestId,
+          'route': 'live_stream_requests',
+          'screen': 'live_stream',
+        },
+      );
+    } catch (e) {
+      debugPrint('send admin live stream request notification error: $e');
     }
-  } catch (e) {
-    debugPrint('send live stream notifications error: $e');
   }
-}
+
+  Future<void> _sendNotificationToParent({
+    required String type,
+    required String title,
+    required String body,
+    required String parentUid,
+    required String parentUsername,
+    required String parentName,
+    required String childId,
+    required String childName,
+    required String roomId,
+    required String requestId,
+    required String actorUid,
+    required String actorName,
+    required String actorRole,
+  }) async {
+    try {
+      if (parentUid.trim().isEmpty && parentUsername.trim().isEmpty) return;
+
+      await AppNotificationService.instance.notifyParent(
+        parentUid: parentUid,
+        parentUsername: parentUsername,
+        parentName: parentName,
+        title: title,
+        body: body,
+        type: type,
+        childId: childId,
+        childName: childName,
+        section: 'Nursery',
+        priority: type == 'live_stream_request_rejected'
+            ? 'important'
+            : 'normal',
+        createdByUid: actorUid,
+        createdByName: actorName,
+        createdByRole: actorRole,
+        extraData: {
+          'notificationType': type,
+          'category': 'live_stream',
+          'templateType': 'live_stream',
+          'roomId': roomId,
+          'liveStreamId': roomId,
+          'requestId': requestId,
+          'liveStreamRequestId': requestId,
+          'route': 'live_stream',
+          'screen': 'live_stream',
+        },
+      );
+    } catch (e) {
+      debugPrint('send parent live stream notification error: $e');
+    }
+  }
+
+  Future<void> _sendLiveStreamNotificationToParents({
+    required String type,
+    required String title,
+    required String body,
+    required String roomId,
+    required String streamTitle,
+    required String actorUid,
+    required String actorName,
+    required String actorRole,
+  }) async {
+    try {
+      final parentsSnapshot = await _firestore
+          .collection('users')
+          .where('role', isEqualTo: 'parent')
+          .where('isActive', isEqualTo: true)
+          .get();
+
+      if (parentsSnapshot.docs.isEmpty) return;
+
+      for (final parentDoc in parentsSnapshot.docs) {
+        final parentData = parentDoc.data();
+
+        final parentUid = parentDoc.id;
+        final parentUsername =
+            (parentData['username'] ?? '').toString().trim().toLowerCase();
+
+        final parentName = (parentData['displayName'] ??
+                parentData['name'] ??
+                parentData['fullName'] ??
+                parentData['username'] ??
+                '')
+            .toString()
+            .trim();
+
+        try {
+          await AppNotificationService.instance.notifyParent(
+            parentUid: parentUid,
+            parentUsername: parentUsername,
+            parentName: parentName,
+            title: title,
+            body: body,
+            type: type,
+            section: 'Nursery',
+            priority: 'normal',
+            createdByUid: actorUid,
+            createdByName: actorName,
+            createdByRole: actorRole,
+            extraData: {
+              'notificationType': type,
+              'category': 'live_stream',
+              'templateType': 'live_stream',
+              'roomId': roomId,
+              'liveStreamId': roomId,
+              'streamTitle': streamTitle,
+              'route': 'live_stream',
+              'screen': 'live_stream',
+            },
+          );
+        } catch (e) {
+          debugPrint(
+            'send live stream notification to parent $parentUid error: $e',
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('send live stream notifications error: $e');
+    }
+  }
 
   Future<void> _promoteNextQueuedRequest() async {
     try {
@@ -1050,9 +1160,12 @@ Future<void> _sendLiveStreamNotificationToParents({
       final data = doc.data();
 
       await doc.reference.update({
-        'status': 'pending',
-        'queuePosition': 1,
-        'becamePendingAt': FieldValue.serverTimestamp(),
+        'status': 'ready',
+        'queuePosition': 0,
+        'readyAt': FieldValue.serverTimestamp(),
+        'readyExpiresAt': Timestamp.fromDate(
+          DateTime.now().add(const Duration(minutes: 10)),
+        ),
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
@@ -1071,9 +1184,9 @@ Future<void> _sendLiveStreamNotificationToParents({
 
       await _sendNotificationToParent(
         type: 'live_stream_request_ready',
-        title: 'طلب البث المباشر أصبح جاهزًا',
+        title: 'يمكنك الآن استخدام البث المباشر',
         body:
-            'أصبح طلب البث المباشر للطفل ${(data['childName'] ?? 'الطفل').toString()} جاهزًا، وسيبدأ عند موافقة الإدارة.',
+            'يمكنك الآن استخدام البث المباشر للطفل ${(data['childName'] ?? 'الطفل').toString()}. لديك 10 دقائق للبدء.',
         parentUid: (data['parentUid'] ?? '').toString(),
         parentUsername: (data['parentUsername'] ?? '').toString(),
         parentName: (data['parentName'] ?? '').toString(),

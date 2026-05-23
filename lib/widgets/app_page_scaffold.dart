@@ -20,6 +20,15 @@ class AppPageScaffold extends StatelessWidget {
     this.resizeToAvoidBottomInset = true,
   });
 
+  EdgeInsets _resolvePadding(BuildContext context) {
+    final basePadding = padding.resolve(Directionality.of(context));
+    final bottomSafePadding = MediaQuery.of(context).padding.bottom;
+
+    return basePadding.copyWith(
+      bottom: basePadding.bottom + bottomSafePadding + 20,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Directionality(
@@ -33,8 +42,10 @@ class AppPageScaffold extends StatelessWidget {
         ),
         floatingActionButton: floatingActionButton,
         body: SafeArea(
+          top: false,
+          bottom: true,
           child: Padding(
-            padding: padding,
+            padding: _resolvePadding(context),
             child: child,
           ),
         ),

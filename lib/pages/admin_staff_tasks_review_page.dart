@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 class AdminStaffTasksReviewPage extends StatefulWidget {
@@ -11,9 +12,13 @@ class AdminStaffTasksReviewPage extends StatefulWidget {
 
 class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
 
   DateTime selectedDate = DateTime.now();
   bool isLoading = false;
+  final ScrollController _scrollController = ScrollController();
+
+  String selectedStatus = 'all';
 
   DateTime get today {
     final now = DateTime.now();
@@ -85,6 +90,61 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
     }
   }
 
+  IconData _statusIcon(String status) {
+    switch (_safeStatus(status)) {
+      case 'done':
+        return Icons.check_circle_rounded;
+      case 'not_done':
+        return Icons.cancel_rounded;
+      case 'partially_done':
+        return Icons.change_circle_rounded;
+      case 'needs_follow_up':
+        return Icons.flag_rounded;
+      case 'pending':
+      default:
+        return Icons.hourglass_bottom_rounded;
+    }
+  }
+
+  Future<Map<String, String>> _currentAdminInfo() async {
+    final user = _auth.currentUser;
+
+    if (user == null) {
+      return {
+        'uid': '',
+        'name': 'الإدارة',
+        'role': 'admin',
+      };
+    }
+
+    try {
+      final doc = await _firestore.collection('users').doc(user.uid).get();
+      final data = doc.data() ?? {};
+
+      final name = _clean(data['displayName']).isNotEmpty
+          ? _clean(data['displayName'])
+          : _clean(data['name']).isNotEmpty
+              ? _clean(data['name'])
+              : _clean(data['fullName']).isNotEmpty
+                  ? _clean(data['fullName'])
+                  : _clean(data['username']).isNotEmpty
+                      ? _clean(data['username'])
+                      : 'الإدارة';
+
+      return {
+        'uid': user.uid,
+        'name': name,
+        'role': _clean(data['role']).isNotEmpty ? _clean(data['role']) : 'admin',
+      };
+    } catch (_) {
+      return {
+        'uid': user.uid,
+        'name': 'الإدارة',
+        'role': 'admin',
+      };
+    }
+  }
+
   Future<void> _pickDate() async {
     final picked = await showDatePicker(
       context: context,
@@ -97,6 +157,7 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
 
     setState(() {
       selectedDate = DateTime(picked.year, picked.month, picked.day);
+      selectedStatus = 'all';
     });
   }
 
@@ -105,17 +166,28 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
     final snapshot = await _firestore
         .collection('staff_tasks')
         .where('dateKey', isEqualTo: dateKey)
+        .where('isActive', isEqualTo: true)
         .get();
 
-    final docs = snapshot.docs.toList();
+    final docs = snapshot.docs.where((doc) {
+      final data = doc.data();
+
+      final removed = data['removedFromSchedule'] == true;
+      if (removed) return false;
+
+      if (selectedStatus == 'all') return true;
+
+      final status = _safeStatus(data['status'] ?? data['taskStatus']);
+      return status == selectedStatus;
+    }).toList();
 
     docs.sort((a, b) {
       final aName = _clean(a.data()['staffName']);
       final bName = _clean(b.data()['staffName']);
       if (aName != bName) return aName.compareTo(bName);
 
-      final aTask = _clean(a.data()['taskLabel']);
-      final bTask = _clean(b.data()['taskLabel']);
+      final aTask = _clean(a.data()['taskLabel'] ?? a.data()['title']);
+      final bTask = _clean(b.data()['taskLabel'] ?? b.data()['title']);
       return aTask.compareTo(bTask);
     });
 
@@ -125,7 +197,6 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
   Future<void> _updateTaskStatus({
     required String taskId,
     required String newStatus,
-    required String note,
   }) async {
     if (isLoading) return;
 
@@ -135,21 +206,26 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
 
     try {
       final safeStatus = _safeStatus(newStatus);
+      final adminInfo = await _currentAdminInfo();
 
       await _firestore.collection('staff_tasks').doc(taskId).update({
         'taskStatus': safeStatus,
+        'status': safeStatus,
         'statusLabel': _statusLabel(safeStatus),
-        'adminReviewNote': note,
-        'reviewNote': note,
-        'reviewedByRole': 'admin',
+        'reviewedByUid': adminInfo['uid'] ?? '',
+        'reviewedByName': adminInfo['name'] ?? 'الإدارة',
+        'reviewedByRole': adminInfo['role'] ?? 'admin',
         'reviewedAt': FieldValue.serverTimestamp(),
+        'updatedByUid': adminInfo['uid'] ?? '',
+        'updatedByName': adminInfo['name'] ?? 'الإدارة',
+        'updatedByRole': adminInfo['role'] ?? 'admin',
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم تحديث حالة المهمة بنجاح')),
+        const SnackBar(content: Text('تم تحديث حالة المهمة')),
       );
 
       setState(() {});
@@ -174,7 +250,7 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
     if (!isToday) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('لا يمكن تعديل مهام الأيام السابقة. العرض فقط.'),
+          content: Text('لا يمكن تعديل مهام الأيام السابقة'),
         ),
       );
       return;
@@ -182,12 +258,8 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
 
     final data = doc.data();
 
-    String selectedStatus = _safeStatus(data['taskStatus']);
-
-    final noteController = TextEditingController(
-      text: _clean(data['adminReviewNote']).isNotEmpty
-          ? _clean(data['adminReviewNote'])
-          : _clean(data['reviewNote']),
+    String selectedTaskStatus = _safeStatus(
+      data['status'] ?? data['taskStatus'],
     );
 
     await showDialog<void>(
@@ -198,7 +270,7 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
           child: StatefulBuilder(
             builder: (context, setDialogState) {
               return AlertDialog(
-                title: const Text('متابعة مهمة الموظفة'),
+                title: const Text('تحديث حالة المهمة'),
                 content: SingleChildScrollView(
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 420),
@@ -214,15 +286,11 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
                         const SizedBox(height: 8),
                         _dialogInfo(
                           'المهمة',
-                          _clean(data['taskLabel']).isEmpty
-                              ? (_clean(data['title']).isEmpty
-                                  ? 'مهمة بدون عنوان'
-                                  : _clean(data['title']))
-                              : _clean(data['taskLabel']),
+                          _taskTitle(data),
                         ),
                         const SizedBox(height: 14),
                         DropdownButtonFormField<String>(
-                          value: selectedStatus,
+                          value: selectedTaskStatus,
                           decoration: const InputDecoration(
                             labelText: 'حالة المهمة',
                             border: OutlineInputBorder(),
@@ -252,19 +320,9 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
                           onChanged: (value) {
                             if (value == null) return;
                             setDialogState(() {
-                              selectedStatus = value;
+                              selectedTaskStatus = value;
                             });
                           },
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: noteController,
-                          maxLines: 3,
-                          textAlign: TextAlign.right,
-                          decoration: const InputDecoration(
-                            labelText: 'ملاحظات الإدارة',
-                            border: OutlineInputBorder(),
-                          ),
                         ),
                       ],
                     ),
@@ -278,11 +336,9 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
                   ElevatedButton.icon(
                     onPressed: () async {
                       Navigator.pop(dialogContext);
-
                       await _updateTaskStatus(
                         taskId: doc.id,
-                        newStatus: selectedStatus,
-                        note: noteController.text.trim(),
+                        newStatus: selectedTaskStatus,
                       );
                     },
                     icon: const Icon(Icons.save_outlined),
@@ -295,8 +351,17 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
         );
       },
     );
+  }
 
-    noteController.dispose();
+  String _taskTitle(Map<String, dynamic> data) {
+    final taskLabel = _clean(data['taskLabel']);
+    final taskTitle = _clean(data['taskTitle']);
+    final title = _clean(data['title']);
+
+    if (taskLabel.isNotEmpty) return taskLabel;
+    if (taskTitle.isNotEmpty) return taskTitle;
+    if (title.isNotEmpty) return title;
+    return 'مهمة بدون عنوان';
   }
 
   Widget _dialogInfo(String title, String value) {
@@ -326,57 +391,77 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       child: Padding(
         padding: const EdgeInsets.all(14),
-        child: Column(
+        child: Row(
           children: [
-            Row(
-              children: [
-                const CircleAvatar(
-                  child: Icon(Icons.fact_check_outlined),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'مهام تاريخ: $dateKey',
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Flexible(
-                  fit: FlexFit.loose,
-                  child: OutlinedButton.icon(
-                    onPressed: _pickDate,
-                    icon: const Icon(Icons.date_range),
-                    label: const Text('اختيار تاريخ'),
-                  ),
-                ),
-              ],
+            const CircleAvatar(
+              child: Icon(Icons.fact_check_outlined),
             ),
-            const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: isToday
-                    ? Colors.green.withOpacity(0.08)
-                    : Colors.blueGrey.withOpacity(0.08),
-                borderRadius: BorderRadius.circular(12),
-              ),
+            const SizedBox(width: 10),
+            Expanded(
               child: Text(
-                isToday
-                    ? 'مهام اليوم: يمكن تعديل الحالة وملاحظات الإدارة.'
-                    : 'أرشيف يوم سابق: عرض فقط بدون تعديل.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: isToday ? Colors.green : Colors.blueGrey,
+                'مهام تاريخ: $dateKey',
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
                   fontWeight: FontWeight.bold,
+                  fontSize: 16,
                 ),
               ),
+            ),
+            const SizedBox(width: 8),
+            OutlinedButton.icon(
+              onPressed: _pickDate,
+              icon: const Icon(Icons.date_range),
+              label: const Text('تاريخ'),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatusFilter() {
+    return Card(
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: DropdownButtonFormField<String>(
+          value: selectedStatus,
+          decoration: const InputDecoration(
+            labelText: 'فلترة الحالة',
+            border: OutlineInputBorder(),
+          ),
+          items: const [
+            DropdownMenuItem(
+              value: 'all',
+              child: Text('كل المهام'),
+            ),
+            DropdownMenuItem(
+              value: 'pending',
+              child: Text('بانتظار اعتماد الإدارة'),
+            ),
+            DropdownMenuItem(
+              value: 'done',
+              child: Text('تم الإنجاز'),
+            ),
+            DropdownMenuItem(
+              value: 'not_done',
+              child: Text('لم يتم الإنجاز'),
+            ),
+            DropdownMenuItem(
+              value: 'partially_done',
+              child: Text('تم الإنجاز جزئيًا'),
+            ),
+            DropdownMenuItem(
+              value: 'needs_follow_up',
+              child: Text('بحاجة متابعة'),
+            ),
+          ],
+          onChanged: (value) {
+            setState(() {
+              selectedStatus = value ?? 'all';
+            });
+          },
         ),
       ),
     );
@@ -390,19 +475,8 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
         : _clean(data['staffName']);
 
     final staffUsername = _clean(data['staffUsername']);
-
-    final taskLabel = _clean(data['taskLabel']).isEmpty
-        ? (_clean(data['title']).isEmpty
-            ? 'مهمة بدون عنوان'
-            : _clean(data['title']))
-        : _clean(data['taskLabel']);
-
-    final status = _safeStatus(data['taskStatus']);
-    final notes = _clean(data['notes']);
-    final adminNote = _clean(data['adminReviewNote']).isNotEmpty
-        ? _clean(data['adminReviewNote'])
-        : _clean(data['reviewNote']);
-
+    final taskLabel = _taskTitle(data);
+    final status = _safeStatus(data['status'] ?? data['taskStatus']);
     final color = _statusColor(status);
 
     return Card(
@@ -417,7 +491,7 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
               children: [
                 CircleAvatar(
                   backgroundColor: color.withOpacity(0.12),
-                  child: Icon(Icons.task_alt_outlined, color: color),
+                  child: Icon(_statusIcon(status), color: color),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -445,25 +519,22 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Flexible(
-                  fit: FlexFit.loose,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 9,
-                      vertical: 5,
-                    ),
-                    decoration: BoxDecoration(
-                      color: color.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      _statusLabel(status),
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: color,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
-                      ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 9,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    _statusLabel(status),
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: color,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
                     ),
                   ),
                 ),
@@ -477,62 +548,14 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
                 fontSize: 16,
               ),
             ),
-            const SizedBox(height: 6),
-            Text(
-              'التاريخ: ${_clean(data['dateKey']).isEmpty ? dateKey : _clean(data['dateKey'])}',
-              style: const TextStyle(color: Colors.grey, fontSize: 12),
-            ),
-            if (notes.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              _noteBox('ملاحظات التوزيع', notes),
-            ],
-            if (adminNote.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              _noteBox('ملاحظات الإدارة', adminNote),
-            ],
             const SizedBox(height: 12),
             if (isToday)
               OutlinedButton.icon(
                 onPressed: isLoading ? null : () => _openReviewDialog(doc),
                 icon: const Icon(Icons.edit_outlined),
                 label: const Text('تعديل حالة المهمة'),
-              )
-            else
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.blueGrey.withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Text(
-                  'عرض فقط - لا يمكن تعديل مهام الأيام السابقة',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.blueGrey,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
               ),
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _noteBox(String title, String value) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade300),
-      ),
-      child: Text(
-        '$title: $value',
-        style: const TextStyle(
-          height: 1.4,
-          fontWeight: FontWeight.w600,
         ),
       ),
     );
@@ -559,12 +582,6 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
                 fontSize: 16,
               ),
             ),
-            SizedBox(height: 8),
-            Text(
-              'اختاري تاريخ المهمة من زر اختيار تاريخ.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey),
-            ),
           ],
         ),
       ),
@@ -575,28 +592,22 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
     return Card(
       margin: const EdgeInsets.all(12),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      child: Padding(
-        padding: const EdgeInsets.all(24),
+      child: const Padding(
+        padding: EdgeInsets.all(24),
         child: Column(
           children: [
-            const Icon(
+            Icon(
               Icons.error_outline,
               size: 48,
               color: Colors.redAccent,
             ),
-            const SizedBox(height: 12),
-            const Text(
+            SizedBox(height: 12),
+            Text(
               'حدث خطأ أثناء تحميل المهام',
               style: TextStyle(
                 color: Colors.redAccent,
                 fontWeight: FontWeight.bold,
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '$error',
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.grey),
             ),
           ],
         ),
@@ -617,16 +628,7 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
             margin: EdgeInsets.all(12),
             child: Padding(
               padding: EdgeInsets.all(24),
-              child: Column(
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 12),
-                  Text(
-                    'جاري تحميل المهام...',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ],
-              ),
+              child: Center(child: CircularProgressIndicator()),
             ),
           );
         }
@@ -645,6 +647,12 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
   }
 
   @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Directionality(
       textDirection: TextDirection.rtl,
@@ -658,13 +666,19 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
           onRefresh: () async {
             setState(() {});
           },
-          child: ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            children: [
-              _buildHeader(),
-              _buildTasksList(),
-              const SizedBox(height: 24),
-            ],
+          child: Scrollbar(
+            controller: _scrollController,
+            thumbVisibility: true,
+            child: ListView(
+              controller: _scrollController,
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.only(bottom: 24),
+              children: [
+                _buildHeader(),
+                _buildStatusFilter(),
+                _buildTasksList(),
+              ],
+            ),
           ),
         ),
       ),

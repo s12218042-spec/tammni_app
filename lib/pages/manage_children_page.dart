@@ -16,9 +16,10 @@ class ManageChildrenPage extends StatefulWidget {
 class _ManageChildrenPageState extends State<ManageChildrenPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  final Set<String> selectedViews = {'active'};
+final Set<String> selectedViews = {'active'};
 
-  String searchText = '';
+String searchText = '';
+String selectedChildTypeFilter = 'all';
 
   String sectionLabel(String section) {
     return 'حضانة';
@@ -34,6 +35,54 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
     return value;
   }
 
+String childTypeLabel(Map<String, dynamic> child) {
+  final childType = (child['childType'] ?? '').toString().trim();
+  final childStatus = (child['childStatus'] ?? '').toString().trim();
+
+  final value = childType.isNotEmpty ? childType : childStatus;
+
+  switch (value) {
+    case 'temporary':
+      return 'طفل مؤقت';
+    case 'trial':
+      return 'فترة تجربة';
+    case 'permanent':
+    case 'active':
+    default:
+      return 'طفل دائم';
+  }
+}
+
+Color childTypeColor(Map<String, dynamic> child) {
+  final childType = (child['childType'] ?? '').toString().trim();
+  final childStatus = (child['childStatus'] ?? '').toString().trim();
+
+  final value = childType.isNotEmpty ? childType : childStatus;
+
+  switch (value) {
+    case 'temporary':
+      return Colors.deepPurple;
+    case 'trial':
+      return Colors.orange;
+    case 'permanent':
+    case 'active':
+    default:
+      return Colors.green;
+  }
+}
+
+String resolveChildType(Map<String, dynamic> child) {
+  final childType = (child['childType'] ?? '').toString().trim();
+  final childStatus = (child['childStatus'] ?? '').toString().trim();
+
+  final value = childType.isNotEmpty ? childType : childStatus;
+
+  if (value == 'temporary') return 'temporary';
+  if (value == 'trial') return 'trial';
+
+  return 'permanent';
+}
+
   void toggleViewFilter(String value) {
     setState(() {
       if (selectedViews.contains(value)) {
@@ -45,13 +94,14 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
   }
 
   void clearAllFilters() {
-    setState(() {
-      selectedViews
-        ..clear()
-        ..add('active');
-      searchText = '';
-    });
-  }
+  setState(() {
+    selectedViews
+      ..clear()
+      ..add('active');
+    searchText = '';
+    selectedChildTypeFilter = 'all';
+  });
+}
 
   Future<List<Map<String, dynamic>>> fetchChildren() async {
     final snapshot = await _firestore.collection('children').get();
@@ -80,6 +130,16 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
         'assignedStaffName': data['assignedStaffName'] ?? '',
         'assignedStaffUsername': data['assignedStaffUsername'] ?? '',
         'childStatus': data['childStatus'] ?? data['status'] ?? 'active',
+        'childType': data['childType'] ?? '',
+        'isTemporary': data['isTemporary'] ?? false,
+        'temporaryStartDate': data['temporaryStartDate'],
+        'temporaryEndDate': data['temporaryEndDate'],
+        'temporaryFee': data['temporaryFee'] ?? 0,
+        'temporaryBillingType': data['temporaryBillingType'] ?? '',
+        'temporaryBillingTypeLabel': data['temporaryBillingTypeLabel'] ?? '',
+        'hasConsultation': data['hasConsultation'] ?? false,
+        'consultationStatus': data['consultationStatus'] ?? '',
+        'temporaryAccessCode': data['temporaryAccessCode'] ?? '',
         'hasChronicDiseases': data['hasChronicDiseases'] ?? false,
         'chronicDiseases': data['chronicDiseases'] ?? '',
         'hasAllergies': data['hasAllergies'] ?? false,
@@ -106,25 +166,33 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
 
     final query = searchText.trim().toLowerCase();
 
-    final filtered = filteredByStatus.where((child) {
-      final name = (child['name'] ?? '').toString().toLowerCase();
-      final identity = (child['identityNumber'] ?? '').toString().toLowerCase();
-      final section = (child['section'] ?? '').toString().toLowerCase();
-      final parentName = (child['parentName'] ?? '').toString().toLowerCase();
-      final parentUsername =
-          (child['parentUsername'] ?? '').toString().toLowerCase();
-      final groupName = (child['groupName'] ?? '').toString().toLowerCase();
-      final assignedStaffName =
-    (child['assignedStaffName'] ?? '').toString().toLowerCase();
-      return query.isEmpty ||
-    name.contains(query) ||
-    identity.contains(query) ||
-    section.contains(query) ||
-    parentName.contains(query) ||
-    parentUsername.contains(query) ||
-    groupName.contains(query) ||
-    assignedStaffName.contains(query);
-    }).toList();
+   final filtered = filteredByStatus.where((child) {
+  final name = (child['name'] ?? '').toString().toLowerCase();
+  final identity = (child['identityNumber'] ?? '').toString().toLowerCase();
+  final section = (child['section'] ?? '').toString().toLowerCase();
+  final parentName = (child['parentName'] ?? '').toString().toLowerCase();
+  final parentUsername =
+      (child['parentUsername'] ?? '').toString().toLowerCase();
+  final groupName = (child['groupName'] ?? '').toString().toLowerCase();
+  final assignedStaffName =
+      (child['assignedStaffName'] ?? '').toString().toLowerCase();
+
+  final childType = resolveChildType(child);
+
+  final matchesType = selectedChildTypeFilter == 'all' ||
+      selectedChildTypeFilter == childType;
+
+  final matchesSearch = query.isEmpty ||
+      name.contains(query) ||
+      identity.contains(query) ||
+      section.contains(query) ||
+      parentName.contains(query) ||
+      parentUsername.contains(query) ||
+      groupName.contains(query) ||
+      assignedStaffName.contains(query);
+
+  return matchesType && matchesSearch;
+}).toList();
 
     filtered.sort((a, b) {
       final aName = (a['name'] ?? '').toString();
@@ -142,6 +210,27 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
     }
     return 'غير محدد';
   }
+
+String formatOptionalDate(dynamic raw) {
+  if (raw is Timestamp) {
+    final date = raw.toDate();
+    final day = date.day.toString().padLeft(2, '0');
+    final month = date.month.toString().padLeft(2, '0');
+    final year = date.year.toString();
+
+    return '$year/$month/$day';
+  }
+
+  if (raw is DateTime) {
+    final day = raw.day.toString().padLeft(2, '0');
+    final month = raw.month.toString().padLeft(2, '0');
+    final year = raw.year.toString();
+
+    return '$year/$month/$day';
+  }
+
+  return '';
+}
 
   int? calculateAge(dynamic raw) {
     if (raw is Timestamp) {
@@ -234,6 +323,26 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
     String selectedSection = 'Nursery';
 
     String selectedGender = (child['gender'] ?? 'female').toString();
+    String selectedChildType = resolveChildType(child);
+    if (selectedChildType == 'trial') {
+    selectedChildType = 'permanent';
+    }
+
+    DateTime temporaryStartDate =
+     child['temporaryStartDate'] is Timestamp
+        ? (child['temporaryStartDate'] as Timestamp).toDate()
+        : DateTime.now();
+
+    DateTime temporaryEndDate =
+    child['temporaryEndDate'] is Timestamp
+        ? (child['temporaryEndDate'] as Timestamp).toDate()
+        : DateTime.now().add(const Duration(days: 1));
+
+    final temporaryNotesCtrl = TextEditingController(
+    text: (child['temporaryNotes'] ?? '').toString(),
+   );
+
+    bool hasConsultation = child['hasConsultation'] == true;
 
     bool hasChronicDiseases = child['hasChronicDiseases'] == true;
     bool hasAllergies = child['hasAllergies'] == true;
@@ -362,6 +471,126 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
                             ),
                             child: Text(sectionLabel(selectedSection)),
                           ),
+                          const SizedBox(height: 18),
+Align(
+  alignment: Alignment.centerRight,
+  child: Text(
+    'نوع الطفل',
+    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+          fontWeight: FontWeight.w800,
+          color: AppColors.textDark,
+        ),
+  ),
+),
+const SizedBox(height: 8),
+DropdownButtonFormField<String>(
+  value: selectedChildType,
+  decoration: const InputDecoration(
+    labelText: 'نوع الطفل',
+    prefixIcon: Icon(Icons.flag_outlined),
+  ),
+  items: const [
+    DropdownMenuItem(
+      value: 'permanent',
+      child: Text('طفل دائم'),
+    ),
+    DropdownMenuItem(
+      value: 'temporary',
+      child: Text('طفل مؤقت'),
+    ),
+  ],
+  onChanged: (value) {
+    setLocalState(() {
+      selectedChildType = value ?? 'permanent';
+    });
+  },
+),
+if (selectedChildType == 'temporary' || selectedChildType == 'trial') ...[
+  const SizedBox(height: 12),
+  Row(
+    children: [
+      Expanded(
+        child: InkWell(
+          onTap: () async {
+            final picked = await showDatePicker(
+              context: context,
+              initialDate: temporaryStartDate,
+              firstDate: DateTime(2020),
+              lastDate: DateTime(2035),
+            );
+
+            if (picked != null) {
+              setLocalState(() {
+                temporaryStartDate = picked;
+
+                if (temporaryEndDate.isBefore(temporaryStartDate)) {
+                  temporaryEndDate = temporaryStartDate;
+                }
+              });
+            }
+          },
+          child: InputDecorator(
+            decoration: const InputDecoration(
+              labelText: 'تاريخ البداية',
+              prefixIcon: Icon(Icons.event_outlined),
+            ),
+            child: Text(
+              '${temporaryStartDate.year}/${temporaryStartDate.month}/${temporaryStartDate.day}',
+            ),
+          ),
+        ),
+      ),
+      const SizedBox(width: 10),
+      Expanded(
+        child: InkWell(
+          onTap: () async {
+            final picked = await showDatePicker(
+              context: context,
+              initialDate: temporaryEndDate,
+              firstDate: temporaryStartDate,
+              lastDate: DateTime(2035),
+            );
+
+            if (picked != null) {
+              setLocalState(() {
+                temporaryEndDate = picked;
+              });
+            }
+          },
+          child: InputDecorator(
+            decoration: const InputDecoration(
+              labelText: 'تاريخ النهاية',
+              prefixIcon: Icon(Icons.event_available_outlined),
+            ),
+            child: Text(
+              '${temporaryEndDate.year}/${temporaryEndDate.month}/${temporaryEndDate.day}',
+            ),
+          ),
+        ),
+      ),
+    ],
+  ),
+  const SizedBox(height: 12),
+  SwitchListTile(
+    value: hasConsultation,
+    onChanged: (value) {
+      setLocalState(() {
+        hasConsultation = value;
+      });
+    },
+    contentPadding: EdgeInsets.zero,
+    title: const Text('مرتبط باستشارة'),
+  ),
+  const SizedBox(height: 12),
+  TextFormField(
+    controller: temporaryNotesCtrl,
+    maxLines: 2,
+    decoration: const InputDecoration(
+      labelText: 'ملاحظات الطفل المؤقت / التجربة',
+      prefixIcon: Icon(Icons.notes_outlined),
+    ),
+  ),
+],
                           const SizedBox(height: 18),
                           Align(
                             alignment: Alignment.centerRight,
@@ -725,8 +954,27 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
                         'healthNotes': healthNotesCtrl.text.trim(),
                         'authorizedPickupContacts':
                             pickupContacts.map((e) => e.toMap()).toList(),
-                        'updatedAt': FieldValue.serverTimestamp(),
-                        'history': newHistory,
+
+                        'childType': selectedChildType,
+                        'childStatus': selectedChildType == 'permanent'
+                             ? 'active'
+                            : selectedChildType,
+                        'isTemporary': selectedChildType == 'temporary',
+                        'hasConsultation': hasConsultation,
+                        'consultationStatus': hasConsultation ? 'pending' : 'none',
+                        'temporaryNotes': temporaryNotesCtrl.text.trim(),
+
+                        'temporaryStartDate':
+                         selectedChildType == 'temporary' || selectedChildType == 'trial'
+                            ? Timestamp.fromDate(temporaryStartDate)
+                            : FieldValue.delete(),
+                        'temporaryEndDate':
+                         selectedChildType == 'temporary' || selectedChildType == 'trial'
+                         ? Timestamp.fromDate(temporaryEndDate)
+                         : FieldValue.delete(),
+
+                         'updatedAt': FieldValue.serverTimestamp(),
+                         'history': newHistory,
                       });
 
                       if (!mounted) return;
@@ -757,6 +1005,7 @@ class _ManageChildrenPageState extends State<ManageChildrenPage> {
     medicationsCtrl.dispose();
     dietaryRestrictionsCtrl.dispose();
     specialNeedsCtrl.dispose();
+    temporaryNotesCtrl.dispose();
 
     for (final pickup in pickupContacts) {
       pickup.dispose();
@@ -995,6 +1244,33 @@ Future<void> _refreshGroupChildrenCount(String groupId) async {
   });
 }
 
+String temporaryChildSummary(Map<String, dynamic> child) {
+  final type = resolveChildType(child);
+
+  if (type != 'temporary' && type != 'trial') {
+    return '';
+  }
+
+  final start = formatOptionalDate(child['temporaryStartDate']);
+  final end = formatOptionalDate(child['temporaryEndDate']);
+  final fee = child['temporaryFee'] ?? 0;
+  final billingLabel =
+      (child['temporaryBillingTypeLabel'] ?? '').toString().trim();
+  final hasConsultation = child['hasConsultation'] == true;
+  final accessCode = (child['temporaryAccessCode'] ?? '').toString().trim();
+
+  final parts = <String>[
+    if (start.isNotEmpty || end.isNotEmpty)
+      'الفترة: ${start.isEmpty ? '-' : start} إلى ${end.isEmpty ? '-' : end}',
+    if (fee != 0)
+      'الرسوم: $fee شيكل${billingLabel.isNotEmpty ? ' - $billingLabel' : ''}',
+    'استشارة: ${hasConsultation ? 'نعم' : 'لا'}',
+    if (accessCode.isNotEmpty) 'كود الدخول: $accessCode',
+  ];
+
+  return parts.join(' | ');
+}
+
   Widget buildChildCard(Map<String, dynamic> child) {
     final name = (child['name'] ?? '').toString();
     final section = (child['section'] ?? '').toString();
@@ -1005,6 +1281,9 @@ Future<void> _refreshGroupChildrenCount(String groupId) async {
     final age = calculateAge(child['birthDate']);
     final groupName = (child['groupName'] ?? '').toString();
     final assignedStaffName = (child['assignedStaffName'] ?? '').toString();
+    final typeLabel = childTypeLabel(child);
+    final typeColor = childTypeColor(child);
+    final tempSummary = temporaryChildSummary(child);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -1061,23 +1340,43 @@ Future<void> _refreshGroupChildrenCount(String groupId) async {
                   ],
                 ),
               ),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                decoration: BoxDecoration(
-                  color: isActive
-                      ? Colors.green.withOpacity(0.12)
-                      : Colors.orange.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Text(
-                  isActive ? 'نشط' : 'مؤرشف',
-                  style: TextStyle(
-                    color: isActive ? Colors.green : Colors.orange,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
+              Column(
+  crossAxisAlignment: CrossAxisAlignment.end,
+  children: [
+    Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      decoration: BoxDecoration(
+        color: isActive
+            ? Colors.green.withOpacity(0.12)
+            : Colors.orange.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Text(
+        isActive ? 'نشط' : 'مؤرشف',
+        style: TextStyle(
+          color: isActive ? Colors.green : Colors.orange,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    ),
+    const SizedBox(height: 6),
+    Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      decoration: BoxDecoration(
+        color: typeColor.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Text(
+        typeLabel,
+        style: TextStyle(
+          color: typeColor,
+          fontWeight: FontWeight.w800,
+          fontSize: 12.5,
+        ),
+      ),
+    ),
+  ],
+),
             ],
           ),
           const SizedBox(height: 14),
@@ -1101,6 +1400,22 @@ Future<void> _refreshGroupChildrenCount(String groupId) async {
             'الحالة الصحية',
             healthSummary(child),
           ),
+
+          const SizedBox(height: 8),
+          _infoRow(
+            Icons.flag_outlined,
+            'نوع الطفل',
+            typeLabel,
+          ),
+
+          if (tempSummary.isNotEmpty) ...[
+           const SizedBox(height: 8),
+          _infoRow(
+           Icons.event_available_outlined,
+           'تفاصيل المؤقت',
+           tempSummary,
+           ),
+          ],
 
           const SizedBox(height: 8),
            _infoRow(
@@ -1220,8 +1535,9 @@ Future<void> _refreshGroupChildrenCount(String groupId) async {
 
   Widget buildFiltersCard() {
     final hasCustomFilters = selectedViews.length != 1 ||
-        !selectedViews.contains('active') ||
-        searchText.trim().isNotEmpty;
+    !selectedViews.contains('active') ||
+    searchText.trim().isNotEmpty ||
+    selectedChildTypeFilter != 'all';
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -1292,6 +1608,63 @@ Future<void> _refreshGroupChildrenCount(String groupId) async {
               ),
             ],
           ),
+
+        const SizedBox(height: 14),
+const Text(
+  'نوع الطفل',
+  style: TextStyle(
+    fontSize: 13,
+    fontWeight: FontWeight.w800,
+    color: AppColors.textDark,
+  ),
+),
+const SizedBox(height: 8),
+Wrap(
+  spacing: 8,
+  runSpacing: 8,
+  children: [
+    buildFilterChip(
+      label: 'الكل',
+      selected: selectedChildTypeFilter == 'all',
+      onTap: () {
+        setState(() {
+          selectedChildTypeFilter = 'all';
+        });
+      },
+      selectedColor: AppColors.primary,
+    ),
+    buildFilterChip(
+      label: 'دائم',
+      selected: selectedChildTypeFilter == 'permanent',
+      onTap: () {
+        setState(() {
+          selectedChildTypeFilter = 'permanent';
+        });
+      },
+      selectedColor: Colors.green,
+    ),
+    buildFilterChip(
+      label: 'مؤقت',
+      selected: selectedChildTypeFilter == 'temporary',
+      onTap: () {
+        setState(() {
+          selectedChildTypeFilter = 'temporary';
+        });
+      },
+      selectedColor: Colors.deepPurple,
+    ),
+    buildFilterChip(
+      label: 'تجربة',
+      selected: selectedChildTypeFilter == 'trial',
+      onTap: () {
+        setState(() {
+          selectedChildTypeFilter = 'trial';
+        });
+      },
+      selectedColor: Colors.orange,
+    ),
+  ],
+),
           if (hasCustomFilters) ...[
             const SizedBox(height: 14),
             Align(
@@ -1308,16 +1681,19 @@ Future<void> _refreshGroupChildrenCount(String groupId) async {
     );
   }
 
-  String buildEmptyStateText() {
-    final hasStatusFilter = selectedViews.isNotEmpty;
-    final hasSearch = searchText.trim().isNotEmpty;
+ String buildEmptyStateText() {
+  final hasCustomStatusFilter = selectedViews.length != 1 ||
+      !selectedViews.contains('active');
 
-    if (hasSearch || hasStatusFilter) {
-      return 'لا توجد نتائج مطابقة للفلاتر الحالية';
-    }
+  final hasSearch = searchText.trim().isNotEmpty;
+  final hasChildTypeFilter = selectedChildTypeFilter != 'all';
 
-    return 'لا توجد بيانات بعد';
+  if (hasSearch || hasCustomStatusFilter || hasChildTypeFilter) {
+    return 'لا توجد نتائج مطابقة للفلاتر الحالية';
   }
+
+  return 'لا توجد بيانات بعد';
+}
 
   @override
   Widget build(BuildContext context) {
@@ -1326,23 +1702,6 @@ Future<void> _refreshGroupChildrenCount(String groupId) async {
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
       child: Column(
         children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: const Text(
-              'ملاحظة: هذه الصفحة مخصصة لإدارة بيانات الأطفال فقط. إضافة طفل جديد لم تعد من هنا، بل تتم عبر طلبات إضافة طفل يرسلها ولي الأمر وتراجعها الإدارة. كما أن تسجيل دخول وخروج أطفال الحضانة يتم من خلال السجل الإداري فقط.',
-              style: TextStyle(
-                fontSize: 13,
-                color: AppColors.textDark,
-                height: 1.5,
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
           buildFiltersCard(),
           const SizedBox(height: 16),
           Expanded(

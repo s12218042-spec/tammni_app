@@ -3,8 +3,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class InvoiceLineItem {
   final String id;
   final String type;
-  // subscription / discount / extra_hours / consultation / registration / meals / other
-
   final String title;
   final String description;
 
@@ -80,11 +78,151 @@ class InvoiceLineItem {
   }
 }
 
+class InvoiceChildItem {
+  final String childId;
+  final String childName;
+  final String group;
+  final String groupId;
+  final String groupName;
+  final String section;
+  final String parentUid;
+  final String parentUsername;
+  final String childType;
+  final String childStatus;
+  final bool isTemporaryChild;
+  final bool isTrialChild;
+  final bool isBillable;
+  final bool excludeFromMonthlyInvoice;
+
+  const InvoiceChildItem({
+    required this.childId,
+    required this.childName,
+    this.group = '',
+    this.groupId = '',
+    this.groupName = '',
+    this.section = 'Nursery',
+    this.parentUid = '',
+    this.parentUsername = '',
+    this.childType = '',
+    this.childStatus = '',
+    this.isTemporaryChild = false,
+    this.isTrialChild = false,
+    this.isBillable = true,
+    this.excludeFromMonthlyInvoice = false,
+  });
+
+  factory InvoiceChildItem.fromMap(Map<String, dynamic> data) {
+    final rawType = _firstNonEmpty([
+      data['childType'],
+      data['enrollmentType'],
+      data['type'],
+    ]);
+
+    final normalizedType = _normalizeChildType(rawType);
+
+    final rawStatus = _firstNonEmpty([
+      data['childStatus'],
+      data['status'],
+    ]);
+
+    final normalizedStatus = rawStatus.toLowerCase();
+
+    final isTrial = data['isTrialChild'] == true ||
+        normalizedType == 'trial' ||
+        normalizedStatus == 'trial';
+
+    final isTemporary = data['isTemporaryChild'] == true ||
+        normalizedType == 'temporary' ||
+        normalizedStatus == 'temporary';
+
+    final isBillable =
+        data['isBillable'] == null ? true : data['isBillable'] == true;
+
+    final excludeFromMonthlyInvoice =
+        data['excludeFromMonthlyInvoice'] == true || !isBillable;
+
+    return InvoiceChildItem(
+      childId: _firstNonEmpty([
+        data['childId'],
+        data['id'],
+      ]),
+      childName: _firstNonEmpty([
+        data['childName'],
+        data['name'],
+        data['fullName'],
+      ]),
+      group: _firstNonEmpty([
+        data['group'],
+        data['groupName'],
+      ]),
+      groupId: _string(data['groupId']),
+      groupName: _firstNonEmpty([
+        data['groupName'],
+        data['group'],
+      ]),
+      section: _firstNonEmpty([
+        data['section'],
+        'Nursery',
+      ]),
+      parentUid: _string(data['parentUid']),
+      parentUsername: _string(data['parentUsername']),
+      childType: normalizedType,
+      childStatus: normalizedStatus,
+      isTemporaryChild: isTemporary,
+      isTrialChild: isTrial,
+      isBillable: isBillable,
+      excludeFromMonthlyInvoice: excludeFromMonthlyInvoice,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    final resolvedGroupName = groupName.trim().isNotEmpty ? groupName : group;
+    final resolvedGroup = group.trim().isNotEmpty ? group : resolvedGroupName;
+    final resolvedType = _normalizeChildType(childType);
+
+    final resolvedStatus = childStatus.trim().isNotEmpty
+        ? childStatus.trim().toLowerCase()
+        : resolvedType == 'temporary'
+            ? 'temporary'
+            : resolvedType == 'trial'
+                ? 'trial'
+                : 'active';
+
+    final resolvedIsTrial = isTrialChild || resolvedType == 'trial';
+    final resolvedIsTemporary = isTemporaryChild || resolvedType == 'temporary';
+    final resolvedIsBillable =
+        isBillable && !resolvedIsTrial && !excludeFromMonthlyInvoice;
+
+    return {
+      'childId': childId,
+      'childName': childName,
+      'group': resolvedGroup,
+      'groupId': groupId,
+      'groupName': resolvedGroupName,
+      'section': section.trim().isEmpty ? 'Nursery' : section,
+      'parentUid': parentUid,
+      'parentUsername': parentUsername,
+      'childType': resolvedType,
+      'childStatus': resolvedStatus,
+      'isTemporaryChild': resolvedIsTemporary,
+      'isTrialChild': resolvedIsTrial,
+      'isBillable': resolvedIsBillable,
+      'excludeFromMonthlyInvoice':
+          excludeFromMonthlyInvoice || resolvedIsTrial,
+    };
+  }
+}
+
 class InvoiceModel {
   final String id;
 
   final String childId;
   final String childName;
+
+  final int childrenCount;
+  final List<String> childrenIds;
+  final List<String> childrenNames;
+  final List<InvoiceChildItem> children;
 
   final String parentUid;
   final String parentUsername;
@@ -96,10 +234,10 @@ class InvoiceModel {
   final String groupName;
 
   final String invoiceCategory;
-  // nursery_fee / registration_fee / late_fee / extra_hours / consultation / mixed
-
   final String billingType;
-  // daily / weekly / monthly / registration / late_fee / one_time
+  final String billingMonthKey;
+  final int billingYear;
+  final int billingMonth;
 
   final String title;
   final String description;
@@ -109,19 +247,29 @@ class InvoiceModel {
   final DateTime? dueDate;
   final DateTime? paidAt;
 
-  // مبالغ أساسية
   final double baseAmount;
+  final double baseAmountPerChild;
+  final double childrenBaseAmount;
+
   final double transportFee;
   final double mealsFee;
   final double registrationFee;
   final double lateFee;
 
-  // متطلبات Let’s Go
   final double subscriptionAmount;
   final double discountAmount;
-  final double offerDiscountAmount;
+  final double manualDiscount;
+  final double offerDiscount;
+  final double totalDiscount;
+
   final double extraHoursAmount;
-  final double consultationAmount;
+  final double extraHoursTotal;
+  final List<String> extraHoursIds;
+
+  final double consultationsAmount;
+  final List<String> consultationIds;
+  final List<Map<String, dynamic>> consultations;
+
   final double otherFeesAmount;
 
   final double subtotalAmount;
@@ -130,10 +278,12 @@ class InvoiceModel {
   final double remainingAmount;
 
   final String offerId;
+  final String offerTitle;
   final String offerName;
   final String offerType;
-  // monthly_600 / two_children_1100 / custom
-
+  final String offerCollectionName;
+  final bool isDefaultOffer;
+  final bool isTwoChildrenOffer;
   final bool hasOffer;
   final bool includesMeals;
   final bool includesSaturday;
@@ -149,17 +299,23 @@ class InvoiceModel {
   final List<InvoiceLineItem> items;
 
   final String status;
-  // pending / paid / partially_paid / overdue / cancelled
+  final String paymentStatus;
+  final String invoiceStatus;
 
   final String paymentMethod;
-  // cash / manual / online / bank_transfer
+  final String paymentMethodLabel;
 
   final String createdByUid;
   final String createdByName;
   final String createdByRole;
 
+  final String updatedByUid;
+  final String updatedByName;
+  final String updatedByRole;
+
   final String notes;
   final String internalNotes;
+  final String discountNotes;
 
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -168,6 +324,10 @@ class InvoiceModel {
     required this.id,
     required this.childId,
     required this.childName,
+    this.childrenCount = 1,
+    this.childrenIds = const [],
+    this.childrenNames = const [],
+    this.children = const [],
     required this.parentUid,
     required this.parentUsername,
     required this.parentName,
@@ -175,6 +335,9 @@ class InvoiceModel {
     required this.group,
     required this.invoiceCategory,
     required this.billingType,
+    this.billingMonthKey = '',
+    this.billingYear = 0,
+    this.billingMonth = 0,
     required this.title,
     required this.description,
     this.groupId = '',
@@ -184,23 +347,35 @@ class InvoiceModel {
     this.dueDate,
     this.paidAt,
     this.baseAmount = 0,
+    this.baseAmountPerChild = 0,
+    this.childrenBaseAmount = 0,
     this.transportFee = 0,
     this.mealsFee = 0,
     this.registrationFee = 0,
     this.lateFee = 0,
     this.subscriptionAmount = 0,
     this.discountAmount = 0,
-    this.offerDiscountAmount = 0,
+    this.manualDiscount = 0,
+    this.offerDiscount = 0,
+    this.totalDiscount = 0,
     this.extraHoursAmount = 0,
-    this.consultationAmount = 0,
+    this.extraHoursTotal = 0,
+    this.extraHoursIds = const [],
+    this.consultationsAmount = 0,
+    this.consultationIds = const [],
+    this.consultations = const [],
     this.otherFeesAmount = 0,
     this.subtotalAmount = 0,
     this.totalAmount = 0,
     this.paidAmount = 0,
     this.remainingAmount = 0,
     this.offerId = '',
+    this.offerTitle = '',
     this.offerName = '',
     this.offerType = '',
+    this.offerCollectionName = '',
+    this.isDefaultOffer = false,
+    this.isTwoChildrenOffer = false,
     this.hasOffer = false,
     this.includesMeals = false,
     this.includesSaturday = false,
@@ -211,13 +386,20 @@ class InvoiceModel {
     this.consultationHours = 0,
     this.consultationHourlyRate = 50,
     this.items = const [],
-    this.status = 'pending',
+    this.status = 'unpaid',
+    this.paymentStatus = 'unpaid',
+    this.invoiceStatus = 'unpaid',
     this.paymentMethod = '',
+    this.paymentMethodLabel = '',
     required this.createdByUid,
     required this.createdByName,
     this.createdByRole = 'admin',
+    this.updatedByUid = '',
+    this.updatedByName = '',
+    this.updatedByRole = '',
     this.notes = '',
     this.internalNotes = '',
+    this.discountNotes = '',
     this.createdAt,
     this.updatedAt,
   });
@@ -231,6 +413,28 @@ class InvoiceModel {
             .toList()
         : <InvoiceLineItem>[];
 
+    final rawChildren = data['children'];
+    final parsedChildren = rawChildren is List
+        ? rawChildren
+            .whereType<Map>()
+            .map((e) => InvoiceChildItem.fromMap(Map<String, dynamic>.from(e)))
+            .toList()
+        : <InvoiceChildItem>[];
+
+    final parsedChildrenIds = _parseStringList(data['childrenIds']);
+    final parsedChildrenNames = _parseStringList(data['childrenNames']);
+
+    final resolvedChildrenIds = parsedChildrenIds.isNotEmpty
+        ? parsedChildrenIds
+        : parsedChildren.map((e) => e.childId).where((e) => e.isNotEmpty).toList();
+
+    final resolvedChildrenNames = parsedChildrenNames.isNotEmpty
+        ? parsedChildrenNames
+        : parsedChildren
+            .map((e) => e.childName)
+            .where((e) => e.isNotEmpty)
+            .toList();
+
     final resolvedGroupName = _firstNonEmpty([
       data['groupName'],
       data['group'],
@@ -241,12 +445,42 @@ class InvoiceModel {
       fallback: _calculateSubtotalFromData(data),
     );
 
+    final resolvedManualDiscount = _toDouble(
+      data['manualDiscount'] ?? data['discountAmount'],
+    );
+
+    final resolvedOfferDiscount = _toDouble(
+      data['offerDiscount'] ?? data['offerDiscountAmount'],
+    );
+
+    final resolvedTotalDiscount = _toDouble(
+      data['totalDiscount'],
+      fallback: resolvedManualDiscount + resolvedOfferDiscount,
+    );
+
     final resolvedTotal = _toDouble(
       data['totalAmount'],
-      fallback: resolvedSubtotal,
+      fallback: (resolvedSubtotal - resolvedTotalDiscount)
+          .clamp(0, double.infinity)
+          .toDouble(),
     );
 
     final resolvedPaidAmount = _toDouble(data['paidAmount']);
+
+    final resolvedStatus = normalizeStatus(
+      _firstNonEmpty([
+        data['paymentStatus'],
+        data['status'],
+        data['invoiceStatus'],
+      ]),
+      totalAmount: resolvedTotal,
+      paidAmount: resolvedPaidAmount,
+    );
+
+    final resolvedOfferTitle = _firstNonEmpty([
+      data['offerTitle'],
+      data['offerName'],
+    ]);
 
     return InvoiceModel(
       id: _firstNonEmpty([
@@ -255,6 +489,19 @@ class InvoiceModel {
       ]),
       childId: _string(data['childId']),
       childName: _string(data['childName']),
+      childrenCount: _toInt(
+        data['childrenCount'],
+        fallback: resolvedChildrenIds.isNotEmpty
+            ? resolvedChildrenIds.length
+            : resolvedChildrenNames.isNotEmpty
+                ? resolvedChildrenNames.length
+                : _string(data['childId']).isNotEmpty
+                    ? 1
+                    : 0,
+      ),
+      childrenIds: resolvedChildrenIds,
+      childrenNames: resolvedChildrenNames,
+      children: parsedChildren,
       parentUid: _string(data['parentUid']),
       parentUsername: _string(data['parentUsername']),
       parentName: _string(data['parentName']),
@@ -277,6 +524,9 @@ class InvoiceModel {
         data['billingType'],
         'monthly',
       ]),
+      billingMonthKey: _string(data['billingMonthKey']),
+      billingYear: _toInt(data['billingYear']),
+      billingMonth: _toInt(data['billingMonth']),
       title: _string(data['title']),
       description: _string(data['description']),
       startDate: _parseDate(data['startDate']),
@@ -284,30 +534,52 @@ class InvoiceModel {
       dueDate: _parseDate(data['dueDate']),
       paidAt: _parseDate(data['paidAt']),
       baseAmount: _toDouble(data['baseAmount']),
+      baseAmountPerChild: _toDouble(data['baseAmountPerChild']),
+      childrenBaseAmount: _toDouble(data['childrenBaseAmount']),
       transportFee: _toDouble(data['transportFee']),
       mealsFee: _toDouble(data['mealsFee']),
       registrationFee: _toDouble(data['registrationFee']),
       lateFee: _toDouble(data['lateFee']),
       subscriptionAmount: _toDouble(data['subscriptionAmount']),
-      discountAmount: _toDouble(data['discountAmount']),
-      offerDiscountAmount: _toDouble(data['offerDiscountAmount']),
-      extraHoursAmount: _toDouble(data['extraHoursAmount']),
-      consultationAmount: _toDouble(data['consultationAmount']),
+      discountAmount: resolvedManualDiscount,
+      manualDiscount: resolvedManualDiscount,
+      offerDiscount: resolvedOfferDiscount,
+      totalDiscount: resolvedTotalDiscount,
+      extraHoursAmount: _toDouble(
+        data['extraHoursAmount'] ?? data['extraHoursTotal'],
+      ),
+      extraHoursTotal: _toDouble(
+        data['extraHoursTotal'] ?? data['extraHoursAmount'],
+      ),
+      extraHoursIds: _parseStringList(data['extraHoursIds']),
+      consultationsAmount: _toDouble(
+        data['consultationsAmount'] ??
+            data['consultationAmount'] ??
+            data['consultationsTotal'],
+      ),
+      consultationIds: _parseStringList(data['consultationIds']),
+      consultations: _parseMapList(data['consultations']),
       otherFeesAmount: _toDouble(data['otherFeesAmount']),
       subtotalAmount: resolvedSubtotal,
       totalAmount: resolvedTotal,
       paidAmount: resolvedPaidAmount,
       remainingAmount: _toDouble(
         data['remainingAmount'],
-        fallback: (resolvedTotal - resolvedPaidAmount).clamp(0, double.infinity),
+        fallback: (resolvedTotal - resolvedPaidAmount)
+            .clamp(0, double.infinity)
+            .toDouble(),
       ),
       offerId: _string(data['offerId']),
-      offerName: _string(data['offerName']),
+      offerTitle: resolvedOfferTitle,
+      offerName: resolvedOfferTitle,
       offerType: _string(data['offerType']),
+      offerCollectionName: _string(data['offerCollectionName']),
+      isDefaultOffer: _bool(data['isDefaultOffer']),
+      isTwoChildrenOffer: _bool(data['isTwoChildrenOffer']),
       hasOffer: _bool(data['hasOffer']) ||
           _string(data['offerId']).isNotEmpty ||
-          _string(data['offerName']).isNotEmpty ||
-          _toDouble(data['offerDiscountAmount']) > 0,
+          resolvedOfferTitle.isNotEmpty ||
+          resolvedOfferDiscount > 0,
       includesMeals: _bool(data['includesMeals']),
       includesSaturday: _bool(data['includesSaturday']),
       extraHours: _toDouble(data['extraHours']),
@@ -318,19 +590,23 @@ class InvoiceModel {
       consultationHourlyRate:
           _toDouble(data['consultationHourlyRate'], fallback: 50),
       items: parsedItems,
-      status: _firstNonEmpty([
-        data['status'],
-        'pending',
-      ]),
+      status: resolvedStatus,
+      paymentStatus: resolvedStatus,
+      invoiceStatus: resolvedStatus,
       paymentMethod: _string(data['paymentMethod']),
+      paymentMethodLabel: _string(data['paymentMethodLabel']),
       createdByUid: _string(data['createdByUid']),
       createdByName: _string(data['createdByName']),
       createdByRole: _firstNonEmpty([
         data['createdByRole'],
         'admin',
       ]),
+      updatedByUid: _string(data['updatedByUid']),
+      updatedByName: _string(data['updatedByName']),
+      updatedByRole: _string(data['updatedByRole']),
       notes: _string(data['notes']),
       internalNotes: _string(data['internalNotes']),
+      discountNotes: _string(data['discountNotes']),
       createdAt: _parseDate(data['createdAt']),
       updatedAt: _parseDate(data['updatedAt']),
     );
@@ -345,44 +621,86 @@ class InvoiceModel {
     );
   }
 
+  static String normalizeStatus(
+    dynamic value, {
+    double? totalAmount,
+    double? paidAmount,
+  }) {
+    final status = _string(value).toLowerCase();
+
+    if (status == 'paid') return 'paid';
+    if (status == 'partial' || status == 'partially_paid') return 'partial';
+    if (status == 'overdue') return 'overdue';
+    if (status == 'cancelled' || status == 'canceled') return 'cancelled';
+    if (status == 'draft') return 'draft';
+    if (status == 'superseded') return 'superseded';
+    if (status == 'unpaid' || status == 'pending' || status.isEmpty) {
+      if (totalAmount != null && paidAmount != null) {
+        if (totalAmount <= 0 || paidAmount <= 0) return 'unpaid';
+        if (paidAmount >= totalAmount) return 'paid';
+        return 'partial';
+      }
+      return 'unpaid';
+    }
+
+    return status;
+  }
+
   Map<String, dynamic> toMap() {
     final resolvedGroupName = groupName.trim().isNotEmpty ? groupName : group;
     final resolvedGroup = group.trim().isNotEmpty ? group : resolvedGroupName;
 
-    final calculatedSubtotal = subtotalAmount > 0
-        ? subtotalAmount
-        : baseAmount +
-            transportFee +
-            mealsFee +
-            registrationFee +
-            lateFee +
-            subscriptionAmount +
-            extraHoursAmount +
-            consultationAmount +
-            otherFeesAmount;
+    final resolvedChildren = children.map((e) => e.toMap()).toList();
 
-    final calculatedDiscount = discountAmount + offerDiscountAmount;
+    final resolvedChildrenIds = childrenIds.isNotEmpty
+        ? childrenIds
+        : children.map((e) => e.childId).where((e) => e.isNotEmpty).toList();
 
-    final calculatedTotal = totalAmount > 0
-        ? totalAmount
-        : (calculatedSubtotal - calculatedDiscount).clamp(0, double.infinity);
+    final resolvedChildrenNames = childrenNames.isNotEmpty
+        ? childrenNames
+        : children.map((e) => e.childName).where((e) => e.isNotEmpty).toList();
 
-    final calculatedRemaining =
-        remainingAmount > 0 ? remainingAmount : calculatedTotal - paidAmount;
+    final calculatedSubtotal = effectiveSubtotal;
+    final calculatedDiscount = effectiveDiscount;
+    final calculatedTotal = effectiveTotalAmount;
+    final calculatedRemaining = effectiveRemainingAmount;
+
+    final resolvedStatus = normalizeStatus(
+      status,
+      totalAmount: calculatedTotal,
+      paidAmount: paidAmount,
+    );
 
     return {
       'id': id,
+
       'childId': childId,
       'childName': childName,
+
+      'childrenCount': childrenCount > 0
+          ? childrenCount
+          : resolvedChildrenIds.isNotEmpty
+              ? resolvedChildrenIds.length
+              : resolvedChildrenNames.length,
+      'childrenIds': resolvedChildrenIds,
+      'childrenNames': resolvedChildrenNames,
+      'children': resolvedChildren,
+
       'parentUid': parentUid,
       'parentUsername': parentUsername,
       'parentName': parentName,
+
       'section': section.trim().isEmpty ? 'Nursery' : section,
       'group': resolvedGroup,
       'groupId': groupId,
       'groupName': resolvedGroupName,
+
       'invoiceCategory': invoiceCategory,
       'billingType': billingType,
+      'billingMonthKey': billingMonthKey,
+      'billingYear': billingYear,
+      'billingMonth': billingMonth,
+
       'title': title,
       'description': description,
       'startDate': startDate == null ? null : Timestamp.fromDate(startDate!),
@@ -391,26 +709,46 @@ class InvoiceModel {
       'paidAt': paidAt == null ? null : Timestamp.fromDate(paidAt!),
 
       'baseAmount': baseAmount,
+      'baseAmountPerChild': baseAmountPerChild,
+      'childrenBaseAmount': childrenBaseAmount,
+
       'transportFee': transportFee,
       'mealsFee': mealsFee,
       'registrationFee': registrationFee,
       'lateFee': lateFee,
 
       'subscriptionAmount': subscriptionAmount,
-      'discountAmount': discountAmount,
-      'offerDiscountAmount': offerDiscountAmount,
+
+      'discountAmount': manualDiscount,
+      'manualDiscount': manualDiscount,
+      'offerDiscount': offerDiscount,
+      'offerDiscountAmount': offerDiscount,
+      'totalDiscount': calculatedDiscount,
+      'discountNotes': discountNotes,
+
       'extraHoursAmount': extraHoursAmount,
-      'consultationAmount': consultationAmount,
+      'extraHoursTotal': extraHoursTotal > 0 ? extraHoursTotal : extraHoursAmount,
+      'extraHoursIds': extraHoursIds,
+
+      'consultationsAmount': consultationsAmount,
+      'consultationAmount': consultationsAmount,
+      'consultationIds': consultationIds,
+      'consultations': consultations,
+
       'otherFeesAmount': otherFeesAmount,
 
       'subtotalAmount': calculatedSubtotal,
       'totalAmount': calculatedTotal,
       'paidAmount': paidAmount,
-      'remainingAmount': calculatedRemaining.clamp(0, double.infinity),
+      'remainingAmount': calculatedRemaining,
 
       'offerId': offerId,
-      'offerName': offerName,
+      'offerTitle': offerTitle.trim().isNotEmpty ? offerTitle : offerName,
+      'offerName': offerName.trim().isNotEmpty ? offerName : offerTitle,
       'offerType': offerType,
+      'offerCollectionName': offerCollectionName,
+      'isDefaultOffer': isDefaultOffer,
+      'isTwoChildrenOffer': isTwoChildrenOffer,
       'hasOffer': hasOffer,
       'includesMeals': includesMeals,
       'includesSaturday': includesSaturday,
@@ -425,12 +763,20 @@ class InvoiceModel {
 
       'items': items.map((e) => e.toMap()).toList(),
 
-      'status': status,
+      'status': resolvedStatus,
+      'paymentStatus': resolvedStatus,
+      'invoiceStatus': resolvedStatus,
+
       'paymentMethod': paymentMethod,
+      'paymentMethodLabel': paymentMethodLabel,
 
       'createdByUid': createdByUid,
       'createdByName': createdByName,
       'createdByRole': createdByRole,
+
+      'updatedByUid': updatedByUid,
+      'updatedByName': updatedByName,
+      'updatedByRole': updatedByRole,
 
       'notes': notes,
       'internalNotes': internalNotes,
@@ -440,11 +786,19 @@ class InvoiceModel {
     };
   }
 
-  bool get isPaid => status == 'paid';
-  bool get isPending => status == 'pending';
-  bool get isOverdue => status == 'overdue';
-  bool get isCancelled => status == 'cancelled';
-  bool get isPartiallyPaid => status == 'partially_paid';
+  bool get isPaid => effectiveStatus == 'paid';
+  bool get isPending => effectiveStatus == 'unpaid';
+  bool get isOverdue => effectiveStatus == 'overdue';
+  bool get isCancelled => effectiveStatus == 'cancelled';
+  bool get isPartiallyPaid => effectiveStatus == 'partial';
+
+  String get effectiveStatus {
+    return normalizeStatus(
+      paymentStatus.trim().isNotEmpty ? paymentStatus : status,
+      totalAmount: effectiveTotalAmount,
+      paidAmount: paidAmount,
+    );
+  }
 
   bool get hasRemainingAmount {
     return effectiveRemainingAmount > 0;
@@ -453,6 +807,18 @@ class InvoiceModel {
   double get effectiveSubtotal {
     if (subtotalAmount > 0) return subtotalAmount;
 
+    final calculated = childrenBaseAmount +
+        transportFee +
+        mealsFee +
+        registrationFee +
+        lateFee +
+        subscriptionAmount +
+        extraHoursAmount +
+        consultationsAmount +
+        otherFeesAmount;
+
+    if (calculated > 0) return calculated;
+
     return baseAmount +
         transportFee +
         mealsFee +
@@ -460,12 +826,13 @@ class InvoiceModel {
         lateFee +
         subscriptionAmount +
         extraHoursAmount +
-        consultationAmount +
+        consultationsAmount +
         otherFeesAmount;
   }
 
   double get effectiveDiscount {
-    return discountAmount + offerDiscountAmount;
+    if (totalDiscount > 0) return totalDiscount;
+    return manualDiscount + offerDiscount;
   }
 
   double get effectiveTotalAmount {
@@ -486,19 +853,68 @@ class InvoiceModel {
             : 'بدون مجموعة';
   }
 
+  String get displayChildrenNames {
+    if (childrenNames.isNotEmpty) return childrenNames.join('، ');
+
+    final names = children
+        .map((e) => e.childName)
+        .where((e) => e.trim().isNotEmpty)
+        .toList();
+
+    if (names.isNotEmpty) return names.join('، ');
+
+    return childName;
+  }
+
+  bool get hasTemporaryChild {
+    if (children.any((child) => child.isTemporaryChild)) return true;
+
+    final consultationsTemporary = consultations.any((item) {
+      return item['isTemporaryChild'] == true ||
+          _normalizeChildType(item['childType']) == 'temporary';
+    });
+
+    return consultationsTemporary;
+  }
+
   String get statusLabel {
-    switch (status) {
+    switch (effectiveStatus) {
       case 'paid':
         return 'مدفوعة';
-      case 'partially_paid':
+      case 'partial':
         return 'مدفوعة جزئيًا';
       case 'overdue':
         return 'متأخرة';
       case 'cancelled':
         return 'ملغاة';
-      case 'pending':
+      case 'draft':
+        return 'مسودة';
+      case 'superseded':
+        return 'مستبدلة';
+      case 'unpaid':
       default:
-        return 'بانتظار الدفع';
+        return 'غير مدفوعة';
+    }
+  }
+
+  String get paymentMethodArabic {
+    switch (paymentMethod) {
+      case 'cash':
+        return 'كاش';
+      case 'card':
+        return 'بطاقة / فيزا';
+      case 'bank_transfer':
+        return 'تحويل بنكي';
+      case 'other':
+        return 'أخرى';
+      case 'manual':
+        return 'يدوي';
+      case 'online':
+        return 'إلكتروني';
+      default:
+        return paymentMethodLabel.trim().isNotEmpty
+            ? paymentMethodLabel
+            : 'غير محدد';
     }
   }
 
@@ -513,7 +929,7 @@ class InvoiceModel {
       case 'registration':
         return 'تسجيل';
       case 'late_fee':
-        return 'غرامة تأخير';
+        return 'رسوم تأخير';
       case 'one_time':
         return 'مرة واحدة';
       default:
@@ -528,7 +944,7 @@ class InvoiceModel {
       case 'registration_fee':
         return 'رسوم تسجيل';
       case 'late_fee':
-        return 'غرامة تأخير';
+        return 'رسوم تأخير';
       case 'extra_hours':
         return 'ساعات إضافية';
       case 'consultation':
@@ -544,6 +960,10 @@ class InvoiceModel {
     String? id,
     String? childId,
     String? childName,
+    int? childrenCount,
+    List<String>? childrenIds,
+    List<String>? childrenNames,
+    List<InvoiceChildItem>? children,
     String? parentUid,
     String? parentUsername,
     String? parentName,
@@ -553,6 +973,9 @@ class InvoiceModel {
     String? groupName,
     String? invoiceCategory,
     String? billingType,
+    String? billingMonthKey,
+    int? billingYear,
+    int? billingMonth,
     String? title,
     String? description,
     DateTime? startDate,
@@ -560,23 +983,35 @@ class InvoiceModel {
     DateTime? dueDate,
     DateTime? paidAt,
     double? baseAmount,
+    double? baseAmountPerChild,
+    double? childrenBaseAmount,
     double? transportFee,
     double? mealsFee,
     double? registrationFee,
     double? lateFee,
     double? subscriptionAmount,
     double? discountAmount,
-    double? offerDiscountAmount,
+    double? manualDiscount,
+    double? offerDiscount,
+    double? totalDiscount,
     double? extraHoursAmount,
-    double? consultationAmount,
+    double? extraHoursTotal,
+    List<String>? extraHoursIds,
+    double? consultationsAmount,
+    List<String>? consultationIds,
+    List<Map<String, dynamic>>? consultations,
     double? otherFeesAmount,
     double? subtotalAmount,
     double? totalAmount,
     double? paidAmount,
     double? remainingAmount,
     String? offerId,
+    String? offerTitle,
     String? offerName,
     String? offerType,
+    String? offerCollectionName,
+    bool? isDefaultOffer,
+    bool? isTwoChildrenOffer,
     bool? hasOffer,
     bool? includesMeals,
     bool? includesSaturday,
@@ -588,12 +1023,19 @@ class InvoiceModel {
     double? consultationHourlyRate,
     List<InvoiceLineItem>? items,
     String? status,
+    String? paymentStatus,
+    String? invoiceStatus,
     String? paymentMethod,
+    String? paymentMethodLabel,
     String? createdByUid,
     String? createdByName,
     String? createdByRole,
+    String? updatedByUid,
+    String? updatedByName,
+    String? updatedByRole,
     String? notes,
     String? internalNotes,
+    String? discountNotes,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -601,6 +1043,10 @@ class InvoiceModel {
       id: id ?? this.id,
       childId: childId ?? this.childId,
       childName: childName ?? this.childName,
+      childrenCount: childrenCount ?? this.childrenCount,
+      childrenIds: childrenIds ?? this.childrenIds,
+      childrenNames: childrenNames ?? this.childrenNames,
+      children: children ?? this.children,
       parentUid: parentUid ?? this.parentUid,
       parentUsername: parentUsername ?? this.parentUsername,
       parentName: parentName ?? this.parentName,
@@ -610,6 +1056,9 @@ class InvoiceModel {
       groupName: groupName ?? this.groupName,
       invoiceCategory: invoiceCategory ?? this.invoiceCategory,
       billingType: billingType ?? this.billingType,
+      billingMonthKey: billingMonthKey ?? this.billingMonthKey,
+      billingYear: billingYear ?? this.billingYear,
+      billingMonth: billingMonth ?? this.billingMonth,
       title: title ?? this.title,
       description: description ?? this.description,
       startDate: startDate ?? this.startDate,
@@ -617,23 +1066,35 @@ class InvoiceModel {
       dueDate: dueDate ?? this.dueDate,
       paidAt: paidAt ?? this.paidAt,
       baseAmount: baseAmount ?? this.baseAmount,
+      baseAmountPerChild: baseAmountPerChild ?? this.baseAmountPerChild,
+      childrenBaseAmount: childrenBaseAmount ?? this.childrenBaseAmount,
       transportFee: transportFee ?? this.transportFee,
       mealsFee: mealsFee ?? this.mealsFee,
       registrationFee: registrationFee ?? this.registrationFee,
       lateFee: lateFee ?? this.lateFee,
       subscriptionAmount: subscriptionAmount ?? this.subscriptionAmount,
       discountAmount: discountAmount ?? this.discountAmount,
-      offerDiscountAmount: offerDiscountAmount ?? this.offerDiscountAmount,
+      manualDiscount: manualDiscount ?? this.manualDiscount,
+      offerDiscount: offerDiscount ?? this.offerDiscount,
+      totalDiscount: totalDiscount ?? this.totalDiscount,
       extraHoursAmount: extraHoursAmount ?? this.extraHoursAmount,
-      consultationAmount: consultationAmount ?? this.consultationAmount,
+      extraHoursTotal: extraHoursTotal ?? this.extraHoursTotal,
+      extraHoursIds: extraHoursIds ?? this.extraHoursIds,
+      consultationsAmount: consultationsAmount ?? this.consultationsAmount,
+      consultationIds: consultationIds ?? this.consultationIds,
+      consultations: consultations ?? this.consultations,
       otherFeesAmount: otherFeesAmount ?? this.otherFeesAmount,
       subtotalAmount: subtotalAmount ?? this.subtotalAmount,
       totalAmount: totalAmount ?? this.totalAmount,
       paidAmount: paidAmount ?? this.paidAmount,
       remainingAmount: remainingAmount ?? this.remainingAmount,
       offerId: offerId ?? this.offerId,
+      offerTitle: offerTitle ?? this.offerTitle,
       offerName: offerName ?? this.offerName,
       offerType: offerType ?? this.offerType,
+      offerCollectionName: offerCollectionName ?? this.offerCollectionName,
+      isDefaultOffer: isDefaultOffer ?? this.isDefaultOffer,
+      isTwoChildrenOffer: isTwoChildrenOffer ?? this.isTwoChildrenOffer,
       hasOffer: hasOffer ?? this.hasOffer,
       includesMeals: includesMeals ?? this.includesMeals,
       includesSaturday: includesSaturday ?? this.includesSaturday,
@@ -646,12 +1107,19 @@ class InvoiceModel {
           consultationHourlyRate ?? this.consultationHourlyRate,
       items: items ?? this.items,
       status: status ?? this.status,
+      paymentStatus: paymentStatus ?? this.paymentStatus,
+      invoiceStatus: invoiceStatus ?? this.invoiceStatus,
       paymentMethod: paymentMethod ?? this.paymentMethod,
+      paymentMethodLabel: paymentMethodLabel ?? this.paymentMethodLabel,
       createdByUid: createdByUid ?? this.createdByUid,
       createdByName: createdByName ?? this.createdByName,
       createdByRole: createdByRole ?? this.createdByRole,
+      updatedByUid: updatedByUid ?? this.updatedByUid,
+      updatedByName: updatedByName ?? this.updatedByName,
+      updatedByRole: updatedByRole ?? this.updatedByRole,
       notes: notes ?? this.notes,
       internalNotes: internalNotes ?? this.internalNotes,
+      discountNotes: discountNotes ?? this.discountNotes,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -693,6 +1161,15 @@ double _toDouble(dynamic value, {double fallback = 0}) {
   return double.tryParse(value.toString().trim()) ?? fallback;
 }
 
+int _toInt(dynamic value, {int fallback = 0}) {
+  if (value == null) return fallback;
+
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+
+  return int.tryParse(value.toString().trim()) ?? fallback;
+}
+
 bool _bool(dynamic value) {
   if (value is bool) return value;
 
@@ -701,14 +1178,67 @@ bool _bool(dynamic value) {
   return text == 'true' || text == '1' || text == 'yes';
 }
 
+List<String> _parseStringList(dynamic value) {
+  if (value is List) {
+    return value
+        .map((e) => e.toString().trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+  }
+
+  return <String>[];
+}
+
+List<Map<String, dynamic>> _parseMapList(dynamic value) {
+  if (value is List) {
+    return value
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+  }
+
+  return <Map<String, dynamic>>[];
+}
+
+String _normalizeChildType(dynamic value) {
+  final type = _string(value).toLowerCase();
+
+  switch (type) {
+    case 'temporary':
+    case 'temp':
+    case 'temporary_child':
+    case 'مؤقت':
+      return 'temporary';
+    case 'trial':
+    case 'تجربة':
+      return 'trial';
+    case 'permanent':
+    case 'regular':
+    case 'active':
+    case 'دائم':
+    default:
+      return type.isEmpty ? 'permanent' : type;
+  }
+}
+
 double _calculateSubtotalFromData(Map<String, dynamic> data) {
-  return _toDouble(data['baseAmount']) +
+  final childrenBaseAmount = _toDouble(data['childrenBaseAmount']);
+
+  final base = childrenBaseAmount > 0
+      ? childrenBaseAmount
+      : _toDouble(data['baseAmount']);
+
+  return base +
       _toDouble(data['transportFee']) +
       _toDouble(data['mealsFee']) +
       _toDouble(data['registrationFee']) +
       _toDouble(data['lateFee']) +
       _toDouble(data['subscriptionAmount']) +
-      _toDouble(data['extraHoursAmount']) +
-      _toDouble(data['consultationAmount']) +
+      _toDouble(data['extraHoursAmount'] ?? data['extraHoursTotal']) +
+      _toDouble(
+        data['consultationsAmount'] ??
+            data['consultationAmount'] ??
+            data['consultationsTotal'],
+      ) +
       _toDouble(data['otherFeesAmount']);
 }

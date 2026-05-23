@@ -330,11 +330,11 @@ class _ParentHomePageState extends State<ParentHomePage> {
       builder: (_) => Directionality(
         textDirection: TextDirection.rtl,
         child: AlertDialog(
-          title: const Text('إلغاء طلب البث'),
-          content: const Text(
-            'هل تريدين إلغاء طلب البث المباشر؟',
-            style: TextStyle(height: 1.5),
-          ),
+          title: const Text('إلغاء البث المباشر'),
+        content: const Text(
+        'هل تريدين إلغاء دورك أو خروجك من قائمة انتظار البث المباشر؟',
+         style: TextStyle(height: 1.5),
+         ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -361,7 +361,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم إلغاء طلب البث المباشر')),
+        const SnackBar(content: Text('تم إلغاء البث المباشر أو دور الانتظار')),
       );
 
       setState(() {});
@@ -382,130 +382,128 @@ class _ParentHomePageState extends State<ParentHomePage> {
     }
   }
 
-  Future<void> _requestLiveStreamForChild(ChildModel child) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    final cleanUsername = widget.parentUsername.trim().toLowerCase();
+ Future<void> _requestLiveStreamForChild(ChildModel child) async {
+  final uid = FirebaseAuth.instance.currentUser?.uid;
+  final cleanUsername = widget.parentUsername.trim().toLowerCase();
 
-    if (uid == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('يجب تسجيل الدخول أولًا')),
-      );
-      return;
-    }
+  if (uid == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('يجب تسجيل الدخول أولًا')),
+    );
+    return;
+  }
 
-    if (_liveStreamRequestingChildIds.contains(child.id)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('جاري إرسال الطلب، يرجى الانتظار')),
-      );
-      return;
-    }
+  if (_liveStreamRequestingChildIds.contains(child.id)) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('جاري تنفيذ الطلب، يرجى الانتظار')),
+    );
+    return;
+  }
 
-    setState(() {
-      _liveStreamRequestingChildIds.add(child.id);
-    });
-
-    try {
-      final confirm = await showDialog<bool>(
-        context: context,
-        builder: (_) => Directionality(
-          textDirection: TextDirection.rtl,
-          child: AlertDialog(
-            title: const Text('طلب بث مباشر'),
-            content: Text(
-              'هل تريدين إرسال طلب بث مباشر لمشاهدة ${child.name}؟\n\n'
-              'سيتم إرسال الطلب للإدارة، ويمكنك إلغاؤه طالما لم يبدأ البث.',
-              style: const TextStyle(height: 1.5),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('إلغاء'),
-              ),
-              ElevatedButton.icon(
-                onPressed: () => Navigator.pop(context, true),
-                icon: const Icon(Icons.wifi_tethering_rounded),
-                label: const Text('إرسال الطلب'),
-              ),
-            ],
-          ),
+  final confirm = await showDialog<bool>(
+    context: context,
+    builder: (_) => Directionality(
+      textDirection: TextDirection.rtl,
+      child: AlertDialog(
+        title: const Text('البث المباشر'),
+        content: Text(
+          'هل تريدين استخدام البث المباشر لمشاهدة ${child.name}؟\n\n'
+          'إذا كان هناك بث قائم حاليًا، سيتم وضعك في قائمة الانتظار.',
+          style: const TextStyle(height: 1.5),
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('إلغاء'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () => Navigator.pop(context, true),
+            icon: const Icon(Icons.wifi_tethering_rounded),
+            label: const Text('متابعة'),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  if (confirm != true) return;
+
+  setState(() {
+    _liveStreamRequestingChildIds.add(child.id);
+  });
+
+  try {
+    final userDoc = await _firestore.collection('users').doc(uid).get();
+    final userData = userDoc.data() ?? <String, dynamic>{};
+
+    final parentName = (userData['displayName'] ??
+            userData['name'] ??
+            userData['fullName'] ??
+            userData['username'] ??
+            'ولي الأمر')
+        .toString()
+        .trim();
+
+    final result = await _liveStreamService.requestLiveStreamForChild(
+      childId: child.id,
+      childName: child.name,
+      parentUid: uid,
+      parentUsername: cleanUsername,
+      parentName: parentName,
+      section: child.section.trim().isEmpty ? 'Nursery' : child.section,
+      group: child.group,
+    );
+
+    if (!mounted) return;
+
+    String message;
+
+    if (result.status == 'ready') {
+      message =
+          'يمكنك الآن استخدام البث المباشر. لديك 10 دقائق قبل انتقال الدور لولي أمر آخر.';
+    } else if (result.status == 'queued' || result.status == 'waiting') {
+      message =
+          'يوجد بث مباشر قائم حاليًا. تم وضعك في قائمة الانتظار. رقمك: ${result.queuePosition}';
+    } else if (result.status == 'active') {
+      message = 'يوجد بث مباشر نشط لهذا الطفل. تابعي كرت البث أعلى الصفحة.';
+    } else {
+      message = 'تم تسجيل طلب البث المباشر.';
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+
+    setState(() {});
+  } catch (e) {
+    debugPrint('Parent live stream request error: $e');
+
+    if (!mounted) return;
+
+    final errorText = e.toString();
+
+    String message;
+
+    if (errorText.contains('permission-denied')) {
+      message = 'لا توجد صلاحية لتنفيذ طلب البث. راجعي Firestore Rules.';
+    } else {
+      message = errorText.replaceFirst(
+        'Exception: ',
+        'حدث خطأ أثناء طلب البث: ',
       );
+    }
 
-      if (confirm != true) return;
-
-      final userDoc = await _firestore.collection('users').doc(uid).get();
-      final userData = userDoc.data() ?? <String, dynamic>{};
-
-      final parentName = (userData['displayName'] ??
-              userData['name'] ??
-              userData['fullName'] ??
-              userData['username'] ??
-              'ولي الأمر')
-          .toString()
-          .trim();
-
-      final result = await _liveStreamService.requestLiveStreamForChild(
-        childId: child.id,
-        childName: child.name,
-        parentUid: uid,
-        parentUsername: cleanUsername,
-        parentName: parentName,
-        section: child.section.trim().isEmpty ? 'Nursery' : child.section,
-        group: child.group,
-      );
-
-      if (!mounted) return;
-
-      String message;
-
-      if (result.status == 'queued') {
-        message =
-            'تم وضعك ضمن قائمة انتظار لحين انتهاء البث الجاري. رقمك في الانتظار: ${result.queuePosition}';
-      } else if (result.status == 'approved') {
-        message = 'تمت الموافقة على طلب البث، يرجى متابعة الإشعارات.';
-      } else if (result.status == 'active') {
-        message = 'يوجد بث مباشر نشط لهذا الطلب، يرجى متابعة الإشعارات.';
-      } else {
-        message = 'تم إرسال طلب البث المباشر للإدارة';
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
-
-      setState(() {});
-    } catch (e) {
-      debugPrint('Parent request live stream error: $e');
-
-      if (!mounted) return;
-
-      final errorText = e.toString();
-
-      String message;
-
-      if (errorText.contains('permission-denied')) {
-        message =
-            'لا توجد صلاحية لإرسال طلب البث. تأكدي من Firestore Rules أو من عدم وجود استعلام عام على live_streams.';
-      } else if (errorText.contains('يوجد طلب بث مباشر نشط')) {
-        message = 'يوجد طلب بث مباشر نشط لهذا الطفل بالفعل';
-      } else {
-        message = errorText.replaceFirst(
-          'Exception: ',
-          'حدث خطأ أثناء إرسال طلب البث: ',
-        );
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _liveStreamRequestingChildIds.remove(child.id);
-        });
-      }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  } finally {
+    if (mounted) {
+      setState(() {
+        _liveStreamRequestingChildIds.remove(child.id);
+      });
     }
   }
+}
 
   Future<void> _openComplaints() async {
     await Navigator.push(
@@ -1961,39 +1959,41 @@ class _LiveStreamRequestAction extends StatelessWidget {
   });
 
   bool _shouldShowWaitingStatus(String status) {
-    final clean = status.trim().toLowerCase();
+  final clean = status.trim().toLowerCase();
 
-    return clean == 'pending' || clean == 'queued' || clean == 'waiting';
+  return clean == 'ready' ||
+      clean == 'queued' ||
+      clean == 'waiting';
+}
+
+ bool _shouldHideRequestStatus(String status) {
+  final clean = status.trim().toLowerCase();
+
+  return clean == 'active' ||
+      clean == 'completed' ||
+      clean == 'ended' ||
+      clean == 'finished' ||
+      clean == 'cancelled' ||
+      clean == 'rejected' ||
+      clean == 'expired';
+}
+
+ String _statusText(String status) {
+  switch (status.trim().toLowerCase()) {
+    case 'ready':
+      return 'دورك الآن للبث المباشر';
+    case 'queued':
+    case 'waiting':
+      return 'أنتِ ضمن قائمة الانتظار';
+    default:
+      return 'طلب بث قائم';
   }
+}
 
-  bool _shouldHideRequestStatus(String status) {
-    final clean = status.trim().toLowerCase();
-
-    return clean == 'approved' ||
-        clean == 'active' ||
-        clean == 'completed' ||
-        clean == 'ended' ||
-        clean == 'finished' ||
-        clean == 'cancelled' ||
-        clean == 'rejected';
-  }
-
-  String _statusText(String status) {
-    switch (status.trim().toLowerCase()) {
-      case 'pending':
-        return 'طلبك قيد المراجعة';
-      case 'queued':
-      case 'waiting':
-        return 'طلبك ضمن الانتظار';
-      default:
-        return 'طلب بث قائم';
-    }
-  }
-
-  bool _canCancel(String status) {
-    final clean = status.trim().toLowerCase();
-    return clean == 'pending' || clean == 'queued' || clean == 'waiting';
-  }
+ bool _canCancel(String status) {
+  final clean = status.trim().toLowerCase();
+  return clean == 'ready' || clean == 'queued' || clean == 'waiting';
+}
 
   DateTime? _dateFromDynamic(dynamic value) {
     if (value is Timestamp) return value.toDate();
@@ -2001,16 +2001,15 @@ class _LiveStreamRequestAction extends StatelessWidget {
     return null;
   }
 
-  int _requestSortValue(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data();
-    final status = (data['status'] ?? '').toString().trim().toLowerCase();
+int _requestSortValue(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+  final data = doc.data();
+  final status = (data['status'] ?? '').toString().trim().toLowerCase();
 
-    if (status == 'active') return 1;
-    if (status == 'approved') return 2;
-    if (status == 'pending') return 3;
-    if (status == 'queued' || status == 'waiting') return 4;
-    return 9;
-  }
+  if (status == 'active') return 1;
+  if (status == 'ready') return 2;
+  if (status == 'queued' || status == 'waiting') return 3;
+  return 9;
+}
 
   @override
   Widget build(BuildContext context) {
@@ -2180,7 +2179,7 @@ class _LiveStreamRequestAction extends StatelessWidget {
                 child: CircularProgressIndicator(strokeWidth: 2),
               )
             : const Icon(Icons.wifi_tethering_rounded, size: 18),
-        label: Text(isSending ? 'جاري الإرسال' : 'طلب بث'),
+        label: Text(isSending ? 'جاري الطلب' : 'بث مباشر'),
         style: TextButton.styleFrom(
           foregroundColor: Colors.red,
         ),
@@ -2198,7 +2197,7 @@ class _LiveStreamRequestAction extends StatelessWidget {
                 child: CircularProgressIndicator(strokeWidth: 2),
               )
             : const Icon(Icons.wifi_tethering_rounded),
-        label: Text(isSending ? 'جاري إرسال الطلب...' : 'طلب بث مباشر للطفل'),
+        label: Text(isSending ? 'جاري الطلب...' : 'البث المباشر'),
         style: OutlinedButton.styleFrom(
           foregroundColor: Colors.red,
           side: BorderSide(color: Colors.red.withOpacity(0.35)),

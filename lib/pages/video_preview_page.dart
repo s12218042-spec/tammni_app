@@ -88,45 +88,50 @@ class _VideoPreviewPageState extends State<VideoPreviewPage> {
     return '';
   }
 
-  Future<String?> _resolveVideoUrl() async {
-    final rawPath = widget.path.trim();
+Future<String?> _resolveVideoUrl() async {
+  final rawPath = widget.path.trim();
 
-    final explicitMediaPath = _firstNonEmpty([
-      widget.mediaPath,
-      _looksLikeSupabaseStoragePath(rawPath) ? rawPath : null,
-    ]);
+  final publicUrl = _firstNonEmpty([
+    widget.publicUrl,
+    _isNetworkUrl(rawPath) ? rawPath : null,
+  ]);
 
-    final oldUrl = _firstNonEmpty([
-      widget.mediaUrl,
-      _isNetworkUrl(rawPath) ? rawPath : null,
-    ]);
+  final oldUrl = _firstNonEmpty([
+    widget.mediaUrl,
+    _isNetworkUrl(rawPath) ? rawPath : null,
+  ]);
 
-    final publicUrl = _firstNonEmpty([
-      widget.publicUrl,
-    ]);
+  final explicitMediaPath = _firstNonEmpty([
+    widget.mediaPath,
+    _looksLikeSupabaseStoragePath(rawPath) ? rawPath : null,
+  ]);
 
-    final storageProvider = _firstNonEmpty([
-      widget.storageProvider,
-      explicitMediaPath.isNotEmpty ? 'supabase' : '',
-    ]);
+  final storageProvider = _firstNonEmpty([
+    widget.storageProvider,
+    explicitMediaPath.isNotEmpty ? 'supabase' : '',
+  ]);
 
-    final freshUrl = await _galleryService.resolveFreshMediaUrlFromFields(
-      storageProvider: storageProvider,
-      mediaPath: explicitMediaPath,
-      oldMediaUrl: oldUrl,
-      publicUrl: publicUrl,
-    );
-
-    if (freshUrl != null && freshUrl.trim().isNotEmpty) {
-      return freshUrl.trim();
-    }
-
-    if (_isNetworkUrl(rawPath)) {
-      return rawPath;
-    }
-
-    return null;
+  if (publicUrl.isNotEmpty && _isNetworkUrl(publicUrl)) {
+    return publicUrl;
   }
+
+  final resolvedUrl = await _galleryService.resolveFreshMediaUrlFromFields(
+    storageProvider: storageProvider,
+    mediaPath: explicitMediaPath,
+    oldMediaUrl: oldUrl,
+    publicUrl: publicUrl,
+  );
+
+  if (resolvedUrl != null && resolvedUrl.trim().isNotEmpty) {
+    return resolvedUrl.trim();
+  }
+
+  if (oldUrl.isNotEmpty && _isNetworkUrl(oldUrl)) {
+    return oldUrl;
+  }
+
+  return null;
+}
 
   Future<void> _initializeVideo() async {
     if (!mounted) return;
@@ -143,11 +148,12 @@ class _VideoPreviewPageState extends State<VideoPreviewPage> {
 
       final rawPath = widget.path.trim();
 
-      if (rawPath.isEmpty &&
-          (widget.mediaPath == null || widget.mediaPath!.trim().isEmpty) &&
-          (widget.mediaUrl == null || widget.mediaUrl!.trim().isEmpty)) {
-        throw Exception('لا يوجد مصدر فيديو صالح');
-      }
+     if (rawPath.isEmpty &&
+    (widget.mediaPath == null || widget.mediaPath!.trim().isEmpty) &&
+    (widget.mediaUrl == null || widget.mediaUrl!.trim().isEmpty) &&
+    (widget.publicUrl == null || widget.publicUrl!.trim().isEmpty)) {
+  throw Exception('لا يوجد مصدر فيديو صالح');
+}
 
       if (_isBlobUrl(rawPath)) {
         throw Exception(

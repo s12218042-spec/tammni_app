@@ -6,8 +6,7 @@ class GalleryUploadResult {
   final String storageProvider;
   final String bucket;
   final String path;
-  final String signedUrl;
-  final DateTime signedUrlExpiresAt;
+  final String publicUrl;
   final String mediaType;
   final String mimeType;
   final int sizeBytes;
@@ -16,8 +15,7 @@ class GalleryUploadResult {
     required this.storageProvider,
     required this.bucket,
     required this.path,
-    required this.signedUrl,
-    required this.signedUrlExpiresAt,
+    required this.publicUrl,
     required this.mediaType,
     required this.mimeType,
     required this.sizeBytes,
@@ -27,27 +25,34 @@ class GalleryUploadResult {
     return {
       'storageProvider': storageProvider,
       'bucket': bucket,
+      'path': path,
       'mediaPath': path,
-      'mediaUrl': signedUrl,
-      'mediaUrlExpiresAt': signedUrlExpiresAt.toIso8601String(),
+
+      // رابط دائم من Supabase Public Bucket
+      'publicUrl': publicUrl,
+      'mediaUrl': publicUrl,
+      'url': publicUrl,
+
       'mediaType': mediaType,
       'mimeType': mimeType,
       'sizeBytes': sizeBytes,
-      'isSignedUrl': true,
+
+      // مهم: الآن الرابط ليس signed url مؤقت
+      'isSignedUrl': false,
+      'mediaUrlExpiresAt': null,
     };
   }
 }
 
 class GalleryService {
-  static const int defaultSignedUrlSeconds = 3600;
-
   Future<String?> uploadChildMedia({
     required String childId,
     required String localPath,
     required String mediaType,
   }) async {
     try {
-      final folder = mediaType == 'video' ? 'videos' : 'images';
+      final cleanMediaType = _normalizeMediaType(mediaType);
+      final folder = cleanMediaType == 'video' ? 'videos' : 'images';
       final xFile = XFile(localPath);
 
       final result = await MediaStorageService.instance.uploadImageOrVideo(
@@ -57,12 +62,13 @@ class GalleryService {
             DateTime.now().millisecondsSinceEpoch.toString(),
       );
 
-      final signedUrl = await MediaStorageService.instance.createSignedUrl(
-        path: result.path,
-        expiresInSeconds: defaultSignedUrlSeconds,
-      );
+      final publicUrl = (result.publicUrl ?? '').trim();
 
-      return signedUrl;
+      if (publicUrl.isEmpty) {
+        return null;
+      }
+
+      return publicUrl;
     } catch (e) {
       print('Supabase upload error: $e');
       return null;
@@ -85,21 +91,17 @@ class GalleryService {
             DateTime.now().millisecondsSinceEpoch.toString(),
       );
 
-      final signedUrl = await MediaStorageService.instance.createSignedUrl(
-        path: uploaded.path,
-        expiresInSeconds: defaultSignedUrlSeconds,
-      );
+      final publicUrl = (uploaded.publicUrl ?? '').trim();
 
-      final expiresAt = DateTime.now().add(
-        const Duration(seconds: defaultSignedUrlSeconds),
-      );
+      if (publicUrl.isEmpty) {
+        return null;
+      }
 
       return GalleryUploadResult(
         storageProvider: uploaded.storageProvider,
         bucket: uploaded.bucket,
         path: uploaded.path,
-        signedUrl: signedUrl,
-        signedUrlExpiresAt: expiresAt,
+        publicUrl: publicUrl,
         mediaType: cleanMediaType,
         mimeType: uploaded.mimeType,
         sizeBytes: uploaded.sizeBytes,
@@ -112,7 +114,7 @@ class GalleryService {
 
   Future<String?> createFreshSignedUrl({
     required String mediaPath,
-    int expiresInSeconds = defaultSignedUrlSeconds,
+    int expiresInSeconds = 3600,
   }) async {
     try {
       final cleanPath = mediaPath.trim();
@@ -131,18 +133,8 @@ class GalleryService {
 
   Future<String?> resolveFreshMediaUrl({
     required Map<String, dynamic> mediaData,
-    int expiresInSeconds = defaultSignedUrlSeconds,
+    int expiresInSeconds = 3600,
   }) async {
-    final storageProvider =
-        (mediaData['storageProvider'] ?? '').toString().trim().toLowerCase();
-
-    final mediaPath = _firstNonEmpty([
-      mediaData['mediaPath'],
-      mediaData['path'],
-      mediaData['imagePath'],
-      mediaData['videoPath'],
-    ]);
-
     final publicUrl = _firstNonEmpty([
       mediaData['publicUrl'],
       mediaData['mediaPublicUrl'],
@@ -155,22 +147,31 @@ class GalleryService {
       mediaData['url'],
     ]);
 
-    if (storageProvider == 'supabase' && mediaPath.isNotEmpty) {
-      return createFreshSignedUrl(
-        mediaPath: mediaPath,
-        expiresInSeconds: expiresInSeconds,
-      );
-    }
+    final isSignedUrl = mediaData['isSignedUrl'] == true;
 
-    if (mediaPath.isNotEmpty && oldUrl.contains('supabase')) {
-      return createFreshSignedUrl(
-        mediaPath: mediaPath,
-        expiresInSeconds: expiresInSeconds,
-      );
-    }
+    final mediaPath = _firstNonEmpty([
+      mediaData['mediaPath'],
+      mediaData['path'],
+      mediaData['imagePath'],
+      mediaData['videoPath'],
+    ]);
 
+    // الأولوية الآن للرابط الدائم
     if (publicUrl.isNotEmpty) {
       return publicUrl;
+    }
+
+    // إذا mediaUrl قديم لكنه ليس signedUrl، نستخدمه
+    if (oldUrl.isNotEmpty && !isSignedUrl) {
+      return oldUrl;
+    }
+
+    // دعم قديم فقط: لو البيانات القديمة signedUrl منتهي، نحاول إنشاء رابط جديد
+    if (isSignedUrl && mediaPath.isNotEmpty) {
+      return createFreshSignedUrl(
+        mediaPath: mediaPath,
+        expiresInSeconds: expiresInSeconds,
+      );
     }
 
     if (oldUrl.isNotEmpty) {
@@ -185,7 +186,7 @@ class GalleryService {
     String? mediaPath,
     String? oldMediaUrl,
     String? publicUrl,
-    int expiresInSeconds = defaultSignedUrlSeconds,
+    int expiresInSeconds = 3600,
   }) async {
     return resolveFreshMediaUrl(
       mediaData: {

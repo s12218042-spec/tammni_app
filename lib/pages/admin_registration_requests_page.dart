@@ -378,23 +378,6 @@ class _AdminRegistrationRequestsPageState
                 'طريقة التفعيل',
                 'تم إرسال رابط تعيين كلمة المرور إلى البريد الإلكتروني',
               ),
-              const SizedBox(height: 14),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.green.withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: Colors.green.withOpacity(0.22)),
-                ),
-                child: const Text(
-                  'سيقوم وليّ الأمر بفتح الرابط من بريده الإلكتروني وتعيين كلمة المرور بنفسه، ثم تسجيل الدخول بالتطبيق.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    height: 1.5,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
             ],
           ),
           actions: [
@@ -505,27 +488,9 @@ class _AdminRegistrationRequestsPageState
             borderRadius: BorderRadius.circular(22),
           ),
           title: const Text('الموافقة على الطلب'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'سيتم اعتماد الطلب وربط بيانات وليّ الأمر والأطفال داخل النظام، ثم إرسال رابط تعيين كلمة المرور إلى البريد الإلكتروني المعتمد.',
-                textAlign: TextAlign.center,
-                style: TextStyle(height: 1.6),
-              ),
-              const SizedBox(height: 14),
-              TextField(
-                controller: noteController,
-                maxLines: 3,
-                textAlign: TextAlign.right,
-                decoration: InputDecoration(
-                  labelText: 'ملاحظة إدارية (اختياري)',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                ),
-              ),
-            ],
+          content: const Text(
+            'هل تريدين الموافقة على هذا الطلب؟',
+            textAlign: TextAlign.center,
           ),
           actions: [
             TextButton(
@@ -837,12 +802,6 @@ class _AdminRegistrationRequestsPageState
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text(
-                'يمكنك كتابة سبب الرفض أو ملاحظة إدارية.',
-                textAlign: TextAlign.center,
-                style: TextStyle(height: 1.6),
-              ),
-              const SizedBox(height: 14),
               TextField(
                 controller: noteController,
                 maxLines: 3,
@@ -1127,12 +1086,6 @@ class _AdminRegistrationRequestsPageState
                         'Auth UID',
                         authUid.isEmpty ? '-' : authUid,
                       ),
-                      if (status == 'pending') ...[
-                        const _InfoRow(
-                          'متابعة الطلب',
-                          'الطلب بانتظار مراجعة الإدارة',
-                        ),
-                      ],
                       if (status == 'approved') ...[
                         _InfoRow(
                           'تمت المراجعة بواسطة',
@@ -1465,8 +1418,7 @@ class _AdminRegistrationRequestsPageState
                   TextField(
                     textAlign: TextAlign.right,
                     decoration: InputDecoration(
-                      hintText:
-                          'ابحثي بالاسم أو اسم المستخدم أو البريد أو اسم الطفل',
+                      hintText: 'بحث',
                       prefixIcon: const Icon(Icons.search),
                       suffixIcon: searchText.trim().isEmpty
                           ? null

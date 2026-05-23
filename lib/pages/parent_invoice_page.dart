@@ -39,19 +39,30 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
     return double.tryParse(value.toString()) ?? 0;
   }
 
+  String normalizeStatus(dynamic value) {
+    final status = (value ?? '').toString().trim().toLowerCase();
+
+    if (status.isEmpty) return 'unpaid';
+    if (status == 'pending') return 'unpaid';
+    if (status == 'not_paid') return 'unpaid';
+    if (status == 'notpaid') return 'unpaid';
+    if (status == 'partially_paid') return 'partial';
+
+    return status;
+  }
+
   String statusLabel(String status) {
-    switch (status.trim().toLowerCase()) {
+    switch (normalizeStatus(status)) {
       case 'unpaid':
-      case 'pending':
         return 'غير مدفوعة';
       case 'paid':
         return 'مدفوعة';
       case 'partial':
-      case 'partially_paid':
         return 'مدفوعة جزئيًا';
       case 'overdue':
         return 'متأخرة';
       case 'cancelled':
+      case 'canceled':
         return 'ملغاة';
       case 'draft':
         return 'مسودة';
@@ -61,18 +72,17 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
   }
 
   Color statusColor(String status) {
-    switch (status.trim().toLowerCase()) {
+    switch (normalizeStatus(status)) {
       case 'unpaid':
-      case 'pending':
         return Colors.orange;
       case 'paid':
         return Colors.green;
       case 'partial':
-      case 'partially_paid':
         return Colors.blue;
       case 'overdue':
         return Colors.redAccent;
       case 'cancelled':
+      case 'canceled':
         return Colors.grey;
       case 'draft':
         return Colors.blueGrey;
@@ -82,20 +92,19 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
   }
 
   IconData statusIcon(String status) {
-    switch (status.trim().toLowerCase()) {
+    switch (normalizeStatus(status)) {
       case 'paid':
         return Icons.verified_rounded;
       case 'partial':
-      case 'partially_paid':
         return Icons.payments_rounded;
       case 'overdue':
         return Icons.warning_amber_rounded;
       case 'cancelled':
+      case 'canceled':
         return Icons.cancel_rounded;
       case 'draft':
         return Icons.edit_document;
       case 'unpaid':
-      case 'pending':
       default:
         return Icons.schedule_rounded;
     }
@@ -124,6 +133,24 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
     }
   }
 
+  String paymentMethodLabel(dynamic method) {
+    switch ((method ?? '').toString().trim().toLowerCase()) {
+      case 'cash':
+        return 'كاش';
+      case 'card':
+        return 'بطاقة / فيزا';
+      case 'bank_transfer':
+        return 'تحويل بنكي';
+      case 'other':
+        return 'أخرى';
+      case 'none':
+      case '':
+        return 'غير محدد';
+      default:
+        return method.toString();
+    }
+  }
+
   String formatDate(dynamic raw) {
     if (raw is Timestamp) {
       final d = raw.toDate();
@@ -138,33 +165,13 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
   }
 
   String formatMoney(dynamic raw) {
-    if (raw == null) return '0';
+    final value = _numValue(raw);
 
-    if (raw is int) return raw.toString();
-
-    if (raw is double) {
-      if (raw == raw.roundToDouble()) {
-        return raw.toInt().toString();
-      }
-      return raw.toStringAsFixed(2);
+    if (value == value.roundToDouble()) {
+      return value.toInt().toString();
     }
 
-    if (raw is num) {
-      final value = raw.toDouble();
-      if (value == value.roundToDouble()) {
-        return value.toInt().toString();
-      }
-      return value.toStringAsFixed(2);
-    }
-
-    final parsed = double.tryParse(raw.toString());
-    if (parsed == null) return raw.toString();
-
-    if (parsed == parsed.roundToDouble()) {
-      return parsed.toInt().toString();
-    }
-
-    return parsed.toStringAsFixed(2);
+    return value.toStringAsFixed(2);
   }
 
   String resolveTitle(Map<String, dynamic> data) {
@@ -184,6 +191,19 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
           .map((e) => e.toString().trim())
           .where((e) => e.isNotEmpty)
           .toList();
+
+      if (names.isNotEmpty) return names.join('، ');
+    }
+
+    final children = data['children'];
+
+    if (children is List && children.isNotEmpty) {
+      final names = children.map((item) {
+        if (item is Map) {
+          return (item['childName'] ?? item['name'] ?? '').toString().trim();
+        }
+        return '';
+      }).where((e) => e.isNotEmpty).toList();
 
       if (names.isNotEmpty) return names.join('، ');
     }
@@ -211,24 +231,41 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
     ]);
   }
 
-  dynamic resolveTotalAmount(Map<String, dynamic> data) {
-    return data['totalAmount'] ??
-        data['finalAmount'] ??
-        data['amount'] ??
-        data['invoiceAmount'] ??
-        data['total'] ??
-        0;
+  double resolveTotalAmount(Map<String, dynamic> data) {
+    return _numValue(
+      data['totalAmount'] ??
+          data['finalAmount'] ??
+          data['amount'] ??
+          data['invoiceAmount'] ??
+          data['total'] ??
+          0,
+    );
   }
 
-  dynamic resolveSubtotalAmount(Map<String, dynamic> data) {
-    return data['subtotalAmount'] ??
-        data['childrenBaseAmount'] ??
-        data['baseAmount'] ??
-        0;
+  double resolveSubtotalAmount(Map<String, dynamic> data) {
+    return _numValue(
+      data['subtotalAmount'] ??
+          data['childrenBaseAmount'] ??
+          data['baseAmount'] ??
+          0,
+    );
   }
 
-  dynamic resolvePaidAmount(Map<String, dynamic> data) {
-    return data['paidAmount'] ?? data['paid'] ?? data['collectedAmount'];
+  double resolvePaidAmount(Map<String, dynamic> data) {
+    return _numValue(
+      data['paidAmount'] ?? data['paid'] ?? data['collectedAmount'] ?? 0,
+    );
+  }
+
+  double resolveRemainingAmount(Map<String, dynamic> data) {
+    final stored = data['remainingAmount'];
+    if (stored != null) return _numValue(stored);
+
+    final total = resolveTotalAmount(data);
+    final paid = resolvePaidAmount(data);
+    final remaining = total - paid;
+
+    return remaining < 0 ? 0 : remaining;
   }
 
   dynamic resolveDueDate(Map<String, dynamic> data) {
@@ -240,11 +277,30 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
   }
 
   String resolveStatus(Map<String, dynamic> data) {
-    return _firstNonEmpty([
-      data['paymentStatus'],
-      data['status'],
-      'pending',
-    ]).toLowerCase();
+    final stored = normalizeStatus(
+      _firstNonEmpty([
+        data['paymentStatus'],
+        data['status'],
+        data['invoiceStatus'],
+      ]),
+    );
+
+    if (stored == 'paid' ||
+        stored == 'partial' ||
+        stored == 'unpaid' ||
+        stored == 'overdue' ||
+        stored == 'cancelled' ||
+        stored == 'canceled' ||
+        stored == 'draft') {
+      return stored;
+    }
+
+    final total = resolveTotalAmount(data);
+    final paid = resolvePaidAmount(data);
+
+    if (total <= 0 || paid <= 0) return 'unpaid';
+    if (paid >= total) return 'paid';
+    return 'partial';
   }
 
   String resolveOfferTitle(Map<String, dynamic> data) {
@@ -255,12 +311,27 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
   }
 
   double resolveOfferDiscount(Map<String, dynamic> data) {
+    return _numValue(data['offerDiscount'] ?? 0);
+  }
+
+  double resolveManualDiscount(Map<String, dynamic> data) {
     return _numValue(
-      data['offerDiscount'] ??
-          data['discountAmount'] ??
-          data['discount'] ??
-          0,
+      data['manualDiscount'] ?? data['discountAmount'] ?? 0,
     );
+  }
+
+  double resolveTotalDiscount(Map<String, dynamic> data) {
+    final stored = data['totalDiscount'];
+    if (stored != null) return _numValue(stored);
+
+    return resolveOfferDiscount(data) + resolveManualDiscount(data);
+  }
+
+  String resolveDiscountNotes(Map<String, dynamic> data) {
+    return _firstNonEmpty([
+      data['discountNotes'],
+      data['discountNote'],
+    ]);
   }
 
   double resolveExtraHoursAmount(Map<String, dynamic> data) {
@@ -272,12 +343,53 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
     );
   }
 
+  double resolveConsultationsAmount(Map<String, dynamic> data) {
+    return _numValue(
+      data['consultationsAmount'] ??
+          data['consultationAmount'] ??
+          data['consultationsTotal'] ??
+          0,
+    );
+  }
+
+  int resolveListCount(dynamic value) {
+    if (value is List) return value.length;
+    return 0;
+  }
+
   bool hasExtraHours(Map<String, dynamic> data) {
     final amount = resolveExtraHoursAmount(data);
     final ids = data['extraHoursIds'];
 
     return amount > 0 || (ids is List && ids.isNotEmpty);
   }
+
+  bool hasConsultations(Map<String, dynamic> data) {
+    final amount = resolveConsultationsAmount(data);
+    final ids = data['consultationIds'];
+
+    return amount > 0 || (ids is List && ids.isNotEmpty);
+  }
+
+  bool isHiddenInvoice(Map<String, dynamic> data) {
+  final status = resolveStatus(data);
+
+  final invoiceStatus =
+      (data['invoiceStatus'] ?? '').toString().trim().toLowerCase();
+  final paymentStatus =
+      (data['paymentStatus'] ?? '').toString().trim().toLowerCase();
+
+  const hiddenStatuses = {
+    'superseded',
+    'deleted',
+    'void',
+    'archived',
+  };
+
+  return hiddenStatuses.contains(status) ||
+      hiddenStatuses.contains(invoiceStatus) ||
+      hiddenStatuses.contains(paymentStatus);
+}
 
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
       _fetchInvoices() async {
@@ -291,7 +403,7 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
           .get();
 
       if (byUid.docs.isNotEmpty) {
-        return byUid.docs;
+        return byUid.docs.where((doc) => !isHiddenInvoice(doc.data())).toList();
       }
     }
 
@@ -302,7 +414,7 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
         .where('parentUsername', isEqualTo: cleanUsername)
         .get();
 
-    return byUsername.docs;
+    return byUsername.docs.where((doc) => !isHiddenInvoice(doc.data())).toList();
   }
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> applyFilter(
@@ -314,11 +426,11 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
       final status = resolveStatus(doc.data());
 
       if (selectedStatus == 'unpaid') {
-        return status == 'unpaid' || status == 'pending';
+        return status == 'unpaid';
       }
 
       if (selectedStatus == 'partial') {
-        return status == 'partial' || status == 'partially_paid';
+        return status == 'partial';
       }
 
       return status == selectedStatus;
@@ -326,51 +438,79 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
   }
 
   Widget _summaryCard(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
-    double totalDue = 0;
-    double unpaidDue = 0;
+    double totalAmount = 0;
+    double paidAmount = 0;
+    double remainingAmount = 0;
     double extraHoursTotal = 0;
+    double consultationsTotal = 0;
 
     for (final doc in docs) {
       final data = doc.data();
       final status = resolveStatus(data);
-      final amount = _numValue(resolveTotalAmount(data));
 
-      totalDue += amount;
+      if (status == 'cancelled' || status == 'canceled') continue;
+
+      totalAmount += resolveTotalAmount(data);
+      paidAmount += resolvePaidAmount(data);
+      remainingAmount += resolveRemainingAmount(data);
       extraHoursTotal += resolveExtraHoursAmount(data);
-
-      if (status != 'paid' && status != 'cancelled') {
-        unpaidDue += amount;
-      }
+      consultationsTotal += resolveConsultationsAmount(data);
     }
 
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
-        child: Row(
+        child: Column(
           children: [
-            Expanded(
-              child: _SummaryItem(
-                title: 'إجمالي الفواتير',
-                value: '${formatMoney(totalDue)} شيكل',
-                icon: Icons.receipt_long_rounded,
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: _SummaryItem(
+                    title: 'الإجمالي',
+                    value: '${formatMoney(totalAmount)} شيكل',
+                    icon: Icons.receipt_long_rounded,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _SummaryItem(
+                    title: 'المدفوع',
+                    value: '${formatMoney(paidAmount)} شيكل',
+                    icon: Icons.price_check_rounded,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _SummaryItem(
+                    title: 'المتبقي',
+                    value: '${formatMoney(remainingAmount)} شيكل',
+                    icon: Icons.account_balance_wallet_outlined,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _SummaryItem(
-                title: 'غير المسدد',
-                value: '${formatMoney(unpaidDue)} شيكل',
-                icon: Icons.payments_rounded,
+            if (extraHoursTotal > 0 || consultationsTotal > 0) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: _SummaryItem(
+                      title: 'ساعات إضافية',
+                      value: '${formatMoney(extraHoursTotal)} شيكل',
+                      icon: Icons.access_time_filled_rounded,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _SummaryItem(
+                      title: 'استشارات',
+                      value: '${formatMoney(consultationsTotal)} شيكل',
+                      icon: Icons.psychology_alt_outlined,
+                    ),
+                  ),
+                ],
               ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _SummaryItem(
-                title: 'ساعات إضافية',
-                value: '${formatMoney(extraHoursTotal)} شيكل',
-                icon: Icons.access_time_filled_rounded,
-              ),
-            ),
+            ],
           ],
         ),
       ),
@@ -384,7 +524,7 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
         child: DropdownButtonFormField<String>(
           value: selectedStatus,
           decoration: InputDecoration(
-            labelText: 'فلترة حسب الحالة',
+            labelText: 'الحالة',
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(16),
             ),
@@ -399,12 +539,12 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
               child: Text('غير مدفوعة'),
             ),
             DropdownMenuItem(
-              value: 'paid',
-              child: Text('مدفوعة'),
-            ),
-            DropdownMenuItem(
               value: 'partial',
               child: Text('مدفوعة جزئيًا'),
+            ),
+            DropdownMenuItem(
+              value: 'paid',
+              child: Text('مدفوعة'),
             ),
             DropdownMenuItem(
               value: 'overdue',
@@ -445,9 +585,10 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
             ),
             const SizedBox(height: 12),
             Text(
-              'لا توجد فواتير متاحة حاليًا.',
+              'لا توجد فواتير حاليًا',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: AppColors.textLight,
+                    fontWeight: FontWeight.w700,
                   ),
             ),
           ],
@@ -468,13 +609,27 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
     final subtotalAmount = resolveSubtotalAmount(data);
     final totalAmount = resolveTotalAmount(data);
     final paidAmount = resolvePaidAmount(data);
+    final remainingAmount = resolveRemainingAmount(data);
+
     final dueDate = resolveDueDate(data);
     final createdAt = resolveCreatedAt(data);
 
     final offerTitle = resolveOfferTitle(data);
     final offerDiscount = resolveOfferDiscount(data);
+    final manualDiscount = resolveManualDiscount(data);
+    final totalDiscount = resolveTotalDiscount(data);
+    final discountNotes = resolveDiscountNotes(data);
+
     final extraHoursAmount = resolveExtraHoursAmount(data);
+    final consultationsAmount = resolveConsultationsAmount(data);
+
     final showExtraHours = hasExtraHours(data);
+    final showConsultations = hasConsultations(data);
+
+    final extraHoursCount = resolveListCount(data['extraHoursIds']);
+    final consultationsCount = resolveListCount(data['consultationIds']);
+
+    final paymentMethod = paymentMethodLabel(data['paymentMethod']);
 
     final color = statusColor(status);
 
@@ -510,7 +665,9 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
                       if (childName.trim().isNotEmpty) ...[
                         const SizedBox(height: 4),
                         Text(
-                          'الطفل: $childName',
+                          childName.contains('،')
+                              ? 'الأطفال: $childName'
+                              : 'الطفل: $childName',
                           style: const TextStyle(
                             color: Colors.black54,
                             fontWeight: FontWeight.w600,
@@ -563,34 +720,82 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
             if (offerDiscount > 0) ...[
               const SizedBox(height: 6),
               _InvoiceInfoRow(
-                icon: Icons.discount_outlined,
-                label: 'الخصم',
+                icon: Icons.local_offer_outlined,
+                label: 'خصم العرض',
                 value: '${formatMoney(offerDiscount)} شيكل',
+              ),
+            ],
+            if (manualDiscount > 0) ...[
+              const SizedBox(height: 6),
+              _InvoiceInfoRow(
+                icon: Icons.discount_outlined,
+                label: 'خصم إضافي',
+                value: '${formatMoney(manualDiscount)} شيكل',
+              ),
+            ],
+            if (totalDiscount > 0) ...[
+              const SizedBox(height: 6),
+              _InvoiceInfoRow(
+                icon: Icons.price_change_outlined,
+                label: 'مجموع الخصم',
+                value: '${formatMoney(totalDiscount)} شيكل',
+              ),
+            ],
+            if (discountNotes.trim().isNotEmpty) ...[
+              const SizedBox(height: 6),
+              _InvoiceInfoRow(
+                icon: Icons.notes_outlined,
+                label: 'ملاحظات الخصم',
+                value: discountNotes,
               ),
             ],
             if (showExtraHours) ...[
               const SizedBox(height: 6),
               _InvoiceInfoRow(
                 icon: Icons.access_time_filled_rounded,
-                label: 'الساعات الإضافية',
+                label: extraHoursCount > 0
+                    ? 'الساعات الإضافية ($extraHoursCount)'
+                    : 'الساعات الإضافية',
                 value: '${formatMoney(extraHoursAmount)} شيكل',
+              ),
+            ],
+            if (showConsultations) ...[
+              const SizedBox(height: 6),
+              _InvoiceInfoRow(
+                icon: Icons.psychology_alt_outlined,
+                label: consultationsCount > 0
+                    ? 'الاستشارات ($consultationsCount)'
+                    : 'الاستشارات',
+                value: '${formatMoney(consultationsAmount)} شيكل',
               ),
             ],
             const SizedBox(height: 6),
             _InvoiceInfoRow(
               icon: Icons.receipt_long_rounded,
-              label: 'الإجمالي النهائي',
+              label: 'الإجمالي',
               value: '${formatMoney(totalAmount)} شيكل',
               isStrong: true,
             ),
-            if (paidAmount != null) ...[
-              const SizedBox(height: 6),
-              _InvoiceInfoRow(
-                icon: Icons.verified_rounded,
-                label: 'المبلغ المدفوع',
-                value: '${formatMoney(paidAmount)} شيكل',
-              ),
-            ],
+            const SizedBox(height: 6),
+            _InvoiceInfoRow(
+              icon: Icons.price_check_rounded,
+              label: 'المدفوع',
+              value: '${formatMoney(paidAmount)} شيكل',
+              isStrong: true,
+            ),
+            const SizedBox(height: 6),
+            _InvoiceInfoRow(
+              icon: Icons.account_balance_wallet_outlined,
+              label: 'المتبقي',
+              value: '${formatMoney(remainingAmount)} شيكل',
+              isStrong: true,
+            ),
+            const SizedBox(height: 6),
+            _InvoiceInfoRow(
+              icon: Icons.credit_card_rounded,
+              label: 'طريقة الدفع',
+              value: paymentMethod,
+            ),
             const SizedBox(height: 6),
             _InvoiceInfoRow(
               icon: Icons.event_available_outlined,
@@ -669,22 +874,8 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
             },
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.only(bottom: 24),
               children: [
-                Text(
-                  'الفواتير والرسوم',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.textDark,
-                      ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'هنا يمكنك الاطلاع على فواتير أطفالك وحالة الدفع والتفاصيل المالية.',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: AppColors.textLight,
-                      ),
-                ),
-                const SizedBox(height: 16),
                 _summaryCard(docs),
                 const SizedBox(height: 14),
                 _buildStatusFilter(),
@@ -693,7 +884,6 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
                   _emptyState()
                 else
                   ...filteredDocs.map(_invoiceCard),
-                const SizedBox(height: 24),
               ],
             ),
           );

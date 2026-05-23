@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -15,8 +16,10 @@ class AdminDailyTasksTablePage extends StatefulWidget {
 
 class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
 
   bool isSaving = false;
+  final ScrollController _scrollController = ScrollController();
 
   final List<Map<String, String>> taskTypes = const [
     {'key': 'cleaning', 'label': 'تنظيف'},
@@ -30,7 +33,6 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
   ];
 
   final Map<String, Map<String, bool>> selectedTasks = {};
-  final Map<String, TextEditingController> notesControllers = {};
 
   DateTime get today {
     final now = DateTime.now();
@@ -50,6 +52,10 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
     return value.toString().trim();
   }
 
+  String _docSafe(String value) {
+    return value.trim().replaceAll(RegExp(r'[^a-zA-Z0-9_\-]'), '_');
+  }
+
   bool _isNurseryStaff(Map<String, dynamic> data) {
     final role = _clean(data['role']).toLowerCase();
     return role == 'nursery_staff' ||
@@ -58,10 +64,12 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
   }
 
   String _staffName(Map<String, dynamic> data) {
+    final displayName = _clean(data['displayName']);
     final name = _clean(data['name']);
     final fullName = _clean(data['fullName']);
     final username = _clean(data['username']);
 
+    if (displayName.isNotEmpty) return displayName;
     if (name.isNotEmpty) return name;
     if (fullName.isNotEmpty) return fullName;
     if (username.isNotEmpty) return username;
@@ -81,8 +89,45 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
         for (final task in taskTypes) task['key']!: false,
       };
     });
+  }
 
-    notesControllers.putIfAbsent(uid, () => TextEditingController());
+  Future<Map<String, String>> _currentAdminInfo() async {
+    final user = _auth.currentUser;
+
+    if (user == null) {
+      return {
+        'uid': '',
+        'name': 'الإدارة',
+        'role': 'admin',
+      };
+    }
+
+    try {
+      final doc = await _firestore.collection('users').doc(user.uid).get();
+      final data = doc.data() ?? {};
+
+      return {
+        'uid': user.uid,
+        'name': (_clean(data['displayName']).isNotEmpty
+                ? _clean(data['displayName'])
+                : _clean(data['name']).isNotEmpty
+                    ? _clean(data['name'])
+                    : _clean(data['fullName']).isNotEmpty
+                        ? _clean(data['fullName'])
+                        : _clean(data['username']).isNotEmpty
+                            ? _clean(data['username'])
+                            : 'الإدارة')
+            .trim(),
+        'role': (_clean(data['role']).isNotEmpty ? _clean(data['role']) : 'admin')
+            .trim(),
+      };
+    } catch (_) {
+      return {
+        'uid': user.uid,
+        'name': 'الإدارة',
+        'role': 'admin',
+      };
+    }
   }
 
   List<Map<String, dynamic>> _selectedRows(
@@ -105,18 +150,58 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
         'uid': uid,
         'name': _staffName(data),
         'username': _clean(data['username']),
-        'tasks': chosen.map((e) => e['label'] ?? '').where((e) => e.isNotEmpty).toList(),
-        'notes': notesControllers[uid]?.text.trim() ?? '',
+        'tasks': chosen
+            .map((task) => {
+                  'taskKey': task['key'] ?? '',
+                  'taskLabel': task['label'] ?? '',
+                })
+            .where((task) => _clean(task['taskKey']).isNotEmpty)
+            .toList(),
       });
     }
 
     return rows;
   }
 
+  Future<void> _loadExistingTasks(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> staffDocs,
+  ) async {
+    try {
+      for (final doc in staffDocs) {
+        _prepareStaff(doc.id);
+      }
+
+      final snapshot = await _firestore
+          .collection('staff_tasks')
+          .where('dateKey', isEqualTo: dateKey)
+          .where('isActive', isEqualTo: true)
+          .get();
+
+      for (final taskDoc in snapshot.docs) {
+        final data = taskDoc.data();
+        final staffUid = _clean(data['staffUid']);
+        final taskKey = _clean(data['taskType'].toString().isNotEmpty
+            ? data['taskType']
+            : data['taskKey']);
+
+        if (staffUid.isEmpty || taskKey.isEmpty) continue;
+
+        _prepareStaff(staffUid);
+
+        if (selectedTasks[staffUid]!.containsKey(taskKey)) {
+          selectedTasks[staffUid]![taskKey] = true;
+        }
+      }
+
+      if (mounted) setState(() {});
+    } catch (_) {}
+  }
+
   Future<void> _saveTasks(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> staffDocs,
   ) async {
     final rows = _selectedRows(staffDocs);
+
     final hasAnyTask = rows.any((row) {
       final tasks = row['tasks'];
       return tasks is List && tasks.isNotEmpty;
@@ -129,18 +214,63 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
       return;
     }
 
+    if (isSaving) return;
+
     setState(() => isSaving = true);
 
     try {
-      final batch = _firestore.batch();
+      final adminInfo = await _currentAdminInfo();
+      final adminUid = _clean(adminInfo['uid']);
+      final adminName = _clean(adminInfo['name']).isEmpty
+          ? 'الإدارة'
+          : _clean(adminInfo['name']);
+      final adminRole = _clean(adminInfo['role']).isEmpty
+          ? 'admin'
+          : _clean(adminInfo['role']);
+
+      if (adminUid.isEmpty) {
+        throw Exception('يجب تسجيل الدخول كأدمن قبل حفظ المهام');
+      }
+
+      final oldTasks = await _firestore
+          .collection('staff_tasks')
+          .where('dateKey', isEqualTo: dateKey)
+          .get();
+
+      WriteBatch batch = _firestore.batch();
+      int operationCount = 0;
+
+      for (final oldDoc in oldTasks.docs) {
+        batch.set(
+          oldDoc.reference,
+          {
+            'isActive': false,
+            'removedFromSchedule': true,
+            'updatedAt': FieldValue.serverTimestamp(),
+            'updatedByUid': adminUid,
+            'updatedByName': adminName,
+            'updatedByRole': adminRole,
+          },
+          SetOptions(merge: true),
+        );
+
+        operationCount++;
+
+        if (operationCount >= 450) {
+          await batch.commit();
+          batch = _firestore.batch();
+          operationCount = 0;
+        }
+      }
+
       int totalTasks = 0;
+      final notificationRows = <Map<String, dynamic>>[];
 
       for (final doc in staffDocs) {
         final data = doc.data();
         final uid = doc.id;
         final name = _staffName(data);
         final username = _clean(data['username']);
-        final notes = notesControllers[uid]?.text.trim() ?? '';
 
         _prepareStaff(uid);
 
@@ -149,32 +279,83 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
           return selectedTasks[uid]?[key] == true;
         }).toList();
 
+        final labelsForNotification = <String>[];
+
         for (final task in chosen) {
-          final taskKey = task['key'] ?? '';
-          final taskLabel = task['label'] ?? 'مهمة بدون عنوان';
+          final taskKey = _clean(task['key']);
+          final taskLabel = _clean(task['label']).isEmpty
+              ? 'مهمة'
+              : _clean(task['label']);
 
-          final ref = _firestore.collection('staff_tasks').doc();
+          if (taskKey.isEmpty) continue;
 
-          batch.set(ref, {
-            'taskId': ref.id,
+          final safeDocId =
+              '${_docSafe(dateKey)}_${_docSafe(uid)}_${_docSafe(taskKey)}';
+          final ref = _firestore.collection('staff_tasks').doc(safeDocId);
+
+          batch.set(
+            ref,
+            {
+              'taskId': ref.id,
+              'scheduleId': dateKey,
+              'staffUid': uid,
+              'staffName': name,
+              'staffUsername': username,
+              'staffRole': 'nursery_staff',
+
+              'title': taskLabel,
+              'taskTitle': taskLabel,
+              'taskType': taskKey,
+              'taskKey': taskKey,
+              'taskLabel': taskLabel,
+
+              'taskStatus': 'pending',
+              'status': 'pending',
+              'statusLabel': 'بانتظار اعتماد الإدارة',
+
+              'assignedDate': Timestamp.fromDate(today),
+              'date': Timestamp.fromDate(today),
+              'dateKey': dateKey,
+              'assignedWeekKey': _weekKey(today),
+
+              'isActive': true,
+              'removedFromSchedule': false,
+
+              'createdByUid': adminUid,
+              'createdByName': adminName,
+              'createdByRole': adminRole,
+              'assignedByUid': adminUid,
+              'assignedByName': adminName,
+              'assignedByRole': adminRole,
+
+              'updatedByUid': adminUid,
+              'updatedByName': adminName,
+              'updatedByRole': adminRole,
+
+              'createdAt': FieldValue.serverTimestamp(),
+              'updatedAt': FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true),
+          );
+
+          labelsForNotification.add(taskLabel);
+          operationCount++;
+          totalTasks++;
+
+          if (operationCount >= 450) {
+            await batch.commit();
+            batch = _firestore.batch();
+            operationCount = 0;
+          }
+        }
+
+        if (labelsForNotification.isNotEmpty) {
+          notificationRows.add({
             'staffUid': uid,
             'staffName': name,
             'staffUsername': username,
-            'title': taskLabel,
-            'taskType': taskKey,
-            'taskLabel': taskLabel,
-            'taskStatus': 'pending',
-            'statusLabel': 'بانتظار اعتماد الإدارة',
-            'assignedDate': Timestamp.fromDate(today),
-            'dateKey': dateKey,
-            'assignedWeekKey': _weekKey(today),
-            'notes': notes,
-            'isActive': true,
-            'createdAt': FieldValue.serverTimestamp(),
-            'updatedAt': FieldValue.serverTimestamp(),
+            'tasks': labelsForNotification,
           });
-
-          totalTasks++;
         }
       }
 
@@ -184,71 +365,76 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
           'scheduleId': dateKey,
           'dateKey': dateKey,
           'date': Timestamp.fromDate(today),
+          'assignedWeekKey': _weekKey(today),
           'totalTasks': totalTasks,
-          'updatedAt': FieldValue.serverTimestamp(),
+          'staffCount': notificationRows.length,
+          'createdByUid': adminUid,
+          'createdByName': adminName,
+          'createdByRole': adminRole,
+          'updatedByUid': adminUid,
+          'updatedByName': adminName,
+          'updatedByRole': adminRole,
           'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
         },
         SetOptions(merge: true),
       );
 
       await batch.commit();
 
-    for (final row in rows) {
-  final staffUid = _clean(row['uid']);
-  final staffName = _clean(row['name']);
-  final staffUsername = _clean(row['username']);
+      for (final row in notificationRows) {
+        final staffUid = _clean(row['staffUid']);
+        final staffName = _clean(row['staffName']);
+        final staffUsername = _clean(row['staffUsername']);
 
-  final rawTasks = row['tasks'];
-  final taskLabels = rawTasks is List
-      ? rawTasks.map((e) => e.toString()).where((e) => e.trim().isNotEmpty).toList()
-      : <String>[];
+        final rawTasks = row['tasks'];
+        final taskLabels = rawTasks is List
+            ? rawTasks
+                .map((e) => e.toString())
+                .where((e) => e.trim().isNotEmpty)
+                .toList()
+            : <String>[];
 
-  final notes = _clean(row['notes']);
+        if (staffUid.isEmpty || taskLabels.isEmpty) continue;
 
-  if (staffUid.isEmpty || taskLabels.isEmpty) continue;
-
-  await AppNotificationService.instance.notifyUser(
-    targetUid: staffUid,
-    targetUsername: staffUsername,
-    targetRole: 'nursery_staff',
-    title: 'تم تكليفك بمهام اليوم',
-    body: 'مهامك بتاريخ $dateKey: ${taskLabels.join('، ')}',
-    type: 'staff_daily_tasks',
-    priority: 'important',
-    createdByRole: 'admin',
-    extraData: {
-      'dateKey': dateKey,
-      'assignedDate': Timestamp.fromDate(today),
-      'assignedWeekKey': _weekKey(today),
-      'staffName': staffName,
-      'tasks': taskLabels,
-      'notes': notes,
-      'category': 'staff_tasks',
-      'notificationType': 'staff_daily_tasks',
-      'screen': 'staff_tasks',
-      'route': 'staff_tasks',
-      'relatedCollection': 'staff_tasks',
-    },
-  );
-}
+        try {
+          await AppNotificationService.instance.notifyUser(
+            targetUid: staffUid,
+            targetUsername: staffUsername,
+            targetRole: 'nursery_staff',
+            title: 'مهام اليوم',
+            body: taskLabels.join('، '),
+            type: 'staff_daily_tasks',
+            priority: 'important',
+            createdByUid: adminUid,
+            createdByName: adminName,
+            createdByRole: adminRole,
+            extraData: {
+              'dateKey': dateKey,
+              'assignedDate': Timestamp.fromDate(today),
+              'assignedWeekKey': _weekKey(today),
+              'staffName': staffName,
+              'tasks': taskLabels,
+              'category': 'staff_tasks',
+              'notificationType': 'staff_daily_tasks',
+              'screen': 'staff_tasks',
+              'route': 'staff_tasks',
+              'relatedCollection': 'staff_tasks',
+            },
+          );
+        } catch (_) {}
+      }
 
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم حفظ مهام اليوم بنجاح')),
+        const SnackBar(content: Text('تم حفظ المهام')),
       );
-
-      setState(() {
-        selectedTasks.clear();
-        for (final c in notesControllers.values) {
-          c.clear();
-        }
-      });
     } catch (e) {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('حدث خطأ أثناء الحفظ: $e')),
+        SnackBar(content: Text('تعذر حفظ المهام: $e')),
       );
     } finally {
       if (mounted) setState(() => isSaving = false);
@@ -280,15 +466,24 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
                 pw.Text('التاريخ: $dateKey'),
                 pw.SizedBox(height: 16),
                 pw.TableHelper.fromTextArray(
-                  headers: ['الموظفة', 'المهام', 'ملاحظات'],
+                  headers: ['الموظفة', 'المهام'],
                   data: rows.map((row) {
                     final tasksList = row['tasks'];
-                    final tasks = tasksList is List ? tasksList.join(' - ') : '';
+                    final tasks = tasksList is List
+                        ? tasksList
+                            .map((item) {
+                              if (item is Map) {
+                                return _clean(item['taskLabel']);
+                              }
+                              return _clean(item);
+                            })
+                            .where((e) => e.isNotEmpty)
+                            .join(' - ')
+                        : '';
 
                     return [
                       _clean(row['name']),
                       tasks.isEmpty ? 'لا يوجد' : tasks,
-                      _clean(row['notes']),
                     ];
                   }).toList(),
                 ),
@@ -304,9 +499,7 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
 
   @override
   void dispose() {
-    for (final c in notesControllers.values) {
-      c.dispose();
-    }
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -374,17 +567,6 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
                 );
               }).toList(),
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: notesControllers[uid],
-              maxLines: 2,
-              enabled: !isSaving,
-              textAlign: TextAlign.right,
-              decoration: const InputDecoration(
-                labelText: 'ملاحظات للموظفة',
-                border: OutlineInputBorder(),
-              ),
-            ),
           ],
         ),
       ),
@@ -408,17 +590,12 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'توزيع مهام اليوم: $dateKey',
+                    'مهام اليوم: $dateKey',
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                 ),
               ],
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'هذه الصفحة مخصصة لتوزيع مهام اليوم فقط. الرجوع للتواريخ السابقة يكون من صفحة متابعة مهام الموظفات.',
-              style: TextStyle(color: Colors.black54, height: 1.4),
             ),
             const SizedBox(height: 10),
             OutlinedButton.icon(
@@ -444,16 +621,19 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
             minHeight: 50,
             maxHeight: 54,
           ),
-          child: ElevatedButton.icon(
-            onPressed: isSaving ? null : () => _saveTasks(staffDocs),
-            icon: isSaving
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.save),
-            label: Text(isSaving ? 'جاري الحفظ...' : 'حفظ مهام اليوم'),
+          child: SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: isSaving ? null : () => _saveTasks(staffDocs),
+              icon: isSaving
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.save),
+              label: Text(isSaving ? 'جاري الحفظ...' : 'حفظ مهام اليوم'),
+            ),
           ),
         ),
       ),
@@ -461,13 +641,13 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
   }
 
   Widget _buildErrorState(Object? error) {
-    return Center(
+    return const Center(
       child: Padding(
-        padding: const EdgeInsets.all(18),
+        padding: EdgeInsets.all(18),
         child: Text(
-          'حدث خطأ أثناء تحميل الموظفات:\n$error',
+          'تعذر تحميل الموظفات',
           textAlign: TextAlign.center,
-          style: const TextStyle(
+          style: TextStyle(
             color: Colors.red,
             fontWeight: FontWeight.bold,
           ),
@@ -481,10 +661,35 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
       child: Padding(
         padding: EdgeInsets.all(16),
         child: Text(
-          'لا يوجد موظفات حضانة.\nتأكدي أن role = nursery_staff داخل users.',
+          'لا يوجد موظفات حضانة',
           textAlign: TextAlign.center,
         ),
       ),
+    );
+  }
+
+  Widget _buildContent(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> staffDocs,
+  ) {
+    return Column(
+      children: [
+        _buildDateSection(staffDocs),
+        Expanded(
+          child: Scrollbar(
+            controller: _scrollController,
+            thumbVisibility: true,
+            child: ListView.builder(
+              controller: _scrollController,
+              padding: const EdgeInsets.only(bottom: 8),
+              itemCount: staffDocs.length,
+              itemBuilder: (context, index) {
+                return _buildStaffCard(staffDocs[index]);
+              },
+            ),
+          ),
+        ),
+        _buildSaveButton(staffDocs),
+      ],
     );
   }
 
@@ -495,7 +700,7 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
       child: Scaffold(
         backgroundColor: const Color(0xffF7F7F7),
         appBar: AppBar(
-          title: const Text('توزيع مهام اليوم'),
+          title: const Text('تحديد مهام الموظفات'),
           centerTitle: true,
         ),
         body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -525,20 +730,13 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
               return _buildEmptyStaffState();
             }
 
-            return Column(
-              children: [
-                _buildDateSection(staffDocs),
-                Expanded(
-                  child: ListView.builder(
-                    itemCount: staffDocs.length,
-                    itemBuilder: (context, index) {
-                      return _buildStaffCard(staffDocs[index]);
-                    },
-                  ),
-                ),
-                _buildSaveButton(staffDocs),
-              ],
-            );
+            if (selectedTasks.isEmpty) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                _loadExistingTasks(staffDocs);
+              });
+            }
+
+            return _buildContent(staffDocs);
           },
         ),
       ),

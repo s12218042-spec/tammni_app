@@ -27,7 +27,12 @@ class MediaUploadResult {
       'bucket': bucket,
       'path': path,
       'mediaPath': path,
+
+      // الرابط الدائم للعرض داخل التطبيق
       'publicUrl': publicUrl,
+      'mediaUrl': publicUrl,
+      'url': publicUrl,
+
       'mimeType': mimeType,
       'sizeBytes': sizeBytes,
     };
@@ -74,17 +79,19 @@ class MediaStorageService {
           fullPath,
           bytes,
           fileOptions: FileOptions(
-            cacheControl: '3600',
+            cacheControl: '31536000',
             upsert: false,
             contentType: mimeType,
           ),
         );
 
+    final publicUrl = _getPublicUrl(fullPath);
+
     return MediaUploadResult(
       storageProvider: 'supabase',
       bucket: bucketName,
       path: fullPath,
-      publicUrl: null,
+      publicUrl: publicUrl,
       mimeType: mimeType,
       sizeBytes: sizeBytes,
     );
@@ -117,20 +124,30 @@ class MediaStorageService {
           fullPath,
           bytes,
           fileOptions: FileOptions(
-            cacheControl: '3600',
+            cacheControl: '31536000',
             upsert: false,
             contentType: mimeType,
           ),
         );
 
+    final publicUrl = _getPublicUrl(fullPath);
+
     return MediaUploadResult(
       storageProvider: 'supabase',
       bucket: bucketName,
       path: fullPath,
-      publicUrl: null,
+      publicUrl: publicUrl,
       mimeType: mimeType,
       sizeBytes: sizeBytes,
     );
+  }
+
+  String _getPublicUrl(String path) {
+    final cleanPath = path.trim();
+
+    if (cleanPath.isEmpty) return '';
+
+    return _client.storage.from(bucketName).getPublicUrl(cleanPath);
   }
 
   Future<String> createSignedUrl({

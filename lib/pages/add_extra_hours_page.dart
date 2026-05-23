@@ -44,48 +44,90 @@ class _AddExtraHoursPageState extends State<AddExtraHoursPage> {
     super.dispose();
   }
 
-  Future<List<Map<String, dynamic>>> fetchChildren() async {
-    final snapshot = await _firestore.collection('children').get();
+Future<List<Map<String, dynamic>>> fetchChildren() async {
+  final snapshot = await _firestore.collection('children').get();
 
-    final children = snapshot.docs.map((doc) {
-      final data = doc.data();
+  final children = snapshot.docs.map((doc) {
+    final data = doc.data();
 
-      final status = (data['status'] ?? data['childStatus'] ?? '')
-          .toString()
-          .toLowerCase();
+    final status = (data['status'] ?? data['childStatus'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
 
-      final isActiveValue = data['isActive'];
-      final isActive = isActiveValue == null
-          ? status != 'inactive' &&
-              status != 'withdrawn' &&
-              status != 'rejected_after_trial'
-          : isActiveValue == true;
+    final childType = (data['childType'] ??
+            data['enrollmentType'] ??
+            data['type'] ??
+            data['childStatus'] ??
+            '')
+        .toString()
+        .trim()
+        .toLowerCase();
 
-      return {
-        'id': doc.id,
-        'name': (data['name'] ??
-                data['childName'] ??
-                data['fullName'] ??
-                'طفل بدون اسم')
-            .toString(),
-        'parentUid': (data['parentUid'] ?? '').toString(),
-        'parentUsername': (data['parentUsername'] ?? '').toString(),
-        'parentName': (data['parentName'] ?? '').toString(),
-        'group': (data['groupName'] ?? data['group'] ?? '').toString(),
-        'section': (data['section'] ?? 'Nursery').toString(),
-        'isActive': isActive,
-      };
-    }).where((child) {
-      final name = (child['name'] ?? '').toString().trim();
-      return name.isNotEmpty && child['isActive'] == true;
-    }).toList();
+    final isActiveValue = data['isActive'];
+    final isActive = isActiveValue == null
+        ? status != 'inactive' &&
+            status != 'withdrawn' &&
+            status != 'rejected_after_trial' &&
+            status != 'archived'
+        : isActiveValue == true;
 
-    children.sort(
-      (a, b) => (a['name'] as String).compareTo(b['name'] as String),
-    );
+    final isTrial = childType == 'trial' ||
+        status == 'trial' ||
+        data['isTrialChild'] == true;
 
-    return children;
-  }
+    final isTemporary = childType == 'temporary' ||
+        childType == 'temp' ||
+        childType == 'temporary_child' ||
+        childType == 'مؤقت' ||
+        status == 'temporary' ||
+        data['isTemporaryChild'] == true;
+
+    final excludedFromMonthly =
+        data['excludeFromMonthlyInvoice'] == true || data['isBillable'] == false;
+
+    return {
+      'id': doc.id,
+      'name': (data['name'] ??
+              data['childName'] ??
+              data['fullName'] ??
+              'طفل بدون اسم')
+          .toString(),
+      'parentUid': (data['parentUid'] ?? '').toString(),
+      'parentUsername': (data['parentUsername'] ?? '').toString(),
+      'parentName': (data['parentName'] ?? '').toString(),
+      'group': (data['groupName'] ?? data['group'] ?? '').toString(),
+      'section': (data['section'] ?? 'Nursery').toString(),
+      'childType': childType,
+      'childStatus': status,
+      'isTrialChild': isTrial,
+      'isTemporaryChild': isTemporary,
+      'excludeFromMonthlyInvoice': excludedFromMonthly,
+      'isBillable': data['isBillable'],
+      'isActive': isActive,
+    };
+  }).where((child) {
+    final name = (child['name'] ?? '').toString().trim();
+    final isActive = child['isActive'] == true;
+    final isTrial = child['isTrialChild'] == true;
+    final isTemporary = child['isTemporaryChild'] == true;
+    final excludedFromMonthly = child['excludeFromMonthlyInvoice'] == true;
+    final notBillable = child['isBillable'] == false;
+
+    return name.isNotEmpty &&
+        isActive &&
+        !isTrial &&
+        !isTemporary &&
+        !excludedFromMonthly &&
+        !notBillable;
+  }).toList();
+
+  children.sort(
+    (a, b) => (a['name'] as String).compareTo(b['name'] as String),
+  );
+
+  return children;
+}
 
   Future<Map<String, String>> getCurrentUserInfo() async {
     final user = _auth.currentUser;
@@ -303,7 +345,7 @@ if (parentUid.isNotEmpty || parentUsername.isNotEmpty) {
                       if (snapshot.connectionState == ConnectionState.waiting)
                         const Center(child: CircularProgressIndicator())
                       else if (children.isEmpty)
-                        const Text('لا يوجد أطفال حاليًا.')
+                        const Text('لا يوجد أطفال دائمون متاحون لإضافة ساعات إضافية.')
                       else
                         DropdownButtonFormField<String>(
                           value: selectedChild?['id'],

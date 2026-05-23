@@ -29,6 +29,7 @@ class _ParentConsultationsPageState extends State<ParentConsultationsPage> {
 
   String formatMoney(dynamic value) {
     if (value == null) return '0';
+
     if (value is int) return value.toString();
 
     if (value is double) {
@@ -48,6 +49,13 @@ class _ParentConsultationsPageState extends State<ParentConsultationsPage> {
     return parsed.toStringAsFixed(2);
   }
 
+  double numberFromDynamic(dynamic value, {double defaultValue = 0}) {
+    if (value == null) return defaultValue;
+    if (value is num) return value.toDouble();
+    final parsed = double.tryParse(value.toString());
+    return parsed ?? defaultValue;
+  }
+
   String formatDate(dynamic value) {
     if (value is Timestamp) {
       final d = value.toDate();
@@ -56,6 +64,13 @@ class _ParentConsultationsPageState extends State<ParentConsultationsPage> {
 
     if (value is DateTime) {
       return '${value.year}/${value.month.toString().padLeft(2, '0')}/${value.day.toString().padLeft(2, '0')}';
+    }
+
+    if (value is String) {
+      final parsed = DateTime.tryParse(value);
+      if (parsed != null) {
+        return '${parsed.year}/${parsed.month.toString().padLeft(2, '0')}/${parsed.day.toString().padLeft(2, '0')}';
+      }
     }
 
     return 'غير محدد';
@@ -69,7 +84,7 @@ class _ParentConsultationsPageState extends State<ParentConsultationsPage> {
         return 'مرفوضة';
       case 'pending':
       default:
-        return 'بانتظار موافقتك';
+        return 'بانتظار الرد';
     }
   }
 
@@ -96,6 +111,57 @@ class _ParentConsultationsPageState extends State<ParentConsultationsPage> {
       case 'proposed':
       default:
         return 'مقترحة';
+    }
+  }
+
+String childTypeLabel(Map<String, dynamic> data) {
+  final raw = (data['childType'] ??
+          data['enrollmentType'] ??
+          data['childStatus'] ??
+          data['type'] ??
+          '')
+      .toString()
+      .trim()
+      .toLowerCase();
+
+  final status = (data['childStatus'] ?? data['status'] ?? '')
+      .toString()
+      .trim()
+      .toLowerCase();
+
+  final isTrial = data['isTrialChild'] == true ||
+      raw == 'trial' ||
+      raw == 'تجربة' ||
+      status == 'trial';
+
+  final isTemporary = data['isTemporaryChild'] == true ||
+      raw == 'temporary' ||
+      raw == 'temp' ||
+      raw == 'temporary_child' ||
+      raw == 'مؤقت' ||
+      status == 'temporary';
+
+  if (isTrial) return 'طفل تجربة';
+  if (isTemporary) return 'طفل مؤقت';
+
+  return 'طفل دائم';
+}
+
+  String invoiceLabel(Map<String, dynamic> data) {
+    final invoiceStatus =
+        (data['invoiceStatus'] ?? data['billingStatus'] ?? '').toString();
+
+    switch (invoiceStatus.trim().toLowerCase()) {
+      case 'added_to_invoice':
+      case 'invoiced':
+        return 'مضافة للفاتورة';
+      case 'paid':
+        return 'مدفوعة';
+      case 'not_billed':
+      case 'pending_invoice':
+        return 'بانتظار الفاتورة';
+      default:
+        return '';
     }
   }
 
@@ -137,94 +203,130 @@ class _ParentConsultationsPageState extends State<ParentConsultationsPage> {
     }).toList();
   }
 
-Future<Map<String, String>> fetchCurrentParentInfo() async {
-  final user = FirebaseAuth.instance.currentUser;
+  Future<Map<String, String>> fetchCurrentParentInfo() async {
+    final user = FirebaseAuth.instance.currentUser;
 
-  if (user == null) {
-    return {
-      'uid': '',
-      'name': 'ولي الأمر',
-      'username': cleanUsername,
-    };
+    if (user == null) {
+      return {
+        'uid': '',
+        'name': 'ولي الأمر',
+        'username': cleanUsername,
+      };
+    }
+
+    try {
+      final doc = await _firestore.collection('users').doc(user.uid).get();
+      final data = doc.data() ?? {};
+
+      return {
+        'uid': user.uid,
+        'name': (data['displayName'] ??
+                data['name'] ??
+                data['fullName'] ??
+                data['username'] ??
+                'ولي الأمر')
+            .toString()
+            .trim(),
+        'username': (data['username'] ?? cleanUsername)
+            .toString()
+            .trim()
+            .toLowerCase(),
+      };
+    } catch (_) {
+      return {
+        'uid': user.uid,
+        'name': 'ولي الأمر',
+        'username': cleanUsername,
+      };
+    }
   }
 
-  try {
-    final doc = await _firestore.collection('users').doc(user.uid).get();
-    final data = doc.data() ?? {};
+  Future<void> notifyAdminConsultationResponse({
+    required String consultationId,
+    required bool approved,
+    required Map<String, dynamic> consultationData,
+    required double totalAmount,
+    required double hourlyPrice,
+    required double hours,
+  }) async {
+    final parentInfo = await fetchCurrentParentInfo();
 
-    return {
-      'uid': user.uid,
-      'name': (data['displayName'] ??
-              data['name'] ??
-              data['fullName'] ??
-              data['username'] ??
-              'ولي الأمر')
-          .toString()
-          .trim(),
-      'username': (data['username'] ?? cleanUsername)
-          .toString()
-          .trim()
-          .toLowerCase(),
-    };
-  } catch (_) {
-    return {
-      'uid': user.uid,
-      'name': 'ولي الأمر',
-      'username': cleanUsername,
-    };
+    final parentUid = (parentInfo['uid'] ?? '').trim();
+    final parentUsername = (parentInfo['username'] ?? '').trim().toLowerCase();
+    final parentName = (parentInfo['name'] ?? 'ولي الأمر').trim();
+
+    final childName = (consultationData['childName'] ?? '').toString().trim();
+    final title = (consultationData['title'] ?? 'استشارة').toString().trim();
+    final responseText = approved ? 'وافق' : 'رفض';
+
+    final childType = (consultationData['childType'] ??
+        consultationData['enrollmentType'] ??
+        consultationData['childStatus'] ??
+        '')
+    .toString()
+    .trim()
+    .toLowerCase();
+
+final childStatus = (consultationData['childStatus'] ??
+        consultationData['status'] ??
+        '')
+    .toString()
+    .trim()
+    .toLowerCase();
+
+final isTrialChild = consultationData['isTrialChild'] == true ||
+    childType == 'trial' ||
+    childStatus == 'trial';
+
+final isTemporaryChild = consultationData['isTemporaryChild'] == true ||
+    childType == 'temporary' ||
+    childType == 'temp' ||
+    childType == 'temporary_child' ||
+    childStatus == 'temporary';
+
+final excludeFromMonthlyInvoice =
+    consultationData['excludeFromMonthlyInvoice'] == true || isTrialChild;
+
+    await AppNotificationService.instance.notifyAdmin(
+      title: approved ? 'تمت الموافقة على استشارة' : 'تم رفض استشارة',
+      body:
+          '$responseText ولي الأمر $parentName على الاستشارة "$title"${childName.isNotEmpty ? ' للطفل $childName' : ''}. المبلغ: ${formatMoney(totalAmount)} شيكل.',
+      type: approved ? 'consultation_approved' : 'consultation_rejected',
+      priority: approved ? 'normal' : 'important',
+      parentUid: parentUid,
+      parentUsername: parentUsername,
+      parentName: parentName,
+      childId: (consultationData['childId'] ?? '').toString(),
+      childName: childName,
+      section: (consultationData['section'] ?? 'Nursery').toString(),
+      group: (consultationData['group'] ?? '').toString(),
+      createdByUid: parentUid,
+      createdByName: parentName,
+      createdByRole: 'parent',
+      extraData: {
+        'consultationId': consultationId,
+        'consultationStatus': approved ? 'scheduled' : 'cancelled',
+        'parentApprovalStatus': approved ? 'approved' : 'rejected',
+        'notificationType':
+            approved ? 'consultation_approved' : 'consultation_rejected',
+        'category': 'consultations',
+        'screen': 'consultations',
+        'route': 'admin_consultations',
+        'relatedCollection': 'child_consultations',
+        'relatedDocId': consultationId,
+        'totalAmount': totalAmount,
+        'hourlyPrice': hourlyPrice,
+        'hours': hours,
+        'billable': approved,
+        'invoiceStatus': approved ? 'pending_invoice' : 'not_billed',
+        'childType': childType,
+        'childStatus': childStatus,
+        'isTemporaryChild': isTemporaryChild,
+        'isTrialChild': isTrialChild,
+        'excludeFromMonthlyInvoice': excludeFromMonthlyInvoice,
+      },
+    );
   }
-}
-
-Future<void> notifyAdminConsultationResponse({
-  required String consultationId,
-  required bool approved,
-  required Map<String, dynamic> consultationData,
-}) async {
-  final parentInfo = await fetchCurrentParentInfo();
-
-  final parentUid = (parentInfo['uid'] ?? '').trim();
-  final parentUsername = (parentInfo['username'] ?? '').trim().toLowerCase();
-  final parentName = (parentInfo['name'] ?? 'ولي الأمر').trim();
-
-  final childName = (consultationData['childName'] ?? '').toString().trim();
-  final title = (consultationData['title'] ?? 'استشارة').toString().trim();
-  final totalAmount = consultationData['totalAmount'] ?? 0;
-
-  final responseText = approved ? 'وافق' : 'رفض';
-
-  await AppNotificationService.instance.notifyAdmin(
-    title: approved ? 'تمت الموافقة على استشارة' : 'تم رفض استشارة',
-    body:
-        '$responseText ولي الأمر $parentName على الاستشارة "$title"${childName.isNotEmpty ? ' للطفل $childName' : ''}. المبلغ: ${formatMoney(totalAmount)} شيكل.',
-    type: approved ? 'consultation_approved' : 'consultation_rejected',
-    priority: approved ? 'normal' : 'important',
-    parentUid: parentUid,
-    parentUsername: parentUsername,
-    parentName: parentName,
-    childId: (consultationData['childId'] ?? '').toString(),
-    childName: childName,
-    section: (consultationData['section'] ?? 'Nursery').toString(),
-    group: (consultationData['group'] ?? '').toString(),
-    createdByUid: parentUid,
-    createdByName: parentName,
-    createdByRole: 'parent',
-    extraData: {
-      'consultationId': consultationId,
-      'consultationStatus': approved ? 'scheduled' : 'cancelled',
-      'parentApprovalStatus': approved ? 'approved' : 'rejected',
-      'notificationType':
-          approved ? 'consultation_approved' : 'consultation_rejected',
-      'category': 'consultations',
-      'screen': 'consultations',
-      'route': 'admin_consultations',
-      'relatedCollection': 'child_consultations',
-      'relatedDocId': consultationId,
-      'totalAmount': totalAmount,
-      'hourlyPrice': consultationData['hourlyPrice'] ?? 50,
-      'hours': consultationData['hours'] ?? 0,
-    },
-  );
-}
 
   Future<void> respondToConsultation({
     required String consultationId,
@@ -238,32 +340,116 @@ Future<void> notifyAdminConsultationResponse({
 
     try {
       final now = DateTime.now();
-    final consultationRef =
-    _firestore.collection('child_consultations').doc(consultationId);
+      final consultationRef =
+          _firestore.collection('child_consultations').doc(consultationId);
 
-    final consultationDoc = await consultationRef.get();
-    final consultationData = consultationDoc.data() ?? <String, dynamic>{};
+      final consultationDoc = await consultationRef.get();
 
+      if (!consultationDoc.exists) {
+        throw Exception('الاستشارة غير موجودة');
+      }
+
+      final consultationData = consultationDoc.data() ?? <String, dynamic>{};
+
+      final hours = numberFromDynamic(
+        consultationData['hours'],
+        defaultValue: 0,
+      );
+
+      final hourlyPrice = numberFromDynamic(
+        consultationData['hourlyPrice'],
+        defaultValue: 50,
+      );
+
+      final currentTotal = numberFromDynamic(
+        consultationData['totalAmount'],
+        defaultValue: 0,
+      );
+
+      final calculatedTotal =
+          currentTotal > 0 ? currentTotal : (hours * hourlyPrice);
+
+      final parentInfo = await fetchCurrentParentInfo();
+
+      final parentUid = (parentInfo['uid'] ?? '').trim();
+      final parentUsername =
+          (parentInfo['username'] ?? cleanUsername).trim().toLowerCase();
+      final parentName = (parentInfo['name'] ?? 'ولي الأمر').trim();
+
+    final childType = (consultationData['childType'] ??
+        consultationData['enrollmentType'] ??
+        consultationData['childStatus'] ??
+        '')
+    .toString()
+    .trim()
+    .toLowerCase();
+
+final childStatus = (consultationData['childStatus'] ??
+        consultationData['status'] ??
+        '')
+    .toString()
+    .trim()
+    .toLowerCase();
+
+final isTrialChild = consultationData['isTrialChild'] == true ||
+    childType == 'trial' ||
+    childStatus == 'trial';
+
+final isTemporaryChild = consultationData['isTemporaryChild'] == true ||
+    childType == 'temporary' ||
+    childType == 'temp' ||
+    childType == 'temporary_child' ||
+    childStatus == 'temporary';
+
+final excludeFromMonthlyInvoice =
+    consultationData['excludeFromMonthlyInvoice'] == true || isTrialChild;
       await consultationRef.update({
-  'parentApprovalStatus': approved ? 'approved' : 'rejected',
-  'parentRespondedAt': Timestamp.fromDate(now),
-  'consultationStatus': approved ? 'scheduled' : 'cancelled',
-  'updatedAt': Timestamp.fromDate(now),
-});
+        'parentApprovalStatus': approved ? 'approved' : 'rejected',
+        'parentRespondedAt': Timestamp.fromDate(now),
+        'consultationStatus': approved ? 'scheduled' : 'cancelled',
+        'updatedAt': Timestamp.fromDate(now),
 
-await notifyAdminConsultationResponse(
-  consultationId: consultationId,
-  approved: approved,
-  consultationData: consultationData,
-);
+        'parentUid': parentUid.isNotEmpty
+            ? parentUid
+            : (consultationData['parentUid'] ?? '').toString(),
+        'parentUsername': parentUsername.isNotEmpty
+            ? parentUsername
+            : (consultationData['parentUsername'] ?? '').toString(),
+        'parentName': parentName,
+
+        'hours': hours,
+        'hourlyPrice': hourlyPrice,
+        'totalAmount': calculatedTotal,
+
+        'billable': approved,
+        'invoiceStatus': approved ? 'pending_invoice' : 'not_billed',
+        'billingStatus': approved ? 'pending_invoice' : 'not_billed',
+        'addedToInvoice': false,
+        'invoiceId': consultationData['invoiceId'] ?? '',
+        'invoiceMonth': consultationData['invoiceMonth'] ?? '',
+
+       'childType': childType,
+'childStatus': childStatus,
+'isTemporaryChild': isTemporaryChild,
+'isTrialChild': isTrialChild,
+'excludeFromMonthlyInvoice': excludeFromMonthlyInvoice,
+      });
+
+      await notifyAdminConsultationResponse(
+        consultationId: consultationId,
+        approved: approved,
+        consultationData: consultationData,
+        totalAmount: calculatedTotal,
+        hourlyPrice: hourlyPrice,
+        hours: hours,
+      );
+
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            approved
-                ? 'تمت الموافقة على الاستشارة ✅'
-                : 'تم رفض الاستشارة',
+            approved ? 'تمت الموافقة على الاستشارة' : 'تم رفض الاستشارة',
           ),
         ),
       );
@@ -296,8 +482,8 @@ await notifyAdminConsultationResponse(
           title: Text(approved ? 'الموافقة على الاستشارة' : 'رفض الاستشارة'),
           content: Text(
             approved
-                ? 'هل تريدين الموافقة على هذه الاستشارة؟ سيتم اعتمادها وترتيبها من الإدارة.'
-                : 'هل تريدين رفض هذه الاستشارة؟ سيتم إبلاغ الإدارة بالرفض.',
+                ? 'هل تريدين الموافقة على هذه الاستشارة؟'
+                : 'هل تريدين رفض هذه الاستشارة؟',
           ),
           actions: [
             TextButton(
@@ -328,7 +514,7 @@ await notifyAdminConsultationResponse(
         child: DropdownButtonFormField<String>(
           value: selectedStatus,
           decoration: InputDecoration(
-            labelText: 'فلترة حسب الحالة',
+            labelText: 'الحالة',
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(16),
             ),
@@ -340,7 +526,7 @@ await notifyAdminConsultationResponse(
             ),
             DropdownMenuItem(
               value: 'pending',
-              child: Text('بانتظار موافقتي'),
+              child: Text('بانتظار الرد'),
             ),
             DropdownMenuItem(
               value: 'approved',
@@ -377,7 +563,7 @@ await notifyAdminConsultationResponse(
             ),
             const SizedBox(height: 12),
             Text(
-              'لا توجد استشارات متاحة حاليًا.',
+              'لا توجد استشارات حاليًا',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: AppColors.textLight,
@@ -396,22 +582,29 @@ await notifyAdminConsultationResponse(
     final title = (data['title'] ?? 'استشارة').toString();
     final childName = (data['childName'] ?? '').toString();
     final description = (data['description'] ?? '').toString();
+
     final typeLabel = (data['consultationTypeLabel'] ??
             data['consultationType'] ??
             'استشارة')
         .toString();
 
     final approval = (data['parentApprovalStatus'] ?? 'pending').toString();
+
     final consultationStatus =
         (data['consultationStatus'] ?? 'proposed').toString();
 
-    final hours = data['hours'] ?? 0;
-    final hourlyPrice = data['hourlyPrice'] ?? 50;
-    final totalAmount = data['totalAmount'] ?? 0;
+    final hours = numberFromDynamic(data['hours']);
+    final hourlyPrice = numberFromDynamic(data['hourlyPrice'], defaultValue: 50);
+    final totalAmountFromData = numberFromDynamic(data['totalAmount']);
+    final totalAmount =
+        totalAmountFromData > 0 ? totalAmountFromData : (hours * hourlyPrice);
+
     final suggestedDate = data['suggestedDate'];
 
     final color = approvalColor(approval);
     final isPending = approval.trim().toLowerCase() == 'pending';
+    final childType = childTypeLabel(data);
+    final invoiceStatus = invoiceLabel(data);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -442,8 +635,8 @@ await notifyAdminConsultationResponse(
                           color: AppColors.textDark,
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      if (childName.trim().isNotEmpty)
+                      if (childName.trim().isNotEmpty) ...[
+                        const SizedBox(height: 4),
                         Text(
                           'الطفل: $childName',
                           style: const TextStyle(
@@ -451,6 +644,7 @@ await notifyAdminConsultationResponse(
                             fontWeight: FontWeight.w700,
                           ),
                         ),
+                      ],
                     ],
                   ),
                 ),
@@ -477,19 +671,27 @@ await notifyAdminConsultationResponse(
             const SizedBox(height: 12),
             _ConsultationInfoRow(
               icon: Icons.category_outlined,
-              label: 'نوع الاستشارة',
+              label: 'النوع',
               value: typeLabel,
             ),
+            if (childType.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              _ConsultationInfoRow(
+                icon: Icons.child_care_rounded,
+                label: 'نوع الطفل',
+                value: childType,
+              ),
+            ],
             const SizedBox(height: 6),
             _ConsultationInfoRow(
               icon: Icons.calendar_today_rounded,
-              label: 'التاريخ المقترح',
+              label: 'التاريخ',
               value: formatDate(suggestedDate),
             ),
             const SizedBox(height: 6),
             _ConsultationInfoRow(
               icon: Icons.access_time_rounded,
-              label: 'عدد الساعات',
+              label: 'الساعات',
               value: formatMoney(hours),
             ),
             const SizedBox(height: 6),
@@ -501,7 +703,7 @@ await notifyAdminConsultationResponse(
             const SizedBox(height: 6),
             _ConsultationInfoRow(
               icon: Icons.receipt_long_rounded,
-              label: 'المبلغ الإجمالي',
+              label: 'الإجمالي',
               value: '${formatMoney(totalAmount)} شيكل',
               strong: true,
             ),
@@ -511,6 +713,14 @@ await notifyAdminConsultationResponse(
               label: 'حالة الاستشارة',
               value: consultationStatusLabel(consultationStatus),
             ),
+            if (invoiceStatus.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              _ConsultationInfoRow(
+                icon: Icons.request_quote_outlined,
+                label: 'الفاتورة',
+                value: invoiceStatus,
+              ),
+            ],
             if (description.trim().isNotEmpty) ...[
               const SizedBox(height: 10),
               Container(
@@ -609,6 +819,7 @@ await notifyAdminConsultationResponse(
             },
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.only(bottom: 24),
               children: [
                 Text(
                   'استشارات الأطفال',
@@ -617,21 +828,13 @@ await notifyAdminConsultationResponse(
                         color: AppColors.textDark,
                       ),
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  'هنا يمكنك مراجعة الاستشارات المقترحة من الإدارة والموافقة عليها أو رفضها.',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: AppColors.textLight,
-                      ),
-                ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 14),
                 statusFilterCard(),
                 const SizedBox(height: 18),
                 if (filteredDocs.isEmpty)
                   emptyState()
                 else
                   ...filteredDocs.map(consultationCard),
-                const SizedBox(height: 24),
               ],
             ),
           );
@@ -696,4 +899,3 @@ class _ConsultationInfoRow extends StatelessWidget {
     );
   }
 }
-

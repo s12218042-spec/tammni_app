@@ -13,6 +13,7 @@ import 'force_change_password_page.dart';
 import 'nursery_staff_home_page.dart';
 import 'parent_home_page.dart';
 import 'parent_registration_request_page.dart';
+import 'temporary_access_login_page.dart';
 
 class WelcomePage extends StatefulWidget {
   const WelcomePage({super.key});
@@ -483,6 +484,15 @@ class _WelcomePageState extends State<WelcomePage> {
     );
   }
 
+  void _openTemporaryAccessLogin() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const TemporaryAccessLoginPage(),
+      ),
+    );
+  }
+
   void _showSnack(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -729,6 +739,22 @@ class _WelcomePageState extends State<WelcomePage> {
                               icon: const Icon(Icons.how_to_reg_rounded),
                               label: const Text(
                                 'طلب إنشاء حساب ولي أمر',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              style: TextButton.styleFrom(
+                                foregroundColor: AppColors.primary,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Center(
+                            child: TextButton.icon(
+                              onPressed: _openTemporaryAccessLogin,
+                              icon: const Icon(Icons.lock_clock_rounded),
+                              label: const Text(
+                                'دخول مؤقت',
                                 style: TextStyle(
                                   fontWeight: FontWeight.w800,
                                 ),

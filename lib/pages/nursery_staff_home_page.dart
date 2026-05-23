@@ -14,7 +14,6 @@ import 'nursery_care_log_page.dart';
 import 'nursery_chats_page.dart';
 import 'send_parent_notification_page.dart';
 import 'send_group_update_page.dart';
-import 'start_live_stream_page.dart';
 import 'staff_my_tasks_page.dart';
 import 'profile_details_page.dart';
 import 'staff_employee_file_page.dart';
@@ -169,13 +168,53 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
       return [];
     }
 
-    final snapshot = await _firestore
+    final Map<String, QueryDocumentSnapshot<Map<String, dynamic>>> docsById = {};
+
+    final byGroupId = await _firestore
         .collection('children')
         .where('groupId', isEqualTo: staffGroup.id)
-        .where('isActive', isEqualTo: true)
         .get();
 
-    final children = snapshot.docs.map((doc) {
+    for (final doc in byGroupId.docs) {
+      docsById[doc.id] = doc;
+    }
+
+    final byGroupName = await _firestore
+        .collection('children')
+        .where('groupName', isEqualTo: staffGroup.name)
+        .get();
+
+    for (final doc in byGroupName.docs) {
+      docsById[doc.id] = doc;
+    }
+
+    final children = docsById.values.where((doc) {
+      final data = doc.data();
+      final isActive = data['isActive'];
+      final status = (data['childStatus'] ?? data['status'] ?? '')
+          .toString()
+          .trim()
+          .toLowerCase();
+      final childType = (data['childType'] ?? '')
+          .toString()
+          .trim()
+          .toLowerCase();
+
+      if (isActive == false) return false;
+      if (status == 'withdrawn' ||
+          status == 'rejected' ||
+          status == 'inactive' ||
+          status == 'deleted') {
+        return false;
+      }
+
+      return status.isEmpty ||
+          status == 'active' ||
+          status == 'temporary' ||
+          status == 'trial' ||
+          childType == 'temporary' ||
+          childType == 'trial';
+    }).map((doc) {
       final data = doc.data();
 
       final fixedData = <String, dynamic>{
@@ -184,6 +223,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
         'group':
             (data['groupName'] ?? data['group'] ?? staffGroup.name).toString(),
         'groupName': (data['groupName'] ?? staffGroup.name).toString(),
+        'groupId': (data['groupId'] ?? staffGroup.id).toString(),
       };
 
       return ChildModel.fromMap(fixedData, docId: doc.id);
@@ -194,38 +234,49 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
   }
 
   Future<ChildModel?> pickChild(List<ChildModel> children) async {
+    if (children.isEmpty) return null;
+
     return showModalBottomSheet<ChildModel>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
       ),
       builder: (context) {
         String localSearch = '';
         String selectedGroup = 'all';
 
-        final groups = {
+        final groups = <String>{
           'all',
           ...children.map((c) => c.group.isEmpty ? 'بدون مجموعة' : c.group),
-        };
+        }.toList();
 
         return StatefulBuilder(
           builder: (context, setModalState) {
-            final filtered = children.where((child) {
-              final matchesSearch = child.name.toLowerCase().contains(
-                    localSearch.toLowerCase(),
-                  );
+            final query = localSearch.trim().toLowerCase();
 
+            final filtered = children.where((child) {
               final groupName =
                   child.group.isEmpty ? 'بدون مجموعة' : child.group;
 
+              final searchValues = [
+                child.name,
+                child.parentName,
+                child.parentUsername,
+                groupName,
+              ].join(' ').toLowerCase();
+
+              final matchesSearch =
+                  query.isEmpty || searchValues.contains(query);
               final matchesGroup =
                   selectedGroup == 'all' || groupName == selectedGroup;
 
               return matchesSearch && matchesGroup;
             }).toList();
 
-            return SafeArea(
+            return SizedBox(
+              height: MediaQuery.of(context).size.height * 0.78,
               child: Padding(
                 padding: EdgeInsets.only(
                   left: 16,
@@ -234,10 +285,18 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
                   bottom: MediaQuery.of(context).viewInsets.bottom + 16,
                 ),
                 child: Column(
-                  mainAxisSize: MainAxisSize.min,
                   children: [
+                    Container(
+                      width: 44,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: AppColors.border,
+                        borderRadius: BorderRadius.circular(99),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
                     const Text(
-                      'اختاري الطفل',
+                      'اختيار الطفل',
                       style: TextStyle(
                         fontSize: 17,
                         fontWeight: FontWeight.w800,
@@ -245,11 +304,25 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
                     ),
                     const SizedBox(height: 12),
                     TextField(
+                      autofocus: false,
                       decoration: InputDecoration(
-                        hintText: 'بحث باسم الطفل...',
-                        prefixIcon: const Icon(Icons.search),
+                        hintText: 'بحث',
+                        prefixIcon: const Icon(Icons.search_rounded),
+                        suffixIcon: localSearch.isEmpty
+                            ? null
+                            : IconButton(
+                                onPressed: () {
+                                  setModalState(() {
+                                    localSearch = '';
+                                  });
+                                },
+                                icon: const Icon(Icons.close_rounded),
+                              ),
+                        filled: true,
+                        fillColor: AppColors.background,
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide.none,
                         ),
                       ),
                       onChanged: (val) {
@@ -266,9 +339,9 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
                           final isSelected = group == selectedGroup;
 
                           return Padding(
-                            padding: const EdgeInsets.only(right: 8),
+                            padding: const EdgeInsetsDirectional.only(end: 8),
                             child: ChoiceChip(
-                              label: Text(group),
+                              label: Text(group == 'all' ? 'الكل' : group),
                               selected: isSelected,
                               onSelected: (_) {
                                 setModalState(() {
@@ -281,41 +354,58 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
                       ),
                     ),
                     const SizedBox(height: 10),
-                    if (filtered.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.all(20),
-                        child: Text('لا يوجد نتائج'),
-                      )
-                    else
-                      Flexible(
-                        child: ListView.builder(
-                          shrinkWrap: true,
-                          itemCount: filtered.length,
-                          itemBuilder: (context, index) {
-                            final child = filtered[index];
-                            final groupName = child.group.isEmpty
-                                ? 'بدون مجموعة'
-                                : child.group;
+                    Expanded(
+                      child: filtered.isEmpty
+                          ? const Center(child: Text('لا يوجد نتائج'))
+                          : ListView.separated(
+                              keyboardDismissBehavior:
+                                  ScrollViewKeyboardDismissBehavior.onDrag,
+                              itemCount: filtered.length,
+                              separatorBuilder: (_, __) =>
+                                  const Divider(height: 1),
+                              itemBuilder: (context, index) {
+                                final child = filtered[index];
+                                final groupName = child.group.isEmpty
+                                    ? 'بدون مجموعة'
+                                    : child.group;
+                                final parentName = child.parentName.trim();
 
-                            return ListTile(
-                              leading: CircleAvatar(
-                                backgroundColor:
-                                    AppColors.primary.withOpacity(0.15),
-                                child: const Icon(Icons.child_care),
-                              ),
-                              title: Text(child.name),
-                              subtitle: Text(groupName),
-                              trailing: const Icon(
-                                Icons.arrow_forward_ios,
-                                size: 16,
-                              ),
-                              onTap: () {
-                                Navigator.pop(context, child);
+                                return ListTile(
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 4,
+                                    vertical: 6,
+                                  ),
+                                  leading: CircleAvatar(
+                                    backgroundColor:
+                                        AppColors.primary.withOpacity(0.12),
+                                    child: const Icon(
+                                      Icons.child_care_rounded,
+                                      color: AppColors.primary,
+                                    ),
+                                  ),
+                                  title: Text(
+                                    child.name,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  subtitle: Text(
+                                    parentName.isEmpty
+                                        ? groupName
+                                        : '$parentName • $groupName',
+                                  ),
+                                  trailing: const Icon(
+                                    Icons.arrow_forward_ios_rounded,
+                                    size: 16,
+                                  ),
+                                  onTap: () {
+                                    FocusScope.of(context).unfocus();
+                                    Navigator.pop(context, child);
+                                  },
+                                );
                               },
-                            );
-                          },
-                        ),
-                      ),
+                            ),
+                    ),
                   ],
                 ),
               ),
@@ -901,11 +991,17 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
     List<ChildModel> children,
     Map<String, Map<String, dynamic>> latestUpdateByChild,
   ) {
-    return children.where((child) {
-      final matchesSearch = child.name.toLowerCase().contains(
-            searchQuery.toLowerCase(),
-          );
+    final query = searchQuery.trim().toLowerCase();
 
+    return children.where((child) {
+      final searchValues = [
+        child.name,
+        child.parentName,
+        child.parentUsername,
+        child.group,
+      ].join(' ').toLowerCase();
+
+      final matchesSearch = query.isEmpty || searchValues.contains(query);
       final hasUpdateToday = latestUpdateByChild.containsKey(child.id);
 
       bool matchesStatus = true;
@@ -1360,7 +1456,6 @@ final end = (data['weekEndDateKey'] ??
                 ),
               ),
               title: const Text('الإشعارات'),
-              subtitle: const Text('عرض الإشعارات المستلمة والمرسلة للأهل'),
               onTap: () => _openNotificationsPage(nurseryChildren),
             ),
             const Divider(height: 1),
@@ -1373,7 +1468,6 @@ final end = (data['weekEndDateKey'] ??
                 ),
               ),
               title: const Text('سجل نشاط الحساب'),
-              subtitle: const Text('عرض تغييرات الحساب والنشاطات الأخيرة'),
               onTap: () {
                 Navigator.push(
                   context,
@@ -1408,17 +1502,6 @@ Card(
   ),
 ),
       const SizedBox(height: 20),
-
-      Center(
-        child: Text(
-          'إصدار النظام V1.0.0',
-          style: Theme.of(context)
-              .textTheme
-              .bodySmall
-              ?.copyWith(color: AppColors.textLight),
-        ),
-      ),
-      const SizedBox(height: 12),
     ],
   );
 }
@@ -1623,7 +1706,7 @@ Card(
                 SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'لم يتم ربطك بمجموعة بعد. راجعي الإدارة لتحديد المجموعة المسؤولة عنها.',
+                    'لم يتم ربطك بمجموعة بعد.',
                     style: TextStyle(
                       color: AppColors.textDark,
                       fontWeight: FontWeight.w700,
@@ -1715,7 +1798,7 @@ Card(
                       ),
                     ),
                     child: const Text(
-                      'تنبيه: المجموعة وصلت للحد الأقصى أو قريبة من الامتلاء.',
+                      'المجموعة ممتلئة.',
                       style: TextStyle(
                         color: Colors.orange,
                         fontWeight: FontWeight.w800,
@@ -1844,23 +1927,12 @@ Card(
         const SizedBox(height: 10),
         Text(
           hasChildrenNeedUpdate
-              ? 'يوجد $count طفل/أطفال بحاجة إلى تحديث اليوم.'
+              ? '$count طفل بحاجة إلى تحديث اليوم.'
               : 'لا يوجد أطفال بحاجة إلى تحديث اليوم.',
           style: TextStyle(
             fontWeight: FontWeight.w800,
             color: hasChildrenNeedUpdate ? AppColors.textDark : Colors.green,
             height: 1.4,
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          hasChildrenNeedUpdate
-              ? 'يمكنكِ عرض الأسماء من الزر أدناه لتجنب ازدحام الصفحة الرئيسية.'
-              : 'تم إرسال تحديثات لجميع أطفال مجموعتك لهذا اليوم.',
-          style: const TextStyle(
-            color: AppColors.textLight,
-            fontWeight: FontWeight.w600,
-            height: 1.45,
           ),
         ),
         const SizedBox(height: 12),
@@ -1901,7 +1973,7 @@ Card(
   if (children.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('لا يوجد أطفال داخل مجموعتك لإرسال تحديث جماعي.'),
+        content: Text('لا يوجد أطفال داخل مجموعتك.'),
       ),
     );
     return;
@@ -1914,7 +1986,7 @@ Card(
   if (group == null) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('لم يتم ربطك بمجموعة بعد. راجعي الإدارة.'),
+        content: Text('لم يتم ربطك بمجموعة بعد.'),
       ),
     );
     return;
@@ -2012,21 +2084,6 @@ Card(
         label: 'إرسال إشعار',
         onTap: () => openSendNotification(children),
       ),
-      _QuickActionItem(
-        icon: Icons.wifi_tethering_rounded,
-        label: 'بث مباشر',
-        onTap: () async {
-          await Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => const StartLiveStreamPage(),
-            ),
-          );
-
-          if (!mounted) return;
-          setState(() {});
-        },
-      ),
     ];
 
     return Card(
@@ -2078,7 +2135,7 @@ Card(
           children: [
             TextField(
               decoration: InputDecoration(
-                hintText: 'ابحثي باسم الطفل...',
+                hintText: 'بحث',
                 prefixIcon: const Icon(Icons.search),
                 filled: true,
                 fillColor: AppColors.background,
@@ -2218,7 +2275,7 @@ Card(
           Icon(Icons.search_off_rounded, size: 34, color: AppColors.textLight),
           SizedBox(height: 10),
           Text(
-            'لا يوجد أطفال مطابقون للبحث أو الفلترة الحالية.',
+            'لا توجد نتائج.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontWeight: FontWeight.w700,
@@ -2273,16 +2330,6 @@ class ChildrenNeedUpdatePage extends StatelessWidget {
                           color: AppColors.textDark,
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'تم إرسال تحديثات لجميع أطفال مجموعتك لهذا اليوم.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: AppColors.textLight,
-                          fontWeight: FontWeight.w600,
-                          height: 1.5,
-                        ),
-                      ),
                     ],
                   ),
                 ),
@@ -2306,7 +2353,7 @@ class ChildrenNeedUpdatePage extends StatelessWidget {
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
-                            'يوجد ${children.length} طفل/أطفال لم يصلهم تحديث اليوم.',
+                            '${children.length} طفل بحاجة إلى تحديث اليوم.',
                             style: const TextStyle(
                               fontWeight: FontWeight.w800,
                               color: AppColors.textDark,

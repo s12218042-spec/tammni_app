@@ -286,13 +286,50 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
       }
     } catch (_) {}
 
+    String childType = 'permanent';
+    String parentPhone = '';
+    String groupName = group;
+
+    try {
+      final childDoc =
+          await _firestore.collection('children').doc(widget.child.id).get();
+
+      if (childDoc.exists) {
+        final data = childDoc.data() ?? <String, dynamic>{};
+
+        final docChildType =
+            (data['childType'] ?? data['childStatus'] ?? '').toString().trim();
+        final docParentPhone = (data['parentPhone'] ?? '').toString().trim();
+        final docGroupName = (data['groupName'] ?? data['group'] ?? '')
+            .toString()
+            .trim();
+
+        if (docChildType == 'temporary') {
+          childType = 'temporary';
+        } else if (docChildType == 'trial') {
+          childType = 'trial';
+        }
+
+        if (docParentPhone.isNotEmpty) {
+          parentPhone = docParentPhone;
+        }
+
+        if (docGroupName.isNotEmpty) {
+          groupName = docGroupName;
+        }
+      }
+    } catch (_) {}
+
     return {
       'parentUid': parentUid,
       'parentUsername': parentUsername,
       'parentName': parentName,
+      'parentPhone': parentPhone,
       'section': section.isEmpty ? 'Nursery' : section,
-      'group': group,
+      'group': groupName,
+      'groupName': groupName,
       'childName': childName.isEmpty ? widget.child.name : childName,
+      'childType': childType,
     };
   }
 
@@ -442,11 +479,14 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
       final logRef = await _firestore.collection('entry_exit_logs').add({
         'childId': widget.child.id,
         'childName': childInfo['childName'] ?? widget.child.name,
+        'childType': childInfo['childType'] ?? 'permanent',
         'parentUid': childInfo['parentUid'],
         'parentUsername': childInfo['parentUsername'],
         'parentName': childInfo['parentName'],
+        'parentPhone': childInfo['parentPhone'],
         'section': childInfo['section'],
         'group': childInfo['group'],
+        'groupName': childInfo['groupName'] ?? childInfo['group'],
         'eventType': selectedEventType,
         'eventTypeLabel': eventLabel(selectedEventType),
         'type': selectedEventType,
@@ -847,9 +887,11 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
             ),
           ),
           const SizedBox(height: 8),
-          const Text(
-            'هذه الصفحة مخصصة للإدارة فقط لتوثيق دخول وخروج طفل الحضانة كأحداث رسمية داخل النظام.',
-            style: TextStyle(
+          Text(
+            widget.child.parentName.trim().isEmpty
+                ? 'سجل دخول وخروج الطفل'
+                : widget.child.parentName.trim(),
+            style: const TextStyle(
               fontSize: 14,
               color: AppColors.textLight,
               height: 1.5,
@@ -877,7 +919,7 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
           SizedBox(width: 10),
           Expanded(
             child: Text(
-              'هذه الصفحة مخصصة للإدارة فقط. يمكن لباقي الأدوار الاطلاع على السجل إذا كانت الصلاحيات تسمح، لكن لا يمكنهم تسجيل دخول أو خروج من هنا.',
+              'هذه الصفحة مخصصة للإدارة فقط.',
               style: TextStyle(
                 color: AppColors.textDark,
                 height: 1.5,
@@ -1013,18 +1055,6 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
                 selectedEventType = value ?? 'entry';
               });
             },
-          ),
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerRight,
-            child: Text(
-              'معبأ تلقائيًا حسب آخر حالة، ويمكن للإدارة تغييره عند الحاجة.',
-              style: TextStyle(
-                fontSize: 12.5,
-                color: AppColors.textLight.withOpacity(0.9),
-                fontWeight: FontWeight.w600,
-              ),
-            ),
           ),
           const SizedBox(height: 14),
           TextField(

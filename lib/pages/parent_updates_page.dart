@@ -159,6 +159,16 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
     return '$years سنة و $months شهر';
   }
 
+  String _firstNonEmpty(List<dynamic> values) {
+    for (final value in values) {
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+
+    return '';
+  }
+
   String _resolveType(Map<String, dynamic> data) {
     final candidates = [
       data['type'],
@@ -245,17 +255,17 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
   }
 
   bool _isGroupUpdate(Map<String, dynamic> data) {
-  final type = (data['type'] ?? '').toString().trim().toLowerCase();
-  final source = (data['source'] ?? '').toString().trim().toLowerCase();
-  final updateSource =
-      (data['updateSource'] ?? '').toString().trim().toLowerCase();
+    final type = (data['type'] ?? '').toString().trim().toLowerCase();
+    final source = (data['source'] ?? '').toString().trim().toLowerCase();
+    final updateSource =
+        (data['updateSource'] ?? '').toString().trim().toLowerCase();
 
-  return data['isGroupUpdate'] == true ||
-      type == 'group_update' ||
-      source == 'group_update' ||
-      updateSource == 'group_update' ||
-      data['groupUpdateId'] != null;
-}
+    return data['isGroupUpdate'] == true ||
+        type == 'group_update' ||
+        source == 'group_update' ||
+        updateSource == 'group_update' ||
+        data['groupUpdateId'] != null;
+  }
 
   bool _isUsableRemoteUrl(String value) {
     final trimmed = value.trim().toLowerCase();
@@ -263,7 +273,21 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
   }
 
   String _resolveMediaUrl(Map<String, dynamic> data) {
-    final directUrl = (data['mediaUrl'] ?? '').toString().trim();
+    final publicUrl = _firstNonEmpty([
+      data['publicUrl'],
+      data['mediaPublicUrl'],
+    ]);
+
+    if (_isUsableRemoteUrl(publicUrl)) {
+      return publicUrl;
+    }
+
+    final directUrl = _firstNonEmpty([
+      data['mediaUrl'],
+      data['imageUrl'],
+      data['videoUrl'],
+      data['url'],
+    ]);
 
     if (_isUsableRemoteUrl(directUrl)) {
       return directUrl;
@@ -285,13 +309,36 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
   }
 
   String _resolveMediaPath(Map<String, dynamic> data) {
-    final path = (data['mediaPath'] ?? '').toString().trim();
+    final path = _firstNonEmpty([
+      data['mediaPath'],
+      data['path'],
+      data['imagePath'],
+      data['videoPath'],
+    ]);
 
     if (path.startsWith('blob:')) {
       return '';
     }
 
+    if (_isUsableRemoteUrl(path)) {
+      return '';
+    }
+
     return path;
+  }
+
+  String _resolvePublicUrl(Map<String, dynamic> data) {
+    return _firstNonEmpty([
+      data['publicUrl'],
+      data['mediaPublicUrl'],
+    ]);
+  }
+
+  String _resolveStorageProvider(Map<String, dynamic> data) {
+    return _firstNonEmpty([
+      data['storageProvider'],
+      data['provider'],
+    ]);
   }
 
   String _resolveMediaType(Map<String, dynamic> data) {
@@ -303,12 +350,15 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
 
     final mediaUrl = _resolveMediaUrl(data).toLowerCase();
     final mediaPath = _resolveMediaPath(data).toLowerCase();
-    final source = mediaUrl.isNotEmpty ? mediaUrl : mediaPath;
+    final mimeType = (data['mimeType'] ?? '').toString().trim().toLowerCase();
+    final source = '$mediaUrl $mediaPath $mimeType';
 
     if (source.endsWith('.mp4') ||
         source.endsWith('.mov') ||
         source.endsWith('.avi') ||
         source.endsWith('.mkv') ||
+        source.endsWith('.webm') ||
+        source.endsWith('.m4v') ||
         source.contains('video')) {
       return 'video';
     }
@@ -317,6 +367,7 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
         source.endsWith('.jpeg') ||
         source.endsWith('.png') ||
         source.endsWith('.webp') ||
+        source.endsWith('.gif') ||
         source.contains('image')) {
       return 'image';
     }
@@ -336,33 +387,40 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
       final mediaUrl = _resolveMediaUrl(data);
       final mediaPath = _resolveMediaPath(data);
       final mediaType = _resolveMediaType(data);
-      final resolvedSource = mediaUrl.isNotEmpty ? mediaUrl : mediaPath;
+      final publicUrl = _resolvePublicUrl(data);
+      final storageProvider = _resolveStorageProvider(data);
+
+      final resolvedSource = publicUrl.isNotEmpty
+          ? publicUrl
+          : mediaUrl.isNotEmpty
+              ? mediaUrl
+              : mediaPath;
 
       final isGroupUpdate = _isGroupUpdate(data);
-final resolvedType = _resolveType(data);
+      final resolvedType = _resolveType(data);
 
-return {
-  'id': doc.id,
-  'type': isGroupUpdate && resolvedType == 'group_update'
-      ? 'تحديث'
-      : resolvedType,
-  'note': _resolveNote(data),
-  'byRole': _resolveRole(data),
-  'createdByName': _resolveCreatorName(data),
-  'displayTime': _resolveTimestamp(data),
-  'mediaUrl': mediaUrl,
-  'mediaType': mediaType,
-  'mediaPath': mediaPath,
-  'resolvedSource': resolvedSource,
-  'hasMedia': resolvedSource.isNotEmpty && mediaType.isNotEmpty,
-
-
-  'isGroupUpdate': isGroupUpdate,
-  'groupUpdateId': data['groupUpdateId'],
-  'groupId': data['groupId'],
-  'groupName': data['groupName'],
-  'updateScope': data['updateScope'] ?? data['scope'] ?? '',
-};
+      return {
+        'id': doc.id,
+        'type': isGroupUpdate && resolvedType == 'group_update'
+            ? 'تحديث'
+            : resolvedType,
+        'note': _resolveNote(data),
+        'byRole': _resolveRole(data),
+        'createdByName': _resolveCreatorName(data),
+        'displayTime': _resolveTimestamp(data),
+        'mediaUrl': mediaUrl,
+        'publicUrl': publicUrl,
+        'storageProvider': storageProvider,
+        'mediaType': mediaType,
+        'mediaPath': mediaPath,
+        'resolvedSource': resolvedSource,
+        'hasMedia': resolvedSource.isNotEmpty && mediaType.isNotEmpty,
+        'isGroupUpdate': isGroupUpdate,
+        'groupUpdateId': data['groupUpdateId'],
+        'groupId': data['groupId'],
+        'groupName': data['groupName'],
+        'updateScope': data['updateScope'] ?? data['scope'] ?? '',
+      };
     }).toList();
 
     items.sort((a, b) {
@@ -594,6 +652,8 @@ return {
                         timeTextValue: timeText(displayTime),
                         dateTextValue: dateText(displayTime),
                         mediaUrl: u['mediaUrl']?.toString(),
+                        publicUrl: u['publicUrl']?.toString(),
+                        storageProvider: u['storageProvider']?.toString(),
                         mediaType: u['mediaType']?.toString(),
                         mediaPath: u['mediaPath']?.toString(),
                         hasMedia: u['hasMedia'] == true,
@@ -719,6 +779,8 @@ class _UpdateCard extends StatelessWidget {
   final String timeTextValue;
   final String dateTextValue;
   final String? mediaUrl;
+  final String? publicUrl;
+  final String? storageProvider;
   final String? mediaType;
   final String? mediaPath;
   final bool hasMedia;
@@ -736,6 +798,8 @@ class _UpdateCard extends StatelessWidget {
     required this.timeTextValue,
     required this.dateTextValue,
     this.mediaUrl,
+    this.publicUrl,
+    this.storageProvider,
     this.mediaType,
     this.mediaPath,
     required this.hasMedia,
@@ -747,6 +811,17 @@ class _UpdateCard extends StatelessWidget {
   bool get _hasRemoteUrl {
     final value = (mediaUrl ?? '').trim().toLowerCase();
     return value.startsWith('http://') || value.startsWith('https://');
+  }
+
+  bool get _hasPublicUrl {
+    final value = (publicUrl ?? '').trim().toLowerCase();
+    return value.startsWith('http://') || value.startsWith('https://');
+  }
+
+  String get _bestRemoteUrl {
+    if (_hasPublicUrl) return publicUrl!.trim();
+    if (_hasRemoteUrl) return mediaUrl!.trim();
+    return '';
   }
 
   bool get _hasLocalPath {
@@ -761,14 +836,14 @@ class _UpdateCard extends StatelessWidget {
   String get _normalizedMediaType => (mediaType ?? '').trim().toLowerCase();
 
   String get _resolvedSource {
+    if (_hasPublicUrl) return publicUrl!.trim();
     if (_hasRemoteUrl) return mediaUrl!.trim();
     if (_hasLocalPath) return mediaPath!.trim();
     return '';
   }
 
-  bool get _hasRemoteImage => _hasRemoteUrl && _normalizedMediaType == 'image';
-
-  bool get _hasRemoteVideo => _hasRemoteUrl && _normalizedMediaType == 'video';
+  bool get _hasRemoteVideo =>
+      (_hasPublicUrl || _hasRemoteUrl) && _normalizedMediaType == 'video';
 
   bool get _hasLocalImage =>
       !kIsWeb && _hasLocalPath && _normalizedMediaType == 'image';
@@ -789,16 +864,16 @@ class _UpdateCard extends StatelessWidget {
     final displayType = type.trim().isEmpty ? 'تحديث' : type;
 
     return Card(
-  color: isGroupUpdate ? Colors.purple.withOpacity(0.035) : null,
-  shape: isGroupUpdate
-      ? RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
-          side: BorderSide(
-            color: Colors.purple.withOpacity(0.20),
-          ),
-        )
-      : null,
-        child: Padding(
+      color: isGroupUpdate ? Colors.purple.withOpacity(0.035) : null,
+      shape: isGroupUpdate
+          ? RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+              side: BorderSide(
+                color: Colors.purple.withOpacity(0.20),
+              ),
+            )
+          : null,
+      child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -836,37 +911,37 @@ class _UpdateCard extends StatelessWidget {
                         ),
                       ),
                       if (isGroupUpdate)
-  Container(
-    padding: const EdgeInsets.symmetric(
-      horizontal: 10,
-      vertical: 6,
-    ),
-    decoration: BoxDecoration(
-      color: Colors.purple.withOpacity(0.12),
-      borderRadius: BorderRadius.circular(10),
-      border: Border.all(
-        color: Colors.purple.withOpacity(0.25),
-      ),
-    ),
-    child: const Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(
-          Icons.groups_2_rounded,
-          size: 16,
-          color: Colors.purple,
-        ),
-        SizedBox(width: 5),
-        Text(
-          'تحديث جماعي',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            color: Colors.purple,
-          ),
-        ),
-      ],
-    ),
-  ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.purple.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: Colors.purple.withOpacity(0.25),
+                            ),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.groups_2_rounded,
+                                size: 16,
+                                color: Colors.purple,
+                              ),
+                              SizedBox(width: 5),
+                              Text(
+                                'تحديث جماعي',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.purple,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       Container(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 10,
@@ -920,63 +995,64 @@ class _UpdateCard extends StatelessWidget {
               ),
             ),
             if (isGroupUpdate &&
-    (groupName.trim().isNotEmpty || updateScope.trim().isNotEmpty)) ...[
-  const SizedBox(height: 10),
-  Wrap(
-    spacing: 8,
-    runSpacing: 8,
-    children: [
-      if (groupName.trim().isNotEmpty)
-        Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: 10,
-            vertical: 6,
-          ),
-          decoration: BoxDecoration(
-            color: Colors.purple.withOpacity(0.08),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-              color: Colors.purple.withOpacity(0.18),
-            ),
-          ),
-          child: Text(
-            'المجموعة: $groupName',
-            style: const TextStyle(
-              color: Colors.purple,
-              fontWeight: FontWeight.w700,
-              fontSize: 12.5,
-            ),
-          ),
-        ),
-      if (updateScope.trim().isNotEmpty)
-        Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: 10,
-            vertical: 6,
-          ),
-          decoration: BoxDecoration(
-            color: Colors.purple.withOpacity(0.08),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-              color: Colors.purple.withOpacity(0.18),
-            ),
-          ),
-          child: Text(
-            updateScope.trim() == 'all'
-                ? 'النطاق: كل أطفال الحضانة'
-                : updateScope.trim() == 'group'
-                    ? 'النطاق: مجموعة محددة'
-                    : 'النطاق: ${updateScope.trim()}',
-            style: const TextStyle(
-              color: Colors.purple,
-              fontWeight: FontWeight.w700,
-              fontSize: 12.5,
-            ),
-          ),
-        ),
-    ],
-  ),
-],
+                (groupName.trim().isNotEmpty ||
+                    updateScope.trim().isNotEmpty)) ...[
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  if (groupName.trim().isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.purple.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: Colors.purple.withOpacity(0.18),
+                        ),
+                      ),
+                      child: Text(
+                        'المجموعة: $groupName',
+                        style: const TextStyle(
+                          color: Colors.purple,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12.5,
+                        ),
+                      ),
+                    ),
+                  if (updateScope.trim().isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.purple.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: Colors.purple.withOpacity(0.18),
+                        ),
+                      ),
+                      child: Text(
+                        updateScope.trim() == 'all'
+                            ? 'النطاق: كل أطفال الحضانة'
+                            : updateScope.trim() == 'group'
+                                ? 'النطاق: مجموعة محددة'
+                                : 'النطاق: ${updateScope.trim()}',
+                        style: const TextStyle(
+                          color: Colors.purple,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12.5,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
             const SizedBox(height: 10),
             Row(
               children: [
@@ -1017,13 +1093,14 @@ class _UpdateCard extends StatelessWidget {
                 ),
               ],
             ),
-            if (_hasRemoteImage)
+            if ((_hasPublicUrl || _hasRemoteUrl) &&
+                _normalizedMediaType == 'image')
               Padding(
                 padding: const EdgeInsets.only(top: 12),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(16),
                   child: Image.network(
-                    mediaUrl!.trim(),
+                    _bestRemoteUrl,
                     height: 190,
                     width: double.infinity,
                     fit: BoxFit.cover,
@@ -1041,7 +1118,9 @@ class _UpdateCard extends StatelessWidget {
                   ),
                 ),
               ),
-            if (!_hasRemoteImage && _hasLocalImage)
+            if (!((_hasPublicUrl || _hasRemoteUrl) &&
+                    _normalizedMediaType == 'image') &&
+                _hasLocalImage)
               Padding(
                 padding: const EdgeInsets.only(top: 12),
                 child: ClipRRect(
@@ -1086,6 +1165,14 @@ class _UpdateCard extends StatelessWidget {
                         MaterialPageRoute(
                           builder: (_) => VideoPreviewPage(
                             path: _resolvedSource,
+                            mediaPath: mediaPath,
+                            mediaUrl: mediaUrl,
+                            publicUrl: publicUrl,
+                            storageProvider:
+                                (storageProvider ?? '').trim().isNotEmpty
+                                    ? storageProvider
+                                    : 'supabase',
+                            title: 'فيديو ${type.trim().isEmpty ? 'التحديث' : type}',
                           ),
                         ),
                       );
@@ -1097,7 +1184,7 @@ class _UpdateCard extends StatelessWidget {
                   ),
                 ),
               ),
-            if (kIsWeb && !_hasRemoteUrl && _hasLocalPath)
+            if (kIsWeb && !_hasRemoteUrl && !_hasPublicUrl && _hasLocalPath)
               Padding(
                 padding: const EdgeInsets.only(top: 12),
                 child: Container(

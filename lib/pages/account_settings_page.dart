@@ -123,7 +123,7 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
     _stopEmailVerificationWatcher();
 
     _showSnack(
-      'تم تحديث البريد بنجاح، لكن الجلسة الحالية انتهت. سيتم تحويلك الآن لتسجيل الدخول من جديد.',
+      'تم تحديث البريد، يرجى تسجيل الدخول من جديد.',
     );
 
     await Future.delayed(const Duration(seconds: 2));
@@ -382,9 +382,7 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
       await _loadUserData();
       await _startEmailVerificationWatcher();
 
-      _showSnack(
-        'تم إرسال رابط التحقق إلى البريد الجديد، وبدأ الفحص التلقائي لمدة دقيقتين.',
-      );
+      _showSnack('تم إرسال رابط التحقق إلى البريد الجديد');
     } on FirebaseAuthException catch (e) {
       _showSnack(e.message ?? 'تعذر بدء تغيير البريد الإلكتروني');
     } catch (_) {
@@ -450,10 +448,6 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
                       const SizedBox(height: 8),
                       _buildAccountInfoCard(),
                       const SizedBox(height: 18),
-                      const _SectionLabel(title: 'سجل الحساب'),
-                      const SizedBox(height: 8),
-                      _buildAccountHistoryCard(),
-                      const SizedBox(height: 18),
                       const _SectionLabel(title: 'تعديل الاسم'),
                       const SizedBox(height: 8),
                       _buildNameEditCard(),
@@ -466,7 +460,11 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
                       const SizedBox(height: 8),
                       _buildPasswordCard(),
                       const SizedBox(height: 18),
-                      const _SectionLabel(title: 'إدارة الحساب'),
+                      const _SectionLabel(title: 'سجل الحساب'),
+                      const SizedBox(height: 8),
+                      _buildAccountHistoryCard(),
+                      const SizedBox(height: 18),
+                      const _SectionLabel(title: 'حالة الحساب'),
                       const SizedBox(height: 8),
                       _buildAccountStatusCard(),
                       const SizedBox(height: 12),
@@ -486,10 +484,11 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
             color: AppColors.primary,
           ),
         ),
-        title: const Text('سجل تغييرات الحساب'),
-        subtitle: const Text(
-          'عرض كل التعديلات والحركات المرتبطة بالحساب',
+        title: const Text(
+          'سجل تغييرات الحساب',
+          style: TextStyle(fontWeight: FontWeight.w800),
         ),
+        trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 16),
         onTap: () {
           Navigator.push(
             context,
@@ -561,24 +560,7 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
                 validator: _service.validateFullName,
                 decoration: const InputDecoration(
                   labelText: 'الاسم الكامل',
-                  hintText: 'مثال: Majd Masri',
                   prefixIcon: Icon(Icons.edit_outlined),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppColors.background,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: const Text(
-                  'مسموح فقط بالحروف العربية أو الإنجليزية والمسافات. اسم المستخدم ثابت ولا يمكن تعديله.',
-                  style: TextStyle(
-                    color: AppColors.textLight,
-                    height: 1.45,
-                  ),
                 ),
               ),
               const SizedBox(height: 14),
@@ -615,24 +597,26 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppColors.background,
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Text(
-                hasPending
-                    ? 'يوجد طلب تغيير بريد معلق إلى: ${data.pendingEmail}\nافتحي رابط التحقق المرسل إلى البريد الجديد، وسيتم فحص التغيير تلقائيًا لمدة دقيقتين أو حتى اكتمال المزامنة.'
-                    : 'سيتم إرسال رابط تحقق إلى البريد الجديد، ولن يتغير البريد الحالي قبل تأكيد الرابط من البريد الجديد.',
-                style: const TextStyle(
-                  color: AppColors.textLight,
-                  height: 1.5,
+            if (hasPending) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.06),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Text(
+                  'طلب تغيير البريد معلق إلى: ${data.pendingEmail}',
+                  style: const TextStyle(
+                    color: AppColors.textDark,
+                    height: 1.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  textAlign: TextAlign.center,
                 ),
               ),
-            ),
-            const SizedBox(height: 12),
+              const SizedBox(height: 12),
+            ],
             Form(
               key: _emailFormKey,
               child: Column(
@@ -652,7 +636,6 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
                     validator: _service.validateEmail,
                     decoration: const InputDecoration(
                       labelText: 'البريد الإلكتروني الجديد',
-                      hintText: 'example@email.com',
                       prefixIcon: Icon(Icons.mark_email_read_outlined),
                     ),
                   ),
@@ -667,7 +650,7 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
                       return null;
                     },
                     decoration: InputDecoration(
-                      labelText: 'كلمة المرور الحالية للتأكيد',
+                      labelText: 'كلمة المرور الحالية',
                       prefixIcon: const Icon(Icons.lock_outline_rounded),
                       suffixIcon: IconButton(
                         onPressed: () {
@@ -715,7 +698,7 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
                         _isChangingEmail
                             ? 'جاري إرسال الرابط...'
                             : _isAutoCheckingEmail
-                                ? 'جاري التحقق تلقائيًا...'
+                                ? 'جاري التحقق...'
                                 : 'إرسال رابط التحقق',
                       ),
                     ),
@@ -741,7 +724,7 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
                   children: [
                     if (_isAutoCheckingEmail) ...[
                       const Text(
-                        'الوقت المتبقي لإتمام التحقق التلقائي',
+                        'التحقق التلقائي',
                         style: TextStyle(
                           color: AppColors.textLight,
                           fontWeight: FontWeight.w700,
@@ -760,7 +743,7 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
                       ),
                     ] else if (_emailVerificationTimedOut) ...[
                       const Text(
-                        'انتهت مهلة الفحص التلقائي. إذا كنتِ أكملتِ التحقق لكن انقطعت الجلسة، سجّلي الدخول من جديد لإكمال المزامنة. وإلا أعيدي طلب تغيير البريد.',
+                        'انتهت مهلة التحقق. يمكنك إعادة المحاولة أو تسجيل الدخول من جديد.',
                         style: TextStyle(
                           color: AppColors.danger,
                           fontWeight: FontWeight.w700,
@@ -770,7 +753,7 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
                       ),
                     ] else ...[
                       const Text(
-                        'الطلب ما زال معلقًا بانتظار التحقق من البريد الجديد.',
+                        'الطلب بانتظار التحقق من البريد الجديد.',
                         style: TextStyle(
                           color: AppColors.textLight,
                           fontWeight: FontWeight.w700,
@@ -797,7 +780,7 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
                       : const Icon(Icons.close_rounded),
                   label: Text(
                     _isCancellingPendingEmailChange
-                        ? 'جاري إلغاء الطلب...'
+                        ? 'جاري الإلغاء...'
                         : 'إلغاء الطلب المعلق',
                   ),
                   style: OutlinedButton.styleFrom(
@@ -958,10 +941,6 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
 
     final title = isActive ? 'الحساب نشط' : 'الحساب غير نشط';
 
-    final message = isActive
-        ? 'الحساب يعمل بشكل طبيعي.'
-        : 'هذا الحساب غير مفعل حاليًا. يمكن للإدارة فقط إعادة تفعيله أو تعديل حالته.';
-
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -981,27 +960,13 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: TextStyle(
-                        color: textColor,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 15,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      message,
-                      style: const TextStyle(
-                        color: AppColors.textDark,
-                        height: 1.5,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    color: textColor,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                  ),
                 ),
               ),
             ],
@@ -1072,7 +1037,7 @@ class _AccountHeaderCard extends StatelessWidget {
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
-                      userData.isActive ? 'الحساب نشط' : 'الحساب غير نشط',
+                      userData.isActive ? 'نشط' : 'غير نشط',
                       style: TextStyle(
                         color: userData.isActive
                             ? AppColors.success
