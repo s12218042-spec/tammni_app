@@ -78,11 +78,15 @@ class _StaffEmployeeFilePageState extends State<StaffEmployeeFilePage> {
     final currentUser = AuthService().currentUser;
 
     if (currentUser == null) {
-      setState(() {
-        loadError = 'لم يتم العثور على المستخدم الحالي. سجّلي الدخول مرة أخرى.';
-      });
-      return;
-    }
+  if (!mounted) return;
+
+  setState(() {
+    loadError = 'لم يتم العثور على المستخدم الحالي. سجّلي الدخول مرة أخرى.';
+    isLoading = false;
+  });
+
+  return;
+}
 
     if (isLoading) return;
 

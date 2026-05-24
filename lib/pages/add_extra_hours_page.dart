@@ -227,37 +227,43 @@ final parentName = (selectedChild!['parentName'] ?? '').toString().trim();
 final childId = (selectedChild!['id'] ?? '').toString().trim();
 final childName = (selectedChild!['name'] ?? '').toString().trim();
 
-if (parentUid.isNotEmpty || parentUsername.isNotEmpty) {
-  await AppNotificationService.instance.notifyParent(
-    parentUid: parentUid,
-    parentUsername: parentUsername,
-    parentName: parentName,
-    title: 'تم تسجيل ساعات إضافية',
-    body:
-        'تم تسجيل ${hours.toStringAsFixed(2)} ساعة إضافية للطفل $childName بقيمة ${totalAmount.toStringAsFixed(0)} شيكل، وسيتم إضافتها إلى الفاتورة.',
-    type: 'extra_hours',
-    childId: childId,
-    childName: childName,
-    section: selectedChild!['section'] ?? 'Nursery',
-    group: selectedChild!['group'] ?? '',
-    priority: 'normal',
-    createdByUid: currentUser['uid'] ?? '',
-    createdByName: currentUser['name'] ?? 'الإدارة',
-    createdByRole: currentUser['role'] ?? 'admin',
-    extraData: {
-      'extraHoursId': docRef.id,
-      'hours': hours,
-      'hourlyPrice': hourlyPrice,
-      'totalAmount': totalAmount,
-      'date': Timestamp.fromDate(selectedDate),
-      'status': 'pending_invoice',
-      'category': 'extra_hours',
-      'notificationType': 'extra_hours',
-      'screen': 'invoices',
-      'route': 'parent_invoices',
-      'relatedCollection': 'extra_child_hours',
-    },
-  );
+if (parentUid.isNotEmpty || parentUsername.isNotEmpty || childId.isNotEmpty) {
+ try {
+  if (parentUid.isNotEmpty || parentUsername.isNotEmpty || childId.isNotEmpty) {
+    await AppNotificationService.instance.notifyChildParent(
+      parentUid: parentUid,
+      parentUsername: parentUsername,
+      parentName: parentName,
+      title: 'تم تسجيل ساعات إضافية',
+      body:
+          'تم تسجيل ${hours.toStringAsFixed(2)} ساعة إضافية للطفل $childName بقيمة ${totalAmount.toStringAsFixed(0)} شيكل، وسيتم إضافتها إلى الفاتورة.',
+      type: 'extra_hours',
+      childId: childId,
+      childName: childName,
+      section: selectedChild!['section'] ?? 'Nursery',
+      group: selectedChild!['group'] ?? '',
+      priority: 'normal',
+      createdByUid: currentUser['uid'] ?? '',
+      createdByName: currentUser['name'] ?? 'الإدارة',
+      createdByRole: currentUser['role'] ?? 'admin',
+      extraData: {
+        'extraHoursId': docRef.id,
+        'hours': hours,
+        'hourlyPrice': hourlyPrice,
+        'totalAmount': totalAmount,
+        'date': Timestamp.fromDate(selectedDate),
+        'status': 'pending_invoice',
+        'category': 'extra_hours',
+        'notificationType': 'extra_hours',
+        'screen': 'invoices',
+        'route': 'parent_invoices',
+        'relatedCollection': 'extra_child_hours',
+      },
+    );
+  }
+} catch (e) {
+  debugPrint('AddExtraHoursPage: فشل إرسال إشعار الساعات الإضافية: $e');
+}
 }
 
       if (!mounted) return;

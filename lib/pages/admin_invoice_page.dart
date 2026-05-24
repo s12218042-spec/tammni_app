@@ -395,101 +395,123 @@ class _AdminInvoicesPageState extends State<AdminInvoicesPage> {
     }
   }
 
-  Future<void> createParentInvoiceNotification({
-    required String invoiceId,
-    required Map<String, dynamic> invoiceData,
-    required String newStatus,
-  }) async {
-    final parentUid = (invoiceData['parentUid'] ??
-            invoiceData['uid'] ??
-            invoiceData['targetUid'] ??
-            '')
-        .toString()
-        .trim();
+Future<void> createParentInvoiceNotification({
+  required String invoiceId,
+  required Map<String, dynamic> invoiceData,
+  required String newStatus,
+}) async {
+  final parentUid = (invoiceData['parentUid'] ??
+          invoiceData['uid'] ??
+          invoiceData['targetUid'] ??
+          '')
+      .toString()
+      .trim();
 
-    final parentUsername =
-        (invoiceData['parentUsername'] ?? '').toString().trim().toLowerCase();
+  final parentUsername =
+      (invoiceData['parentUsername'] ?? '').toString().trim().toLowerCase();
 
-    if (parentUid.isEmpty && parentUsername.isEmpty) return;
+  String childId = (invoiceData['childId'] ?? '').toString().trim();
 
-    final parentName = (invoiceData['parentName'] ?? '').toString().trim();
-    final childId = (invoiceData['childId'] ?? '').toString().trim();
-    final childrenNames = invoiceChildrenNames(invoiceData);
-    final invoiceTitle = invoiceDisplayTitle(invoiceData);
+  if (childId.isEmpty) {
+    final childrenIds = invoiceData['childrenIds'];
+    if (childrenIds is List && childrenIds.isNotEmpty) {
+      childId = childrenIds.first.toString().trim();
+    }
+  }
 
-    final total = formatAmount(invoiceData['totalAmount']);
-    final paid = formatAmount(invoiceData['paidAmount']);
-    final remaining = formatAmount(
-      invoiceData['remainingAmount'] ?? resolvedRemainingAmount(invoiceData),
-    );
-    final dueDate = formatDate(invoiceData['dueDate']);
-
-    final title = buildNotificationTitle(newStatus);
-    final body = buildNotificationBody(
-      status: newStatus,
-      invoiceTitle: invoiceTitle,
-      childrenNames: childrenNames,
-      totalAmount: total,
-      paidAmount: paid,
-      remainingAmount: remaining,
-      dueDate: dueDate,
-    );
-
-    final currentUser = _auth.currentUser;
-
-    String adminName = 'الإدارة';
-    String adminRole = 'admin';
-
-    if (currentUser != null) {
-      try {
-        final userDoc =
-            await _firestore.collection('users').doc(currentUser.uid).get();
-
-        final userData = userDoc.data() ?? <String, dynamic>{};
-
-        adminName = (userData['displayName'] ??
-                userData['name'] ??
-                userData['fullName'] ??
-                userData['username'] ??
-                'الإدارة')
-            .toString();
-
-        adminRole = (userData['role'] ?? 'admin').toString();
-      } catch (_) {
-        adminName = 'الإدارة';
-        adminRole = 'admin';
+  if (childId.isEmpty) {
+    final children = invoiceData['children'];
+    if (children is List && children.isNotEmpty) {
+      final firstChild = children.first;
+      if (firstChild is Map) {
+        childId = (firstChild['childId'] ?? firstChild['id'] ?? '')
+            .toString()
+            .trim();
       }
     }
-
-    await AppNotificationService.instance.notifyParent(
-      parentUid: parentUid,
-      parentUsername: parentUsername,
-      parentName: parentName,
-      title: title,
-      body: body,
-      type: 'invoice_updated',
-      childId: childId,
-      childName: childrenNames,
-      priority: normalizeStatus(newStatus) == 'overdue' ? 'important' : 'normal',
-      createdByUid: currentUser?.uid ?? '',
-      createdByName: adminName,
-      createdByRole: adminRole,
-      extraData: {
-        'invoiceId': invoiceId,
-        'invoiceStatus': normalizeStatus(newStatus),
-        'paymentStatus': normalizeStatus(newStatus),
-        'totalAmount': numValue(invoiceData['totalAmount']),
-        'paidAmount': numValue(invoiceData['paidAmount']),
-        'remainingAmount': resolvedRemainingAmount(invoiceData),
-        'paymentMethod': invoiceData['paymentMethod'] ?? '',
-        'category': 'invoice',
-        'notificationType': 'invoice_updated',
-        'screen': 'invoices',
-        'route': 'parent_invoices',
-        'relatedCollection': 'invoices',
-      },
-    );
   }
+
+  if (parentUid.isEmpty && parentUsername.isEmpty && childId.isEmpty) {
+    return;
+  }
+
+  final parentName = (invoiceData['parentName'] ?? '').toString().trim();
+  final childrenNames = invoiceChildrenNames(invoiceData);
+  final invoiceTitle = invoiceDisplayTitle(invoiceData);
+
+  final total = formatAmount(invoiceData['totalAmount']);
+  final paid = formatAmount(invoiceData['paidAmount']);
+  final remaining = formatAmount(
+    invoiceData['remainingAmount'] ?? resolvedRemainingAmount(invoiceData),
+  );
+  final dueDate = formatDate(invoiceData['dueDate']);
+
+  final title = buildNotificationTitle(newStatus);
+  final body = buildNotificationBody(
+    status: newStatus,
+    invoiceTitle: invoiceTitle,
+    childrenNames: childrenNames,
+    totalAmount: total,
+    paidAmount: paid,
+    remainingAmount: remaining,
+    dueDate: dueDate,
+  );
+
+  final currentUser = _auth.currentUser;
+
+  String adminName = 'الإدارة';
+  String adminRole = 'admin';
+
+  if (currentUser != null) {
+    try {
+      final userDoc =
+          await _firestore.collection('users').doc(currentUser.uid).get();
+
+      final userData = userDoc.data() ?? <String, dynamic>{};
+
+      adminName = (userData['displayName'] ??
+              userData['name'] ??
+              userData['fullName'] ??
+              userData['username'] ??
+              'الإدارة')
+          .toString();
+
+      adminRole = (userData['role'] ?? 'admin').toString();
+    } catch (_) {
+      adminName = 'الإدارة';
+      adminRole = 'admin';
+    }
+  }
+
+  await AppNotificationService.instance.notifyChildParent(
+    parentUid: parentUid,
+    parentUsername: parentUsername,
+    parentName: parentName,
+    title: title,
+    body: body,
+    type: 'invoice_updated',
+    childId: childId,
+    childName: childrenNames,
+    priority: normalizeStatus(newStatus) == 'overdue' ? 'important' : 'normal',
+    createdByUid: currentUser?.uid ?? '',
+    createdByName: adminName,
+    createdByRole: adminRole,
+    extraData: {
+      'invoiceId': invoiceId,
+      'invoiceStatus': normalizeStatus(newStatus),
+      'paymentStatus': normalizeStatus(newStatus),
+      'totalAmount': numValue(invoiceData['totalAmount']),
+      'paidAmount': numValue(invoiceData['paidAmount']),
+      'remainingAmount': resolvedRemainingAmount(invoiceData),
+      'paymentMethod': invoiceData['paymentMethod'] ?? '',
+      'category': 'invoice',
+      'notificationType': 'invoice_updated',
+      'screen': 'invoices',
+      'route': 'parent_invoices',
+      'relatedCollection': 'invoices',
+    },
+  );
+}
 
   Future<void> updateInvoiceStatus({
     required String docId,
@@ -542,19 +564,23 @@ class _AdminInvoicesPageState extends State<AdminInvoicesPage> {
 
       await invoiceRef.update(updateData);
 
-      await createParentInvoiceNotification(
-        invoiceId: docId,
-        invoiceData: {
-          ...invoiceData,
-          ...updateData,
-          'status': normalized,
-          'paymentStatus': normalized,
-          'invoiceStatus': normalized,
-          'paidAmount': updateData['paidAmount'],
-          'remainingAmount': updateData['remainingAmount'],
-        },
-        newStatus: normalized,
-      );
+      try {
+        await createParentInvoiceNotification(
+          invoiceId: docId,
+          invoiceData: {
+            ...invoiceData,
+            ...updateData,
+            'status': normalized,
+            'paymentStatus': normalized,
+            'invoiceStatus': normalized,
+            'paidAmount': updateData['paidAmount'],
+            'remainingAmount': updateData['remainingAmount'],
+          },
+          newStatus: normalized,
+        );
+      } catch (e) {
+        debugPrint('AdminInvoicesPage: فشل إرسال إشعار تحديث الفاتورة: $e');
+      }
 
       if (!mounted) return;
 

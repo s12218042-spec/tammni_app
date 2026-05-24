@@ -62,6 +62,22 @@ class _LiveStreamViewerPageState extends State<LiveStreamViewerPage> {
     }
   }
 
+  Future<void> _retryJoinLiveStream() async {
+  try {
+    await _liveStreamService.close();
+  } catch (_) {}
+
+  if (!mounted) return;
+
+  setState(() {
+    _isLoading = true;
+    _hasJoined = false;
+    _errorMessage = null;
+  });
+
+  await _joinLiveStream();
+}
+
   @override
   void dispose() {
     _remoteRenderer.dispose();
@@ -87,6 +103,7 @@ class _LiveStreamViewerPageState extends State<LiveStreamViewerPage> {
       ),
     );
   }
+
 
   Widget _buildErrorState() {
     return Center(
@@ -127,13 +144,7 @@ class _LiveStreamViewerPageState extends State<LiveStreamViewerPage> {
             ),
             const SizedBox(height: 16),
             OutlinedButton.icon(
-              onPressed: () {
-                setState(() {
-                  _isLoading = true;
-                  _errorMessage = null;
-                });
-                _joinLiveStream();
-              },
+              onPressed: _retryJoinLiveStream,
               icon: const Icon(Icons.refresh_rounded),
               label: const Text('إعادة المحاولة'),
             ),

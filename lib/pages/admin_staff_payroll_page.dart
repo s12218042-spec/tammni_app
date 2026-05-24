@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../widgets/app_page_scaffold.dart';
+import '../services/app_notification_service.dart';
 
 class AdminStaffPayrollPage extends StatefulWidget {
   const AdminStaffPayrollPage({super.key});
@@ -441,6 +442,37 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
             : FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
+      try {
+        await AppNotificationService.instance.notifyUser(
+          targetUid: selectedStaffUid ?? '',
+          targetUsername: staffUsername,
+          targetRole: 'nursery_staff',
+          title: 'تم اعتماد راتبك',
+          body:
+              'تم اعتماد راتب شهر $monthKey بقيمة ${_money(finalSalary)} شيكل.',
+          type: 'staff_payroll',
+          priority: 'normal',
+          createdByUid: adminUid,
+          createdByName: adminName,
+          createdByRole: adminRole,
+          extraData: {
+            'payrollId': payrollId,
+            'monthKey': monthKey,
+            'grossSalary': grossSalary,
+            'bonusAmount': bonusAmount,
+            'finalSalary': finalSalary,
+            'attendanceDays': attendanceDays,
+            'totalWorkedHours': totalWorkedHours,
+            'category': 'staff_payroll',
+            'notificationType': 'staff_payroll',
+            'screen': 'staff_payroll',
+            'route': 'staff_payroll',
+            'relatedCollection': 'staff_payroll',
+          },
+        );
+      } catch (e) {
+        debugPrint('AdminStaffPayrollPage: فشل إرسال إشعار اعتماد الراتب: $e');
+      }
 
       if (!mounted) return;
 
@@ -536,8 +568,10 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
         }
 
         final staffDocs = snapshot.data!.docs.where((doc) {
-          return _isNurseryStaff(doc.data());
-        }).toList();
+        final data = doc.data();
+        final isActive = data['isActive'] != false;
+        return isActive && _isNurseryStaff(data);
+      }).toList();
 
         staffDocs.sort((a, b) {
           return _staffName(a.data()).compareTo(_staffName(b.data()));

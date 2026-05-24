@@ -624,7 +624,40 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
 
       await batch.commit();
 
-  await AppNotificationService.instance.notifyParent(
+     try {
+        await AppNotificationService.instance.notifyChildParent(
+          parentUid: parentInfo['parentUid'] ?? '',
+          parentUsername: parentInfo['parentUsername'] ?? '',
+          parentName: parentInfo['parentName'] ?? '',
+          title: _buildNotificationTitle(isUpdate: false),
+          body: _buildNotificationBody(),
+          type: 'child_handoff',
+          childId: _safeChildId,
+          childName: _safeChildName,
+          section: _safeChildSection,
+          group: _safeChildGroup,
+          priority: 'normal',
+          createdByUid: userInfo['uid'] ?? '',
+          createdByName: userInfo['name'] ?? 'مستخدم',
+          createdByRole: userInfo['role'] ?? 'nursery_staff',
+          extraData: {
+            'handoffId': handoffRef.id,
+            'handoffType': _handoffType,
+            'handoffTypeLabel': _handoffTypeLabel(_handoffType),
+            'personName': _personNameController.text.trim(),
+            'relation': _relationController.text.trim(),
+            'category': 'child_handoff',
+            'notificationType': 'child_handoff',
+            'screen': 'notifications',
+            'route': 'parent_notifications',
+            'relatedCollection': 'child_handoffs',
+          },
+        );
+      } catch (e) {
+        debugPrint('ChildHandoffLogPage: فشل إرسال إشعار التسليم/الاستلام: $e');
+      }
+
+  await AppNotificationService.instance.notifyChildParent(
   parentUid: parentInfo['parentUid'] ?? '',
   parentUsername: parentInfo['parentUsername'] ?? '',
   parentName: parentInfo['parentName'] ?? '',
@@ -657,8 +690,8 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
 
       _showSnack(
         _handoffType == 'delivery'
-            ? 'تم تسجيل تسليم الطفل للحضانة وإشعار ولي الأمر'
-            : 'تم تسجيل استلام الطفل من الحضانة وإشعار ولي الأمر',
+            ? 'تم تسجيل تسليم الطفل للحضانة'
+            : 'تم تسجيل استلام الطفل من الحضانة',
         backgroundColor: Colors.green,
       );
 
@@ -713,8 +746,40 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
 
 
       await batch.commit();
+      try {
+        await AppNotificationService.instance.notifyChildParent(
+          parentUid: parentInfo['parentUid'] ?? '',
+          parentUsername: parentInfo['parentUsername'] ?? '',
+          parentName: parentInfo['parentName'] ?? '',
+          title: _buildNotificationTitle(isUpdate: true),
+          body: _buildNotificationBody(),
+          type: 'child_handoff_updated',
+          childId: _safeChildId,
+          childName: _safeChildName,
+          section: _safeChildSection,
+          group: _safeChildGroup,
+          priority: 'normal',
+          createdByUid: userInfo['uid'] ?? '',
+          createdByName: userInfo['name'] ?? 'مستخدم',
+          createdByRole: userInfo['role'] ?? 'nursery_staff',
+          extraData: {
+            'handoffId': _lastLogId!,
+            'handoffType': _handoffType,
+            'handoffTypeLabel': _handoffTypeLabel(_handoffType),
+            'personName': _personNameController.text.trim(),
+            'relation': _relationController.text.trim(),
+            'category': 'child_handoff',
+            'notificationType': 'child_handoff_updated',
+            'screen': 'notifications',
+            'route': 'parent_notifications',
+            'relatedCollection': 'child_handoffs',
+          },
+        );
+      } catch (e) {
+        debugPrint('ChildHandoffLogPage: فشل إرسال إشعار تعديل التسليم/الاستلام: $e');
+      }
 
-  await AppNotificationService.instance.notifyParent(
+  await AppNotificationService.instance.notifyChildParent(
   parentUid: parentInfo['parentUid'] ?? '',
   parentUsername: parentInfo['parentUsername'] ?? '',
   parentName: parentInfo['parentName'] ?? '',
@@ -746,7 +811,7 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
       _clearFormAfterSave();
 
       _showSnack(
-        'تم تعديل آخر سجل وإشعار ولي الأمر',
+        'تم تعديل آخر سجل',
         backgroundColor: Colors.green,
       );
 

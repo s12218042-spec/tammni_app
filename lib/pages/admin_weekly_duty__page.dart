@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../services/app_notification_service.dart';
@@ -12,6 +13,7 @@ class AdminWeeklyDutyPage extends StatefulWidget {
 
 class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
 
   bool isSaving = false;
 
@@ -128,29 +130,48 @@ class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
     });
 
     try {
+       final currentUser = _auth.currentUser;
+        final adminUid = currentUser?.uid ?? '';
+
+        if (adminUid.isEmpty) {
+          throw Exception('يجب تسجيل الدخول كأدمن قبل حفظ المناوبة');
+        }
       final dutyStaff = _selectedDutyStaffList();
       final dutyStaffUids = dutyStaff.map((e) => _clean(e['uid'])).toList();
       final firstStaff = dutyStaff.isNotEmpty ? dutyStaff.first : null;
 
-      await _firestore.collection('weekly_duties').doc(weekKey).set({
-        'dutyId': weekKey,
-        'weekKey': weekKey,
-        'weekStartDate': Timestamp.fromDate(weekStart),
-        'weekEndDate': Timestamp.fromDate(weekEnd),
-        'weekStartDateKey': _formatDate(weekStart),
-        'weekEndDateKey': _formatDate(weekEnd),
-        'dutyStaffUids': dutyStaffUids,
-        'dutyStaff': dutyStaff,
-        'dutyStaffCount': dutyStaff.length,
-        'staffUid': firstStaff == null ? '' : _clean(firstStaff['uid']),
-        'staffName': firstStaff == null ? '' : _clean(firstStaff['name']),
-        'staffUsername':
-            firstStaff == null ? '' : _clean(firstStaff['username']),
-        'isActive': true,
-        'createdByRole': 'admin',
-        'updatedAt': FieldValue.serverTimestamp(),
-        'createdAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+     final dutyRef = _firestore.collection('weekly_duties').doc(weekKey);
+    final oldDutyDoc = await dutyRef.get();
+    final alreadyExists = oldDutyDoc.exists;
+
+    final dutyData = <String, dynamic>{
+      'dutyId': weekKey,
+      'weekKey': weekKey,
+      'weekStartDate': Timestamp.fromDate(weekStart),
+      'weekEndDate': Timestamp.fromDate(weekEnd),
+      'weekStartDateKey': _formatDate(weekStart),
+      'weekEndDateKey': _formatDate(weekEnd),
+      'dutyStaffUids': dutyStaffUids,
+      'dutyStaff': dutyStaff,
+      'dutyStaffCount': dutyStaff.length,
+      'staffUid': firstStaff == null ? '' : _clean(firstStaff['uid']),
+      'staffName': firstStaff == null ? '' : _clean(firstStaff['name']),
+      'staffUsername': firstStaff == null ? '' : _clean(firstStaff['username']),
+      'isActive': true,
+      'updatedByUid': adminUid,
+      'updatedByName': 'الإدارة',
+      'updatedByRole': 'admin',
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+
+    if (!alreadyExists) {
+      dutyData['createdAt'] = FieldValue.serverTimestamp();
+      dutyData['createdByUid'] = adminUid;
+      dutyData['createdByName'] = 'الإدارة';
+      dutyData['createdByRole'] = 'admin';
+    }
+
+    await dutyRef.set(dutyData, SetOptions(merge: true));
 
       for (final staff in dutyStaff) {
         final staffUid = _clean(staff['uid']);
@@ -159,6 +180,7 @@ class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
 
         if (staffUid.isEmpty) continue;
 
+        try {
         await AppNotificationService.instance.notifyUser(
           targetUid: staffUid,
           targetUsername: staffUsername,
@@ -168,6 +190,8 @@ class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
               'تم تحديدك ضمن مناوبة الأسبوع من ${_formatDate(weekStart)} إلى ${_formatDate(weekEnd)}.',
           type: 'weekly_duty',
           priority: 'important',
+          createdByUid: adminUid,
+          createdByName: 'الإدارة',
           createdByRole: 'admin',
           extraData: {
             'weekKey': weekKey,
@@ -181,6 +205,9 @@ class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
             'relatedCollection': 'weekly_duties',
           },
         );
+      } catch (e) {
+        debugPrint('AdminWeeklyDutyPage: فشل إرسال إشعار المناوبة للموظفة $staffUid: $e');
+      }
       }
 
       if (!mounted) return;
@@ -393,7 +420,9 @@ class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
         }
 
         final staffDocs = snapshot.data!.docs.where((doc) {
-          return _isNurseryStaff(doc.data());
+          final data = doc.data();
+          final isActive = data['isActive'] != false;
+          return isActive && _isNurseryStaff(data);
         }).toList();
 
         staffDocs.sort((a, b) {

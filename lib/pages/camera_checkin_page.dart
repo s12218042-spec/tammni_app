@@ -250,7 +250,7 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
         ),
       ),
       child: const Text(
-        'التقاط ميديا للتحديث',
+        'إضافة وسائط',
         style: TextStyle(
           fontSize: 20,
           fontWeight: FontWeight.w800,
@@ -601,7 +601,7 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
         controller: descriptionCtrl,
         maxLines: 3,
         decoration: InputDecoration(
-          labelText: 'وصف الميديا',
+          labelText: 'وصف الوسائط',
           hintText: 'اكتبي وصفًا قصيرًا',
           filled: true,
           fillColor: AppColors.background,

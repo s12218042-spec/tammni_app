@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 
+
 class AdminGroupsPage extends StatefulWidget {
   const AdminGroupsPage({super.key});
 
@@ -620,6 +621,46 @@ class _GroupChildrenPageState extends State<_GroupChildrenPage> {
     return value.toString().trim();
   }
 
+  String _normalizePhone(String value) {
+    return value.replaceAll(RegExp(r'[^0-9]'), '').trim();
+  }
+
+  bool _isValidPalestinianMobile(String phone) {
+    final clean = _normalizePhone(phone);
+
+    if (!RegExp(r'^(059|056|052)\d{7}$').hasMatch(clean)) {
+      return false;
+    }
+
+    if (RegExp(r'^(\d)\1+$').hasMatch(clean)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  String _normalizeName(String value) {
+    return value
+        .trim()
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .toLowerCase();
+  }
+
+
+bool _isPermanentChildData(Map<String, dynamic> data) {
+  final childType = _cleanText(data['childType']).toLowerCase();
+  final enrollmentType = _cleanText(data['enrollmentType']).toLowerCase();
+  final isTemporaryChild = data['isTemporaryChild'] == true;
+  final isTrialChild = data['isTrialChild'] == true;
+
+  if (isTemporaryChild || isTrialChild) {
+    return false;
+  }
+
+  return childType == 'permanent' || enrollmentType == 'permanent';
+}
+
+
   String _childName(Map<String, dynamic> data) {
     if (_cleanText(data['name']).isNotEmpty) return _cleanText(data['name']);
     if (_cleanText(data['childName']).isNotEmpty) {
@@ -721,11 +762,6 @@ class _GroupChildrenPageState extends State<_GroupChildrenPage> {
     return 'TMP-$number';
   }
 
-  String _safeUsernameFromPhone(String phone) {
-    final digits = phone.replaceAll(RegExp(r'[^0-9]'), '');
-    final suffix = DateTime.now().millisecondsSinceEpoch.toString();
-    return 'temp_${digits.isEmpty ? "parent" : digits}_$suffix';
-  }
 
   String _childTypeLabel(Map<String, dynamic> data) {
     final type = _cleanText(data['childType']).isNotEmpty
@@ -1219,6 +1255,15 @@ class _GroupChildrenPageState extends State<_GroupChildrenPage> {
                                     return;
                                   }
 
+                                  if (!_isValidPalestinianMobile(parentPhone)) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                      content: Text('رقم ولي الأمر يجب أن يكون 10 أرقام ويبدأ بـ 059 أو 056 أو 052'),
+                                       ),
+                                       );
+                                      return;
+                                      }
+
                                   if (finalAmount <= 0) {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       const SnackBar(
@@ -1289,383 +1334,457 @@ class _GroupChildrenPageState extends State<_GroupChildrenPage> {
   }
 
   Future<_TemporaryChildResult?> _saveTemporaryChild({
-    required String childName,
-    required String parentName,
-    required String parentPhone,
-    required DateTime accessStart,
-    required DateTime accessEnd,
-    required String billingType,
-    required num hoursCount,
-    required num daysCount,
-    required num hourlyRate,
-    required num dailyRate,
-    required num baseAmount,
-    required num finalAmount,
-    required num paidAmount,
-    required num remainingAmount,
-    required String paymentMethod,
-    required bool hasConsultation,
-    required String notes,
-  }) async {
-    try {
-      final parentRef = _firestore.collection('users').doc();
-      final childRef = _firestore.collection('children').doc();
-      final codeRef = _firestore.collection('temporary_access_codes').doc();
-      final invoiceRef = _firestore.collection('invoices').doc();
+  required String childName,
+  required String parentName,
+  required String parentPhone,
+  required DateTime accessStart,
+  required DateTime accessEnd,
+  required String billingType,
+  required num hoursCount,
+  required num daysCount,
+  required num hourlyRate,
+  required num dailyRate,
+  required num baseAmount,
+  required num finalAmount,
+  required num paidAmount,
+  required num remainingAmount,
+  required String paymentMethod,
+  required bool hasConsultation,
+  required String notes,
+}) async {
+  try {
+    final cleanParentPhone = _normalizePhone(parentPhone);
 
-      final accessCode = _generateAccessCode();
-      final username = _safeUsernameFromPhone(parentPhone);
-      final accessStartDate = DateTime(
-        accessStart.year,
-        accessStart.month,
-        accessStart.day,
-      );
-      final accessEndDate = DateTime(
-        accessEnd.year,
-        accessEnd.month,
-        accessEnd.day,
-        23,
-        59,
-        59,
+    final existingChildrenSnapshot = await _firestore
+        .collection('children')
+        .where('parentPhone', isEqualTo: cleanParentPhone)
+        .get();
+
+    QueryDocumentSnapshot<Map<String, dynamic>>? existingChildDoc;
+
+    for (final doc in existingChildrenSnapshot.docs) {
+      final data = doc.data();
+
+      final existingName = _normalizeName(
+        _cleanText(data['name']).isNotEmpty
+            ? _cleanText(data['name'])
+            : _cleanText(data['childName']),
       );
 
-      final adminUid = FirebaseAuth.instance.currentUser?.uid ?? '';
-      final status = _invoiceStatus(
-        finalAmount: finalAmount,
-        paidAmount: paidAmount,
-      );
+      if (existingName == _normalizeName(childName)) {
+        existingChildDoc = doc;
+        break;
+      }
+    }
 
-      final batch = _firestore.batch();
-
-      batch.set(parentRef, {
-        'uid': parentRef.id,
-        'role': 'parent',
-        'accountType': 'temporary_parent',
-        'isTemporaryAccount': true,
-        'isActive': true,
-        'accountStatus': 'active',
-        'canReactivate': true,
-        'permanentDeleted': false,
-        'temporaryAccess': true,
-        'name': parentName,
-        'displayName': parentName,
-        'username': username,
-        'phone': parentPhone,
-        'linkedTemporaryChildId': childRef.id,
-        'accessStartAt': Timestamp.fromDate(accessStartDate),
-        'accessEndAt': Timestamp.fromDate(accessEndDate),
-        'createdByUid': adminUid,
-        'createdByRole': 'admin',
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-
-      batch.set(
-        _firestore.collection('login_usernames').doc(username),
-        {
-          'uid': parentRef.id,
-          'username': username,
-          'role': 'parent',
-          'accountType': 'temporary_parent',
-          'isTemporaryAccount': true,
-          'isActive': true,
-          'accountStatus': 'active',
-          'canReactivate': true,
-          'permanentDeleted': false,
-          'temporaryAccess': true,
-          'accessStartAt': Timestamp.fromDate(accessStartDate),
-          'accessEndAt': Timestamp.fromDate(accessEndDate),
-          'linkedTemporaryChildId': childRef.id,
-          'createdAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-      );
-
-      batch.set(childRef, {
-        'id': childRef.id,
-        'childId': childRef.id,
-        'name': childName,
-        'childName': childName,
-        'childType': 'temporary',
-        'childStatus': 'temporary',
-        'enrollmentType': 'temporary',
-        'isTemporaryChild': true,
-        'isTrialChild': false,
-        'isActive': true,
-        'accountStatus': 'active',
-        'canReactivate': true,
-        'permanentDeleted': false,
-        'isBillable': true,
-        'excludeFromMonthlyInvoice': true,
-        'parentUid': parentRef.id,
-        'parentUsername': username,
-        'parentName': parentName,
-        'parentPhone': parentPhone,
-        'groupId': widget.groupId,
-        'groupName': widget.groupName,
-        'assignedStaffUid': widget.assignedStaffUid,
-        'assignedStaffName': widget.assignedStaffName,
-        'assignedStaffUsername': widget.assignedStaffUsername,
-        'temporaryStartDate': Timestamp.fromDate(accessStartDate),
-        'temporaryEndDate': Timestamp.fromDate(accessEndDate),
-        'temporaryDateKeys': [_dateKey(accessStartDate), _dateKey(accessEndDate)],
-        'temporaryFee': finalAmount,
-        'temporaryBillingType': billingType,
-        'temporaryBillingTypeLabel': _billingTypeLabel(billingType),
-        'hasConsultation': hasConsultation,
-        'consultationId': '',
-        'consultationStatus': hasConsultation ? 'pending' : 'none',
-        'temporaryParentUid': parentRef.id,
-        'temporaryAccessCodeId': codeRef.id,
-        'temporaryAccessCode': accessCode,
-        'temporaryAccessStartAt': Timestamp.fromDate(accessStartDate),
-        'temporaryAccessEndAt': Timestamp.fromDate(accessEndDate),
-        'createdByUid': adminUid,
-        'createdByRole': 'admin',
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-
-      batch.set(codeRef, {
-        'id': codeRef.id,
-        'code': accessCode,
-        'childId': childRef.id,
-        'childName': childName,
-        'parentUid': parentRef.id,
-        'parentUsername': username,
-        'parentName': parentName,
-        'parentPhone': parentPhone,
-        'groupId': widget.groupId,
-        'groupName': widget.groupName,
-        'childType': 'temporary',
-        'childStatus': 'temporary',
-        'accessStartAt': Timestamp.fromDate(accessStartDate),
-        'accessEndAt': Timestamp.fromDate(accessEndDate),
-        'isActive': true,
-        'accountStatus': 'active',
-        'canReactivate': true,
-        'permanentDeleted': false,
-        'isUsed': false,
-        'createdByUid': adminUid,
-        'createdByRole': 'admin',
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-
-      batch.set(invoiceRef, {
-        'id': invoiceRef.id,
-        'invoiceId': invoiceRef.id,
-        'title': 'فاتورة الطفل المؤقت',
-        'childId': childRef.id,
-        'childName': childName,
-        'childType': 'temporary',
-        'parentUid': parentRef.id,
-        'parentUsername': username,
-        'parentName': parentName,
-        'parentPhone': parentPhone,
-        'groupId': widget.groupId,
-        'groupName': widget.groupName,
-        'billingType': billingType,
-        'billingTypeLabel': _billingTypeLabel(billingType),
-        'hoursCount': billingType == 'hourly' ? hoursCount : 0,
-        'daysCount': billingType == 'daily' ? daysCount : 0,
-        'hourlyRate': billingType == 'hourly' ? hourlyRate : 0,
-        'dailyRate': billingType == 'daily' ? dailyRate : 0,
-        'baseAmount': baseAmount,
-        'discount': 0,
-        'discountAmount': 0,
-        'finalAmount': finalAmount,
-        'totalAmount': finalAmount,
-        'paidAmount': paidAmount,
-        'remainingAmount': remainingAmount,
-        'paymentMethod': paymentMethod,
-        'paymentMethodLabel': _paymentMethodLabel(paymentMethod),
-        'status': status,
-        'invoiceDate': FieldValue.serverTimestamp(),
-        'accessStartAt': Timestamp.fromDate(accessStartDate),
-        'accessEndAt': Timestamp.fromDate(accessEndDate),
-        'createdByUid': adminUid,
-        'createdByRole': 'admin',
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-
-      await batch.commit();
-      await _updateGroupCount();
-
-      return _TemporaryChildResult(accessCode: accessCode);
-    } catch (e) {
-      if (!mounted) return null;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذر حفظ الطفل المؤقت: $e')),
-      );
+    if (existingChildDoc != null &&
+        _isPermanentChildData(existingChildDoc.data())) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'هذا الطفل مسجل كطفل دائم بالفعل، لا يمكن إضافته كمؤقت.',
+            ),
+          ),
+        );
+      }
       return null;
     }
+
+    final childRef = existingChildDoc?.reference ??
+        _firestore.collection('children').doc();
+
+    final codeRef = _firestore.collection('temporary_access_codes').doc();
+    final invoiceRef = _firestore.collection('invoices').doc();
+
+    final accessCode = _generateAccessCode();
+
+    final accessStartDate = DateTime(
+      accessStart.year,
+      accessStart.month,
+      accessStart.day,
+    );
+
+    final accessEndDate = DateTime(
+      accessEnd.year,
+      accessEnd.month,
+      accessEnd.day,
+      23,
+      59,
+      59,
+    );
+
+    final adminUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+
+    final status = _invoiceStatus(
+      finalAmount: finalAmount,
+      paidAmount: paidAmount,
+    );
+
+    final batch = _firestore.batch();
+
+    final childData = <String, dynamic>{
+      'id': childRef.id,
+      'childId': childRef.id,
+      'name': childName,
+      'childName': childName,
+
+      'childType': 'temporary',
+      'childStatus': 'temporary',
+      'enrollmentType': 'temporary',
+      'isTemporaryChild': true,
+      'isTrialChild': false,
+
+      'isActive': true,
+      'status': 'active',
+      'accountStatus': 'active',
+      'canReactivate': true,
+      'permanentDeleted': false,
+
+      'isBillable': true,
+      'excludeFromMonthlyInvoice': true,
+
+      'parentUid': '',
+      'parentUsername': '',
+      'parentName': parentName,
+      'parentPhone': cleanParentPhone,
+
+      'temporaryParentUid': '',
+      'temporaryParentUsername': '',
+      'temporaryParentName': parentName,
+      'temporaryParentPhone': cleanParentPhone,
+
+      'groupId': widget.groupId,
+      'groupName': widget.groupName,
+      'assignedStaffUid': widget.assignedStaffUid,
+      'assignedStaffName': widget.assignedStaffName,
+      'assignedStaffUsername': widget.assignedStaffUsername,
+
+      'temporaryStartDate': Timestamp.fromDate(accessStartDate),
+      'temporaryEndDate': Timestamp.fromDate(accessEndDate),
+      'temporaryDateKeys': [
+        _dateKey(accessStartDate),
+        _dateKey(accessEndDate),
+      ],
+
+      'temporaryFee': finalAmount,
+      'temporaryBillingType': billingType,
+      'temporaryBillingTypeLabel': _billingTypeLabel(billingType),
+
+      'hasConsultation': hasConsultation,
+      'consultationId': '',
+      'consultationStatus': hasConsultation ? 'pending' : 'none',
+
+      'temporaryAccessCodeId': codeRef.id,
+      'temporaryAccessCode': accessCode,
+      'temporaryAccessStartAt': Timestamp.fromDate(accessStartDate),
+      'temporaryAccessEndAt': Timestamp.fromDate(accessEndDate),
+
+      'updatedByUid': adminUid,
+      'updatedByRole': 'admin',
+      'updatedAt': FieldValue.serverTimestamp(),
+      'reactivatedAt': FieldValue.serverTimestamp(),
+      'archiveReason': FieldValue.delete(),
+      'archivedAt': FieldValue.delete(),
+    };
+
+    if (existingChildDoc == null) {
+      childData['createdByUid'] = adminUid;
+      childData['createdByRole'] = 'admin';
+      childData['createdAt'] = FieldValue.serverTimestamp();
+    }
+
+    batch.set(childRef, childData, SetOptions(merge: true));
+
+    batch.set(codeRef, {
+      'id': codeRef.id,
+      'code': accessCode,
+
+      'childId': childRef.id,
+      'childName': childName,
+
+      'parentUid': '',
+      'parentUsername': '',
+      'parentName': parentName,
+      'parentPhone': cleanParentPhone,
+
+      'temporaryParentName': parentName,
+      'temporaryParentPhone': cleanParentPhone,
+
+      'groupId': widget.groupId,
+      'groupName': widget.groupName,
+
+      'childType': 'temporary',
+      'childStatus': 'temporary',
+
+      'accessStartAt': Timestamp.fromDate(accessStartDate),
+      'accessEndAt': Timestamp.fromDate(accessEndDate),
+
+      'isActive': true,
+      'accountStatus': 'active',
+      'canReactivate': true,
+      'permanentDeleted': false,
+      'isUsed': false,
+
+      'createdByUid': adminUid,
+      'createdByRole': 'admin',
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    batch.set(invoiceRef, {
+      'id': invoiceRef.id,
+      'invoiceId': invoiceRef.id,
+
+      'title': 'فاتورة الطفل المؤقت',
+
+      'childId': childRef.id,
+      'childName': childName,
+      'childType': 'temporary',
+
+      'parentUid': '',
+      'parentUsername': '',
+      'parentName': parentName,
+      'parentPhone': cleanParentPhone,
+
+      'temporaryParentName': parentName,
+      'temporaryParentPhone': cleanParentPhone,
+
+      'groupId': widget.groupId,
+      'groupName': widget.groupName,
+
+      'billingType': billingType,
+      'billingTypeLabel': _billingTypeLabel(billingType),
+
+      'hoursCount': billingType == 'hourly' ? hoursCount : 0,
+      'daysCount': billingType == 'daily' ? daysCount : 0,
+      'hourlyRate': billingType == 'hourly' ? hourlyRate : 0,
+      'dailyRate': billingType == 'daily' ? dailyRate : 0,
+
+      'baseAmount': baseAmount,
+      'discount': 0,
+      'discountAmount': 0,
+      'finalAmount': finalAmount,
+      'totalAmount': finalAmount,
+      'paidAmount': paidAmount,
+      'remainingAmount': remainingAmount,
+
+      'paymentMethod': paymentMethod,
+      'paymentMethodLabel': _paymentMethodLabel(paymentMethod),
+
+      'status': status,
+      'invoiceDate': FieldValue.serverTimestamp(),
+
+      'accessStartAt': Timestamp.fromDate(accessStartDate),
+      'accessEndAt': Timestamp.fromDate(accessEndDate),
+
+      'createdByUid': adminUid,
+      'createdByRole': 'admin',
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    await batch.commit();
+    await _updateGroupCount();
+
+    return _TemporaryChildResult(accessCode: accessCode);
+  } catch (e) {
+    if (!mounted) return null;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('تعذر حفظ الطفل المؤقت: $e')),
+    );
+
+    return null;
   }
+}
 
   Future<_TemporaryChildResult?> _saveTrialChild({
-    required String childName,
-    required String parentName,
-    required String parentPhone,
-    required DateTime trialStart,
-    required bool hasConsultation,
-  }) async {
-    try {
-      final parentRef = _firestore.collection('users').doc();
-      final childRef = _firestore.collection('children').doc();
-      final codeRef = _firestore.collection('temporary_access_codes').doc();
+  required String childName,
+  required String parentName,
+  required String parentPhone,
+  required DateTime trialStart,
+  required bool hasConsultation,
+}) async {
+  try {
+    final cleanParentPhone = _normalizePhone(parentPhone);
 
-      final accessCode = _generateAccessCode();
-      final username = _safeUsernameFromPhone(parentPhone);
+    final existingChildrenSnapshot = await _firestore
+        .collection('children')
+        .where('parentPhone', isEqualTo: cleanParentPhone)
+        .get();
 
-      final trialStartDate = DateTime(
-        trialStart.year,
-        trialStart.month,
-        trialStart.day,
+    QueryDocumentSnapshot<Map<String, dynamic>>? existingChildDoc;
+
+    for (final doc in existingChildrenSnapshot.docs) {
+      final data = doc.data();
+
+      final existingName = _normalizeName(
+        _cleanText(data['name']).isNotEmpty
+            ? _cleanText(data['name'])
+            : _cleanText(data['childName']),
       );
 
-      final trialEndDate = _trialEndFromStart(trialStartDate);
+      if (existingName == _normalizeName(childName)) {
+        existingChildDoc = doc;
+        break;
+      }
+    }
 
-      final adminUid = FirebaseAuth.instance.currentUser?.uid ?? '';
-
-      final batch = _firestore.batch();
-
-      batch.set(parentRef, {
-        'uid': parentRef.id,
-        'role': 'parent',
-        'accountType': 'trial_parent',
-        'isTemporaryAccount': true,
-        'isTrialAccount': true,
-        'isActive': true,
-        'accountStatus': 'active',
-        'canReactivate': true,
-        'permanentDeleted': false,
-        'temporaryAccess': true,
-        'name': parentName,
-        'displayName': parentName,
-        'username': username,
-        'phone': parentPhone,
-        'linkedTemporaryChildId': childRef.id,
-        'linkedTrialChildId': childRef.id,
-        'accessStartAt': Timestamp.fromDate(trialStartDate),
-        'accessEndAt': Timestamp.fromDate(trialEndDate),
-        'trialStartAt': Timestamp.fromDate(trialStartDate),
-        'trialEndAt': Timestamp.fromDate(trialEndDate),
-        'createdByUid': adminUid,
-        'createdByRole': 'admin',
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-
-      batch.set(
-        _firestore.collection('login_usernames').doc(username),
-        {
-          'uid': parentRef.id,
-          'username': username,
-          'role': 'parent',
-          'accountType': 'trial_parent',
-          'isTemporaryAccount': true,
-          'isTrialAccount': true,
-          'isActive': true,
-          'accountStatus': 'active',
-          'canReactivate': true,
-          'permanentDeleted': false,
-          'temporaryAccess': true,
-          'accessStartAt': Timestamp.fromDate(trialStartDate),
-          'accessEndAt': Timestamp.fromDate(trialEndDate),
-          'trialStartAt': Timestamp.fromDate(trialStartDate),
-          'trialEndAt': Timestamp.fromDate(trialEndDate),
-          'linkedTemporaryChildId': childRef.id,
-          'linkedTrialChildId': childRef.id,
-          'createdAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-      );
-
-      batch.set(childRef, {
-        'id': childRef.id,
-        'childId': childRef.id,
-        'name': childName,
-        'childName': childName,
-        'childType': 'trial',
-        'enrollmentType': 'trial',
-        'childStatus': 'trial',
-        'isTemporaryChild': false,
-        'isTrialChild': true,
-        'isActive': true,
-        'accountStatus': 'active',
-        'canReactivate': true,
-        'permanentDeleted': false,
-        'isBillable': false,
-        'excludeFromMonthlyInvoice': true,
-        'trialIsFree': true,
-        'trialDays': 3,
-        'parentUid': parentRef.id,
-        'parentUsername': username,
-        'parentName': parentName,
-        'parentPhone': parentPhone,
-        'groupId': widget.groupId,
-        'groupName': widget.groupName,
-        'assignedStaffUid': widget.assignedStaffUid,
-        'assignedStaffName': widget.assignedStaffName,
-        'assignedStaffUsername': widget.assignedStaffUsername,
-        'trialStartAt': Timestamp.fromDate(trialStartDate),
-        'trialEndAt': Timestamp.fromDate(trialEndDate),
-        'temporaryAccessCodeId': codeRef.id,
-        'temporaryAccessCode': accessCode,
-        'temporaryAccessStartAt': Timestamp.fromDate(trialStartDate),
-        'temporaryAccessEndAt': Timestamp.fromDate(trialEndDate),
-        'hasConsultation': hasConsultation,
-        'consultationId': '',
-        'consultationStatus': hasConsultation ? 'pending' : 'none',
-        'createdByUid': adminUid,
-        'createdByRole': 'admin',
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-
-      batch.set(codeRef, {
-        'id': codeRef.id,
-        'code': accessCode,
-        'childId': childRef.id,
-        'childName': childName,
-        'parentUid': parentRef.id,
-        'parentUsername': username,
-        'parentName': parentName,
-        'parentPhone': parentPhone,
-        'groupId': widget.groupId,
-        'groupName': widget.groupName,
-        'childType': 'trial',
-        'childStatus': 'trial',
-        'accessStartAt': Timestamp.fromDate(trialStartDate),
-        'accessEndAt': Timestamp.fromDate(trialEndDate),
-        'trialStartAt': Timestamp.fromDate(trialStartDate),
-        'trialEndAt': Timestamp.fromDate(trialEndDate),
-        'isActive': true,
-        'accountStatus': 'active',
-        'canReactivate': true,
-        'permanentDeleted': false,
-        'isUsed': false,
-        'createdByUid': adminUid,
-        'createdByRole': 'admin',
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-
-      await batch.commit();
-      await _updateGroupCount();
-
-      return _TemporaryChildResult(accessCode: accessCode);
-    } catch (e) {
-      if (!mounted) return null;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذر حفظ طفل التجربة: $e')),
-      );
+    if (existingChildDoc != null &&
+        _isPermanentChildData(existingChildDoc.data())) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'هذا الطفل مسجل كطفل دائم بالفعل، لا يمكن إضافته كتجربة.',
+            ),
+          ),
+        );
+      }
       return null;
     }
+
+    final childRef = existingChildDoc?.reference ??
+        _firestore.collection('children').doc();
+
+    final codeRef = _firestore.collection('temporary_access_codes').doc();
+
+    final accessCode = _generateAccessCode();
+
+    final trialStartDate = DateTime(
+      trialStart.year,
+      trialStart.month,
+      trialStart.day,
+    );
+
+    final trialEndDate = _trialEndFromStart(trialStartDate);
+
+    final adminUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+
+    final batch = _firestore.batch();
+
+    final childData = <String, dynamic>{
+      'id': childRef.id,
+      'childId': childRef.id,
+      'name': childName,
+      'childName': childName,
+
+      'childType': 'trial',
+      'enrollmentType': 'trial',
+      'childStatus': 'trial',
+
+      'isTemporaryChild': false,
+      'isTrialChild': true,
+
+      'isActive': true,
+      'status': 'active',
+      'accountStatus': 'active',
+      'canReactivate': true,
+      'permanentDeleted': false,
+
+      'isBillable': false,
+      'excludeFromMonthlyInvoice': true,
+      'trialIsFree': true,
+      'trialDays': 3,
+
+      'parentUid': '',
+      'parentUsername': '',
+      'parentName': parentName,
+      'parentPhone': cleanParentPhone,
+
+      'temporaryParentUid': '',
+      'temporaryParentUsername': '',
+      'temporaryParentName': parentName,
+      'temporaryParentPhone': cleanParentPhone,
+
+      'groupId': widget.groupId,
+      'groupName': widget.groupName,
+      'assignedStaffUid': widget.assignedStaffUid,
+      'assignedStaffName': widget.assignedStaffName,
+      'assignedStaffUsername': widget.assignedStaffUsername,
+
+      'trialStartAt': Timestamp.fromDate(trialStartDate),
+      'trialEndAt': Timestamp.fromDate(trialEndDate),
+
+      'temporaryAccessCodeId': codeRef.id,
+      'temporaryAccessCode': accessCode,
+      'temporaryAccessStartAt': Timestamp.fromDate(trialStartDate),
+      'temporaryAccessEndAt': Timestamp.fromDate(trialEndDate),
+
+      'hasConsultation': hasConsultation,
+      'consultationId': '',
+      'consultationStatus': hasConsultation ? 'pending' : 'none',
+
+      'updatedByUid': adminUid,
+      'updatedByRole': 'admin',
+      'updatedAt': FieldValue.serverTimestamp(),
+      'reactivatedAt': FieldValue.serverTimestamp(),
+      'archiveReason': FieldValue.delete(),
+      'archivedAt': FieldValue.delete(),
+    };
+
+    if (existingChildDoc == null) {
+      childData['createdByUid'] = adminUid;
+      childData['createdByRole'] = 'admin';
+      childData['createdAt'] = FieldValue.serverTimestamp();
+    }
+
+    batch.set(childRef, childData, SetOptions(merge: true));
+
+    batch.set(codeRef, {
+      'id': codeRef.id,
+      'code': accessCode,
+
+      'childId': childRef.id,
+      'childName': childName,
+
+      'parentUid': '',
+      'parentUsername': '',
+      'parentName': parentName,
+      'parentPhone': cleanParentPhone,
+
+      'temporaryParentName': parentName,
+      'temporaryParentPhone': cleanParentPhone,
+
+      'groupId': widget.groupId,
+      'groupName': widget.groupName,
+
+      'childType': 'trial',
+      'childStatus': 'trial',
+
+      'accessStartAt': Timestamp.fromDate(trialStartDate),
+      'accessEndAt': Timestamp.fromDate(trialEndDate),
+
+      'trialStartAt': Timestamp.fromDate(trialStartDate),
+      'trialEndAt': Timestamp.fromDate(trialEndDate),
+
+      'isActive': true,
+      'accountStatus': 'active',
+      'canReactivate': true,
+      'permanentDeleted': false,
+      'isUsed': false,
+
+      'createdByUid': adminUid,
+      'createdByRole': 'admin',
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    await batch.commit();
+    await _updateGroupCount();
+
+    return _TemporaryChildResult(accessCode: accessCode);
+  } catch (e) {
+    if (!mounted) return null;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('تعذر حفظ طفل التجربة: $e')),
+    );
+
+    return null;
   }
+}
 
   Future<void> _openAddTrialChildSheet() async {
     final childNameCtrl = TextEditingController();
@@ -1820,6 +1939,17 @@ class _GroupChildrenPageState extends State<_GroupChildrenPage> {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       const SnackBar(
                                         content: Text('اكتبي رقم ولي الأمر'),
+                                      ),
+                                    );
+                                    return;
+                                  }
+
+                                  if (!_isValidPalestinianMobile(parentPhone)) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'رقم ولي الأمر يجب أن يكون 10 أرقام ويبدأ بـ 059 أو 056 أو 052',
+                                        ),
                                       ),
                                     );
                                     return;
@@ -2203,89 +2333,6 @@ class _GroupChildrenPageState extends State<_GroupChildrenPage> {
     }
   }
 
-  Future<void> _changeChildType({
-    required String childId,
-    required String currentType,
-  }) async {
-    String selectedType = currentType.isEmpty ? 'permanent' : currentType;
-
-    if (selectedType == 'trial') {
-      selectedType = 'permanent';
-    }
-
-    await showModalBottomSheet<void>(
-      context: context,
-      builder: (sheetContext) {
-        return Directionality(
-          textDirection: TextDirection.rtl,
-          child: StatefulBuilder(
-            builder: (context, setSheetState) {
-              return Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text(
-                      'نوع الطفل',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 18,
-                      ),
-                    ),
-                    RadioListTile<String>(
-                      value: 'permanent',
-                      groupValue: selectedType,
-                      title: const Text('دائم'),
-                      onChanged: (value) {
-                        setSheetState(() => selectedType = value!);
-                      },
-                    ),
-                    RadioListTile<String>(
-                      value: 'temporary',
-                      groupValue: selectedType,
-                      title: const Text('مؤقت'),
-                      onChanged: (value) {
-                        setSheetState(() => selectedType = value!);
-                      },
-                    ),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: () async {
-                          await _firestore
-                              .collection('children')
-                              .doc(childId)
-                              .update({
-                            'childType': selectedType,
-                            'enrollmentType': selectedType,
-                            'childStatus': selectedType == 'permanent'
-                                ? 'active'
-                                : selectedType,
-                            'isTemporaryChild': selectedType == 'temporary',
-                            'isTrialChild': false,
-                            'isBillable': selectedType == 'permanent',
-                            'excludeFromMonthlyInvoice':
-                                selectedType != 'permanent',
-                            'updatedAt': FieldValue.serverTimestamp(),
-                          });
-
-                          if (!sheetContext.mounted) return;
-                          Navigator.pop(sheetContext);
-                        },
-                        child: const Text('حفظ'),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-        );
-      },
-    );
-  }
-
   Future<void> _openMoveChildSheet({
     required String childId,
   }) async {
@@ -2464,9 +2511,6 @@ class _GroupChildrenPageState extends State<_GroupChildrenPage> {
 
   Widget _buildChildCard(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data() ?? <String, dynamic>{};
-    final currentType = _cleanText(data['childType']).isNotEmpty
-        ? _cleanText(data['childType'])
-        : _cleanText(data['childStatus']);
     final isTrial = _isTrialChild(data);
     final isTemporary = _isTemporaryChild(data);
 
@@ -2504,11 +2548,6 @@ class _GroupChildrenPageState extends State<_GroupChildrenPage> {
               _openMoveChildSheet(childId: doc.id);
             } else if (value == 'remove') {
               _removeChildFromGroup(doc.id);
-            } else if (value == 'type') {
-              _changeChildType(
-                childId: doc.id,
-                currentType: currentType,
-              );
             } else if (value == 'approve_trial') {
               _approveTrialChild(childDoc: doc);
             } else if (value == 'archive_trial') {

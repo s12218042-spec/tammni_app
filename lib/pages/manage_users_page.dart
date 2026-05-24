@@ -635,25 +635,30 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
   }
 
   Future<void> _notifyParentAccountChange({
-    required String roleValue,
-    required String parentUid,
-    required String parentUsername,
-    required String parentName,
-    required String title,
-    required String body,
-    required String type,
-    String priority = 'normal',
-    Map<String, dynamic>? extraData,
-  }) async {
-    if (normalizeRole(roleValue) != 'parent') return;
-    if (parentUid.trim().isEmpty && parentUsername.trim().isEmpty) return;
+  required String roleValue,
+  required String parentUid,
+  required String parentUsername,
+  required String parentName,
+  required String title,
+  required String body,
+  required String type,
+  String priority = 'normal',
+  Map<String, dynamic>? extraData,
+}) async {
+  if (normalizeRole(roleValue) != 'parent') return;
 
+  final cleanParentUid = parentUid.trim();
+  final cleanParentUsername = parentUsername.trim().toLowerCase();
+
+  if (cleanParentUid.isEmpty && cleanParentUsername.isEmpty) return;
+
+  try {
     final actor = await _currentAdminInfo();
 
     await AppNotificationService.instance.notifyParent(
-      parentUid: parentUid,
-      parentUsername: parentUsername,
-      parentName: parentName,
+      parentUid: cleanParentUid,
+      parentUsername: cleanParentUsername,
+      parentName: parentName.trim(),
       title: title,
       body: body,
       type: type,
@@ -661,9 +666,19 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
       createdByUid: actor['uid'] ?? '',
       createdByName: actor['name'] ?? 'الإدارة',
       createdByRole: 'admin',
-      extraData: extraData,
+      extraData: {
+        'category': 'account',
+        'notificationType': type,
+        'screen': 'account',
+        'route': 'account',
+        'relatedCollection': 'users',
+        ...?extraData,
+      },
     );
+  } catch (e) {
+    debugPrint('ManageUsersPage: فشل إرسال إشعار الحساب: $e');
   }
+}
 
   Future<void> toggleUserActive({
     required String uid,

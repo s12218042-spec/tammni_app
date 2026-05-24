@@ -35,7 +35,6 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
   int consultationsCount = 0;
   double consultationsTotalAmount = 0;
 
-  int pendingLiveRequestsCount = 0;
   int activeLiveStreamsCount = 0;
 
   int updatesTodayCount = 0;
@@ -150,8 +149,6 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
           await _firestore.collection('extra_child_hours').get();
       final consultationsSnapshot =
           await _firestore.collection('child_consultations').get();
-      final liveRequestsSnapshot =
-          await _firestore.collection('live_stream_requests').get();
       final liveStreamsSnapshot =
           await _firestore.collection('live_streams').get();
 
@@ -168,9 +165,13 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
 
       int parents = 0;
       int staff = 0;
+
       for (final doc in usersSnapshot.docs) {
         final data = doc.data();
         final role = normalizeRole(data['role']);
+        final isActive = data['isActive'] != false;
+
+        if (!isActive) continue;
 
         if (role == 'parent') parents++;
         if (role == 'nursery_staff') staff++;
@@ -241,15 +242,6 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
         consultationTotal += numValue(data['totalAmount']);
       }
 
-      int pendingLiveRequests = 0;
-      for (final doc in liveRequestsSnapshot.docs) {
-        final data = doc.data();
-        final status = (data['status'] ?? '').toString().trim().toLowerCase();
-
-        if (status == 'pending' || status == 'queued' || status == 'waiting') {
-          pendingLiveRequests++;
-        }
-      }
 
       int activeStreams = 0;
       for (final doc in liveStreamsSnapshot.docs) {
@@ -331,7 +323,6 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
         consultationsCount = consultationCount;
         consultationsTotalAmount = consultationTotal;
 
-        pendingLiveRequestsCount = pendingLiveRequests;
         activeLiveStreamsCount = activeStreams;
 
         updatesTodayCount = todayUpdates;
@@ -401,15 +392,6 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
                         fontWeight: FontWeight.w900,
                         color: AppColors.textDark,
                       ),
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  'ملخص إداري سريع عن الأطفال، الموظفات، الفواتير، الساعات الإضافية، الاستشارات والبث المباشر.',
-                  style: TextStyle(
-                    color: AppColors.textLight,
-                    height: 1.5,
-                    fontSize: 13.5,
-                  ),
                 ),
               ],
             ),
@@ -734,11 +716,6 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
                           title: 'الاستشارات',
                           value: consultationsCount.toString(),
                           icon: Icons.psychology_alt_outlined,
-                        ),
-                        statCard(
-                          title: 'طلبات بث بانتظار المعالجة',
-                          value: pendingLiveRequestsCount.toString(),
-                          icon: Icons.video_call_rounded,
                         ),
                         statCard(
                           title: 'بث مباشر نشط',

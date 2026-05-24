@@ -369,8 +369,6 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
   final section = (childInfo['section'] ?? 'Nursery').trim();
   final group = (childInfo['group'] ?? '').trim();
 
-  if (parentUid.isEmpty && parentUsername.isEmpty) return;
-
   final title = buildNotificationTitle(eventType);
   final body = buildNotificationBody(
     eventType: eventType,
@@ -378,7 +376,7 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
     note: note,
   );
 
-  await AppNotificationService.instance.notifyParent(
+  await AppNotificationService.instance.notifyChildParent(
     parentUid: parentUid,
     parentUsername: parentUsername,
     parentName: parentName,
@@ -514,14 +512,18 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
         'byRole': userInfo['role'],
       });
 
-      await createParentNotification(
-        childInfo: childInfo,
-        userInfo: userInfo,
-        eventType: selectedEventType,
-        note: note,
-        logId: logRef.id,
-        now: now,
-      );
+      try {
+        await createParentNotification(
+          childInfo: childInfo,
+          userInfo: userInfo,
+          eventType: selectedEventType,
+          note: note,
+          logId: logRef.id,
+          now: now,
+        );
+      } catch (e) {
+        debugPrint('EntryExitLogPage: فشل إرسال إشعار الدخول/الخروج: $e');
+      }
 
       if (!mounted) return;
 
@@ -529,8 +531,8 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
         SnackBar(
           content: Text(
             selectedEventType == 'entry'
-                ? 'تم تسجيل دخول الطفل وإشعار ولي الأمر'
-                : 'تم تسجيل خروج الطفل وإشعار ولي الأمر',
+                ? 'تم تسجيل دخول الطفل'
+                : 'تم تسجيل خروج الطفل',
           ),
         ),
       );

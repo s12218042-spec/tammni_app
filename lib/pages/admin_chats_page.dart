@@ -106,7 +106,7 @@ class _AdminChatsPageState extends State<AdminChatsPage> {
       if (!isActive) return false;
       if (uid == currentUser.uid) return false;
 
-      // الأدمن يتواصل مع موظفات الحضانة وأولياء الأمور
+    
 if (!isAllowedChatRole(role)) return false;
 
       if (selectedRole != 'all' && role != selectedRole) return false;
@@ -259,16 +259,6 @@ if (!isAllowedChatRole(role)) return false;
                   color: AppColors.textDark,
                 ),
               ),
-              const SizedBox(height: 8),
-              const Text(
-                'جرّبي تغيير البحث أو إزالة الفلتر.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: AppColors.textLight,
-                  fontWeight: FontWeight.w600,
-                  height: 1.5,
-                ),
-              ),
             ],
           ),
         ),
@@ -337,7 +327,9 @@ if (!isAllowedChatRole(role)) return false;
                 targetRole: role,
                 targetUserId: uid,
                 targetUserName: name,
-                targetSection: 'Nursery',
+                targetSection: cleanText(user['section']).isEmpty
+                    ? 'Nursery'
+                    : cleanText(user['section']),
               ),
             ),
           );

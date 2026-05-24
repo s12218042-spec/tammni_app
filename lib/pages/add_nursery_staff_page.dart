@@ -172,11 +172,28 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
   }
 
   bool isValidPalestinianId(String value) {
-    final clean = value.trim();
-    if (!RegExp(r'^\d{9}$').hasMatch(clean)) return false;
-    if (RegExp(r'^(\d)\1{8}$').hasMatch(clean)) return false;
-    return true;
+  final clean = value.trim();
+
+  if (!RegExp(r'^\d{9}$').hasMatch(clean)) return false;
+
+  if (RegExp(r'^(\d)\1{8}$').hasMatch(clean)) return false;
+
+  int sum = 0;
+
+  for (int i = 0; i < clean.length; i++) {
+    final digit = int.parse(clean[i]);
+    final factor = i.isEven ? 1 : 2;
+    int result = digit * factor;
+
+    if (result > 9) {
+      result -= 9;
+    }
+
+    sum += result;
   }
+
+  return sum % 10 == 0;
+}
 
   bool isValidPalestinianMobile(String value) {
     final clean = value.replaceAll(' ', '');

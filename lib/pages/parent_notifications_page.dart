@@ -924,11 +924,30 @@ setState(() {});
         return Icons.notifications_active_outlined;
       case 'custom':
         return Icons.mark_email_unread_outlined;
-      case 'complaint_reply':
-        return Icons.reply_all_rounded;
+      case 'account_enabled':
+        return Icons.verified_user_outlined;
+      case 'account_disabled':
+        return Icons.block_outlined;
+      case 'account_updated':
+        return Icons.manage_accounts_outlined;
+      case 'account_deleted':
+        return Icons.delete_outline;
+      case 'incident_report':
+        return Icons.report_problem_outlined;
+      case 'child_handoff':
+      case 'child_handoff_updated':
+        return Icons.how_to_reg_outlined;
+      case 'extra_hours':
+        return Icons.access_time_filled_rounded;
+      case 'invoice':
+      case 'invoice_status':
       case 'invoice_created':
       case 'invoice_updated':
         return Icons.receipt_long_outlined;
+      case 'complaint_status':
+      case 'complaint_update':
+      case 'complaint_reply':
+        return Icons.reply_all_rounded;
       default:
         return Icons.notifications_none_rounded;
     }
@@ -963,11 +982,30 @@ setState(() {});
         return Colors.purple;
       case 'custom':
         return Colors.teal;
-      case 'complaint_reply':
-        return Colors.indigo;
+      case 'account_enabled':
+        return Colors.green;
+      case 'account_disabled':
+        return Colors.redAccent;
+      case 'account_updated':
+        return Colors.blueGrey;
+      case 'account_deleted':
+        return Colors.red;
+      case 'incident_report':
+        return Colors.redAccent;
+      case 'child_handoff':
+      case 'child_handoff_updated':
+        return Colors.teal;
+      case 'extra_hours':
+        return Colors.deepOrange;
+      case 'invoice':
+      case 'invoice_status':
       case 'invoice_created':
       case 'invoice_updated':
         return Colors.brown;
+      case 'complaint_status':
+      case 'complaint_update':
+      case 'complaint_reply':
+        return Colors.indigo;
       default:
         return AppColors.primary;
     }
@@ -1002,12 +1040,34 @@ setState(() {});
       case 'group_update':
       case 'group_update_notification':
         return 'تحديث جماعي';
-      case 'complaint_reply':
-        return 'رد شكوى';
-      case 'invoice_created':
+      case 'account_enabled':
+        return 'تفعيل الحساب';
+      case 'account_disabled':
+        return 'تعطيل الحساب';
+      case 'account_updated':
+        return 'تحديث الحساب';
+      case 'account_deleted':
+        return 'حذف الحساب';
+      case 'incident_report':
+        return 'تقرير حادث';
+      case 'child_handoff':
+        return 'تسليم/استلام';
+      case 'child_handoff_updated':
+        return 'تعديل تسليم/استلام';
+      case 'extra_hours':
+        return 'ساعات إضافية';
+      case 'invoice':
+      case 'invoice_status':
         return 'فاتورة';
+      case 'invoice_created':
+        return 'فاتورة جديدة';
       case 'invoice_updated':
         return 'تحديث فاتورة';
+      case 'complaint_status':
+      case 'complaint_update':
+        return 'تحديث شكوى';
+      case 'complaint_reply':
+        return 'رد شكوى';
       default:
         return type.trim().isEmpty ? 'إشعار' : type;
     }
@@ -1042,12 +1102,34 @@ setState(() {});
         return 'إشعار جديد';
       case 'custom':
         return 'إشعار خاص';
-      case 'complaint_reply':
-        return 'رد جديد من الإدارة';
+      case 'account_enabled':
+        return 'تم تفعيل الحساب';
+      case 'account_disabled':
+        return 'تم تعطيل الحساب';
+      case 'account_updated':
+        return 'تم تحديث بيانات الحساب';
+      case 'account_deleted':
+        return 'تم حذف الحساب';
+      case 'incident_report':
+        return 'تقرير حادث جديد';
+      case 'child_handoff':
+        return 'تم تسجيل تسليم/استلام الطفل';
+      case 'child_handoff_updated':
+        return 'تم تعديل سجل التسليم/الاستلام';
+      case 'extra_hours':
+        return 'تم تسجيل ساعات إضافية';
+      case 'invoice':
+      case 'invoice_status':
+        return 'تحديث على الفاتورة';
       case 'invoice_created':
         return 'فاتورة جديدة';
       case 'invoice_updated':
         return 'تم تحديث فاتورة';
+      case 'complaint_status':
+      case 'complaint_update':
+        return 'تحديث على الشكوى';
+      case 'complaint_reply':
+        return 'رد جديد من الإدارة';
       default:
         return 'إشعار جديد';
     }

@@ -73,8 +73,7 @@ class AuthService {
 
         lastAuthError = e;
 
-        final canTryNext =
-            e.code == 'wrong-password' ||
+        final canTryNext = e.code == 'wrong-password' ||
             e.code == 'invalid-credential' ||
             e.code == 'user-not-found' ||
             e.code == 'invalid-email';
@@ -329,6 +328,10 @@ class AuthService {
 
       userData = refreshedUserDoc.data() ?? <String, dynamic>{};
 
+      final role = (userData['role'] ?? '').toString().trim().toLowerCase();
+
+      print('LOGIN ACCOUNT ROLE: role = $role');
+
       final mustChangePassword = userData['mustChangePassword'] == true;
       final isFirstLogin = userData['isFirstLogin'] == true;
 
@@ -337,9 +340,10 @@ class AuthService {
 
       print('LOGIN STEP 15: updating lastLoginAt');
 
-      await _firestore.collection('users').doc(authUid).update({
+      await _firestore.collection('users').doc(authUid).set({
         'lastLoginAt': FieldValue.serverTimestamp(),
-      });
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
 
       print('LOGIN STEP 16: setting up notifications token');
 
@@ -386,8 +390,12 @@ class AuthService {
   }
 
   Future<void> logout() async {
+    final current = _auth.currentUser;
+
     try {
-      await NotificationService.instance.removeCurrentUserToken();
+      if (current != null && !current.isAnonymous) {
+        await NotificationService.instance.removeCurrentUserToken();
+      }
     } catch (e, st) {
       print('REMOVE FCM TOKEN FAILED BUT LOGOUT WILL CONTINUE: $e');
       print(st);

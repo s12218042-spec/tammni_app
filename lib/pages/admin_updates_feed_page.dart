@@ -14,7 +14,6 @@ class AdminUpdatesFeedPage extends StatefulWidget {
 class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  final Set<String> selectedSections = {};
   final Set<String> selectedTypes = {};
   String searchText = '';
 
@@ -38,10 +37,6 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
 
 
  List<String> get availableTypes => nurseryTypes;
-
-  String sectionLabel(String value) {
-  return 'الحضانة';
-}
 
   String typeLabel(String value) {
   switch (value.trim()) {
@@ -165,10 +160,6 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
   }
 }
 
-  Color sectionColor(String section) {
-  return const Color(0xFFEFA7C8);
-}
-
   DateTime extractDate(Map<String, dynamic> data) {
   final value = data['eventAt'] ??
       data['time'] ??
@@ -197,18 +188,6 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
     return '$year/$month/$day - $hour:$minute $period';
   }
 
-  void toggleSectionFilter(String value) {
-    setState(() {
-      if (selectedSections.contains(value)) {
-        selectedSections.remove(value);
-      } else {
-        selectedSections.add(value);
-      }
-
-      selectedTypes.removeWhere((type) => !availableTypes.contains(type));
-    });
-  }
-
   void toggleTypeFilter(String value) {
     setState(() {
       if (selectedTypes.contains(value)) {
@@ -221,7 +200,6 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
 
   void clearFilters() {
     setState(() {
-      selectedSections.clear();
       selectedTypes.clear();
       searchText = '';
     });
@@ -293,36 +271,6 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
   }).toList();
 }
 
-  Widget buildSectionChip({
-    required String label,
-    required String value,
-  }) {
-    final isSelected = selectedSections.contains(value);
-    final color = sectionColor(value);
-
-    return FilterChip(
-      label: Text(
-        label,
-        style: TextStyle(
-          color: isSelected ? Colors.white : AppColors.textDark,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-      selected: isSelected,
-      onSelected: (_) => toggleSectionFilter(value),
-      selectedColor: color,
-      checkmarkColor: Colors.white,
-      backgroundColor: Colors.white,
-      side: BorderSide(
-        color: isSelected ? color : AppColors.border,
-      ),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-      ),
-      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-    );
-  }
-
   Widget buildTypeChip({
     required String value,
   }) {
@@ -360,12 +308,10 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
   @override
   Widget build(BuildContext context) {
     final hasCustomFilters =
-        selectedSections.isNotEmpty ||
-        selectedTypes.isNotEmpty ||
-        searchText.trim().isNotEmpty;
+        selectedTypes.isNotEmpty || searchText.trim().isNotEmpty;
 
     return AppPageScaffold(
-      title: 'سجل تحديثات الأطفال',
+      title: 'سجل تحديثات الحضانة',
       child: Column(
         children: [
           Card(
@@ -524,7 +470,6 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
                         (data['createdByName'] ?? 'مستخدم غير معروف').toString();
                     final createdByRole =
                         (data['createdByRole'] ?? '').toString();
-                    final section = (data['section'] ?? '').toString();
                     final groupName =
                         (data['groupName'] ?? data['group'] ?? '').toString().trim();
 
@@ -610,12 +555,6 @@ if (isGroupUpdate && targetScopeLabel.isNotEmpty)
     color: Colors.purple,
   ),
 
-if (section.isNotEmpty)
-  _InfoChip(
-    label: sectionLabel(section),
-    icon: Icons.apartment_rounded,
-    color: AppColors.primary,
-  ),
                                         ],
                                       ),
                                     ],

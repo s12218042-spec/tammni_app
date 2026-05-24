@@ -20,20 +20,17 @@ class _AddAdminPageState extends State<AddAdminPage> {
   final EmployeeAccountCreationService _accountCreationService =
       EmployeeAccountCreationService();
 
-  // بيانات الحساب
   final fullNameCtrl = TextEditingController();
   final usernameCtrl = TextEditingController();
   final emailCtrl = TextEditingController();
   final passwordCtrl = TextEditingController();
   final confirmPasswordCtrl = TextEditingController();
 
-  // البيانات الشخصية
   final nationalIdCtrl = TextEditingController();
   final phoneCtrl = TextEditingController();
   final alternativePhoneCtrl = TextEditingController();
   final addressCtrl = TextEditingController();
 
-  // البيانات المهنية / التعليمية
   final jobTitleCtrl = TextEditingController(text: 'أدمن');
   final specializationCtrl = TextEditingController();
   final universityCtrl = TextEditingController();
@@ -43,7 +40,6 @@ class _AddAdminPageState extends State<AddAdminPage> {
   final permissionsCtrl = TextEditingController();
   final cvNotesCtrl = TextEditingController();
 
-  // ملاحظات إدارية
   final adminNotesCtrl = TextEditingController();
 
   DateTime? birthDate;
@@ -108,27 +104,15 @@ class _AddAdminPageState extends State<AddAdminPage> {
     );
   }
 
-  Widget buildSectionTitle(String title, String subtitle) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w800,
-                color: AppColors.textDark,
-              ),
+Widget buildSectionTitle(String title, String subtitle) {
+  return Text(
+    title,
+    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+          fontWeight: FontWeight.w800,
+          color: AppColors.textDark,
         ),
-        const SizedBox(height: 4),
-        Text(
-          subtitle,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: AppColors.textLight,
-              ),
-        ),
-      ],
-    );
-  }
+  );
+}
 
   Widget buildHeaderCard() {
     return Container(
@@ -182,13 +166,6 @@ class _AddAdminPageState extends State<AddAdminPage> {
                       ),
                 ),
                 const SizedBox(height: 6),
-                Text(
-                  'إنشاء حساب إداري بالبيانات الأساسية والمهنية اللازمة فقط.',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: AppColors.textLight,
-                        height: 1.45,
-                      ),
-                ),
               ],
             ),
           ),

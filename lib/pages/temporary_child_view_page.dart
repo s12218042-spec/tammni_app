@@ -1,4 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
@@ -26,8 +28,10 @@ class TemporaryChildViewPage extends StatefulWidget {
 
 class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseMessaging _messaging = FirebaseMessaging.instance;
   final TextEditingController messageCtrl = TextEditingController();
-
+  
   int selectedIndex = 0;
   String selectedMessageTarget = 'admin';
   bool isSendingMessage = false;
@@ -227,13 +231,53 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
     setState(() {});
   }
 
-  void _logout() {
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(builder: (_) => const WelcomePage()),
-      (route) => false,
-    );
+ Future<void> _logout() async {
+  try {
+    final currentUser = _auth.currentUser;
+    final token = await _messaging.getToken();
+
+    if (currentUser != null && currentUser.isAnonymous) {
+      final query = await _firestore
+          .collection('temporary_parent_devices')
+          .where('authUid', isEqualTo: currentUser.uid)
+          .where('childId', isEqualTo: widget.childId)
+          .get();
+
+      final batch = _firestore.batch();
+
+      for (final doc in query.docs) {
+        final data = doc.data();
+        final savedToken = _cleanText(data['fcmToken']);
+
+        if (token == null || token.trim().isEmpty || savedToken == token) {
+          batch.set(
+            doc.reference,
+            {
+              'isActive': false,
+              'accountStatus': 'logged_out',
+              'loggedOutAt': FieldValue.serverTimestamp(),
+              'updatedAt': FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true),
+          );
+        }
+      }
+
+      await batch.commit();
+      await _auth.signOut();
+    }
+  } catch (e) {
+    debugPrint('TEMP LOGOUT ERROR: $e');
   }
+
+  if (!mounted) return;
+
+  Navigator.pushAndRemoveUntil(
+    context,
+    MaterialPageRoute(builder: (_) => const WelcomePage()),
+    (route) => false,
+  );
+}
 
   Widget _sectionTitle({
     required String title,

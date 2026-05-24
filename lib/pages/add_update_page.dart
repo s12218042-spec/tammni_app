@@ -687,7 +687,8 @@ Future<void> pickFromGallery(String mediaType) async {
       final assignedStaffUsername =
           (parentInfo['assignedStaffUsername'] ?? '').trim();
 
-      final canNotifyParent = parentUid.isNotEmpty || parentUsername.isNotEmpty;
+      final canNotifyParent =
+    parentUid.isNotEmpty || parentUsername.isNotEmpty || widget.child.id.trim().isNotEmpty;
 
       final updateRef = _firestore.collection('updates').doc();
     
@@ -752,7 +753,7 @@ batch.set(updateRef, updateData);
 await batch.commit();
 
 if (canNotifyParent) {
-  await AppNotificationService.instance.notifyParent(
+  await AppNotificationService.instance.notifyChildParent(
     parentUid: parentUid,
     parentUsername: parentUsername,
     parentName: parentName,

@@ -246,56 +246,58 @@ class _AdminComplaintsPageState extends State<AdminComplaintsPage> {
       await batch.commit();
 
 if (shouldCreateNotification && (statusChanged || hasReply)) {
-  final notificationTitle = _notificationTitleForStatus(newStatus);
-  final notificationBody = _notificationBodyForComplaint(
-    status: newStatus,
-    complaintTitle: complaintTitle,
-    adminReply: replyText,
-  );
+  try {
+    final notificationTitle = _notificationTitleForStatus(newStatus);
+    final notificationBody = _notificationBodyForComplaint(
+      status: newStatus,
+      complaintTitle: complaintTitle,
+      adminReply: replyText,
+    );
 
-  await AppNotificationService.instance.notifyParent(
-    parentUid: parentUid,
-    parentUsername: parentUsername,
-    parentName: parentName,
-    title: notificationTitle,
-    body: notificationBody,
-    type: 'complaint_update',
-    priority: _priorityForStatus(newStatus),
-    createdByUid: adminInfo['uid'] ?? '',
-    createdByName: adminInfo['name'] ?? 'الإدارة',
-    createdByRole: 'admin',
-    extraData: {
-      'complaintId': docId,
-      'complaintTitle': complaintTitle,
-      'complaintStatus': newStatus,
-      'adminReply': replyText,
-      'notificationType': 'complaint_update',
-      'category': 'complaints',
-      'templateType': 'admin_complaint_reply',
-      'importance': _priorityForStatus(newStatus),
-      'level': _priorityForStatus(newStatus),
-      'createdByUsername': adminInfo['username'] ?? '',
-      'senderId': adminInfo['uid'] ?? '',
-      'senderName': adminInfo['name'] ?? 'الإدارة',
-      'senderRole': 'admin',
-      'source': 'admin_complaints_page',
-      'screen': 'complaints',
-      'route': 'parent_complaints',
-      'relatedCollection': 'complaints',
-      'relatedDocId': docId,
-      'eventAt': now,
-      'timestamp': now,
-    },
-  );
+    await AppNotificationService.instance.notifyParent(
+      parentUid: parentUid,
+      parentUsername: parentUsername,
+      parentName: parentName,
+      title: notificationTitle,
+      body: notificationBody,
+      type: 'complaint_update',
+      priority: _priorityForStatus(newStatus),
+      createdByUid: adminInfo['uid'] ?? '',
+      createdByName: adminInfo['name'] ?? 'الإدارة',
+      createdByRole: 'admin',
+      extraData: {
+        'complaintId': docId,
+        'complaintTitle': complaintTitle,
+        'complaintStatus': newStatus,
+        'adminReply': replyText,
+        'notificationType': 'complaint_update',
+        'category': 'complaints',
+        'templateType': 'admin_complaint_reply',
+        'importance': _priorityForStatus(newStatus),
+        'level': _priorityForStatus(newStatus),
+        'createdByUsername': adminInfo['username'] ?? '',
+        'senderId': adminInfo['uid'] ?? '',
+        'senderName': adminInfo['name'] ?? 'الإدارة',
+        'senderRole': 'admin',
+        'source': 'admin_complaints_page',
+        'screen': 'complaints',
+        'route': 'parent_complaints',
+        'relatedCollection': 'complaints',
+        'relatedDocId': docId,
+        'eventAt': now,
+        'timestamp': now,
+      },
+    );
+  } catch (e) {
+    debugPrint('AdminComplaintsPage: فشل إرسال إشعار تحديث الشكوى: $e');
+  }
 }
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            shouldCreateNotification
-                ? 'تم تحديث حالة الشكوى وإشعار ولي الأمر'
-                : 'تم تحديث حالة الشكوى بنجاح',
+         content: const Text(
+            'تم تحديث حالة الشكوى بنجاح',
             textAlign: TextAlign.center,
           ),
         ),
@@ -979,15 +981,6 @@ if (shouldCreateNotification && (statusChanged || hasReply)) {
                 color: AppColors.textDark,
                 fontWeight: FontWeight.w800,
                 fontSize: 16,
-              ),
-            ),
-            SizedBox(height: 6),
-            Text(
-              'جرّبي تغيير البحث أو الفلاتر أو انتظري شكاوى جديدة.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: AppColors.textLight,
-                height: 1.5,
               ),
             ),
           ],

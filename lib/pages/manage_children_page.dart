@@ -268,19 +268,31 @@ String formatOptionalDate(dynamic raw) {
   }
 
   ChildModel mapToChildModel(Map<String, dynamic> child) {
-    return ChildModel.fromMap(
-      {
-        'name': child['name'] ?? '',
-        'section': 'Nursery',
-        'parentName': child['parentName'] ?? '',
-        'parentUsername': child['parentUsername'] ?? '',
-        'birthDate': child['birthDate'],
-        'isActive': child['isActive'] ?? true,
-        'status': child['status'] ?? 'active',
-      },
-      docId: (child['id'] ?? '').toString(),
-    );
-  }
+  return ChildModel.fromMap(
+    {
+      'id': child['id'] ?? '',
+      'childId': child['id'] ?? '',
+      'name': child['name'] ?? '',
+      'childName': child['name'] ?? '',
+      'section': 'Nursery',
+      'parentName': child['parentName'] ?? '',
+      'parentUsername': child['parentUsername'] ?? '',
+      'parentUid': child['parentUid'] ?? '',
+      'group': child['groupName'] ?? '',
+      'groupName': child['groupName'] ?? '',
+      'groupId': child['groupId'] ?? '',
+      'birthDate': child['birthDate'],
+      'isActive': child['isActive'] ?? true,
+      'status': child['status'] ?? 'active',
+      'childStatus': child['childStatus'] ?? child['status'] ?? 'active',
+      'childType': child['childType'] ?? '',
+      'enrollmentType': child['childType'] ?? '',
+      'isTemporaryChild': resolveChildType(child) == 'temporary',
+      'isTrialChild': resolveChildType(child) == 'trial',
+    },
+    docId: (child['id'] ?? '').toString(),
+  );
+}
 
   Future<void> openEntryExitLog(Map<String, dynamic> child) async {
     final childModel = mapToChildModel(child);
@@ -323,10 +335,7 @@ String formatOptionalDate(dynamic raw) {
     String selectedSection = 'Nursery';
 
     String selectedGender = (child['gender'] ?? 'female').toString();
-    String selectedChildType = resolveChildType(child);
-    if (selectedChildType == 'trial') {
-    selectedChildType = 'permanent';
-    }
+   final String currentChildType = resolveChildType(child);
 
     DateTime temporaryStartDate =
      child['temporaryStartDate'] is Timestamp
@@ -471,7 +480,7 @@ String formatOptionalDate(dynamic raw) {
                             ),
                             child: Text(sectionLabel(selectedSection)),
                           ),
-                          const SizedBox(height: 18),
+                         const SizedBox(height: 18),
 Align(
   alignment: Alignment.centerRight,
   child: Text(
@@ -483,88 +492,37 @@ Align(
   ),
 ),
 const SizedBox(height: 8),
-DropdownButtonFormField<String>(
-  value: selectedChildType,
+InputDecorator(
   decoration: const InputDecoration(
     labelText: 'نوع الطفل',
     prefixIcon: Icon(Icons.flag_outlined),
   ),
-  items: const [
-    DropdownMenuItem(
-      value: 'permanent',
-      child: Text('طفل دائم'),
-    ),
-    DropdownMenuItem(
-      value: 'temporary',
-      child: Text('طفل مؤقت'),
-    ),
-  ],
-  onChanged: (value) {
-    setLocalState(() {
-      selectedChildType = value ?? 'permanent';
-    });
-  },
+  child: Text(childTypeLabel(child)),
 ),
-if (selectedChildType == 'temporary' || selectedChildType == 'trial') ...[
+if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
   const SizedBox(height: 12),
   Row(
     children: [
       Expanded(
-        child: InkWell(
-          onTap: () async {
-            final picked = await showDatePicker(
-              context: context,
-              initialDate: temporaryStartDate,
-              firstDate: DateTime(2020),
-              lastDate: DateTime(2035),
-            );
-
-            if (picked != null) {
-              setLocalState(() {
-                temporaryStartDate = picked;
-
-                if (temporaryEndDate.isBefore(temporaryStartDate)) {
-                  temporaryEndDate = temporaryStartDate;
-                }
-              });
-            }
-          },
-          child: InputDecorator(
-            decoration: const InputDecoration(
-              labelText: 'تاريخ البداية',
-              prefixIcon: Icon(Icons.event_outlined),
-            ),
-            child: Text(
-              '${temporaryStartDate.year}/${temporaryStartDate.month}/${temporaryStartDate.day}',
-            ),
+        child: InputDecorator(
+          decoration: const InputDecoration(
+            labelText: 'تاريخ البداية',
+            prefixIcon: Icon(Icons.event_outlined),
+          ),
+          child: Text(
+            '${temporaryStartDate.year}/${temporaryStartDate.month}/${temporaryStartDate.day}',
           ),
         ),
       ),
       const SizedBox(width: 10),
       Expanded(
-        child: InkWell(
-          onTap: () async {
-            final picked = await showDatePicker(
-              context: context,
-              initialDate: temporaryEndDate,
-              firstDate: temporaryStartDate,
-              lastDate: DateTime(2035),
-            );
-
-            if (picked != null) {
-              setLocalState(() {
-                temporaryEndDate = picked;
-              });
-            }
-          },
-          child: InputDecorator(
-            decoration: const InputDecoration(
-              labelText: 'تاريخ النهاية',
-              prefixIcon: Icon(Icons.event_available_outlined),
-            ),
-            child: Text(
-              '${temporaryEndDate.year}/${temporaryEndDate.month}/${temporaryEndDate.day}',
-            ),
+        child: InputDecorator(
+          decoration: const InputDecoration(
+            labelText: 'تاريخ النهاية',
+            prefixIcon: Icon(Icons.event_available_outlined),
+          ),
+          child: Text(
+            '${temporaryEndDate.year}/${temporaryEndDate.month}/${temporaryEndDate.day}',
           ),
         ),
       ),
@@ -860,7 +818,7 @@ if (selectedChildType == 'temporary' || selectedChildType == 'trial') ...[
                                       if (clean.isEmpty) {
                                         return 'أدخل رقم الجوال';
                                       }
-                                      if (!RegExp(r'^(059|056)\d{7}$')
+                                      if (!RegExp(r'^(059|056|052)\d{7}$')
                                           .hasMatch(clean)) {
                                         return 'رقم جوال فلسطيني غير صالح';
                                       }
@@ -954,27 +912,12 @@ if (selectedChildType == 'temporary' || selectedChildType == 'trial') ...[
                         'healthNotes': healthNotesCtrl.text.trim(),
                         'authorizedPickupContacts':
                             pickupContacts.map((e) => e.toMap()).toList(),
-
-                        'childType': selectedChildType,
-                        'childStatus': selectedChildType == 'permanent'
-                             ? 'active'
-                            : selectedChildType,
-                        'isTemporary': selectedChildType == 'temporary',
-                        'hasConsultation': hasConsultation,
-                        'consultationStatus': hasConsultation ? 'pending' : 'none',
-                        'temporaryNotes': temporaryNotesCtrl.text.trim(),
-
-                        'temporaryStartDate':
-                         selectedChildType == 'temporary' || selectedChildType == 'trial'
-                            ? Timestamp.fromDate(temporaryStartDate)
-                            : FieldValue.delete(),
-                        'temporaryEndDate':
-                         selectedChildType == 'temporary' || selectedChildType == 'trial'
-                         ? Timestamp.fromDate(temporaryEndDate)
-                         : FieldValue.delete(),
-
                          'updatedAt': FieldValue.serverTimestamp(),
                          'history': newHistory,
+                         'hasConsultation': hasConsultation,
+                         'consultationStatus': hasConsultation ? 'pending' : 'none',
+                         'temporaryNotes': temporaryNotesCtrl.text.trim(),
+
                       });
 
                       if (!mounted) return;
@@ -1012,6 +955,118 @@ if (selectedChildType == 'temporary' || selectedChildType == 'trial') ...[
     }
   }
 
+  Future<void> convertChildToPermanent(Map<String, dynamic> child) async {
+  final childId = (child['id'] ?? '').toString().trim();
+  final childName = (child['name'] ?? '').toString().trim();
+  final parentUid = (child['parentUid'] ?? '').toString().trim();
+  final parentUsername = (child['parentUsername'] ?? '').toString().trim();
+
+  if (childId.isEmpty) return;
+
+  final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: const Text('تحويل الطفل إلى دائم'),
+            content: Text(
+              'سيتم تحويل الطفل "$childName" إلى طفل دائم، وسيتم تفعيل الفوترة الشهرية له. لن يتم إنشاء طفل جديد أو ولي أمر جديد.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('إلغاء'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('تحويل'),
+              ),
+            ],
+          ),
+        ),
+      ) ??
+      false;
+
+  if (!confirmed) return;
+
+  try {
+    final batch = _firestore.batch();
+
+    final childRef = _firestore.collection('children').doc(childId);
+
+    batch.update(childRef, {
+      'childType': 'permanent',
+      'enrollmentType': 'permanent',
+      'childStatus': 'active',
+      'status': 'active',
+      'isActive': true,
+      'accountStatus': 'active',
+      'isTemporaryChild': false,
+      'isTrialChild': false,
+      'isTemporary': false,
+      'isBillable': true,
+      'excludeFromMonthlyInvoice': false,
+      'temporaryAccess': false,
+      'convertedToPermanentAt': FieldValue.serverTimestamp(),
+      'approvedAt': FieldValue.serverTimestamp(),
+      'canReactivate': true,
+      'permanentDeleted': false,
+      'archiveReason': FieldValue.delete(),
+      'archivedAt': FieldValue.delete(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    if (parentUid.isNotEmpty) {
+      batch.set(_firestore.collection('users').doc(parentUid), {
+        'accountType': 'parent',
+        'accountStatus': 'active',
+        'isTemporaryAccount': false,
+        'isTrialAccount': false,
+        'temporaryAccess': false,
+        'isActive': true,
+        'canReactivate': true,
+        'permanentDeleted': false,
+        'convertedToPermanentAt': FieldValue.serverTimestamp(),
+        'archiveReason': FieldValue.delete(),
+        'archivedAt': FieldValue.delete(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+
+    if (parentUsername.isNotEmpty) {
+      batch.update(_firestore.collection('login_usernames').doc(parentUsername), {
+        'accountType': 'parent',
+        'accountStatus': 'active',
+        'isTemporaryAccount': false,
+        'isTrialAccount': false,
+        'temporaryAccess': false,
+        'isActive': true,
+        'canReactivate': true,
+        'permanentDeleted': false,
+        'convertedToPermanentAt': FieldValue.serverTimestamp(),
+        'archiveReason': FieldValue.delete(),
+        'archivedAt': FieldValue.delete(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
+
+    await batch.commit();
+
+    if (!mounted) return;
+    setState(() {});
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('تم تحويل الطفل إلى دائم بنجاح')),
+    );
+  } catch (e) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('تعذر تحويل الطفل إلى دائم: $e')),
+    );
+  }
+}
+
   Future<void> archiveChild(Map<String, dynamic> child) async {
     final confirmed = await showDialog<bool>(
           context: context,
@@ -1040,10 +1095,15 @@ if (selectedChildType == 'temporary' || selectedChildType == 'trial') ...[
     if (!confirmed) return;
 
     await _firestore.collection('children').doc(child['id']).update({
-      'isActive': false,
-      'status': 'archived',
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
+  'isActive': false,
+  'status': 'archived',
+  'accountStatus': 'archived',
+  'canReactivate': true,
+  'permanentDeleted': false,
+  'archivedAt': FieldValue.serverTimestamp(),
+  'archiveReason': 'archived_from_manage_children',
+  'updatedAt': FieldValue.serverTimestamp(),
+});
 
     if (!mounted) return;
     setState(() {});
@@ -1053,11 +1113,17 @@ if (selectedChildType == 'temporary' || selectedChildType == 'trial') ...[
   }
 
   Future<void> restoreChild(Map<String, dynamic> child) async {
-    await _firestore.collection('children').doc(child['id']).update({
-      'isActive': true,
-      'status': 'active',
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
+   await _firestore.collection('children').doc(child['id']).update({
+  'isActive': true,
+  'status': 'active',
+  'accountStatus': 'active',
+  'canReactivate': true,
+  'permanentDeleted': false,
+  'restoredAt': FieldValue.serverTimestamp(),
+  'archiveReason': FieldValue.delete(),
+  'archivedAt': FieldValue.delete(),
+  'updatedAt': FieldValue.serverTimestamp(),
+});
 
     if (!mounted) return;
     setState(() {});
@@ -1462,6 +1528,26 @@ String temporaryChildSummary(Map<String, dynamic> child) {
           ),
          ),
           const SizedBox(height: 10),
+
+          if (resolveChildType(child) == 'temporary' ||
+    resolveChildType(child) == 'trial') ...[
+  const SizedBox(height: 10),
+  SizedBox(
+    width: double.infinity,
+    child: ElevatedButton.icon(
+      onPressed: () => convertChildToPermanent(child),
+      icon: const Icon(Icons.verified_rounded),
+      label: const Text('تحويل إلى طفل دائم'),
+      style: ElevatedButton.styleFrom(
+        minimumSize: const Size(double.infinity, 50),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+        ),
+      ),
+    ),
+  ),
+  const SizedBox(height: 10),
+],
           Row(
             children: [
               Expanded(

@@ -577,9 +577,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         children: [
-          _WelcomeHeader(
-            parentUsername: widget.parentUsername.trim().toLowerCase(),
-          ),
+          _WelcomeHeader(),
           const SizedBox(height: 16),
           _ParentLiveStreamSection(
             parentUid: currentUserId ?? '',
@@ -1044,10 +1042,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => ParentSupportCenterPage(
-          parentUsername: widget.parentUsername,
-          children: children,
-        ),
+        builder: (_) => ParentSupportCenterPage(),
       ),
     );
   },
@@ -1184,9 +1179,6 @@ class _ParentHomePageState extends State<ParentHomePage> {
 }
 
 class _WelcomeHeader extends StatelessWidget {
-  final String parentUsername;
-
-  const _WelcomeHeader({required this.parentUsername});
 
   String greetingText() {
     final hour = DateTime.now().hour;
@@ -1230,13 +1222,6 @@ class _WelcomeHeader extends StatelessWidget {
             decoration: BoxDecoration(
               color: Colors.white.withOpacity(0.18),
               borderRadius: BorderRadius.circular(14),
-            ),
-            child: Text(
-              'اسم المستخدم: $parentUsername',
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-              ),
             ),
           ),
         ],

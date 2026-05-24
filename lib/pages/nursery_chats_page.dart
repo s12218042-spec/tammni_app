@@ -421,12 +421,12 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
             context,
             MaterialPageRoute(
               builder: (_) => MessagesPage(
-                child: childForChat,
-                targetRole: isAdminChat ? 'admin' : 'parent',
-                targetUserId: targetUserId,
-                targetUserName: displayName,
-                targetSection: 'Nursery',
-              ),
+              child: isAdminChat ? null : childForChat,
+              targetRole: isAdminChat ? 'admin' : 'parent',
+              targetUserId: targetUserId,
+              targetUserName: displayName,
+              targetSection: 'Nursery',
+            ),
             ),
           );
 
@@ -901,6 +901,43 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (activeChildren.isEmpty) {
+      return AppPageScaffold(
+        title: 'المراسلات',
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        child: Center(
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: const Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.child_care_outlined,
+                  size: 52,
+                  color: AppColors.textLight,
+                ),
+                SizedBox(height: 12),
+                Text(
+                  'لا يوجد أطفال مرتبطون حاليًا',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.textDark,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return AppPageScaffold(
       title: 'المراسلات',
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),

@@ -25,8 +25,14 @@ class StartLiveStreamPage extends StatefulWidget {
     this.requestedParentUsername,
   });
 
+  bool get isChildSpecificStream =>
+      (requestedChildId ?? '').trim().isNotEmpty;
+
   bool get isRequestBasedStream =>
-      liveStreamRequestId != null && liveStreamRequestId!.trim().isNotEmpty;
+      (liveStreamRequestId ?? '').trim().isNotEmpty;
+
+  bool get shouldStartForSpecificChild =>
+      isRequestBasedStream || isChildSpecificStream;
 
   @override
   State<StartLiveStreamPage> createState() => _StartLiveStreamPageState();
@@ -55,7 +61,7 @@ class _StartLiveStreamPageState extends State<StartLiveStreamPage> {
     super.initState();
 
     _titleController = TextEditingController(
-      text: widget.isRequestBasedStream
+      text: widget.shouldStartForSpecificChild
           ? 'بث مباشر للطفل ${widget.requestedChildName ?? ''}'
           : 'بث مباشر من الحضانة',
     );
@@ -223,8 +229,8 @@ class _StartLiveStreamPageState extends State<StartLiveStreamPage> {
           child: AlertDialog(
             title: const Text('بدء بث مباشر؟'),
             content: Text(
-              widget.isRequestBasedStream
-                  ? 'سيتم بدء بث مباشر خاص بولي أمر الطفل ${widget.requestedChildName ?? ''}. تأكدي أن الكاميرا تظهر بشكل صحيح قبل البدء.'
+              widget.shouldStartForSpecificChild
+                  ? 'سيتم بدء بث مباشر خاص بالطفل ${widget.requestedChildName ?? ''}. تأكدي أن الكاميرا تظهر بشكل صحيح قبل البدء.'
                   : 'سيتم بدء بث مباشر وإرسال إشعار لأولياء الأمور حسب إعدادات خدمة البث. تأكدي أن الكاميرا تظهر بشكل صحيح قبل البدء.',
               style: const TextStyle(height: 1.5),
             ),
@@ -311,7 +317,7 @@ class _StartLiveStreamPageState extends State<StartLiveStreamPage> {
         section: section,
         group: userData['group'].toString(),
         allowedViewersType:
-            widget.isRequestBasedStream ? 'specific_parent' : 'all',
+            widget.shouldStartForSpecificChild ? 'specific_child' : 'all',
         notifyParents: true,
         liveStreamRequestId: widget.liveStreamRequestId ?? '',
         requestedChildId: widget.requestedChildId ?? '',
@@ -347,8 +353,8 @@ class _StartLiveStreamPageState extends State<StartLiveStreamPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            widget.isRequestBasedStream
-                ? 'تم بدء البث الخاص بنجاح'
+            widget.shouldStartForSpecificChild
+                ? 'تم بدء البث الخاص بالطفل بنجاح'
                 : 'تم بدء البث المباشر بنجاح',
           ),
         ),
@@ -490,7 +496,7 @@ class _StartLiveStreamPageState extends State<StartLiveStreamPage> {
   }
 
   Widget _buildRequestInfoCard() {
-    if (!widget.isRequestBasedStream) return const SizedBox.shrink();
+    if (!widget.shouldStartForSpecificChild) return const SizedBox.shrink();
 
     final childName = (widget.requestedChildName ?? '').trim();
     final parentUsername = (widget.requestedParentUsername ?? '').trim();
@@ -516,7 +522,7 @@ class _StartLiveStreamPageState extends State<StartLiveStreamPage> {
           Expanded(
             child: Text(
               childName.isEmpty
-                  ? 'هذا بث مباشر خاص بناءً على طلب ولي أمر.'
+                  ? 'هذا بث مباشر خاص بطفل محدد.'
                   : 'هذا بث مباشر خاص للطفل $childName${parentUsername.isEmpty ? '' : ' - ولي الأمر: $parentUsername'}',
               style: const TextStyle(
                 color: AppColors.textDark,
@@ -662,8 +668,8 @@ class _StartLiveStreamPageState extends State<StartLiveStreamPage> {
             : 'الكاميرا غير جاهزة';
 
     final subtitle = _isLive
-        ? widget.isRequestBasedStream
-            ? 'ولي الأمر المحدد يستطيع مشاهدة هذا البث الخاص من الإشعار أو صفحة المشاهدة.'
+        ? widget.shouldStartForSpecificChild
+            ? 'ولي الأمر يستطيع مشاهدة هذا البث الخاص من الإشعار أو صفحة الطفل.'
             : 'الأهل يستطيعون مشاهدة البث من إشعار البث أو صفحة المشاهدة.'
         : _hasCameraPreview
             ? 'يمكنك بدء البث بعد التأكد من العنوان والمعاينة.'
@@ -797,7 +803,7 @@ class _StartLiveStreamPageState extends State<StartLiveStreamPage> {
         label: Text(
           _isStarting
               ? 'جارٍ بدء البث...'
-              : widget.isRequestBasedStream
+              : widget.shouldStartForSpecificChild
                   ? 'بدء البث الخاص'
                   : 'بدء البث المباشر',
         ),
@@ -870,8 +876,8 @@ class _StartLiveStreamPageState extends State<StartLiveStreamPage> {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              widget.isRequestBasedStream
-                  ? 'هذا البث خاص بطلب ولي أمر محدد، وسيتم ربطه بالطلب والطفل حتى لا يصبح بثًا عامًا لكل الأهل.'
+              widget.shouldStartForSpecificChild
+                  ? 'هذا البث خاص بطفل محدد، وسيتم ربطه بالطفل حتى لا يصبح بثًا عامًا لكل الأهل.'
                   : 'هذه نسخة بث مباشر مجانية وتجريبية. عند بدء البث يتم إنشاء غرفة نشطة، وعند الإنهاء يتم تحديث حالتها حتى لا تبقى ظاهرة للأهل كبث نشط.',
               style: const TextStyle(
                 color: AppColors.textDark,
@@ -892,7 +898,8 @@ class _StartLiveStreamPageState extends State<StartLiveStreamPage> {
       child: Directionality(
         textDirection: TextDirection.rtl,
         child: AppPageScaffold(
-          title: widget.isRequestBasedStream ? 'بث خاص للطفل' : 'البث المباشر',
+          title:
+              widget.shouldStartForSpecificChild ? 'بث خاص للطفل' : 'البث المباشر',
           actions: [
             if (!_isLive)
               IconButton(
@@ -908,7 +915,7 @@ class _StartLiveStreamPageState extends State<StartLiveStreamPage> {
               : ListView(
                   children: [
                     _buildRequestInfoCard(),
-                    if (widget.isRequestBasedStream)
+                    if (widget.shouldStartForSpecificChild)
                       const SizedBox(height: 14),
                     _buildPreviewCard(),
                     const SizedBox(height: 18),

@@ -227,13 +227,16 @@ class ParentIncidentReportsPage extends StatelessWidget {
   }
 
   String _resolveImageUrl(Map<String, dynamic> data) {
-    return _firstNonEmpty([
-      data['mediaUrl'],
-      data['imageUrl'],
-      data['photoUrl'],
-      data['attachmentUrl'],
-    ]);
-  }
+  return _firstNonEmpty([
+    data['mediaUrl'],
+    data['imageUrl'],
+    data['photoUrl'],
+    data['attachmentUrl'],
+    data['publicUrl'],
+    data['signedUrl'],
+    data['downloadUrl'],
+  ]);
+}
 
   List<String> _resolveWitnesses(Map<String, dynamic> data) {
     final value = data['witnesses'];

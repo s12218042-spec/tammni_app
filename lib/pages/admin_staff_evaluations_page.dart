@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import '../services/app_notification_service.dart';
 
 class AdminStaffEvaluationsPage extends StatefulWidget {
   const AdminStaffEvaluationsPage({super.key});
@@ -12,7 +14,7 @@ class AdminStaffEvaluationsPage extends StatefulWidget {
 class _AdminStaffEvaluationsPageState
     extends State<AdminStaffEvaluationsPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-
+  final FirebaseAuth _auth = FirebaseAuth.instance;
   bool isSaving = false;
 
   String selectedEvaluationType = 'weekly';
@@ -178,11 +180,17 @@ class _AdminStaffEvaluationsPageState
     try {
       final staffName = _staffName(selectedStaffData!);
       final staffUsername = _clean(selectedStaffData!['username']);
+      final currentUser = _auth.currentUser;
 
       final evaluationId =
           '${selectedStaffUid}_${selectedEvaluationType}_$currentPeriodKey';
+      final evaluationRef =
+          _firestore.collection('staff_evaluations').doc(evaluationId);
 
-      await _firestore.collection('staff_evaluations').doc(evaluationId).set({
+      final oldEvaluationDoc = await evaluationRef.get();
+      final evaluationAlreadyExists = oldEvaluationDoc.exists;
+
+      final evaluationData = <String, dynamic>{
         'evaluationId': evaluationId,
         'staffUid': selectedStaffUid,
         'staffName': staffName,
@@ -195,16 +203,50 @@ class _AdminStaffEvaluationsPageState
         'periodEndDate': Timestamp.fromDate(currentPeriodEnd),
         'periodStartDateKey': _formatDate(currentPeriodStart),
         'periodEndDateKey': _formatDate(currentPeriodEnd),
-        'scores': scores,
-        'scoreLabels': scoreLabels,
+        'scores': Map<String, int>.from(scores),
+        'scoreLabels': Map<String, String>.from(scoreLabels),
         'averageScore': double.parse(averageScore.toStringAsFixed(2)),
         'averageLabel': averageLabel,
         'adminNotes': adminNotesController.text.trim(),
         'createdByRole': 'admin',
         'isActive': true,
-        'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      };
+
+      if (!evaluationAlreadyExists) {
+        evaluationData['createdAt'] = FieldValue.serverTimestamp();
+      }
+
+      await evaluationRef.set(evaluationData, SetOptions(merge: true));
+      try {
+        await AppNotificationService.instance.notifyUser(
+          targetUid: selectedStaffUid ?? '',
+          targetUsername: staffUsername,
+          targetRole: 'nursery_staff',
+          title: 'تم حفظ تقييمك',
+          body:
+              'تم حفظ تقييمك ${selectedEvaluationType == 'weekly' ? 'الأسبوعي' : 'الشهري'} للفترة $currentPeriodKey. النتيجة: ${averageScore.toStringAsFixed(2)} / 5 - $averageLabel.',
+          type: 'staff_evaluation',
+          priority: 'normal',
+          createdByUid: currentUser?.uid ?? '',
+          createdByName: 'الإدارة',
+          createdByRole: 'admin',
+          extraData: {
+            'evaluationId': evaluationId,
+            'evaluationType': selectedEvaluationType,
+            'periodKey': currentPeriodKey,
+            'averageScore': double.parse(averageScore.toStringAsFixed(2)),
+            'averageLabel': averageLabel,
+            'category': 'staff_evaluations',
+            'notificationType': 'staff_evaluation',
+            'screen': 'staff_evaluations',
+            'route': 'staff_evaluations',
+            'relatedCollection': 'staff_evaluations',
+          },
+        );
+      } catch (e) {
+        debugPrint('AdminStaffEvaluationsPage: فشل إرسال إشعار تقييم الموظفة: $e');
+      }
 
       if (!mounted) return;
 
@@ -362,7 +404,9 @@ class _AdminStaffEvaluationsPageState
         }
 
         final staffDocs = snapshot.data!.docs.where((doc) {
-          return _isNurseryStaff(doc.data());
+          final data = doc.data();
+          final isActive = data['isActive'] != false;
+          return isActive && _isNurseryStaff(data);
         }).toList();
 
         staffDocs.sort((a, b) {

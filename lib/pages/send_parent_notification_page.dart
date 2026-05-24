@@ -144,43 +144,89 @@ class _SendParentNotificationPageState
   }
 
   Future<Map<String, String>> fetchParentLinkInfo() async {
-    String parentUid = widget.child.parentUid.trim();
-    String parentUsername = widget.child.parentUsername.trim().toLowerCase();
-    String parentName = widget.child.parentName.trim();
+  String parentUid = widget.child.parentUid.trim();
+  String parentUsername = widget.child.parentUsername.trim().toLowerCase();
+  String parentName = widget.child.parentName.trim();
 
-    try {
-      final childDoc =
-          await _firestore.collection('children').doc(widget.child.id).get();
+  String section = widget.child.section.trim().isEmpty
+      ? 'Nursery'
+      : widget.child.section.trim();
 
-      if (childDoc.exists) {
-        final data = childDoc.data() ?? <String, dynamic>{};
+  String group = widget.child.group.trim();
 
-        final docParentUid = (data['parentUid'] ?? '').toString().trim();
-        final docParentUsername =
-            (data['parentUsername'] ?? '').toString().trim().toLowerCase();
-        final docParentName = (data['parentName'] ?? '').toString().trim();
+  String childType = 'permanent';
+  String enrollmentType = 'permanent';
 
-        if (docParentUid.isNotEmpty) {
-          parentUid = docParentUid;
-        }
+  try {
+    final childDoc =
+        await _firestore.collection('children').doc(widget.child.id).get();
 
-        if (docParentUsername.isNotEmpty) {
-          parentUsername = docParentUsername;
-        }
+    if (childDoc.exists) {
+      final data = childDoc.data() ?? <String, dynamic>{};
 
-        if (docParentName.isNotEmpty) {
-          parentName = docParentName;
-        }
+      final docParentUid = (data['parentUid'] ?? '').toString().trim();
+      final docParentUsername =
+          (data['parentUsername'] ?? '').toString().trim().toLowerCase();
+      final docParentName = (data['parentName'] ?? '').toString().trim();
+
+      final docSection = (data['section'] ?? '').toString().trim();
+      final docGroup =
+          (data['groupName'] ?? data['group'] ?? '').toString().trim();
+
+      final docChildType = (data['childType'] ??
+              data['enrollmentType'] ??
+              data['type'] ??
+              '')
+          .toString()
+          .trim();
+
+      final docEnrollmentType =
+          (data['enrollmentType'] ?? data['childType'] ?? '')
+              .toString()
+              .trim();
+
+      if (docParentUid.isNotEmpty) {
+        parentUid = docParentUid;
       }
-    } catch (_) {}
 
-    return {
-      'parentUid': parentUid,
-      'parentUsername': parentUsername,
-      'parentName': parentName,
-    };
-  }
+      if (docParentUsername.isNotEmpty) {
+        parentUsername = docParentUsername;
+      }
 
+      if (docParentName.isNotEmpty) {
+        parentName = docParentName;
+      }
+
+      if (docSection.isNotEmpty) {
+        section = docSection;
+      }
+
+      if (docGroup.isNotEmpty) {
+        group = docGroup;
+      }
+
+      if (docChildType.isNotEmpty) {
+        childType = docChildType;
+      }
+
+      if (docEnrollmentType.isNotEmpty) {
+        enrollmentType = docEnrollmentType;
+      } else {
+        enrollmentType = childType;
+      }
+    }
+  } catch (_) {}
+
+  return {
+    'parentUid': parentUid,
+    'parentUsername': parentUsername,
+    'parentName': parentName,
+    'section': section,
+    'group': group,
+    'childType': childType,
+    'enrollmentType': enrollmentType,
+  };
+}
   String buildTitle() {
     switch (selectedTemplate) {
       case 'health':
@@ -317,98 +363,116 @@ class _SendParentNotificationPageState
   }
 
   Future<void> sendNotification() async {
-    final finalMessage = buildMessage().trim();
+  final finalMessage = buildMessage().trim();
 
-    if (selectedTemplate == 'custom' && finalMessage.isEmpty) {
-      showSnack('اكتبي الرسالة أولًا');
-      return;
+  if (selectedTemplate == 'custom' && finalMessage.isEmpty) {
+    showSnack('اكتبي الرسالة أولًا');
+    return;
+  }
+
+  if (finalMessage.isEmpty) {
+    showSnack('لا يمكن إرسال إشعار فارغ');
+    return;
+  }
+
+  setState(() {
+    isSending = true;
+  });
+
+  try {
+    final userInfo = await fetchCurrentUserInfo();
+    final parentInfo = await fetchParentLinkInfo();
+
+    final parentUid = (parentInfo['parentUid'] ?? '').trim();
+    final parentUsername =
+        (parentInfo['parentUsername'] ?? '').trim().toLowerCase();
+    final parentName = (parentInfo['parentName'] ?? '').trim();
+
+    final section = (parentInfo['section'] ?? 'Nursery').trim();
+    final group = (parentInfo['group'] ?? '').trim();
+    final childType = (parentInfo['childType'] ?? 'permanent').trim();
+    final enrollmentType =
+        (parentInfo['enrollmentType'] ?? childType).trim();
+
+    final childId = widget.child.id.trim();
+
+    if (parentUid.isEmpty && parentUsername.isEmpty && childId.isEmpty) {
+      throw Exception('لا يوجد طفل أو ولي أمر واضح لإرسال الإشعار');
     }
 
-    if (finalMessage.isEmpty) {
-      showSnack('لا يمكن إرسال إشعار فارغ');
-      return;
-    }
+    final title = buildTitle();
+    final notificationType = templateNotificationType(selectedTemplate);
+
+    await AppNotificationService.instance.notifyChildParent(
+      parentUid: parentUid,
+      parentUsername: parentUsername,
+      parentName: parentName,
+      title: title,
+      body: finalMessage,
+      type: notificationType,
+      childId: childId,
+      childName: widget.child.name,
+      section: section.isEmpty ? 'Nursery' : section,
+      group: group,
+      priority: selectedPriority,
+      createdByUid: userInfo['uid'] ?? '',
+      createdByName: userInfo['name'] ?? 'مستخدم',
+      createdByRole: userInfo['role'] ?? 'nursery_staff',
+      extraData: {
+        'targetName': parentName,
+        'targetUid': parentUid,
+        'targetUsername': parentUsername,
+        'targetRole': 'parent',
+        'receiverUid': parentUid,
+        'receiverUsername': parentUsername,
+        'receiverRole': 'parent',
+        'subject': title,
+        'notificationTitle': title,
+        'message': finalMessage,
+        'text': finalMessage,
+        'description': finalMessage,
+        'notificationType': notificationType,
+        'category': selectedTemplate,
+        'templateType': selectedTemplate,
+        'importance': selectedPriority,
+        'level': selectedPriority,
+        'childId': childId,
+        'childName': widget.child.name,
+        'childType': childType.isEmpty ? 'permanent' : childType,
+        'enrollmentType':
+            enrollmentType.isEmpty ? childType : enrollmentType,
+        'section': section.isEmpty ? 'Nursery' : section,
+        'group': group,
+        'createdByUsername': userInfo['username'] ?? '',
+        'byRole': userInfo['role'] ?? 'nursery_staff',
+        'senderId': userInfo['uid'] ?? '',
+        'senderName': userInfo['name'] ?? 'مستخدم',
+        'senderRole': userInfo['role'] ?? 'nursery_staff',
+        'source': 'send_parent_notification_page',
+        'screen': 'notifications',
+        'route': 'parent_notifications',
+        'relatedCollection': 'notifications',
+      },
+    );
+
+    if (!mounted) return;
+
+    showSnack(
+      'تم إرسال الإشعار بنجاح',
+      backgroundColor: Colors.green,
+    );
+
+    Navigator.pop(context, true);
+  } catch (e) {
+    showSnack('حدث خطأ أثناء إرسال الإشعار: $e');
+  } finally {
+    if (!mounted) return;
 
     setState(() {
-      isSending = true;
+      isSending = false;
     });
-
-    try {
-      final userInfo = await fetchCurrentUserInfo();
-      final parentInfo = await fetchParentLinkInfo();
-
-      final parentUid = (parentInfo['parentUid'] ?? '').trim();
-      final parentUsername =
-          (parentInfo['parentUsername'] ?? '').trim().toLowerCase();
-      final parentName = (parentInfo['parentName'] ?? '').trim();
-
-      if (parentUid.isEmpty && parentUsername.isEmpty) {
-        throw Exception('لا يوجد ولي أمر مرتبط بهذا الطفل لإرسال الإشعار');
-      }
-
-      final title = buildTitle();
-      final notificationType = templateNotificationType(selectedTemplate);
-
-      await AppNotificationService.instance.createNotification(
-        title: title,
-        body: finalMessage,
-        type: notificationType,
-        notificationFor: 'parent',
-        priority: selectedPriority,
-        targetUid: parentUid,
-        targetUsername: parentUsername,
-        targetRole: 'parent',
-        parentUid: parentUid,
-        parentUsername: parentUsername,
-        parentName: parentName,
-        childId: widget.child.id,
-        childName: widget.child.name,
-        section: widget.child.section,
-        group: widget.child.group,
-        createdByUid: userInfo['uid'] ?? '',
-        createdByName: userInfo['name'] ?? 'مستخدم',
-        createdByRole: userInfo['role'] ?? 'nursery_staff',
-        extraData: {
-          'targetName': parentName,
-          'subject': title,
-          'notificationTitle': title,
-          'message': finalMessage,
-          'text': finalMessage,
-          'description': finalMessage,
-          'notificationType': notificationType,
-          'category': selectedTemplate,
-          'templateType': selectedTemplate,
-          'importance': selectedPriority,
-          'level': selectedPriority,
-          'createdByUsername': userInfo['username'] ?? '',
-          'byRole': userInfo['role'] ?? 'nursery_staff',
-          'senderId': userInfo['uid'] ?? '',
-          'senderName': userInfo['name'] ?? 'مستخدم',
-          'senderRole': userInfo['role'] ?? 'nursery_staff',
-          'source': 'send_parent_notification_page',
-          'route': 'parent_notifications',
-          'relatedCollection': 'notifications',
-        },
-      );
-
-      if (!mounted) return;
-
-      showSnack(
-        'تم إرسال الإشعار بنجاح',
-        backgroundColor: Colors.green,
-      );
-
-      Navigator.pop(context, true);
-    } catch (e) {
-      showSnack('حدث خطأ أثناء إرسال الإشعار: $e');
-    } finally {
-      if (!mounted) return;
-
-      setState(() {
-        isSending = false;
-      });
-    }
   }
+}
 
   Widget buildHeaderCard() {
     return Container(

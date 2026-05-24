@@ -38,13 +38,16 @@ class _StaffMyEvaluationsPageState extends State<StaffMyEvaluationsPage> {
     final currentUser = AuthService().currentUser;
 
     if (currentUser == null) {
-      setState(() {
-        isLoading = false;
-        loadError = 'لم يتم العثور على المستخدم الحالي. سجّلي الدخول مرة أخرى.';
-        evaluations = [];
-      });
-      return;
-    }
+  if (!mounted) return;
+
+  setState(() {
+    isLoading = false;
+    loadError = 'لم يتم العثور على المستخدم الحالي. سجّلي الدخول مرة أخرى.';
+    evaluations = [];
+  });
+
+  return;
+}
 
     if (isLoading) return;
 

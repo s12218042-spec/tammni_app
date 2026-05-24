@@ -79,24 +79,12 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
   }
 
   Widget buildSectionTitle(String title, String subtitle) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w800,
-                color: AppColors.textDark,
-              ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          subtitle,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: AppColors.textLight,
-              ),
-        ),
-      ],
+    return Text(
+      title,
+      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w800,
+            color: AppColors.textDark,
+          ),
     );
   }
 
@@ -1128,8 +1116,6 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
           children: [
             buildHeaderCard(),
             const SizedBox(height: 16),
-            buildInfoCard(),
-            const SizedBox(height: 18),
             buildChildSection(),
             const SizedBox(height: 14),
             buildHealthSection(),

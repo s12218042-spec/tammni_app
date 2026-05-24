@@ -196,7 +196,7 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
     }
   }
 
-  Future<void> _createParentNotification({
+Future<void> _createParentNotification({
   required String parentUid,
   required String parentUsername,
   required String parentName,
@@ -210,37 +210,53 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
   String reviewNote = '',
   String createdChildId = '',
 }) async {
-  await AppNotificationService.instance.notifyParent(
-    parentUid: parentUid,
-    parentUsername: parentUsername,
-    parentName: parentName,
-    title: title,
-    body: body,
-    type: 'add_child_request',
-    childId: createdChildId,
-    childName: childName,
-    section: 'Nursery',
-    group: '',
-    priority: status == 'approved' ? 'normal' : 'important',
-    createdByUid: adminUid,
-    createdByName: adminName,
-    createdByRole: 'admin',
-    extraData: {
-      'notificationType': 'add_child_request',
-      'category': 'requests',
-      'requestType': 'add_child',
-      'requestId': requestId,
-      'status': status,
-      'reviewNote': reviewNote.trim(),
-      'importance': status == 'approved' ? 'normal' : 'important',
-      'senderUid': adminUid,
-      'senderName': adminName,
-      'senderRole': 'admin',
-      'screen': 'requests',
-      'route': 'parent_add_child_requests',
-      'relatedCollection': 'add_child_requests',
-    },
-  );
+  try {
+    final cleanParentUid = parentUid.trim();
+    final cleanParentUsername = parentUsername.trim().toLowerCase();
+
+    if (cleanParentUid.isEmpty && cleanParentUsername.isEmpty) {
+      debugPrint(
+        'AdminAddChildRequestsPage: لم يتم إرسال إشعار لولي الأمر لأن parentUid و parentUsername فارغين',
+      );
+      return;
+    }
+
+    await AppNotificationService.instance.notifyParent(
+      parentUid: cleanParentUid,
+      parentUsername: cleanParentUsername,
+      parentName: parentName.trim(),
+      title: title,
+      body: body,
+      type: 'add_child_request',
+      childId: createdChildId.trim(),
+      childName: childName.trim(),
+      section: 'Nursery',
+      group: '',
+      priority: status == 'approved' ? 'normal' : 'important',
+      createdByUid: adminUid,
+      createdByName: adminName,
+      createdByRole: 'admin',
+      extraData: {
+        'notificationType': 'add_child_request',
+        'category': 'requests',
+        'requestType': 'add_child',
+        'requestId': requestId,
+        'status': status,
+        'reviewNote': reviewNote.trim(),
+        'importance': status == 'approved' ? 'normal' : 'important',
+        'senderUid': adminUid,
+        'senderName': adminName,
+        'senderRole': 'admin',
+        'screen': 'requests',
+        'route': 'parent_add_child_requests',
+        'relatedCollection': 'add_child_requests',
+      },
+    );
+  } catch (e) {
+    debugPrint(
+      'AdminAddChildRequestsPage: فشل إرسال إشعار نتيجة طلب إضافة الطفل: $e',
+    );
+  }
 }
 
   Future<void> _updateRequestStatus({
@@ -405,6 +421,17 @@ class _AdminAddChildRequestsPageState extends State<AdminAddChildRequestsPage> {
           'group': '',
           'status': 'active',
           'isActive': true,
+          'childId': childDocRef.id,
+          'childName': childName,
+          'childType': 'permanent',
+          'enrollmentType': 'permanent',
+          'childStatus': 'active',
+          'isTemporaryChild': false,
+          'isTrialChild': false,
+          'isBillable': true,
+          'excludeFromMonthlyInvoice': false,
+          'canReactivate': true,
+          'permanentDeleted': false,
           'hasChronicDiseases':
               (childInfo['hasChronicDiseases'] ?? false) == true,
           'chronicDiseases': (childInfo['chronicDiseases'] ?? '').toString(),

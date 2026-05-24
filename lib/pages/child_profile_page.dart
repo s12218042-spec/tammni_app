@@ -607,12 +607,6 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
             padding: const EdgeInsets.all(16),
             child: Column(
               children: [
-                const _ActionIntroBox(
-                  title: 'كل التحديثات',
-                  subtitle:
-                      'الوصول إلى جميع تحديثات الطفل اليومية بشكل منظم وواضح.',
-                  icon: Icons.notifications_active_outlined,
-                ),
                 const SizedBox(height: 14),
                 SizedBox(
                   width: double.infinity,
@@ -950,14 +944,6 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
                               color: Colors.white,
                               fontWeight: FontWeight.bold,
                               fontSize: 20,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'متابعة منظمة لكل ما يتعلق بالطفل',
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.95),
-                              fontSize: 13.5,
                             ),
                           ),
                         ],

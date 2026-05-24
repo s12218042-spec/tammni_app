@@ -1,17 +1,11 @@
 import 'package:flutter/material.dart';
 
-import '../models/child_model.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 
 class ParentSupportCenterPage extends StatelessWidget {
-  final String parentUsername;
-  final List<ChildModel> children;
-
   const ParentSupportCenterPage({
     super.key,
-    required this.parentUsername,
-    required this.children,
   });
 
   @override
@@ -130,17 +124,6 @@ class ParentSupportCenterPage extends StatelessWidget {
                     child: Icon(
                       Icons.info_outline_rounded,
                       color: AppColors.primary,
-                    ),
-                  ),
-                  SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'لأي مشكلة لا تجدين إجابتها هنا، استخدمي الصفحة المناسبة داخل التطبيق مثل الرسائل، الشكاوى، الفواتير، أو إعدادات الحساب.',
-                      style: TextStyle(
-                        color: AppColors.textDark,
-                        height: 1.5,
-                        fontWeight: FontWeight.w600,
-                      ),
                     ),
                   ),
                 ],

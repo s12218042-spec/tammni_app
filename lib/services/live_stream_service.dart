@@ -80,6 +80,11 @@ class LiveStreamService {
     },
   };
 
+  String _cleanText(dynamic value) {
+    if (value == null) return '';
+    return value.toString().trim();
+  }
+
   String _normalizeRole(String value) {
     final role = value.trim().toLowerCase();
 
@@ -184,64 +189,64 @@ class LiveStreamService {
   }
 
   DateTime? _dateFromDynamic(dynamic value) {
-  if (value is Timestamp) return value.toDate();
-  if (value is DateTime) return value;
-  return null;
-}
-
-Future<void> expireReadyRequestsIfNeeded() async {
-  try {
-    final now = DateTime.now();
-
-    final snapshot = await _firestore
-        .collection('live_stream_requests')
-        .where('status', isEqualTo: 'ready')
-        .limit(20)
-        .get();
-
-    bool expiredAnyRequest = false;
-
-    for (final doc in snapshot.docs) {
-      final data = doc.data();
-      final expiresAt = _dateFromDynamic(data['readyExpiresAt']);
-
-      if (expiresAt == null) continue;
-      if (expiresAt.isAfter(now)) continue;
-
-      await doc.reference.update({
-        'status': 'expired',
-        'expiredAt': FieldValue.serverTimestamp(),
-        'expireReason': 'ready_timeout',
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-
-      expiredAnyRequest = true;
-
-      await _sendNotificationToParent(
-        type: 'live_stream_request_expired',
-        title: 'انتهت مهلة البث المباشر',
-        body:
-            'انتهت مهلة استخدام البث المباشر للطفل ${(data['childName'] ?? 'الطفل').toString()}، وتم الانتقال للطلب التالي.',
-        parentUid: (data['parentUid'] ?? '').toString(),
-        parentUsername: (data['parentUsername'] ?? '').toString(),
-        parentName: (data['parentName'] ?? '').toString(),
-        childId: (data['childId'] ?? '').toString(),
-        childName: (data['childName'] ?? '').toString(),
-        roomId: '',
-        requestId: doc.id,
-        actorUid: 'system',
-        actorName: 'النظام',
-        actorRole: 'admin',
-      );
-    }
-
-    if (expiredAnyRequest) {
-      await _promoteNextQueuedRequest();
-    }
-  } catch (e) {
-    debugPrint('expire ready live stream requests error: $e');
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    return null;
   }
-}
+
+  Future<void> expireReadyRequestsIfNeeded() async {
+    try {
+      final now = DateTime.now();
+
+      final snapshot = await _firestore
+          .collection('live_stream_requests')
+          .where('status', isEqualTo: 'ready')
+          .limit(20)
+          .get();
+
+      bool expiredAnyRequest = false;
+
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final expiresAt = _dateFromDynamic(data['readyExpiresAt']);
+
+        if (expiresAt == null) continue;
+        if (expiresAt.isAfter(now)) continue;
+
+        await doc.reference.update({
+          'status': 'expired',
+          'expiredAt': FieldValue.serverTimestamp(),
+          'expireReason': 'ready_timeout',
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+
+        expiredAnyRequest = true;
+
+        await _sendNotificationToParent(
+          type: 'live_stream_request_expired',
+          title: 'انتهت مهلة البث المباشر',
+          body:
+              'انتهت مهلة استخدام البث المباشر للطفل ${(data['childName'] ?? 'الطفل').toString()}، وتم الانتقال للطلب التالي.',
+          parentUid: (data['parentUid'] ?? '').toString(),
+          parentUsername: (data['parentUsername'] ?? '').toString(),
+          parentName: (data['parentName'] ?? '').toString(),
+          childId: (data['childId'] ?? '').toString(),
+          childName: (data['childName'] ?? '').toString(),
+          roomId: '',
+          requestId: doc.id,
+          actorUid: 'system',
+          actorName: 'النظام',
+          actorRole: 'admin',
+        );
+      }
+
+      if (expiredAnyRequest) {
+        await _promoteNextQueuedRequest();
+      }
+    } catch (e) {
+      debugPrint('expire ready live stream requests error: $e');
+    }
+  }
 
   Future<LiveStreamRequestResult> requestLiveStreamForChild({
     required String childId,
@@ -550,6 +555,14 @@ Future<void> expireReadyRequestsIfNeeded() async {
           cleanParentUsername.isNotEmpty ||
           cleanChildId.isNotEmpty;
 
+      final cleanAllowedViewersType = cleanChildId.isNotEmpty
+          ? 'specific_child'
+          : isIndividualStream
+              ? 'individual_parent'
+              : allowedViewersType.trim().isEmpty
+                  ? 'all'
+                  : allowedViewersType.trim();
+
       final roomRef = _firestore.collection('live_streams').doc();
       final roomId = roomRef.id;
       _currentRoomId = roomId;
@@ -578,16 +591,14 @@ Future<void> expireReadyRequestsIfNeeded() async {
         'startedByPhotoUrl': startedByPhotoUrl ?? '',
         'section': section.trim().isEmpty ? 'Nursery' : section.trim(),
         'group': group.trim(),
-        'allowedViewersType': isIndividualStream
-            ? 'individual_parent'
-            : allowedViewersType.trim().isEmpty
-                ? 'all'
-                : allowedViewersType.trim(),
+        'allowedViewersType': cleanAllowedViewersType,
         'targetParentUid': cleanParentUid,
         'targetParentUsername': cleanParentUsername,
-        'maxViewers': isIndividualStream ? 1 : 3,
+        'targetChildId': cleanChildId,
+        'maxViewers': cleanChildId.isNotEmpty || isIndividualStream ? 1 : 3,
         'notifyParents': notifyParents,
         'isIndividualStream': isIndividualStream,
+        'isChildSpecificStream': cleanChildId.isNotEmpty,
         'startedAt': FieldValue.serverTimestamp(),
         'endedAt': null,
         'createdAt': FieldValue.serverTimestamp(),
@@ -834,6 +845,39 @@ Future<void> expireReadyRequestsIfNeeded() async {
         }
       }
 
+      if (allowedViewersType == 'specific_child') {
+        final targetChildId = _cleanText(
+          roomData['childId'] ?? roomData['requestedChildId'],
+        );
+
+        if (targetChildId.isEmpty) {
+          throw Exception('بيانات الطفل غير متوفرة لهذا البث.');
+        }
+
+        if (currentUser.isAnonymous) {
+          final deviceSnapshot = await _firestore
+              .collection('temporary_parent_devices')
+              .where('authUid', isEqualTo: currentUser.uid)
+              .where('childId', isEqualTo: targetChildId)
+              .where('isActive', isEqualTo: true)
+              .limit(1)
+              .get();
+
+          if (deviceSnapshot.docs.isEmpty) {
+            throw Exception('هذا البث مخصص لطفل آخر.');
+          }
+        } else {
+          final targetParentUid =
+              (roomData['targetParentUid'] ?? roomData['parentUid'] ?? '')
+                  .toString()
+                  .trim();
+
+          if (targetParentUid.isNotEmpty && targetParentUid != currentUser.uid) {
+            throw Exception('هذا البث مخصص لولي أمر آخر.');
+          }
+        }
+      }
+
       final viewerRef = roomRef.collection('viewers').doc();
       final viewerId = viewerRef.id;
 
@@ -871,6 +915,7 @@ Future<void> expireReadyRequestsIfNeeded() async {
       await viewerRef.set({
         'viewerId': viewerId,
         'viewerUid': currentUser.uid,
+        'viewerIsAnonymous': currentUser.isAnonymous,
         'status': 'waiting',
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
@@ -1041,19 +1086,32 @@ Future<void> expireReadyRequestsIfNeeded() async {
     required String actorRole,
   }) async {
     try {
-      if (parentUid.trim().isEmpty && parentUsername.trim().isEmpty) return;
+      final cleanParentUid = parentUid.trim();
+      final cleanParentUsername = parentUsername.trim().toLowerCase();
+      final cleanChildId = childId.trim();
+      final cleanChildName = childName.trim();
 
-      await AppNotificationService.instance.notifyParent(
-        parentUid: parentUid,
-        parentUsername: parentUsername,
-        parentName: parentName,
+      if (cleanParentUid.isEmpty &&
+          cleanParentUsername.isEmpty &&
+          cleanChildId.isEmpty) {
+        debugPrint(
+          'live stream notification skipped: no parentUid, parentUsername, or childId',
+        );
+        return;
+      }
+
+      await AppNotificationService.instance.notifyChildParent(
+        parentUid: cleanParentUid,
+        parentUsername: cleanParentUsername,
+        parentName: parentName.trim(),
         title: title,
         body: body,
         type: type,
-        childId: childId,
-        childName: childName,
+        childId: cleanChildId,
+        childName: cleanChildName,
         section: 'Nursery',
-        priority: type == 'live_stream_request_rejected'
+        priority: type == 'live_stream_request_rejected' ||
+                type == 'live_stream_started'
             ? 'important'
             : 'normal',
         createdByUid: actorUid,
@@ -1244,6 +1302,10 @@ Future<void> expireReadyRequestsIfNeeded() async {
       if (roomData != null) {
         final requestId = (roomData['requestId'] ?? '').toString().trim();
         final isIndividualStream = roomData['isIndividualStream'] == true;
+        final isChildSpecificStream =
+            roomData['isChildSpecificStream'] == true ||
+                (roomData['allowedViewersType'] ?? '').toString() ==
+                    'specific_child';
         final notifyParents = roomData['notifyParents'] == true;
 
         if (requestId.isNotEmpty) {
@@ -1258,7 +1320,7 @@ Future<void> expireReadyRequestsIfNeeded() async {
         }
 
         if (notifyParents) {
-          if (isIndividualStream) {
+          if (isIndividualStream || isChildSpecificStream) {
             await _sendNotificationToParent(
               type: 'live_stream_ended',
               title: 'انتهى البث المباشر',

@@ -1103,7 +1103,7 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
       final finalPaymentStatus = calculatedPaymentStatus;
       final paidAt = paidAmount > 0 ? Timestamp.fromDate(now) : null;
 
-      await docRef.set({
+      final invoiceData = <String, dynamic>{
         'id': docRef.id,
         'childId': selectedChild!['id'] ?? '',
         'childName': selectedChild!['name'] ?? '',
@@ -1180,30 +1180,31 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
         'paidAt': paidAt,
         'notes': notesCtrl.text.trim(),
         'updatedExistingInvoice': isUpdatingExistingInvoice,
-        'createdByUid': isUpdatingExistingInvoice
-            ? FieldValue.delete()
-            : (currentUser['uid'] ?? ''),
-        'createdByName': isUpdatingExistingInvoice
-            ? FieldValue.delete()
-            : (currentUser['name'] ?? 'مستخدم'),
-        'createdByRole': isUpdatingExistingInvoice
-            ? FieldValue.delete()
-            : (currentUser['role'] ?? ''),
         'updatedByUid': currentUser['uid'] ?? '',
         'updatedByName': currentUser['name'] ?? 'مستخدم',
         'updatedByRole': currentUser['role'] ?? '',
-        'createdAt': isUpdatingExistingInvoice
-            ? FieldValue.delete()
-            : Timestamp.fromDate(now),
         'updatedAt': Timestamp.fromDate(now),
-      }, SetOptions(merge: true));
+      };
 
-      await sendInvoiceCreatedNotification(
-        invoiceId: docRef.id,
-        isUpdatingExistingInvoice: isUpdatingExistingInvoice,
-        currentUser: currentUser,
-        childrenNames: childrenNames,
-      );
+      if (!isUpdatingExistingInvoice) {
+        invoiceData['createdByUid'] = currentUser['uid'] ?? '';
+        invoiceData['createdByName'] = currentUser['name'] ?? 'مستخدم';
+        invoiceData['createdByRole'] = currentUser['role'] ?? '';
+        invoiceData['createdAt'] = Timestamp.fromDate(now);
+      }
+
+      await docRef.set(invoiceData, SetOptions(merge: true));
+
+      try {
+        await sendInvoiceCreatedNotification(
+          invoiceId: docRef.id,
+          isUpdatingExistingInvoice: isUpdatingExistingInvoice,
+          currentUser: currentUser,
+          childrenNames: childrenNames,
+        );
+      } catch (e) {
+        debugPrint('CreateNurseryInvoicePage: فشل إرسال إشعار الفاتورة: $e');
+      }
 
       if (sameParentInvoices.length > 1) {
         final batch = _firestore.batch();

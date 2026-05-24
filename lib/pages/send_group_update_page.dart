@@ -39,6 +39,7 @@ class _SendGroupUpdatePageState extends State<SendGroupUpdatePage> {
   final TextEditingController extraCtrl = TextEditingController();
 
   bool isLoading = false;
+  bool isLoadingAllChildren = false;
 
   String updateType = 'نشاط جماعي';
   String importance = 'عادي';
@@ -50,25 +51,25 @@ class _SendGroupUpdatePageState extends State<SendGroupUpdatePage> {
   Uint8List? selectedImageBytes;
 
   final Set<String> selectedChildIds = {};
-  String targetScope = 'my_group'; // my_group أو all_nursery
-bool isLoadingAllChildren = false;
-List<ChildModel> allNurseryChildren = [];
+  String targetScope = 'my_group';
 
-List<ChildModel> get targetChildren {
-  if (targetScope == 'all_nursery') {
-    return allNurseryChildren;
+  List<ChildModel> allNurseryChildren = [];
+
+  List<ChildModel> get targetChildren {
+    if (targetScope == 'all_nursery') {
+      return allNurseryChildren;
+    }
+
+    return widget.children;
   }
 
-  return widget.children;
-}
+  String get targetScopeLabel {
+    if (targetScope == 'all_nursery') {
+      return 'كل أطفال الحضانة';
+    }
 
-String get targetScopeLabel {
-  if (targetScope == 'all_nursery') {
-    return 'كل أطفال الحضانة';
+    return 'مجموعتي فقط';
   }
-
-  return 'مجموعتي فقط';
-}
 
   final List<String> updateTypes = const [
     'نشاط جماعي',
@@ -120,6 +121,24 @@ String get targetScopeLabel {
       default:
         return 'normal';
     }
+  }
+
+  String _resolveChildType(Map<String, dynamic> freshChildData) {
+    final childType = (freshChildData['childType'] ??
+            freshChildData['enrollmentType'] ??
+            freshChildData['type'] ??
+            'permanent')
+        .toString()
+        .trim();
+
+    return childType.isEmpty ? 'permanent' : childType;
+  }
+
+  bool _resolveBoolValue(dynamic value) {
+    if (value is bool) return value;
+
+    final text = value.toString().trim().toLowerCase();
+    return text == 'true' || text == '1' || text == 'yes';
   }
 
   Color _importanceColor(String value) {
@@ -273,160 +292,121 @@ String get targetScopeLabel {
     return <String, dynamic>{};
   }
 
- Future<void> _pickMedia() async {
-  if (isLoading) return;
+  Future<void> _pickMedia() async {
+    if (isLoading) return;
 
-  await showModalBottomSheet(
-    context: context,
-    backgroundColor: Colors.white,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(
-        top: Radius.circular(24),
-      ),
-    ),
-    builder: (sheetContext) {
-      return SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 42,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AppColors.border,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'إضافة صورة أو فيديو',
-                style: TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w900,
-                  color: AppColors.textDark,
-                ),
-              ),
-              const SizedBox(height: 14),
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: AppColors.primary.withOpacity(0.12),
-                  child: const Icon(
-                    Icons.photo_camera_outlined,
-                    color: AppColors.primary,
-                  ),
-                ),
-                title: const Text(
-                  'تصوير بالكاميرا',
-                  style: TextStyle(fontWeight: FontWeight.w800),
-                ),
-                onTap: () {
-                  Navigator.pop(sheetContext);
-                  _pickFromCamera();
-                },
-              ),
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: AppColors.secondary.withOpacity(0.12),
-                  child: const Icon(
-                    Icons.image_outlined,
-                    color: AppColors.primary,
-                  ),
-                ),
-                title: const Text(
-                  'اختيار صورة من المعرض',
-                  style: TextStyle(fontWeight: FontWeight.w800),
-                ),
-                onTap: () {
-                  Navigator.pop(sheetContext);
-                  _pickFromGallery('image');
-                },
-              ),
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: AppColors.secondary.withOpacity(0.12),
-                  child: const Icon(
-                    Icons.video_library_outlined,
-                    color: AppColors.primary,
-                  ),
-                ),
-                title: const Text(
-                  'اختيار فيديو من المعرض',
-                  style: TextStyle(fontWeight: FontWeight.w800),
-                ),
-                onTap: () {
-                  Navigator.pop(sheetContext);
-                  _pickFromGallery('video');
-                },
-              ),
-            ],
-          ),
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(24),
         ),
-      );
-    },
-  );
-}
-
-Future<void> _pickFromCamera() async {
-  final res = await Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (_) => const CameraCheckinPage(),
-    ),
-  );
-
-  if (res is! Map) return;
-
-  final path = res['path'] as String?;
-  final mediaType = res['type'] as String?;
-  final file = res['file'] as XFile?;
-  final description = (res['description'] ?? '').toString().trim();
-
-  if (path == null || path.trim().isEmpty || mediaType == null) return;
-
-  Uint8List? bytes;
-
-  if (mediaType == 'image' && file != null) {
-    try {
-      bytes = await file.readAsBytes();
-    } catch (_) {
-      bytes = null;
-    }
+      ),
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.border,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'إضافة صورة أو فيديو',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                    color: AppColors.textDark,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: AppColors.primary.withOpacity(0.12),
+                    child: const Icon(
+                      Icons.photo_camera_outlined,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                  title: const Text(
+                    'تصوير بالكاميرا',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _pickFromCamera();
+                  },
+                ),
+                ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: AppColors.secondary.withOpacity(0.12),
+                    child: const Icon(
+                      Icons.image_outlined,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                  title: const Text(
+                    'اختيار صورة من المعرض',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _pickFromGallery('image');
+                  },
+                ),
+                ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: AppColors.secondary.withOpacity(0.12),
+                    child: const Icon(
+                      Icons.video_library_outlined,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                  title: const Text(
+                    'اختيار فيديو من المعرض',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _pickFromGallery('video');
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
-  if (!mounted) return;
+  Future<void> _pickFromCamera() async {
+    final res = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const CameraCheckinPage(),
+      ),
+    );
 
-  setState(() {
-    selectedMediaPath = path;
-    selectedMediaType = mediaType;
-    selectedMediaFile = file;
-    selectedImageBytes = bytes;
+    if (res is! Map) return;
 
-    if (description.isNotEmpty && noteCtrl.text.trim().isEmpty) {
-      noteCtrl.text = description;
-    }
-  });
-}
+    final path = res['path'] as String?;
+    final mediaType = res['type'] as String?;
+    final file = res['file'] as XFile?;
+    final description = (res['description'] ?? '').toString().trim();
 
-Future<void> _pickFromGallery(String mediaType) async {
-  try {
-    final picker = ImagePicker();
-
-    final XFile? file = mediaType == 'image'
-        ? await picker.pickImage(
-            source: ImageSource.gallery,
-            imageQuality: 85,
-          )
-        : await picker.pickVideo(
-            source: ImageSource.gallery,
-          );
-
-    if (file == null) return;
+    if (path == null || path.trim().isEmpty || mediaType == null) return;
 
     Uint8List? bytes;
 
-    if (mediaType == 'image') {
+    if (mediaType == 'image' && file != null) {
       try {
         bytes = await file.readAsBytes();
       } catch (_) {
@@ -437,15 +417,54 @@ Future<void> _pickFromGallery(String mediaType) async {
     if (!mounted) return;
 
     setState(() {
-      selectedMediaPath = file.path;
+      selectedMediaPath = path;
       selectedMediaType = mediaType;
       selectedMediaFile = file;
       selectedImageBytes = bytes;
+
+      if (description.isNotEmpty && noteCtrl.text.trim().isEmpty) {
+        noteCtrl.text = description;
+      }
     });
-  } catch (e) {
-    _showSnack('تعذر اختيار الوسائط من المعرض: $e');
   }
-}
+
+  Future<void> _pickFromGallery(String mediaType) async {
+    try {
+      final picker = ImagePicker();
+
+      final XFile? file = mediaType == 'image'
+          ? await picker.pickImage(
+              source: ImageSource.gallery,
+              imageQuality: 85,
+            )
+          : await picker.pickVideo(
+              source: ImageSource.gallery,
+            );
+
+      if (file == null) return;
+
+      Uint8List? bytes;
+
+      if (mediaType == 'image') {
+        try {
+          bytes = await file.readAsBytes();
+        } catch (_) {
+          bytes = null;
+        }
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        selectedMediaPath = file.path;
+        selectedMediaType = mediaType;
+        selectedMediaFile = file;
+        selectedImageBytes = bytes;
+      });
+    } catch (e) {
+      _showSnack('تعذر اختيار الوسائط من المعرض: $e');
+    }
+  }
 
   void _removeMedia() {
     setState(() {
@@ -512,77 +531,77 @@ Future<void> _pickFromGallery(String mediaType) async {
   }
 
   Future<void> _loadAllNurseryChildrenIfNeeded() async {
-  if (allNurseryChildren.isNotEmpty) return;
-
-  setState(() {
-    isLoadingAllChildren = true;
-  });
-
-  try {
-    final snapshot = await _firestore
-        .collection('children')
-        .where('section', isEqualTo: 'Nursery')
-        .where('isActive', isEqualTo: true)
-        .get();
-
-    final children = snapshot.docs.map((doc) {
-      final data = doc.data();
-
-      final fixedData = <String, dynamic>{
-        ...data,
-        'section': 'Nursery',
-        'group': (data['groupName'] ?? data['group'] ?? '').toString(),
-        'groupName': (data['groupName'] ?? data['group'] ?? '').toString(),
-      };
-
-      return ChildModel.fromMap(fixedData, docId: doc.id);
-    }).toList();
-
-    children.sort((a, b) => a.name.compareTo(b.name));
-
-    if (!mounted) return;
+    if (allNurseryChildren.isNotEmpty) return;
 
     setState(() {
-      allNurseryChildren = children;
+      isLoadingAllChildren = true;
     });
-  } catch (e) {
-    if (!mounted) return;
 
-    _showSnack('تعذر تحميل أطفال الحضانة: $e');
-  } finally {
-    if (!mounted) return;
+    try {
+      final snapshot = await _firestore
+          .collection('children')
+          .where('section', isEqualTo: 'Nursery')
+          .where('isActive', isEqualTo: true)
+          .get();
 
-    setState(() {
-      isLoadingAllChildren = false;
-    });
+      final children = snapshot.docs.map((doc) {
+        final data = doc.data();
+
+        final fixedData = <String, dynamic>{
+          ...data,
+          'section': 'Nursery',
+          'group': (data['groupName'] ?? data['group'] ?? '').toString(),
+          'groupName': (data['groupName'] ?? data['group'] ?? '').toString(),
+        };
+
+        return ChildModel.fromMap(fixedData, docId: doc.id);
+      }).toList();
+
+      children.sort((a, b) => a.name.compareTo(b.name));
+
+      if (!mounted) return;
+
+      setState(() {
+        allNurseryChildren = children;
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      _showSnack('تعذر تحميل أطفال الحضانة: $e');
+    } finally {
+      if (!mounted) return;
+
+      setState(() {
+        isLoadingAllChildren = false;
+      });
+    }
   }
-}
 
-Future<void> _changeTargetScope(String value) async {
-  if (value == targetScope) return;
+  Future<void> _changeTargetScope(String value) async {
+    if (value == targetScope) return;
 
-  if (value == 'all_nursery') {
-    await _loadAllNurseryChildrenIfNeeded();
+    if (value == 'all_nursery') {
+      await _loadAllNurseryChildrenIfNeeded();
 
-    if (!mounted) return;
+      if (!mounted) return;
+
+      setState(() {
+        targetScope = value;
+        selectedChildIds
+          ..clear()
+          ..addAll(allNurseryChildren.map((child) => child.id));
+      });
+
+      return;
+    }
 
     setState(() {
-      targetScope = value;
+      targetScope = 'my_group';
       selectedChildIds
         ..clear()
-        ..addAll(allNurseryChildren.map((child) => child.id));
+        ..addAll(widget.children.map((child) => child.id));
     });
-
-    return;
   }
-
-  setState(() {
-    targetScope = 'my_group';
-    selectedChildIds
-      ..clear()
-      ..addAll(widget.children.map((child) => child.id));
-  });
-}
 
   Future<void> _save() async {
     if (!_validateBeforeSave()) return;
@@ -595,8 +614,8 @@ Future<void> _changeTargetScope(String value) async {
       final availableChildren = targetChildren;
 
       final selectedChildren = availableChildren
-         .where((child) => selectedChildIds.contains(child.id))
-         .toList();
+          .where((child) => selectedChildIds.contains(child.id))
+          .toList();
 
       final nowDate = DateTime.now();
       final now = Timestamp.fromDate(nowDate);
@@ -610,7 +629,7 @@ Future<void> _changeTargetScope(String value) async {
 
       final batch = _firestore.batch();
       final pendingParentNotifications = <Map<String, dynamic>>[];
-      
+
       batch.set(groupUpdateRef, {
         'groupUpdateId': groupUpdateRef.id,
         'groupId': widget.groupId,
@@ -649,17 +668,18 @@ Future<void> _changeTargetScope(String value) async {
 
       for (final child in selectedChildren) {
         final freshChildData = await _loadFreshChildData(child);
+
         final childGroupId =
-        (freshChildData['groupId'] ?? '').toString().trim();
+            (freshChildData['groupId'] ?? '').toString().trim();
 
-       final childGroupName =
-       (freshChildData['groupName'] ?? child.group).toString().trim();
+        final childGroupName =
+            (freshChildData['groupName'] ?? child.group).toString().trim();
 
-       final resolvedGroupId = childGroupId.isNotEmpty ? childGroupId : widget.groupId;
+        final resolvedGroupId =
+            childGroupId.isNotEmpty ? childGroupId : widget.groupId;
 
-       final resolvedGroupName = childGroupName.isNotEmpty
-       ? childGroupName
-       : widget.groupName;
+        final resolvedGroupName =
+            childGroupName.isNotEmpty ? childGroupName : widget.groupName;
 
         final parentUid =
             (freshChildData['parentUid'] ?? child.parentUid).toString().trim();
@@ -673,11 +693,28 @@ Future<void> _changeTargetScope(String value) async {
         final parentName =
             (freshChildData['parentName'] ?? child.parentName).toString().trim();
 
-        final canNotifyParent =
-            parentUid.isNotEmpty || parentUsername.isNotEmpty;
+        final resolvedChildType = _resolveChildType(freshChildData);
+
+        final resolvedEnrollmentType =
+            (freshChildData['enrollmentType'] ?? resolvedChildType)
+                .toString()
+                .trim();
+
+        final isTemporaryChild = _resolveBoolValue(
+          freshChildData['isTemporaryChild'] ??
+              freshChildData['temporaryChild'] ??
+              false,
+        );
+
+        final isTrialChild = _resolveBoolValue(
+          freshChildData['isTrialChild'] ?? freshChildData['trialChild'] ?? false,
+        );
+
+        final canNotifyParent = parentUid.isNotEmpty ||
+            parentUsername.isNotEmpty ||
+            child.id.trim().isNotEmpty;
 
         final updateRef = _firestore.collection('updates').doc();
-        
 
         final updateData = {
           'updateId': updateRef.id,
@@ -685,6 +722,12 @@ Future<void> _changeTargetScope(String value) async {
           'isGroupUpdate': true,
           'childId': child.id,
           'childName': child.name,
+          'childType': resolvedChildType,
+          'enrollmentType': resolvedEnrollmentType.isEmpty
+              ? resolvedChildType
+              : resolvedEnrollmentType,
+          'isTemporaryChild': isTemporaryChild,
+          'isTrialChild': isTrialChild,
           'parentUid': parentUid,
           'parentUsername': parentUsername,
           'parentName': parentName,
@@ -723,88 +766,102 @@ Future<void> _changeTargetScope(String value) async {
         batch.set(updateRef, updateData);
 
         if (canNotifyParent) {
-  pendingParentNotifications.add({
-    'parentUid': parentUid,
-    'parentUsername': parentUsername,
-    'parentName': parentName,
-    'childId': child.id,
-    'childName': child.name,
-    'section': 'Nursery',
-    'groupId': resolvedGroupId,
-    'groupName': resolvedGroupName,
-    'group': resolvedGroupName,
-    'targetScope': targetScope,
-    'targetScopeLabel': targetScopeLabel,
-    'title': _autoTitle(),
-    'body': finalNote,
-    'type': 'group_update',
-    'updateId': updateRef.id,
-    'groupUpdateId': groupUpdateRef.id,
-    'isGroupUpdate': true,
-    'category': updateType,
-    'templateType': updateType,
-    'priority': priority,
-    'importance': priority,
-    'importanceLabel': importance,
-    'createdByUid': userInfo['uid'] ?? '',
-    'createdByName': userInfo['name'] ?? '',
-    'createdByRole': userInfo['role'] ?? 'nursery_staff',
-    'senderUid': userInfo['uid'] ?? '',
-    'senderName': userInfo['name'] ?? '',
-    'senderRole': userInfo['role'] ?? 'nursery_staff',
-    ...mediaData,
-  });
-}
+          pendingParentNotifications.add({
+            'parentUid': parentUid,
+            'parentUsername': parentUsername,
+            'parentName': parentName,
+            'childId': child.id,
+            'childName': child.name,
+            'childType': resolvedChildType,
+            'enrollmentType': resolvedEnrollmentType.isEmpty
+                ? resolvedChildType
+                : resolvedEnrollmentType,
+            'isTemporaryChild': isTemporaryChild,
+            'isTrialChild': isTrialChild,
+            'section': 'Nursery',
+            'groupId': resolvedGroupId,
+            'groupName': resolvedGroupName,
+            'group': resolvedGroupName,
+            'targetScope': targetScope,
+            'targetScopeLabel': targetScopeLabel,
+            'title': _autoTitle(),
+            'body': finalNote,
+            'type': 'group_update',
+            'updateId': updateRef.id,
+            'groupUpdateId': groupUpdateRef.id,
+            'isGroupUpdate': true,
+            'category': updateType,
+            'templateType': updateType,
+            'priority': priority,
+            'importance': priority,
+            'importanceLabel': importance,
+            'createdByUid': userInfo['uid'] ?? '',
+            'createdByName': userInfo['name'] ?? '',
+            'createdByRole': userInfo['role'] ?? 'nursery_staff',
+            'senderUid': userInfo['uid'] ?? '',
+            'senderName': userInfo['name'] ?? '',
+            'senderRole': userInfo['role'] ?? 'nursery_staff',
+            ...mediaData,
+          });
+        }
       }
 
       await batch.commit();
 
-for (final item in pendingParentNotifications) {
-  try {
-    await AppNotificationService.instance.notifyParent(
-      parentUid: (item['parentUid'] ?? '').toString(),
-      parentUsername: (item['parentUsername'] ?? '').toString(),
-      parentName: (item['parentName'] ?? '').toString(),
-      title: (item['title'] ?? 'تحديث جماعي جديد').toString(),
-      body: (item['body'] ?? '').toString(),
-      type: 'group_update',
-      childId: (item['childId'] ?? '').toString(),
-      childName: (item['childName'] ?? '').toString(),
-      section: (item['section'] ?? 'Nursery').toString(),
-      group: (item['group'] ?? '').toString(),
-      priority: (item['priority'] ?? 'normal').toString(),
-      createdByUid: (item['createdByUid'] ?? '').toString(),
-      createdByName: (item['createdByName'] ?? '').toString(),
-      createdByRole: (item['createdByRole'] ?? 'nursery_staff').toString(),
-      extraData: {
-        'uid': (item['parentUid'] ?? '').toString(),
-        'receiverUid': (item['parentUid'] ?? '').toString(),
-        'receiverUsername': (item['parentUsername'] ?? '').toString(),
-        'receiverRole': 'parent',
-        'groupId': (item['groupId'] ?? '').toString(),
-        'groupName': (item['groupName'] ?? '').toString(),
-        'targetScope': (item['targetScope'] ?? '').toString(),
-        'targetScopeLabel': (item['targetScopeLabel'] ?? '').toString(),
-        'notificationType': 'group_update',
-        'category': (item['category'] ?? '').toString(),
-        'templateType': (item['templateType'] ?? '').toString(),
-        'updateId': (item['updateId'] ?? '').toString(),
-        'groupUpdateId': (item['groupUpdateId'] ?? '').toString(),
-        'isGroupUpdate': true,
-        'importance': (item['importance'] ?? 'normal').toString(),
-        'importanceLabel': (item['importanceLabel'] ?? '').toString(),
-        'senderUid': (item['senderUid'] ?? '').toString(),
-        'senderName': (item['senderName'] ?? '').toString(),
-        'senderRole': (item['senderRole'] ?? '').toString(),
-        'screen': 'notifications',
-      },
-    );
-  } catch (e) {
-    debugPrint('SendGroupUpdatePage: فشل إرسال push للتحديث الجماعي: $e');
-  }
-}
+      for (final item in pendingParentNotifications) {
+        try {
+          await AppNotificationService.instance.notifyChildParent(
+            parentUid: (item['parentUid'] ?? '').toString(),
+            parentUsername: (item['parentUsername'] ?? '').toString(),
+            parentName: (item['parentName'] ?? '').toString(),
+            title: (item['title'] ?? 'تحديث جماعي جديد').toString(),
+            body: (item['body'] ?? '').toString(),
+            type: 'group_update',
+            childId: (item['childId'] ?? '').toString(),
+            childName: (item['childName'] ?? '').toString(),
+            section: (item['section'] ?? 'Nursery').toString(),
+            group: (item['group'] ?? '').toString(),
+            priority: (item['priority'] ?? 'normal').toString(),
+            createdByUid: (item['createdByUid'] ?? '').toString(),
+            createdByName: (item['createdByName'] ?? '').toString(),
+            createdByRole:
+                (item['createdByRole'] ?? 'nursery_staff').toString(),
+            extraData: {
+              'uid': (item['parentUid'] ?? '').toString(),
+              'receiverUid': (item['parentUid'] ?? '').toString(),
+              'receiverUsername': (item['parentUsername'] ?? '').toString(),
+              'receiverRole': 'parent',
+              'groupId': (item['groupId'] ?? '').toString(),
+              'groupName': (item['groupName'] ?? '').toString(),
+              'childType': (item['childType'] ?? '').toString(),
+              'enrollmentType': (item['enrollmentType'] ?? '').toString(),
+              'isTemporaryChild': item['isTemporaryChild'] == true,
+              'isTrialChild': item['isTrialChild'] == true,
+              'targetScope': (item['targetScope'] ?? '').toString(),
+              'targetScopeLabel':
+                  (item['targetScopeLabel'] ?? '').toString(),
+              'notificationType': 'group_update',
+              'category': (item['category'] ?? '').toString(),
+              'templateType': (item['templateType'] ?? '').toString(),
+              'updateId': (item['updateId'] ?? '').toString(),
+              'groupUpdateId': (item['groupUpdateId'] ?? '').toString(),
+              'isGroupUpdate': true,
+              'importance': (item['importance'] ?? 'normal').toString(),
+              'importanceLabel':
+                  (item['importanceLabel'] ?? '').toString(),
+              'senderUid': (item['senderUid'] ?? '').toString(),
+              'senderName': (item['senderName'] ?? '').toString(),
+              'senderRole': (item['senderRole'] ?? '').toString(),
+              'screen': 'notifications',
+              'route': 'parent_updates',
+            },
+          );
+        } catch (e) {
+          debugPrint('SendGroupUpdatePage: فشل إرسال إشعار التحديث الجماعي: $e');
+        }
+      }
 
-if (!mounted) return;
+      if (!mounted) return;
 
       _showSnack(
         'تم إرسال التحديث الجماعي إلى ${selectedChildren.length} طفل/أطفال',
@@ -985,145 +1042,147 @@ if (!mounted) return;
   }
 
   Widget _buildTargetScopeSection() {
-  return _sectionCard(
-    title: 'نطاق الإرسال',
-    child: Column(
-      children: [
-        RadioListTile<String>(
-          value: 'my_group',
-          groupValue: targetScope,
-          onChanged: isLoading || isLoadingAllChildren
-              ? null
-              : (value) {
-                  if (value != null) {
-                    _changeTargetScope(value);
-                  }
-                },
-          title: const Text(
-            'مجموعتي فقط',
-            style: TextStyle(fontWeight: FontWeight.w800),
-          ),
-          subtitle: Text(
-            widget.groupName,
-            style: const TextStyle(color: AppColors.textLight),
-          ),
-        ),
-        RadioListTile<String>(
-          value: 'all_nursery',
-          groupValue: targetScope,
-          onChanged: isLoading || isLoadingAllChildren
-              ? null
-              : (value) {
-                  if (value != null) {
-                    _changeTargetScope(value);
-                  }
-                },
-          title: const Text(
-            'كل أطفال الحضانة',
-            style: TextStyle(fontWeight: FontWeight.w800),
-          ),
-          subtitle: const Text(
-            'سيصل التحديث لكل أولياء أمور الأطفال النشطين في الحضانة',
-            style: TextStyle(color: AppColors.textLight),
-          ),
-        ),
-        if (isLoadingAllChildren) ...[
-          const SizedBox(height: 10),
-          const LinearProgressIndicator(),
-        ],
-      ],
-    ),
-  );
-}
-
-  Widget _buildChildrenSection() {
-  final children = targetChildren;
-
-  return _sectionCard(
-    title: 'الأطفال المستهدفون',
-    child: Column(
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                'تم اختيار ${selectedChildIds.length} من ${children.length} - $targetScopeLabel',
-                style: const TextStyle(
-                  color: AppColors.textLight,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+    return _sectionCard(
+      title: 'نطاق الإرسال',
+      child: Column(
+        children: [
+          RadioListTile<String>(
+            value: 'my_group',
+            groupValue: targetScope,
+            onChanged: isLoading || isLoadingAllChildren
+                ? null
+                : (value) {
+                    if (value != null) {
+                      _changeTargetScope(value);
+                    }
+                  },
+            title: const Text(
+              'مجموعتي فقط',
+              style: TextStyle(fontWeight: FontWeight.w800),
             ),
-            TextButton.icon(
-              onPressed: () {
-                setState(() {
-                  if (selectedChildIds.length == children.length) {
-                    selectedChildIds.clear();
-                  } else {
-                    selectedChildIds
-                      ..clear()
-                      ..addAll(children.map((e) => e.id));
-                  }
-                });
-              },
-              icon: const Icon(Icons.done_all_rounded),
-              label: Text(
-                selectedChildIds.length == children.length
-                    ? 'إلغاء تحديد الكل'
-                    : 'تحديد الكل',
-              ),
+            subtitle: Text(
+              widget.groupName,
+              style: const TextStyle(color: AppColors.textLight),
             ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        if (children.isEmpty)
-          const Padding(
-            padding: EdgeInsets.all(14),
-            child: Text(
-              'لا يوجد أطفال في هذا النطاق.',
+          ),
+          RadioListTile<String>(
+            value: 'all_nursery',
+            groupValue: targetScope,
+            onChanged: isLoading || isLoadingAllChildren
+                ? null
+                : (value) {
+                    if (value != null) {
+                      _changeTargetScope(value);
+                    }
+                  },
+            title: const Text(
+              'كل أطفال الحضانة',
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
+            subtitle: const Text(
+              'سيصل التحديث لكل أولياء أمور الأطفال النشطين في الحضانة',
               style: TextStyle(color: AppColors.textLight),
             ),
-          )
-        else
-          ...children.map((child) {
-            final selected = selectedChildIds.contains(child.id);
+          ),
+          if (isLoadingAllChildren) ...[
+            const SizedBox(height: 10),
+            const LinearProgressIndicator(),
+          ],
+        ],
+      ),
+    );
+  }
 
-            return CheckboxListTile(
-              value: selected,
-              contentPadding: EdgeInsets.zero,
-              controlAffinity: ListTileControlAffinity.leading,
-              title: Text(
-                child.name,
-                style: const TextStyle(fontWeight: FontWeight.w700),
+  Widget _buildChildrenSection() {
+    final children = targetChildren;
+
+    return _sectionCard(
+      title: 'الأطفال المستهدفون',
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'تم اختيار ${selectedChildIds.length} من ${children.length} - $targetScopeLabel',
+                  style: const TextStyle(
+                    color: AppColors.textLight,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               ),
-              subtitle: Text(
-                [
-                  if (child.group.trim().isNotEmpty) child.group,
-                  if (child.parentName.trim().isNotEmpty)
-                    'ولي الأمر: ${child.parentName}',
-                ].join(' • ').trim().isEmpty
-                    ? 'ولي أمر غير محدد'
-                    : [
-                        if (child.group.trim().isNotEmpty) child.group,
-                        if (child.parentName.trim().isNotEmpty)
-                          'ولي الأمر: ${child.parentName}',
-                      ].join(' • '),
+              TextButton.icon(
+                onPressed: isLoading
+                    ? null
+                    : () {
+                        setState(() {
+                          if (selectedChildIds.length == children.length) {
+                            selectedChildIds.clear();
+                          } else {
+                            selectedChildIds
+                              ..clear()
+                              ..addAll(children.map((e) => e.id));
+                          }
+                        });
+                      },
+                icon: const Icon(Icons.done_all_rounded),
+                label: Text(
+                  selectedChildIds.length == children.length
+                      ? 'إلغاء تحديد الكل'
+                      : 'تحديد الكل',
+                ),
               ),
-              onChanged: (value) {
-                setState(() {
-                  if (value == true) {
-                    selectedChildIds.add(child.id);
-                  } else {
-                    selectedChildIds.remove(child.id);
-                  }
-                });
-              },
-            );
-          }),
-      ],
-    ),
-  );
-}
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (children.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(14),
+              child: Text(
+                'لا يوجد أطفال في هذا النطاق.',
+                style: TextStyle(color: AppColors.textLight),
+              ),
+            )
+          else
+            ...children.map((child) {
+              final selected = selectedChildIds.contains(child.id);
+
+              final subtitleParts = <String>[
+                if (child.group.trim().isNotEmpty) child.group,
+                if (child.parentName.trim().isNotEmpty)
+                  'ولي الأمر: ${child.parentName}',
+              ];
+
+              return CheckboxListTile(
+                value: selected,
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                title: Text(
+                  child.name,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                subtitle: Text(
+                  subtitleParts.isEmpty
+                      ? 'ولي أمر غير محدد'
+                      : subtitleParts.join(' • '),
+                ),
+                onChanged: isLoading
+                    ? null
+                    : (value) {
+                        setState(() {
+                          if (value == true) {
+                            selectedChildIds.add(child.id);
+                          } else {
+                            selectedChildIds.remove(child.id);
+                          }
+                        });
+                      },
+              );
+            }),
+        ],
+      ),
+    );
+  }
 
   Widget _buildNoteSection() {
     return _sectionCard(

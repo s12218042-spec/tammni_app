@@ -9,7 +9,7 @@ class UserModel {
   final bool isActive;
   final String accountStatus;
 
-  // بيانات تواصل عامة
+ 
   final String phone;
   final String alternatePhone;
   final String nationalId;
@@ -17,10 +17,9 @@ class UserModel {
   final String address;
   final String city;
 
-  // بيانات ولي الأمر
   final String relationship;
 
-  // بيانات مهنية / تعليمية للموظفة والأدمن
+  
   final String jobTitle;
   final String qualification;
   final String university;
@@ -32,30 +31,28 @@ class UserModel {
   final DateTime? birthDate;
   final DateTime? hireDate;
 
-  // بيانات الحضانة / المجموعات
   final String section;
   final String group;
   final String groupId;
   final String groupName;
   final List<String> assignedGroups;
 
-  // بيانات الرواتب
+
   final String salaryCalculationType; // hourly
   final double hourlyRate; // 8
   final double baseSalary;
 
-  // بيانات خاصة بالموظفة
+ 
   final List<String> responsibilities;
   final List<String> certifications;
 
-  // بيانات خاصة بالأدمن
   final String adminScope;
   final List<String> permissions;
 
-  // إشعارات
+
   final List<String> fcmTokens;
 
-  // ملاحظات
+
   final String cvNotes;
   final String adminNotes;
 
@@ -290,12 +287,12 @@ class UserModel {
     final username = _firstNonEmpty([
       map['username'],
       parentInfo['username'],
-    ]);
+    ]).toLowerCase();
 
     final email = _firstNonEmpty([
       map['email'],
       parentInfo['email'],
-    ]);
+    ]).toLowerCase();
 
     final phone = _firstNonEmpty([
       map['phone'],
@@ -489,38 +486,48 @@ class UserModel {
 
   Map<String, dynamic> toMap() {
     final normalizedRole = normalizeRole(role);
-    final normalizedSection = isAdmin
+
+    final normalizedSection = normalizedRole == 'admin'
         ? (adminScope == 'nursery' ? 'Nursery' : 'all')
         : normalizeSection(section);
 
+    final cleanUsername = username.trim().toLowerCase();
+    final cleanEmail = email.trim().toLowerCase();
+    final cleanAccountStatus =
+        accountStatus.trim().isEmpty ? 'active' : accountStatus.trim();
+
     final resolvedGroupName = groupName.trim().isNotEmpty ? groupName : group;
     final resolvedGroup = group.trim().isNotEmpty ? group : resolvedGroupName;
+
+    final cleanFcmTokens = fcmTokens
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toSet()
+        .toList();
 
     final data = <String, dynamic>{
       'id': id,
       'uid': id,
       'name': name,
       'displayName': name,
-      'email': email,
+      'email': cleanEmail,
       'role': normalizedRole,
-      'username': username,
+      'username': cleanUsername,
       'isActive': isActive,
-      'accountStatus': accountStatus,
-
+      'accountStatus': cleanAccountStatus,
       'phone': phone,
       'alternatePhone': alternatePhone,
       'alternativePhone': alternatePhone,
-
       'section': normalizedSection,
       'group': normalizedRole == 'nursery_staff' ? resolvedGroup : '',
       'groupId': normalizedRole == 'nursery_staff' ? groupId : '',
       'groupName': normalizedRole == 'nursery_staff' ? resolvedGroupName : '',
       'assignedGroups':
           normalizedRole == 'nursery_staff' ? assignedGroups : <String>[],
-
-      'fcmTokens': fcmTokens,
-
-      'updatedAt': updatedAt == null ? FieldValue.serverTimestamp() : Timestamp.fromDate(updatedAt!),
+      'fcmTokens': cleanFcmTokens,
+      'updatedAt': updatedAt == null
+          ? FieldValue.serverTimestamp()
+          : Timestamp.fromDate(updatedAt!),
     };
 
     if (createdAt != null) {
@@ -534,8 +541,8 @@ class UserModel {
     if (normalizedRole == 'parent') {
       data['parentInfo'] = {
         'fullName': name,
-        'username': username,
-        'email': email,
+        'username': cleanUsername,
+        'email': cleanEmail,
         'phone': phone,
         'alternatePhone': alternatePhone,
         'identityNumber': nationalId,
@@ -547,16 +554,19 @@ class UserModel {
     }
 
     if (normalizedRole == 'nursery_staff' || normalizedRole == 'admin') {
-      data['personalInfo'] = {
+      final personalInfo = <String, dynamic>{
         'nationalId': nationalId,
         'gender': gender,
-        'birthDate': birthDate == null ? null : Timestamp.fromDate(birthDate!),
         'phone': phone,
         'alternativePhone': alternatePhone,
         'address': address,
       };
 
-      data['professionalInfo'] = {
+      if (birthDate != null) {
+        personalInfo['birthDate'] = Timestamp.fromDate(birthDate!);
+      }
+
+      final professionalInfo = <String, dynamic>{
         'jobTitle': jobTitle,
         'qualification': qualification,
         'university': university,
@@ -565,32 +575,39 @@ class UserModel {
         'graduationYear': graduationYear,
         'yearsOfExperience': yearsOfExperience,
         'employmentType': employmentType,
-        'hireDate': hireDate == null ? null : Timestamp.fromDate(hireDate!),
         'cvNotes': cvNotes,
-
         'section': normalizedSection,
         'group': normalizedRole == 'nursery_staff' ? resolvedGroup : '',
         'groupId': normalizedRole == 'nursery_staff' ? groupId : '',
         'groupName': normalizedRole == 'nursery_staff' ? resolvedGroupName : '',
         'assignedGroups':
             normalizedRole == 'nursery_staff' ? assignedGroups : <String>[],
-
-        'salaryCalculationType': salaryCalculationType,
+        'salaryCalculationType': normalizeSalaryCalculationType(
+          salaryCalculationType,
+        ),
         'hourlyRate': hourlyRate,
         'baseSalary': baseSalary,
       };
 
+      if (hireDate != null) {
+        professionalInfo['hireDate'] = Timestamp.fromDate(hireDate!);
+      }
+
       if (normalizedRole == 'nursery_staff') {
-        data['professionalInfo']['responsibilities'] = responsibilities;
-        data['professionalInfo']['certifications'] = certifications;
+        professionalInfo['responsibilities'] = responsibilities;
+        professionalInfo['certifications'] = certifications;
       }
 
       if (normalizedRole == 'admin') {
-        data['adminScope'] = adminScope.isEmpty ? 'all' : adminScope;
-        data['professionalInfo']['adminScope'] =
-            adminScope.isEmpty ? 'all' : adminScope;
-        data['professionalInfo']['permissions'] = permissions;
+        final resolvedAdminScope = adminScope.isEmpty ? 'all' : adminScope;
+
+        data['adminScope'] = resolvedAdminScope;
+        professionalInfo['adminScope'] = resolvedAdminScope;
+        professionalInfo['permissions'] = permissions;
       }
+
+      data['personalInfo'] = personalInfo;
+      data['professionalInfo'] = professionalInfo;
     }
 
     data['adminNotes'] = {

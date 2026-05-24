@@ -311,39 +311,59 @@ class MessageModel {
   }
 
   Map<String, dynamic> toMap() {
-    return {
-      'childId': childId,
-      'childName': childName,
-      'senderId': senderId,
-      'senderName': senderName,
-      'senderRole': normalizeRole(senderRole),
-      'receiverId': receiverId,
-      'receiverName': receiverName,
-      'receiverRole': normalizeRole(receiverRole),
-      'messageType': messageType.trim().isEmpty ? 'text' : messageType,
-      'text': text,
-      'audioPath': audioPath,
-      'audioUrl': audioUrl,
-      'audioDurationSeconds': audioDurationSeconds,
-      'audioMimeType': audioMimeType,
-      'audioSizeBytes': audioSizeBytes,
-      'audioBucket': audioBucket,
-      'audioStorageProvider': audioStorageProvider,
-      'sentAt': sentAt,
-      'isRead': isRead,
-      'readAt': readAt,
-      'participants': participants,
-      'reactions': reactions,
-      'deletedForUserIds': deletedForUserIds,
-      'isDeletedForEveryone': isDeletedForEveryone,
-      'deletedForEveryoneAt': deletedForEveryoneAt,
-      'deletedForEveryoneBy': deletedForEveryoneBy,
-      'replyToMessageId': replyToMessageId,
-      'replyToText': replyToText,
-      'replyToSenderId': replyToSenderId,
-      'replyToSenderName': replyToSenderName,
-    };
+  final data = <String, dynamic>{
+    'childId': childId,
+    'childName': childName,
+    'senderId': senderId,
+    'senderName': senderName,
+    'senderRole': normalizeRole(senderRole),
+    'receiverId': receiverId,
+    'receiverName': receiverName,
+    'receiverRole': normalizeRole(receiverRole),
+    'messageType': messageType.trim().isEmpty ? 'text' : messageType,
+    'text': text,
+    'audioPath': audioPath,
+    'audioUrl': audioUrl,
+    'audioDurationSeconds': audioDurationSeconds,
+    'audioMimeType': audioMimeType,
+    'audioSizeBytes': audioSizeBytes,
+    'audioBucket': audioBucket,
+    'audioStorageProvider': audioStorageProvider,
+    'sentAt': sentAt,
+    'isRead': isRead,
+    'participants': participants,
+    'reactions': reactions,
+    'deletedForUserIds': deletedForUserIds,
+    'isDeletedForEveryone': isDeletedForEveryone,
+    'deletedForEveryoneBy': deletedForEveryoneBy,
+  };
+
+  if (readAt != null) {
+    data['readAt'] = readAt;
   }
+
+  if (deletedForEveryoneAt != null) {
+    data['deletedForEveryoneAt'] = deletedForEveryoneAt;
+  }
+
+  if ((replyToMessageId ?? '').trim().isNotEmpty) {
+    data['replyToMessageId'] = replyToMessageId;
+  }
+
+  if ((replyToText ?? '').trim().isNotEmpty) {
+    data['replyToText'] = replyToText;
+  }
+
+  if ((replyToSenderId ?? '').trim().isNotEmpty) {
+    data['replyToSenderId'] = replyToSenderId;
+  }
+
+  if ((replyToSenderName ?? '').trim().isNotEmpty) {
+    data['replyToSenderName'] = replyToSenderName;
+  }
+
+  return data;
+}
 
   MessageModel copyWith({
     String? id,

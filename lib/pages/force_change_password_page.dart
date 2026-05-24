@@ -77,16 +77,41 @@ class _ForceChangePasswordPageState extends State<ForceChangePasswordPage> {
 
       await currentUser.updatePassword(newPassword);
 
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(currentUser.uid)
-          .update({
-        'mustChangePassword': false,
-        'isFirstLogin': false,
-        'passwordChangedAt': FieldValue.serverTimestamp(),
-        'temporaryPasswordPlain': FieldValue.delete(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      final firestore = FirebaseFirestore.instance;
+      final cleanUsername = widget.username.trim().toLowerCase();
+
+      final batch = firestore.batch();
+
+      final userRef = firestore.collection('users').doc(currentUser.uid);
+
+      batch.set(
+        userRef,
+        {
+          'mustChangePassword': false,
+          'isFirstLogin': false,
+          'passwordChangedAt': FieldValue.serverTimestamp(),
+          'temporaryPasswordPlain': FieldValue.delete(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+
+      if (cleanUsername.isNotEmpty) {
+        final loginRef = firestore.collection('login_usernames').doc(cleanUsername);
+
+        batch.set(
+          loginRef,
+          {
+            'mustChangePassword': false,
+            'isFirstLogin': false,
+            'temporaryPasswordPlain': FieldValue.delete(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      }
+
+      await batch.commit();
 
       if (!mounted) return;
 

@@ -566,24 +566,42 @@ class _ParentRegistrationRequestPageState
       final requestRef =
     await _firestore.collection('registration_requests').add(requestData);
 
-await AppNotificationService.instance.notifyAdmin(
-  title: 'طلب تسجيل ولي أمر جديد',
-  body:
-      'تم إرسال طلب تسجيل جديد من ${fullName.isEmpty ? 'ولي أمر' : fullName} باسم المستخدم @$cleanUsername، بانتظار مراجعة الإدارة.',
-  type: 'parent_registration_request',
-  priority: 'important',
-  extraData: {
-    'requestId': requestRef.id,
-    'requestType': 'parent_registration',
-    'status': 'pending',
-    'parentUid': requestAuthUid,
-    'parentUsername': cleanUsername,
-    'parentName': fullName.isEmpty ? 'ولي أمر' : fullName,
-    'parentEmail': cleanEmail,
-    'parentPhone': mainPhone,
-    'route': 'registration_requests',
-  },
-);
+try {
+  await AppNotificationService.instance.notifyAdmin(
+    title: 'طلب تسجيل ولي أمر جديد',
+    body:
+        'تم إرسال طلب تسجيل جديد من ${fullName.isEmpty ? 'ولي أمر' : fullName} باسم المستخدم @$cleanUsername، بانتظار مراجعة الإدارة.',
+    type: 'parent_registration_request',
+    priority: 'important',
+    parentUid: requestAuthUid,
+    parentUsername: cleanUsername,
+    parentName: fullName.isEmpty ? 'ولي أمر' : fullName,
+    childId: '',
+    childName: '',
+    section: 'Nursery',
+    group: '',
+    createdByUid: requestAuthUid,
+    createdByName: fullName.isEmpty ? 'ولي أمر' : fullName,
+    createdByRole: 'parent',
+    extraData: {
+      'requestId': requestRef.id,
+      'requestType': 'parent_registration',
+      'status': 'pending',
+      'parentEmail': cleanEmail,
+      'parentPhone': mainPhone,
+      'route': 'registration_requests',
+      'screen': 'requests',
+      'category': 'registration_request',
+      'notificationType': 'parent_registration_request',
+      'relatedCollection': 'registration_requests',
+      'relatedDocId': requestRef.id,
+    },
+  );
+} catch (e) {
+  debugPrint(
+    'ParentRegistrationRequestPage: فشل إرسال إشعار طلب تسجيل ولي الأمر: $e',
+  );
+}
 
       await _auth.signOut();
 

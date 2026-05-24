@@ -38,6 +38,7 @@ class AccountHistoryPage extends StatelessWidget {
           }
 
           return ListView.builder(
+            padding: const EdgeInsets.only(bottom: 24),
             itemCount: docs.length,
             itemBuilder: (context, index) {
               final data = docs[index].data();
@@ -71,7 +72,7 @@ class AccountHistoryPage extends StatelessWidget {
               if (createdAt is Timestamp) {
                 final d = createdAt.toDate();
                 dateText =
-                    '${d.year}/${d.month.toString().padLeft(2, '0')}/${d.day.toString().padLeft(2, '0')} - ${d.hour}:${d.minute.toString().padLeft(2, '0')}';
+                    '${d.year}/${d.month.toString().padLeft(2, '0')}/${d.day.toString().padLeft(2, '0')} - ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
               }
 
               return Card(

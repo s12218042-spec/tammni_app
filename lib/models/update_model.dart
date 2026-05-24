@@ -29,6 +29,7 @@ class UpdateModel {
   final String childType;
   final String childStatus;
   final bool isTemporaryChild;
+  final bool isTrialChild;
 
   // بيانات المجموعة
   final String groupId;
@@ -79,6 +80,7 @@ class UpdateModel {
     this.childType = 'permanent',
     this.childStatus = 'active',
     this.isTemporaryChild = false,
+    this.isTrialChild = false,
     this.groupId = '',
     this.groupName = '',
     this.group = '',
@@ -173,6 +175,9 @@ class UpdateModel {
       return 'nursery_staff';
     }
 
+    if (role == 'admin') return 'admin';
+    if (role == 'parent') return 'parent';
+
     return role;
   }
 
@@ -185,10 +190,12 @@ class UpdateModel {
       case 'temporary_child':
       case 'مؤقت':
         return 'temporary';
+
       case 'trial':
       case 'تجربة':
       case 'فترة تجربة':
         return 'trial';
+
       case 'permanent':
       case 'regular':
       case 'active':
@@ -210,6 +217,7 @@ class UpdateModel {
       case 'withdrawn':
       case 'archived':
         return status;
+
       default:
         return status.isEmpty ? 'active' : status;
     }
@@ -234,6 +242,27 @@ class UpdateModel {
     return _bool(map['isTemporaryChild']) ||
         type == 'temporary' ||
         status == 'temporary';
+  }
+
+  static bool detectTrialChild(Map<String, dynamic> map) {
+    final type = normalizeChildType(
+      _firstNonEmpty([
+        map['childType'],
+        map['enrollmentType'],
+        map['typeOfChild'],
+      ]),
+    );
+
+    final status = normalizeChildStatus(
+      _firstNonEmpty([
+        map['childStatus'],
+        map['status'],
+      ]),
+    );
+
+    return _bool(map['isTrialChild']) ||
+        type == 'trial' ||
+        status == 'trial';
   }
 
   static bool detectGroupUpdate(Map<String, dynamic> map) {
@@ -304,11 +333,14 @@ class UpdateModel {
       _firstNonEmpty([
         map['childStatus'],
         map['childState'],
+        map['status'],
         resolvedChildType == 'temporary' ? 'temporary' : '',
+        resolvedChildType == 'trial' ? 'trial' : '',
       ]),
     );
 
     final temporaryChild = detectTemporaryChild(map);
+    final trialChild = detectTrialChild(map);
 
     return UpdateModel(
       id: _firstNonEmpty([
@@ -322,7 +354,7 @@ class UpdateModel {
         map['name'],
       ]),
       parentUid: _string(map['parentUid']),
-      parentUsername: _string(map['parentUsername']),
+      parentUsername: _string(map['parentUsername']).toLowerCase(),
       type: resolvedType,
       updateType: _string(map['updateType']),
       category: _string(map['category']),
@@ -347,6 +379,7 @@ class UpdateModel {
       childType: resolvedChildType,
       childStatus: resolvedChildStatus,
       isTemporaryChild: temporaryChild,
+      isTrialChild: trialChild,
       groupId: _string(map['groupId']),
       groupName: _firstNonEmpty([
         map['groupName'],
@@ -366,6 +399,7 @@ class UpdateModel {
         map['signedUrl'],
         map['downloadUrl'],
         map['publicUrl'],
+        map['mediaPublicUrl'],
       ]),
       mediaPath: _firstNonEmpty([
         map['mediaPath'],
@@ -404,7 +438,9 @@ class UpdateModel {
           ? childStatus
           : resolvedChildType == 'temporary'
               ? 'temporary'
-              : 'active',
+              : resolvedChildType == 'trial'
+                  ? 'trial'
+                  : 'active',
     );
 
     final resolvedGroup = group.isNotEmpty ? group : groupName;
@@ -412,45 +448,39 @@ class UpdateModel {
     return {
       'id': id,
       'updateId': id,
-
       'childId': childId,
       'childName': childName,
-
       'parentUid': parentUid,
-      'parentUsername': parentUsername,
-
+      'parentUsername': parentUsername.trim().toLowerCase(),
       'type': type,
       'updateType': updateType,
       'category': category,
       'note': note,
       'description': description,
-
       'time': Timestamp.fromDate(time),
-      'eventAt':
-          eventAt == null ? Timestamp.fromDate(time) : Timestamp.fromDate(eventAt!),
-      'createdAt':
-          createdAt == null ? FieldValue.serverTimestamp() : Timestamp.fromDate(createdAt!),
+      'eventAt': eventAt == null
+          ? Timestamp.fromDate(time)
+          : Timestamp.fromDate(eventAt!),
+      'createdAt': createdAt == null
+          ? FieldValue.serverTimestamp()
+          : Timestamp.fromDate(createdAt!),
       'updatedAt': FieldValue.serverTimestamp(),
-
       'byRole': normalizeRole(byRole),
       'createdByUid': createdByUid,
       'createdByName': createdByName,
       'createdByRole': normalizeRole(createdByRole),
-
       'childType': resolvedChildType,
       'enrollmentType': resolvedChildType,
       'childStatus': resolvedChildStatus,
       'isTemporaryChild': isTemporaryChild || resolvedChildType == 'temporary',
-
+      'isTrialChild': isTrialChild || resolvedChildType == 'trial',
       'groupId': groupId,
       'groupName': groupName,
       'group': resolvedGroup,
-
       'isGroupUpdate': isGroupUpdate,
       'groupUpdateId': groupUpdateId,
       'targetScope': targetScope,
       'targetScopeLabel': targetScopeLabel,
-
       'mediaUrl': mediaUrl,
       'mediaPath': mediaPath,
       'mediaType': mediaType,
@@ -458,7 +488,6 @@ class UpdateModel {
       'bucket': bucket,
       'storageProvider': storageProvider,
       'sizeBytes': sizeBytes,
-
       'importance': importance,
       'mood': mood,
       'energy': energy,
@@ -492,7 +521,8 @@ class UpdateModel {
   }
 
   bool get isTrial {
-    return normalizeChildType(childType) == 'trial' ||
+    return isTrialChild ||
+        normalizeChildType(childType) == 'trial' ||
         normalizeChildStatus(childStatus) == 'trial';
   }
 
@@ -537,6 +567,7 @@ class UpdateModel {
     String? childType,
     String? childStatus,
     bool? isTemporaryChild,
+    bool? isTrialChild,
     String? groupId,
     String? groupName,
     String? group,
@@ -579,6 +610,7 @@ class UpdateModel {
       childType: childType ?? this.childType,
       childStatus: childStatus ?? this.childStatus,
       isTemporaryChild: isTemporaryChild ?? this.isTemporaryChild,
+      isTrialChild: isTrialChild ?? this.isTrialChild,
       groupId: groupId ?? this.groupId,
       groupName: groupName ?? this.groupName,
       group: group ?? this.group,

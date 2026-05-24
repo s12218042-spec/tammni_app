@@ -135,14 +135,14 @@ class ParentNurseryLogPage extends StatelessWidget {
     ]);
   }
 
-  Future<List<Map<String, dynamic>>> fetchLogs() async {
-    final firestore = FirebaseFirestore.instance;
+  Stream<List<Map<String, dynamic>>> logsStream() {
+  final firestore = FirebaseFirestore.instance;
 
-    final snapshot = await firestore
-        .collection('entry_exit_logs')
-        .where('childId', isEqualTo: child.id)
-        .get();
-
+  return firestore
+      .collection('entry_exit_logs')
+      .where('childId', isEqualTo: child.id)
+      .snapshots()
+      .map((snapshot) {
     final items = snapshot.docs.map((doc) {
       final data = doc.data();
 
@@ -167,7 +167,8 @@ class ParentNurseryLogPage extends StatelessWidget {
     });
 
     return items;
-  }
+  });
+}
 
   @override
   Widget build(BuildContext context) {
@@ -178,8 +179,8 @@ class ParentNurseryLogPage extends StatelessWidget {
           _buildHeader(),
           const SizedBox(height: 16),
           Expanded(
-            child: FutureBuilder<List<Map<String, dynamic>>>(
-              future: fetchLogs(),
+            child: StreamBuilder<List<Map<String, dynamic>>>(
+              stream: logsStream(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(
@@ -272,15 +273,6 @@ class ParentNurseryLogPage extends StatelessWidget {
               fontSize: 20,
               fontWeight: FontWeight.w800,
               color: AppColors.textDark,
-            ),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'يمكنك متابعة السجل الإداري الموثّق لدخول وخروج الطفل من الحضانة.',
-            style: TextStyle(
-              fontSize: 14,
-              color: AppColors.textLight,
-              height: 1.5,
             ),
           ),
         ],

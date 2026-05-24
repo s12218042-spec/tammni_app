@@ -528,12 +528,12 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
             context,
             MaterialPageRoute(
               builder: (_) => MessagesPage(
-                child: childForChat,
-                targetRole: isAdminChat ? 'admin' : targetRole,
-                targetUserId: targetUserId,
-                targetUserName: displayName,
-                targetSection: targetSection,
-              ),
+              child: isAdminChat ? null : childForChat,
+              targetRole: isAdminChat ? 'admin' : targetRole,
+              targetUserId: targetUserId,
+              targetUserName: displayName,
+              targetSection: targetSection,
+            ),
             ),
           );
 
@@ -695,14 +695,14 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
                 context,
                 MaterialPageRoute(
                   builder: (_) => MessagesPage(
-                    child: childForChat,
-                    targetRole: role,
-                    targetUserId: (person['id'] ?? '').toString(),
-                    targetUserName: name.isEmpty
-                        ? (isAdmin ? 'الإدارة' : 'بدون اسم')
-                        : name,
-                    targetSection: section,
-                  ),
+                  child: isAdmin ? null : childForChat,
+                  targetRole: isAdmin ? 'admin' : role,
+                  targetUserId: (person['id'] ?? '').toString(),
+                  targetUserName: name.isEmpty
+                      ? (isAdmin ? 'الإدارة' : 'بدون اسم')
+                      : name,
+                  targetSection: section,
+                ),
                 ),
               );
 
@@ -861,168 +861,201 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
   }
 
   Widget buildSearchTab() {
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(24),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.04),
-                blurRadius: 12,
-                offset: const Offset(0, 5),
-              ),
-            ],
-          ),
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  CircleAvatar(
-                    radius: 24,
-                    backgroundColor: AppColors.secondary.withOpacity(0.14),
-                    child: const Icon(
-                      Icons.person_search_outlined,
-                      color: AppColors.secondary,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'البحث عن الأشخاص',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.textDark,
-                          ),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          'تظهر لك الإدارة وموظفات الحضانة المسموح لك بالتواصل معهم',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: AppColors.textLight,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              TextField(
-                controller: searchCtrl,
-                onChanged: (_) => setState(() {}),
-                decoration: InputDecoration(
-                  hintText: 'ابحث بالاسم أو اسم المستخدم...',
-                  prefixIcon: const Icon(Icons.search_rounded),
-                  suffixIcon: searchCtrl.text.isEmpty
-                      ? null
-                      : IconButton(
-                          onPressed: () {
-                            searchCtrl.clear();
-                            setState(() {});
-                          },
-                          icon: const Icon(Icons.close_rounded),
-                        ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: buildDynamicFilterChips(),
-                ),
-              ),
-            ],
-          ),
+  if (activeChildren.isEmpty) {
+    return Center(
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
         ),
-        const SizedBox(height: 16),
-        Expanded(
-          child: FutureBuilder<List<Map<String, dynamic>>>(
-            future: fetchAllowedPeople(),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(
-                  child: CircularProgressIndicator(),
-                );
-              }
-
-              if (snapshot.hasError) {
-                return Center(
-                  child: Text(
-                    'حدث خطأ أثناء تحميل الأشخاص: ${snapshot.error}',
-                    style: TextStyle(
-                      color: Colors.red.shade700,
-                      fontWeight: FontWeight.w700,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                );
-              }
-
-              final people = snapshot.data ?? [];
-
-              if (people.isEmpty) {
-                return Center(
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(24),
-                    ),
-                    child: const Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.person_search_outlined,
-                          size: 52,
-                          color: AppColors.textLight,
-                        ),
-                        SizedBox(height: 12),
-                        Text(
-                          'لا توجد نتائج',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.textDark,
-                          ),
-                        ),
-                        SizedBox(height: 8),
-                        Text(
-                          'لم يتم العثور على أشخاص مطابقين للبحث أو للفلاتر الحالية',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: AppColors.textLight,
-                            height: 1.5,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }
-
-              return ListView.builder(
-                itemCount: people.length,
-                itemBuilder: (context, index) {
-                  return buildPersonCard(people[index]);
-                },
-              );
-            },
-          ),
+        child: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.child_care_outlined,
+              size: 52,
+              color: AppColors.textLight,
+            ),
+            SizedBox(height: 12),
+            Text(
+              'لا يوجد أطفال مرتبطون بحسابك حاليًا',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+                color: AppColors.textDark,
+              ),
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
+
+  return Column(
+    children: [
+      Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 12,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 24,
+                  backgroundColor: AppColors.secondary.withOpacity(0.14),
+                  child: const Icon(
+                    Icons.person_search_outlined,
+                    color: AppColors.secondary,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'البحث عن الأشخاص',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.textDark,
+                        ),
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        'تظهر لك الإدارة وموظفات الحضانة المسموح لك بالتواصل معهم',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: AppColors.textLight,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: searchCtrl,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                hintText: 'ابحث بالاسم أو اسم المستخدم...',
+                prefixIcon: const Icon(Icons.search_rounded),
+                suffixIcon: searchCtrl.text.isEmpty
+                    ? null
+                    : IconButton(
+                        onPressed: () {
+                          searchCtrl.clear();
+                          setState(() {});
+                        },
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: buildDynamicFilterChips(),
+              ),
+            ),
+          ],
+        ),
+      ),
+      const SizedBox(height: 16),
+      Expanded(
+        child: FutureBuilder<List<Map<String, dynamic>>>(
+          future: fetchAllowedPeople(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(
+                child: CircularProgressIndicator(),
+              );
+            }
+
+            if (snapshot.hasError) {
+              return Center(
+                child: Text(
+                  'حدث خطأ أثناء تحميل الأشخاص: ${snapshot.error}',
+                  style: TextStyle(
+                    color: Colors.red.shade700,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              );
+            }
+
+            final people = snapshot.data ?? [];
+
+            if (people.isEmpty) {
+              return Center(
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  child: const Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.person_search_outlined,
+                        size: 52,
+                        color: AppColors.textLight,
+                      ),
+                      SizedBox(height: 12),
+                      Text(
+                        'لا توجد نتائج',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.textDark,
+                        ),
+                      ),
+                      SizedBox(height: 8),
+                      Text(
+                        'لم يتم العثور على أشخاص مطابقين للبحث أو للفلاتر الحالية',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: AppColors.textLight,
+                          height: 1.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+
+            return ListView.builder(
+              itemCount: people.length,
+              itemBuilder: (context, index) {
+                return buildPersonCard(people[index]);
+              },
+            );
+          },
+        ),
+      ),
+    ],
+  );
+}
 
   @override
   Widget build(BuildContext context) {

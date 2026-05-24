@@ -317,8 +317,10 @@ final excludeFromMonthlyInvoice =
         'totalAmount': totalAmount,
         'hourlyPrice': hourlyPrice,
         'hours': hours,
-        'billable': approved,
-        'invoiceStatus': approved ? 'pending_invoice' : 'not_billed',
+        'billable': approved && !isTrialChild,
+        'invoiceStatus': approved && !isTrialChild
+            ? 'pending_invoice'
+            : 'not_billed',
         'childType': childType,
         'childStatus': childStatus,
         'isTemporaryChild': isTemporaryChild,
@@ -403,6 +405,10 @@ final isTemporaryChild = consultationData['isTemporaryChild'] == true ||
 
 final excludeFromMonthlyInvoice =
     consultationData['excludeFromMonthlyInvoice'] == true || isTrialChild;
+    final shouldBillConsultation = approved && !isTrialChild;
+    final nextInvoiceStatus = shouldBillConsultation
+        ? 'pending_invoice'
+        : 'not_billed';
       await consultationRef.update({
         'parentApprovalStatus': approved ? 'approved' : 'rejected',
         'parentRespondedAt': Timestamp.fromDate(now),
@@ -421,28 +427,33 @@ final excludeFromMonthlyInvoice =
         'hourlyPrice': hourlyPrice,
         'totalAmount': calculatedTotal,
 
-        'billable': approved,
-        'invoiceStatus': approved ? 'pending_invoice' : 'not_billed',
-        'billingStatus': approved ? 'pending_invoice' : 'not_billed',
+      
+        'billable': shouldBillConsultation,
+        'invoiceStatus': nextInvoiceStatus,
+        'billingStatus': nextInvoiceStatus,
         'addedToInvoice': false,
         'invoiceId': consultationData['invoiceId'] ?? '',
         'invoiceMonth': consultationData['invoiceMonth'] ?? '',
 
        'childType': childType,
-'childStatus': childStatus,
-'isTemporaryChild': isTemporaryChild,
-'isTrialChild': isTrialChild,
-'excludeFromMonthlyInvoice': excludeFromMonthlyInvoice,
+       'childStatus': childStatus,
+       'isTemporaryChild': isTemporaryChild,
+       'isTrialChild': isTrialChild,
+       'excludeFromMonthlyInvoice': excludeFromMonthlyInvoice,
       });
 
-      await notifyAdminConsultationResponse(
-        consultationId: consultationId,
-        approved: approved,
-        consultationData: consultationData,
-        totalAmount: calculatedTotal,
-        hourlyPrice: hourlyPrice,
-        hours: hours,
-      );
+      try {
+        await notifyAdminConsultationResponse(
+          consultationId: consultationId,
+          approved: approved,
+          consultationData: consultationData,
+          totalAmount: calculatedTotal,
+          hourlyPrice: hourlyPrice,
+          hours: hours,
+        );
+      } catch (e) {
+        debugPrint('ParentConsultationsPage: فشل إرسال إشعار رد الاستشارة للإدارة: $e');
+      }
 
       if (!mounted) return;
 

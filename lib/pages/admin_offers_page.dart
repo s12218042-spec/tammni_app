@@ -322,9 +322,6 @@ class _AdminOffersPageState extends State<AdminOffersPage> {
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
                         title: const Text('تعطيل العرض عند امتلاء المجموعات'),
-                        subtitle: const Text(
-                          'إذا أصبحت إحدى المجموعات ممتلئة، تستطيع الإدارة تعطيل هذا العرض بسرعة.',
-                        ),
                         value: disableWhenGroupsFull,
                         onChanged: (value) {
                           setDialogState(() {
@@ -889,11 +886,6 @@ class _HeaderCard extends StatelessWidget {
                   ),
                 ),
               ],
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'من هنا يمكن للإدارة إضافة عروض الاشتراك الشهرية، تعديلها، تفعيلها أو تعطيلها.',
-              style: TextStyle(color: Colors.black54, height: 1.45),
             ),
             const SizedBox(height: 14),
             Row(

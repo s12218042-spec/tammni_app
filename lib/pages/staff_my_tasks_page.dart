@@ -179,13 +179,16 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
     final user = _auth.currentUser;
 
     if (user == null) {
-      setState(() {
-        isLoading = false;
-        loadError = 'لم يتم العثور على المستخدم الحالي. سجّلي الدخول مرة أخرى.';
-        tasks = [];
-      });
-      return;
-    }
+  if (!mounted) return;
+
+  setState(() {
+    isLoading = false;
+    loadError = 'لم يتم العثور على المستخدم الحالي. سجّلي الدخول مرة أخرى.';
+    tasks = [];
+  });
+
+  return;
+}
 
     setState(() {
       isLoading = true;

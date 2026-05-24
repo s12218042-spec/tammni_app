@@ -292,52 +292,54 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
           final safeDocId =
               '${_docSafe(dateKey)}_${_docSafe(uid)}_${_docSafe(taskKey)}';
           final ref = _firestore.collection('staff_tasks').doc(safeDocId);
+          final oldTaskDoc = await ref.get();
+          final taskAlreadyExists = oldTaskDoc.exists;
 
-          batch.set(
-            ref,
-            {
-              'taskId': ref.id,
-              'scheduleId': dateKey,
-              'staffUid': uid,
-              'staffName': name,
-              'staffUsername': username,
-              'staffRole': 'nursery_staff',
+          final taskData = <String, dynamic>{
+            'taskId': ref.id,
+            'scheduleId': dateKey,
+            'staffUid': uid,
+            'staffName': name,
+            'staffUsername': username,
+            'staffRole': 'nursery_staff',
 
-              'title': taskLabel,
-              'taskTitle': taskLabel,
-              'taskType': taskKey,
-              'taskKey': taskKey,
-              'taskLabel': taskLabel,
+            'title': taskLabel,
+            'taskTitle': taskLabel,
+            'taskType': taskKey,
+            'taskKey': taskKey,
+            'taskLabel': taskLabel,
 
-              'taskStatus': 'pending',
-              'status': 'pending',
-              'statusLabel': 'بانتظار اعتماد الإدارة',
+            'taskStatus': 'pending',
+            'status': 'pending',
+            'statusLabel': 'بانتظار اعتماد الإدارة',
 
-              'assignedDate': Timestamp.fromDate(today),
-              'date': Timestamp.fromDate(today),
-              'dateKey': dateKey,
-              'assignedWeekKey': _weekKey(today),
+            'assignedDate': Timestamp.fromDate(today),
+            'date': Timestamp.fromDate(today),
+            'dateKey': dateKey,
+            'assignedWeekKey': _weekKey(today),
 
-              'isActive': true,
-              'removedFromSchedule': false,
+            'isActive': true,
+            'removedFromSchedule': false,
 
-              'createdByUid': adminUid,
-              'createdByName': adminName,
-              'createdByRole': adminRole,
-              'assignedByUid': adminUid,
-              'assignedByName': adminName,
-              'assignedByRole': adminRole,
+            'createdByUid': adminUid,
+            'createdByName': adminName,
+            'createdByRole': adminRole,
+            'assignedByUid': adminUid,
+            'assignedByName': adminName,
+            'assignedByRole': adminRole,
 
-              'updatedByUid': adminUid,
-              'updatedByName': adminName,
-              'updatedByRole': adminRole,
+            'updatedByUid': adminUid,
+            'updatedByName': adminName,
+            'updatedByRole': adminRole,
 
-              'createdAt': FieldValue.serverTimestamp(),
-              'updatedAt': FieldValue.serverTimestamp(),
-            },
-            SetOptions(merge: true),
-          );
+            'updatedAt': FieldValue.serverTimestamp(),
+          };
 
+          if (!taskAlreadyExists) {
+            taskData['createdAt'] = FieldValue.serverTimestamp();
+          }
+
+batch.set(ref, taskData, SetOptions(merge: true));
           labelsForNotification.add(taskLabel);
           operationCount++;
           totalTasks++;
@@ -359,26 +361,33 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
         }
       }
 
-      batch.set(
-        _firestore.collection('daily_staff_task_schedules').doc(dateKey),
-        {
-          'scheduleId': dateKey,
-          'dateKey': dateKey,
-          'date': Timestamp.fromDate(today),
-          'assignedWeekKey': _weekKey(today),
-          'totalTasks': totalTasks,
-          'staffCount': notificationRows.length,
-          'createdByUid': adminUid,
-          'createdByName': adminName,
-          'createdByRole': adminRole,
-          'updatedByUid': adminUid,
-          'updatedByName': adminName,
-          'updatedByRole': adminRole,
-          'createdAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      );
+      final scheduleRef =
+          _firestore.collection('daily_staff_task_schedules').doc(dateKey);
+
+      final oldScheduleDoc = await scheduleRef.get();
+      final scheduleAlreadyExists = oldScheduleDoc.exists;
+
+      final scheduleData = <String, dynamic>{
+        'scheduleId': dateKey,
+        'dateKey': dateKey,
+        'date': Timestamp.fromDate(today),
+        'assignedWeekKey': _weekKey(today),
+        'totalTasks': totalTasks,
+        'staffCount': notificationRows.length,
+        'createdByUid': adminUid,
+        'createdByName': adminName,
+        'createdByRole': adminRole,
+        'updatedByUid': adminUid,
+        'updatedByName': adminName,
+        'updatedByRole': adminRole,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      if (!scheduleAlreadyExists) {
+        scheduleData['createdAt'] = FieldValue.serverTimestamp();
+      }
+
+      batch.set(scheduleRef, scheduleData, SetOptions(merge: true));
 
       await batch.commit();
 
@@ -422,7 +431,11 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
               'relatedCollection': 'staff_tasks',
             },
           );
-        } catch (_) {}
+        } catch (e) {
+  debugPrint(
+    'AdminDailyTasksTablePage: فشل إرسال إشعار مهام اليوم للموظفة $staffUid: $e',
+  );
+}
       }
 
       if (!mounted) return;
@@ -717,7 +730,9 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
             final docs = snapshot.data?.docs ?? [];
 
             final staffDocs = docs.where((doc) {
-              return _isNurseryStaff(doc.data());
+              final data = doc.data();
+              final isActive = data['isActive'] != false;
+              return isActive && _isNurseryStaff(data);
             }).toList();
 
             staffDocs.sort((a, b) {

@@ -44,7 +44,7 @@ class ChildHistoryItem {
   }
 
   Map<String, dynamic> toMap() {
-    return {
+    final data = <String, dynamic>{
       'section': section,
       'group': group,
       'groupId': groupId,
@@ -52,9 +52,17 @@ class ChildHistoryItem {
       'assignedStaffUid': assignedStaffUid,
       'assignedStaffName': assignedStaffName,
       'assignedStaffUsername': assignedStaffUsername,
-      'from': from == null ? null : Timestamp.fromDate(from!),
-      'to': to == null ? null : Timestamp.fromDate(to!),
     };
+
+    if (from != null) {
+      data['from'] = Timestamp.fromDate(from!);
+    }
+
+    if (to != null) {
+      data['to'] = Timestamp.fromDate(to!);
+    }
+
+    return data;
   }
 
   ChildHistoryItem copyWith({
@@ -127,6 +135,9 @@ class ChildModel {
   final String trialDecision;
   final String trialNote;
 
+  final bool isBillable;
+  final bool excludeFromMonthlyInvoice;
+
   final String allergies;
   final String chronicDiseases;
   final String medications;
@@ -172,6 +183,8 @@ class ChildModel {
     this.trialDecisionAt,
     this.trialDecision = '',
     this.trialNote = '',
+    this.isBillable = true,
+    this.excludeFromMonthlyInvoice = false,
     this.allergies = '',
     this.chronicDiseases = '',
     this.medications = '',
@@ -234,6 +247,17 @@ class ChildModel {
     }
   }
 
+  static bool _boolValue(dynamic value, {required bool defaultValue}) {
+    if (value is bool) return value;
+
+    final text = _string(value).toLowerCase();
+
+    if (text == 'true' || text == '1' || text == 'yes') return true;
+    if (text == 'false' || text == '0' || text == 'no') return false;
+
+    return defaultValue;
+  }
+
   factory ChildModel.fromMap(Map<String, dynamic> data, {String? docId}) {
     final rawHistory = data['history'];
 
@@ -262,8 +286,14 @@ class ChildModel {
         data['childStatus'],
         data['status'],
         resolvedType == 'temporary' ? 'temporary' : '',
+        resolvedType == 'trial' ? 'trial' : '',
       ]),
     );
+
+    final defaultIsBillable = resolvedType == 'trial' ? false : true;
+
+    final defaultExcludeFromMonthlyInvoice =
+        resolvedType == 'temporary' || resolvedType == 'trial';
 
     return ChildModel(
       id: _firstNonEmpty([
@@ -291,7 +321,7 @@ class ChildModel {
       assignedStaffUsername: _string(data['assignedStaffUsername']),
       parentUid: _string(data['parentUid']),
       parentName: _string(data['parentName']),
-      parentUsername: _string(data['parentUsername']),
+      parentUsername: _string(data['parentUsername']).toLowerCase(),
       birthDate: _parseDate(data['birthDate']),
       isActive: (data['isActive'] ?? true) == true,
       childType: resolvedType,
@@ -311,6 +341,14 @@ class ChildModel {
       trialDecisionAt: _parseDate(data['trialDecisionAt']),
       trialDecision: _string(data['trialDecision']),
       trialNote: _string(data['trialNote']),
+      isBillable: _boolValue(
+        data['isBillable'],
+        defaultValue: defaultIsBillable,
+      ),
+      excludeFromMonthlyInvoice: _boolValue(
+        data['excludeFromMonthlyInvoice'],
+        defaultValue: defaultExcludeFromMonthlyInvoice,
+      ),
       allergies: _string(data['allergies']),
       chronicDiseases: _string(data['chronicDiseases']),
       medications: _string(data['medications']),
@@ -347,56 +385,40 @@ class ChildModel {
               ? status
               : resolvedType == 'temporary'
                   ? 'temporary'
-                  : 'active',
+                  : resolvedType == 'trial'
+                      ? 'trial'
+                      : 'active',
     );
 
-    return {
+    final data = <String, dynamic>{
       'id': id,
       'name': name,
       'fullName': fullName,
       'gender': gender,
-
       'section': normalizeSection(section),
-
       'group': resolvedGroup,
       'groupId': groupId,
       'groupName': resolvedGroupName,
-
       'assignedStaffUid': assignedStaffUid,
       'assignedStaffName': assignedStaffName,
       'assignedStaffUsername': assignedStaffUsername,
-
       'parentUid': parentUid,
       'parentName': parentName,
-      'parentUsername': parentUsername,
-
-      'birthDate': birthDate == null ? null : Timestamp.fromDate(birthDate!),
-
+      'parentUsername': parentUsername.trim().toLowerCase(),
       'isActive': isActive,
-
       'childType': resolvedType,
       'enrollmentType': resolvedType,
       'isTemporaryChild': resolvedType == 'temporary',
+      'isTrialChild': resolvedType == 'trial',
       'status': resolvedStatus,
       'childStatus': resolvedStatus,
-
-      'temporaryStartAt': temporaryStartAt == null
-          ? null
-          : Timestamp.fromDate(temporaryStartAt!),
-      'temporaryEndAt':
-          temporaryEndAt == null ? null : Timestamp.fromDate(temporaryEndAt!),
       'temporaryReason': temporaryReason,
       'temporaryNote': temporaryNote,
       'hasConsultation': hasConsultation,
-
-      'trialStartAt':
-          trialStartAt == null ? null : Timestamp.fromDate(trialStartAt!),
-      'trialEndAt': trialEndAt == null ? null : Timestamp.fromDate(trialEndAt!),
-      'trialDecisionAt':
-          trialDecisionAt == null ? null : Timestamp.fromDate(trialDecisionAt!),
       'trialDecision': trialDecision,
       'trialNote': trialNote,
-
+      'isBillable': isBillable,
+      'excludeFromMonthlyInvoice': excludeFromMonthlyInvoice,
       'allergies': allergies,
       'chronicDiseases': chronicDiseases,
       'medications': medications,
@@ -404,14 +426,43 @@ class ChildModel {
       'bloodType': bloodType,
       'dietInstructions': dietInstructions,
       'specialInstructions': specialInstructions,
-
       'authorizedPickupContacts': authorizedPickupContacts,
-
-      'createdAt': createdAt == null ? null : Timestamp.fromDate(createdAt!),
-      'updatedAt': updatedAt == null ? null : Timestamp.fromDate(updatedAt!),
-
       'history': history.map((e) => e.toMap()).toList(),
     };
+
+    if (birthDate != null) {
+      data['birthDate'] = Timestamp.fromDate(birthDate!);
+    }
+
+    if (temporaryStartAt != null) {
+      data['temporaryStartAt'] = Timestamp.fromDate(temporaryStartAt!);
+    }
+
+    if (temporaryEndAt != null) {
+      data['temporaryEndAt'] = Timestamp.fromDate(temporaryEndAt!);
+    }
+
+    if (trialStartAt != null) {
+      data['trialStartAt'] = Timestamp.fromDate(trialStartAt!);
+    }
+
+    if (trialEndAt != null) {
+      data['trialEndAt'] = Timestamp.fromDate(trialEndAt!);
+    }
+
+    if (trialDecisionAt != null) {
+      data['trialDecisionAt'] = Timestamp.fromDate(trialDecisionAt!);
+    }
+
+    if (createdAt != null) {
+      data['createdAt'] = Timestamp.fromDate(createdAt!);
+    }
+
+    if (updatedAt != null) {
+      data['updatedAt'] = Timestamp.fromDate(updatedAt!);
+    }
+
+    return data;
   }
 
   bool get isNurseryChild {
@@ -429,7 +480,15 @@ class ChildModel {
 
   bool get isTrial {
     final type = normalizeChildType(childType);
-    return type == 'trial' || childStatus == 'trial' || status == 'trial';
+    final resolvedStatus = normalizeChildStatus(
+      childStatus.trim().isNotEmpty ? childStatus : status,
+    );
+
+    return type == 'trial' || resolvedStatus == 'trial';
+  }
+
+  bool get isTrialChild {
+    return isTrial;
   }
 
   bool get isActiveChild {
@@ -544,6 +603,8 @@ class ChildModel {
     DateTime? trialDecisionAt,
     String? trialDecision,
     String? trialNote,
+    bool? isBillable,
+    bool? excludeFromMonthlyInvoice,
     String? allergies,
     String? chronicDiseases,
     String? medications,
@@ -587,6 +648,9 @@ class ChildModel {
       trialDecisionAt: trialDecisionAt ?? this.trialDecisionAt,
       trialDecision: trialDecision ?? this.trialDecision,
       trialNote: trialNote ?? this.trialNote,
+      isBillable: isBillable ?? this.isBillable,
+      excludeFromMonthlyInvoice:
+          excludeFromMonthlyInvoice ?? this.excludeFromMonthlyInvoice,
       allergies: allergies ?? this.allergies,
       chronicDiseases: chronicDiseases ?? this.chronicDiseases,
       medications: medications ?? this.medications,

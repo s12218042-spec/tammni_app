@@ -905,7 +905,9 @@ class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
             }
 
             final staffDocs = snapshot.data!.docs.where((doc) {
-              return _isNurseryStaff(doc.data());
+              final data = doc.data();
+              final isActive = data['isActive'] != false;
+              return isActive && _isNurseryStaff(data);
             }).toList();
 
             staffDocs.sort((a, b) {

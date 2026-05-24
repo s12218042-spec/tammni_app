@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../utils/child_section_utils.dart';
 import '../widgets/app_page_scaffold.dart';
+import '../services/app_notification_service.dart';
 
 class AdminRegistrationRequestsPage extends StatefulWidget {
   const AdminRegistrationRequestsPage({super.key});
@@ -268,15 +269,26 @@ class _AdminRegistrationRequestsPageState
   }
 
   Future<void> _createParentRegistrationReviewNotification({
-    required String parentUid,
-    required String parentUsername,
-    required String parentName,
-    required String requestId,
-    required String status,
-    required String adminUid,
-    required String adminName,
-    String reviewNote = '',
-  }) async {
+  required String parentUid,
+  required String parentUsername,
+  required String parentName,
+  required String requestId,
+  required String status,
+  required String adminUid,
+  required String adminName,
+  String reviewNote = '',
+}) async {
+  try {
+    final cleanParentUid = parentUid.trim();
+    final cleanParentUsername = parentUsername.trim().toLowerCase();
+
+    if (cleanParentUid.isEmpty && cleanParentUsername.isEmpty) {
+      debugPrint(
+        'AdminRegistrationRequestsPage: لا يوجد parentUid أو parentUsername لإرسال إشعار نتيجة التسجيل',
+      );
+      return;
+    }
+
     final approved = status == 'approved';
 
     final title = approved
@@ -289,41 +301,43 @@ class _AdminRegistrationRequestsPageState
             ? 'نعتذر، تم رفض طلب إنشاء الحساب. يمكنك مراجعة الإدارة لمعرفة التفاصيل.'
             : 'نعتذر، تم رفض طلب إنشاء الحساب. ملاحظة الإدارة: ${reviewNote.trim()}';
 
-    await _firestore.collection('notifications').add({
-      'uid': parentUid,
-      'targetUid': parentUid,
-      'userUid': parentUid,
-      'receiverUid': parentUid,
-      'parentUid': parentUid,
-      'parentUsername': parentUsername,
-      'parentName': parentName,
-      'title': title,
-      'body': body,
-      'message': body,
-      'type': approved ? 'registration_request_approved' : 'registration_request_rejected',
-      'notificationType':
-          approved ? 'registration_request_approved' : 'registration_request_rejected',
-      'category': 'registration_requests',
-      'status': status,
-      'requestId': requestId,
-      'requestType': 'parent_registration',
-      'activationMethod': approved ? 'email_reset' : '',
-      'priority': approved ? 'normal' : 'important',
-      'importance': approved ? 'normal' : 'important',
-      'isRead': false,
-      'read': false,
-      'seen': false,
-      'createdAt': FieldValue.serverTimestamp(),
-      'time': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-      'createdByUid': adminUid,
-      'createdByName': adminName,
-      'createdByRole': 'admin',
-      'senderUid': adminUid,
-      'senderName': adminName,
-      'senderRole': 'admin',
-    });
+    await AppNotificationService.instance.notifyParent(
+      parentUid: cleanParentUid,
+      parentUsername: cleanParentUsername,
+      parentName: parentName.trim(),
+      title: title,
+      body: body,
+      type: approved
+          ? 'registration_request_approved'
+          : 'registration_request_rejected',
+      priority: approved ? 'normal' : 'important',
+      createdByUid: adminUid,
+      createdByName: adminName,
+      createdByRole: 'admin',
+      extraData: {
+        'notificationType': approved
+            ? 'registration_request_approved'
+            : 'registration_request_rejected',
+        'category': 'registration_requests',
+        'status': status,
+        'requestId': requestId,
+        'requestType': 'parent_registration',
+        'activationMethod': approved ? 'email_reset' : '',
+        'importance': approved ? 'normal' : 'important',
+        'senderUid': adminUid,
+        'senderName': adminName,
+        'senderRole': 'admin',
+        'screen': 'notifications',
+        'route': 'parent_notifications',
+        'relatedCollection': 'registration_requests',
+      },
+    );
+  } catch (e) {
+    debugPrint(
+      'AdminRegistrationRequestsPage: فشل إرسال إشعار نتيجة طلب التسجيل: $e',
+    );
   }
+}
 
   Future<void> _updateRequestStatus({
     required String requestId,
@@ -621,6 +635,17 @@ class _AdminRegistrationRequestsPageState
           'group': '',
           'status': 'active',
           'isActive': true,
+          'childId': childDocRef.id,
+          'childName': (child['fullName'] ?? child['name'] ?? '').toString().trim(),
+          'childType': 'permanent',
+          'enrollmentType': 'permanent',
+          'childStatus': 'active',
+          'isTemporaryChild': false,
+          'isTrialChild': false,
+          'isBillable': true,
+          'excludeFromMonthlyInvoice': false,
+          'canReactivate': true,
+          'permanentDeleted': false,
           'hasChronicDiseases': (child['hasChronicDiseases'] ?? false) == true,
           'chronicDiseases': (child['chronicDiseases'] ?? '').toString(),
           'hasAllergies': (child['hasAllergies'] ?? false) == true,
@@ -675,44 +700,18 @@ class _AdminRegistrationRequestsPageState
         'isFirstLogin': false,
       });
 
-      final notificationRef = _firestore.collection('notifications').doc();
-      batch.set(notificationRef, {
-        'uid': authUid,
-        'targetUid': authUid,
-        'userUid': authUid,
-        'receiverUid': authUid,
-        'parentUid': authUid,
-        'parentUsername': rawUsername,
-        'parentName': parentName,
-        'title': 'تمت الموافقة على طلب التسجيل',
-        'body':
-            'تمت الموافقة على طلب إنشاء حسابك. تم إرسال رابط تعيين كلمة المرور إلى بريدك الإلكتروني. بعد تعيين كلمة المرور يمكنك تسجيل الدخول باستخدام اسم المستخدم الخاص بك.',
-        'message':
-            'تمت الموافقة على طلب إنشاء حسابك. تم إرسال رابط تعيين كلمة المرور إلى بريدك الإلكتروني. بعد تعيين كلمة المرور يمكنك تسجيل الدخول باستخدام اسم المستخدم الخاص بك.',
-        'type': 'registration_request_approved',
-        'notificationType': 'registration_request_approved',
-        'category': 'registration_requests',
-        'status': 'approved',
-        'requestId': requestId,
-        'requestType': 'parent_registration',
-        'activationMethod': 'email_reset',
-        'priority': 'normal',
-        'importance': 'normal',
-        'isRead': false,
-        'read': false,
-        'seen': false,
-        'createdAt': FieldValue.serverTimestamp(),
-        'time': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-        'createdByUid': adminInfo['uid'],
-        'createdByName': adminInfo['name'],
-        'createdByRole': 'admin',
-        'senderUid': adminInfo['uid'],
-        'senderName': adminInfo['name'],
-        'senderRole': 'admin',
-      });
-
       await batch.commit();
+
+      await _createParentRegistrationReviewNotification(
+        parentUid: authUid,
+        parentUsername: rawUsername,
+        parentName: parentName,
+        requestId: requestId,
+        status: 'approved',
+        adminUid: adminInfo['uid'] ?? '',
+        adminName: adminInfo['name'] ?? 'admin',
+        reviewNote: noteController.text,
+      );
 
       await _markRelatedAdminRegistrationNotificationsAsHandled(
         requestId: requestId,

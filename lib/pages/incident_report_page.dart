@@ -524,7 +524,8 @@ Future<Map<String, dynamic>> _uploadIncidentImageIfNeeded() async {
           (parentInfo['parentUsername'] ?? '').trim().toLowerCase();
       final parentName = (parentInfo['parentName'] ?? '').trim();
 
-      final canNotifyParent = parentUid.isNotEmpty || parentUsername.isNotEmpty;
+      final canNotifyParent =
+          parentUid.isNotEmpty || parentUsername.isNotEmpty || widget.child.id.trim().isNotEmpty;
 
       final reportRef = _firestore.collection('incident_reports').doc();
     
@@ -577,67 +578,69 @@ Future<Map<String, dynamic>> _uploadIncidentImageIfNeeded() async {
 
       await batch.commit();
 
-   if (canNotifyParent) {
-  debugPrint(
-    'IncidentReportPage: سيتم إرسال إشعار حادث إلى parentUid=$parentUid parentUsername=$parentUsername',
-  );
+  if (canNotifyParent) {
+  try {
+    debugPrint(
+      'IncidentReportPage: سيتم إرسال إشعار حادث إلى parentUid=$parentUid parentUsername=$parentUsername childId=${widget.child.id}',
+    );
 
-  await AppNotificationService.instance.notifyParent(
-    parentUid: parentUid,
-    parentUsername: parentUsername,
-    parentName: parentName,
-    title: autoRisk == 'urgent' || priority == 'urgent'
-        ? 'تنبيه عاجل بخصوص حادث'
-        : 'تقرير حادث جديد',
-    body: finalSummary,
-    type: 'incident_report',
-    childId: widget.child.id,
-    childName: widget.child.name,
-    section: 'Nursery',
-    group: widget.child.group,
-    priority: autoRisk == 'urgent' || priority == 'urgent'
-        ? 'urgent'
-        : priority,
-    createdByUid: userInfo['uid'] ?? '',
-    createdByName: userInfo['name'] ?? 'مستخدم',
-    createdByRole: userInfo['role'] ?? 'nursery_staff',
-    extraData: {
-      'reportId': reportRef.id,
-      'incidentReportId': reportRef.id,
-      'reportType': 'incident_report',
-      'incidentType': incidentType,
-      'incidentPlace': finalIncidentPlace,
-      'locationLabel': finalIncidentPlace,
-      'importance': priority,
-      'autoRisk': autoRisk,
-      'details': detailsCtrl.text.trim(),
-      'actionTaken': actionCtrl.text.trim(),
-      'notificationType': 'incident_report',
-      'category': 'incident_report',
-      'templateType': 'incident_report',
-      'description': finalSummary,
-      'eventAt': now,
-      'senderUid': userInfo['uid'] ?? '',
-      'senderName': userInfo['name'] ?? 'مستخدم',
-      'senderRole': userInfo['role'] ?? 'nursery_staff',
-      'screen': 'incident_report',
-      'route': 'parent_incident_reports',
-      'relatedCollection': 'incident_reports',
-      ...imageData,
-    },
-  );
+    await AppNotificationService.instance.notifyChildParent(
+      parentUid: parentUid,
+      parentUsername: parentUsername,
+      parentName: parentName,
+      title: autoRisk == 'urgent' || priority == 'urgent'
+          ? 'تنبيه عاجل بخصوص حادث'
+          : 'تقرير حادث جديد',
+      body: finalSummary,
+      type: 'incident_report',
+      childId: widget.child.id,
+      childName: widget.child.name,
+      section: 'Nursery',
+      group: widget.child.group,
+      priority: autoRisk == 'urgent' || priority == 'urgent'
+          ? 'urgent'
+          : priority,
+      createdByUid: userInfo['uid'] ?? '',
+      createdByName: userInfo['name'] ?? 'مستخدم',
+      createdByRole: userInfo['role'] ?? 'nursery_staff',
+      extraData: {
+        'reportId': reportRef.id,
+        'incidentReportId': reportRef.id,
+        'reportType': 'incident_report',
+        'incidentType': incidentType,
+        'incidentPlace': finalIncidentPlace,
+        'locationLabel': finalIncidentPlace,
+        'importance': priority,
+        'autoRisk': autoRisk,
+        'details': detailsCtrl.text.trim(),
+        'actionTaken': actionCtrl.text.trim(),
+        'notificationType': 'incident_report',
+        'category': 'incident_report',
+        'templateType': 'incident_report',
+        'description': finalSummary,
+        'eventAt': now,
+        'senderUid': userInfo['uid'] ?? '',
+        'senderName': userInfo['name'] ?? 'مستخدم',
+        'senderRole': userInfo['role'] ?? 'nursery_staff',
+        'screen': 'incident_report',
+        'route': 'parent_incident_reports',
+        'relatedCollection': 'incident_reports',
+        ...imageData,
+      },
+    );
+  } catch (e) {
+    debugPrint('IncidentReportPage: فشل إرسال إشعار الحادث: $e');
+  }
 } else {
   debugPrint(
-    'IncidentReportPage: لم يتم إرسال إشعار لأن parentUid و parentUsername فارغين للطفل ${widget.child.id}',
+    'IncidentReportPage: لم يتم إرسال إشعار لأن بيانات الهدف غير كافية للطفل ${widget.child.id}',
   );
 }
 
       if (!mounted) return;
 
       _showSnack(
-        canNotifyParent
-            ? 'تم حفظ التقرير وإشعار ولي الأمر'
-            : 'تم حفظ التقرير، لكن لم يتم العثور على بيانات ولي الأمر للإشعار',
+        'تم حفظ التقرير بنجاح',
         backgroundColor: Colors.green,
       );
 

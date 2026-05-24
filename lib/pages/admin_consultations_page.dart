@@ -309,6 +309,9 @@ Future<List<Map<String, dynamic>>> fetchChildren() async {
       final excludeFromMonthlyInvoice =
          selectedChild!['excludeFromMonthlyInvoice'] == true || isTrialChild;
 
+      final effectiveHourlyPrice = isTrialChild ? 0.0 : hourlyPrice;
+      final effectiveTotalAmount = isTrialChild ? 0.0 : totalAmount;
+
       await docRef.set({
         'id': docRef.id,
         'consultationId': docRef.id,
@@ -338,8 +341,8 @@ Future<List<Map<String, dynamic>>> fetchChildren() async {
 
         'suggestedDate': Timestamp.fromDate(suggestedDate),
         'hours': hours,
-        'hourlyPrice': hourlyPrice,
-        'totalAmount': totalAmount,
+        'hourlyPrice': effectiveHourlyPrice,
+        'totalAmount': effectiveTotalAmount,
 
         'parentApprovalStatus': 'pending',
         'consultationStatus': 'proposed',
@@ -360,14 +363,17 @@ Future<List<Map<String, dynamic>>> fetchChildren() async {
         'updatedAt': Timestamp.fromDate(now),
       });
 
-      if (parentUid.isNotEmpty || parentUsername.isNotEmpty) {
-        await AppNotificationService.instance.notifyParent(
+      try {
+        if (parentUid.isNotEmpty || parentUsername.isNotEmpty || childId.isNotEmpty) {
+          await AppNotificationService.instance.notifyChildParent(
           parentUid: parentUid,
           parentUsername: parentUsername,
           parentName: parentName,
           title: 'استشارة جديدة بانتظار الموافقة',
           body:
-              'تم اقتراح ${consultationTypeLabel(selectedConsultationType)} للطفل $childName بقيمة ${formatMoney(totalAmount)} شيكل.',
+              isTrialChild
+            ? 'تم اقتراح ${consultationTypeLabel(selectedConsultationType)} للطفل $childName مجانًا خلال فترة التجربة.'
+            : 'تم اقتراح ${consultationTypeLabel(selectedConsultationType)} للطفل $childName بقيمة ${formatMoney(effectiveTotalAmount)} شيكل.',
           type: 'consultation',
           childId: childId,
           childName: childName,
@@ -384,8 +390,8 @@ Future<List<Map<String, dynamic>>> fetchChildren() async {
                 consultationTypeLabel(selectedConsultationType),
             'suggestedDate': Timestamp.fromDate(suggestedDate),
             'hours': hours,
-            'hourlyPrice': hourlyPrice,
-            'totalAmount': totalAmount,
+            'hourlyPrice': effectiveHourlyPrice,
+            'totalAmount': effectiveTotalAmount,
             'parentApprovalStatus': 'pending',
             'consultationStatus': 'proposed',
             'invoiceStatus': 'pending_approval',
@@ -404,6 +410,10 @@ Future<List<Map<String, dynamic>>> fetchChildren() async {
             'relatedDocId': docRef.id,
           },
         );
+        
+        }
+      } catch (e) {
+        debugPrint('AdminConsultationsPage: فشل إرسال إشعار الاستشارة: $e');
       }
 
       if (!mounted) return;
@@ -434,36 +444,49 @@ Future<List<Map<String, dynamic>>> fetchChildren() async {
   }
 
   Future<void> markConsultationCompleted(String consultationId) async {
-    try {
-      final now = DateTime.now();
+  try {
+    final now = DateTime.now();
 
-      await _firestore.collection('child_consultations').doc(consultationId).update({
-        'consultationStatus': 'completed',
-        'invoiceStatus': 'ready_for_invoice',
-        'billingStatus': 'ready_for_invoice',
-        'billable': true,
-        'addedToInvoice': false,
-        'completedAt': Timestamp.fromDate(now),
-        'updatedAt': Timestamp.fromDate(now),
-      });
+    final ref = _firestore.collection('child_consultations').doc(consultationId);
+    final doc = await ref.get();
+    final data = doc.data() ?? <String, dynamic>{};
 
-      if (!mounted) return;
+    final isTrialChild = data['isTrialChild'] == true;
+    final isBillableChild = data['isBillableChild'] == true;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('تم اعتماد الجلسة كمكتملة'),
+    final shouldBill = !isTrialChild && isBillableChild;
+
+    await ref.update({
+      'consultationStatus': 'completed',
+      'invoiceStatus': shouldBill ? 'ready_for_invoice' : 'not_billed',
+      'billingStatus': shouldBill ? 'ready_for_invoice' : 'not_billed',
+      'billable': shouldBill,
+      'addedToInvoice': false,
+      'completedAt': Timestamp.fromDate(now),
+      'updatedAt': Timestamp.fromDate(now),
+    });
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          shouldBill
+              ? 'تم اعتماد الجلسة كمكتملة وجاهزة للفوترة'
+              : 'تم اعتماد الجلسة كمكتملة بدون فوترة',
         ),
-      );
-    } catch (e) {
-      if (!mounted) return;
+      ),
+    );
+  } catch (e) {
+    if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('حدث خطأ أثناء تحديث الجلسة: $e'),
-        ),
-      );
-    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('حدث خطأ أثناء تحديث الجلسة: $e'),
+      ),
+    );
   }
+}
 
   void _showSnack(String message) {
     if (!mounted) return;

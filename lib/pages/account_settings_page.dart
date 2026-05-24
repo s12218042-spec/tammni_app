@@ -441,6 +441,7 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
                   onRefresh: _loadUserData,
                   child: ListView(
                     physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.only(bottom: 24),
                     children: [
                       _AccountHeaderCard(userData: _userData!),
                       const SizedBox(height: 18),

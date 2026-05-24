@@ -205,9 +205,15 @@ class AccountModel {
       'phone': phone.trim(),
       'createdByUid': createdByUid,
       'createdByName': createdByName,
-      'createdAt': createdAt,
-      'updatedAt': updatedAt,
     };
+    
+    if (createdAt != null) {
+        data['createdAt'] = createdAt;
+      }
+
+      if (updatedAt != null) {
+        data['updatedAt'] = updatedAt;
+}
 
     if (alternatePhone.trim().isNotEmpty) {
       data['alternatePhone'] = alternatePhone.trim();
@@ -239,18 +245,23 @@ class AccountModel {
   }
 
   Map<String, dynamic> toLoginUsernameMap() {
-    final resolvedId = uid.trim().isNotEmpty ? uid.trim() : id.trim();
+  final resolvedId = uid.trim().isNotEmpty ? uid.trim() : id.trim();
 
-    return {
-      'uid': resolvedId,
-      'username': username.trim().toLowerCase(),
-      'email': email.trim().toLowerCase(),
-      'role': normalizeRole(role),
-      'isActive': isActive,
-      'accountStatus': accountStatus.trim().isEmpty ? 'active' : accountStatus,
-      'updatedAt': updatedAt,
-    };
+  final data = <String, dynamic>{
+    'uid': resolvedId,
+    'username': username.trim().toLowerCase(),
+    'email': email.trim().toLowerCase(),
+    'role': normalizeRole(role),
+    'isActive': isActive,
+    'accountStatus': accountStatus.trim().isEmpty ? 'active' : accountStatus,
+  };
+
+  if (updatedAt != null) {
+    data['updatedAt'] = updatedAt;
   }
+
+  return data;
+}
 
   AccountModel copyWith({
     String? id,

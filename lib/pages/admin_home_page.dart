@@ -18,7 +18,7 @@ import 'manage_users_page.dart';
 import 'manage_children_page.dart';
 import 'welcome_page.dart';
 import 'admin_daily_tasks_table_page.dart';
-import 'admin _weekly_duty__page.dart';
+import 'admin_weekly_duty__page.dart';
 import 'admin_staff_tasks_review_page.dart';
 import 'profile_details_page.dart';
 import 'admin_staff_evaluations_page.dart';
@@ -169,14 +169,31 @@ class _AdminHomePageState extends State<AdminHomePage> {
 
     for (final user in users) {
       final role = (user['role'] ?? '').toString().trim().toLowerCase();
+      final accountType =
+          (user['accountType'] ?? '').toString().trim().toLowerCase();
+      final isActive = user['isActive'] != false;
 
-      if (role == 'parent') parentsCount++;
+      if (!isActive) continue;
+
+      final isTemporaryOrTrialParent =
+          accountType == 'temporary_parent' ||
+          accountType == 'trial_parent' ||
+          user['isTemporaryAccount'] == true ||
+          user['isTrialAccount'] == true;
+
+      if (role == 'parent' && !isTemporaryOrTrialParent) {
+        parentsCount++;
+      }
+
       if (role == 'nursery' ||
           role == 'nursery staff' ||
           role == 'nursery_staff') {
         staffCount++;
       }
-      if (role == 'admin') adminsCount++;
+
+      if (role == 'admin') {
+        adminsCount++;
+      }
     }
 
     int pendingRequests = 0;
@@ -1309,6 +1326,7 @@ class _AdminActionCard extends StatelessWidget {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
+                    if (subtitle.trim().isNotEmpty) ...[
                     const SizedBox(height: 4),
                     Text(
                       subtitle,
@@ -1318,6 +1336,7 @@ class _AdminActionCard extends StatelessWidget {
                         height: 1.35,
                       ),
                     ),
+                  ],
                   ],
                 ),
               ),

@@ -11,6 +11,8 @@ UserRole roleFromString(String value) {
     case 'parent':
     case 'ولي امر':
     case 'ولي أمر':
+    case 'ولي الامر':
+    case 'ولي الأمر':
       return UserRole.parent;
 
     case 'nursery':

@@ -16,8 +16,6 @@ class AdminAddUserPage extends StatelessWidget {
         children: [
           _buildHeaderCard(context),
           const SizedBox(height: 16),
-          _buildInfoCard(context),
-          const SizedBox(height: 20),
 
           Text(
             'اختيار نوع الحساب',
@@ -26,19 +24,11 @@ class AdminAddUserPage extends StatelessWidget {
                   color: AppColors.textDark,
                 ),
           ),
-          const SizedBox(height: 6),
-          Text(
-           'اختار نوع الحساب الذي تريد الإدارة إنشاءه، وسيتم فتح النموذج المناسب.',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: AppColors.textLight,
-                  height: 1.5,
-                ),
-          ),
           const SizedBox(height: 16),
           _AccountTypeCard(
             title: 'إضافة موظفة حضانة',
             subtitle:
-                'إنشاء حساب موظفة حضانة مع بياناتها الشخصية والمهنية والطوارئ والمهام المرتبطة بالحضانة.',
+                '',
             icon: Icons.child_friendly_rounded,
             color: AppColors.nursery,
             onTap: () async {
@@ -57,7 +47,7 @@ class AdminAddUserPage extends StatelessWidget {
           _AccountTypeCard(
             title: 'إضافة أدمن',
             subtitle:
-                'إنشاء حساب إداري بصلاحيات واضحة وبيانات مهنية وتنظيمية مخصصة للإدارة.',
+                '',
             icon: Icons.admin_panel_settings_rounded,
             color: AppColors.secondary,
             onTap: () async {
@@ -72,44 +62,6 @@ class AdminAddUserPage extends StatelessWidget {
     Navigator.pop(context, true);
   }
 },
-          ),
-
-          const SizedBox(height: 24),
-
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    CircleAvatar(
-                      backgroundColor: AppColors.primary.withOpacity(0.10),
-                      child: const Icon(
-                        Icons.rule_rounded,
-                        color: AppColors.primary,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'ملاحظات مهمة',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.textDark,
-                            ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                _bullet('هذه الصفحة مخصصة لحسابات الموظفين فقط.'),
-              ],
-            ),
           ),
           const SizedBox(height: 12),
         ],
@@ -169,13 +121,6 @@ class AdminAddUserPage extends StatelessWidget {
                       ),
                 ),
                 const SizedBox(height: 6),
-                Text(
-                  'تم فصل إنشاء حسابات الموظفين عن إدارة المستخدمين حتى يصبح النظام أوضح وأكثر مهنية وتنظيماً.',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: AppColors.textLight,
-                        height: 1.45,
-                      ),
-                ),
               ],
             ),
           ),
@@ -184,64 +129,6 @@ class AdminAddUserPage extends StatelessWidget {
     );
   }
 
-  Widget _buildInfoCard(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            Icons.info_outline_rounded,
-            color: AppColors.secondary,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              'لن يتم إنشاء كل أنواع الموظفين بنفس الفورم بعد الآن. لكل نوع صفحة خاصة به تحتوي على الحقول والتحقق المناسبين له.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppColors.textDark,
-                    height: 1.5,
-                  ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _bullet(String text) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Padding(
-            padding: EdgeInsets.only(top: 5),
-            child: Icon(
-              Icons.circle,
-              size: 7,
-              color: AppColors.primary,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              text,
-              style: const TextStyle(
-                color: AppColors.textDark,
-                height: 1.45,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class _AccountTypeCard extends StatelessWidget {
