@@ -103,34 +103,6 @@ class ParentSupportCenterPage extends StatelessWidget {
                 'تأكدي من أن طلب الطفل تمت الموافقة عليه من الإدارة، وأنك تستخدمين نفس الحساب المرتبط بالطفل.',
           ),
 
-          const SizedBox(height: 18),
-
-          Card(
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: AppColors.primary.withOpacity(0.05),
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(
-                  color: AppColors.primary.withOpacity(0.12),
-                ),
-              ),
-              child: const Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  CircleAvatar(
-                    backgroundColor: Color(0xFFEDEBFF),
-                    child: Icon(
-                      Icons.info_outline_rounded,
-                      color: AppColors.primary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
           const SizedBox(height: 20),
         ],
       ),

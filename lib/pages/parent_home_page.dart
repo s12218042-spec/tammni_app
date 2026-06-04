@@ -5,8 +5,6 @@ import 'package:flutter/material.dart';
 import '../models/child_model.dart';
 import '../services/account_settings_service.dart';
 import '../services/auth_service.dart';
-import '../services/live_stream_service.dart';
-import '../services/message_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 import 'account_history_page.dart';
@@ -37,30 +35,14 @@ class ParentHomePage extends StatefulWidget {
 
 class _ParentHomePageState extends State<ParentHomePage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final MessageService _messageService = MessageService();
-  final LiveStreamService _liveStreamService = LiveStreamService();
   final AccountSettingsService _accountSettingsService =
       AccountSettingsService();
 
-  final Set<String> _liveStreamRequestingChildIds = {};
-
   int selectedIndex = 0;
-  bool isArabic = true;
-  bool isDarkMode = false;
-
-  String? get currentUserId => FirebaseAuth.instance.currentUser?.uid;
 
   Future<void> _refreshPage() async {
     if (!mounted) return;
     setState(() {});
-  }
-
-  String sectionLabel(String section) {
-    return 'حضانة';
-  }
-
-  Color sectionColor(String section) {
-    return const Color(0xFFEFA7C8);
   }
 
   String childAgeText(DateTime? birthDate) {
@@ -122,64 +104,81 @@ class _ParentHomePageState extends State<ParentHomePage> {
     return children;
   }
 
- Future<List<Map<String, dynamic>>> fetchLastUpdates(String childId) async {
-  final snapshot = await _firestore
-      .collection('updates')
-      .where('childId', isEqualTo: childId)
-      .get();
+  bool _isIncidentUpdate(Map<String, dynamic> data) {
+    final type = (data['type'] ?? '').toString().trim().toLowerCase();
+    final updateType =
+        (data['updateType'] ?? '').toString().trim().toLowerCase();
+    final category =
+        (data['category'] ?? '').toString().trim().toLowerCase();
 
-  final items = snapshot.docs.map((doc) {
-    final data = doc.data();
+    return type == 'incident' ||
+        type == 'incident_report' ||
+        type == 'accident' ||
+        type == 'accident_report' ||
+        updateType == 'incident' ||
+        updateType == 'incident_report' ||
+        category == 'incident' ||
+        category == 'incident_report';
+  }
 
-    final isGroupUpdate =
-        data['isGroupUpdate'] == true ||
-        data['source'] == 'group_update' ||
-        data['type'] == 'group_update' ||
-        data['updateSource'] == 'group_update' ||
-        data['groupUpdateId'] != null;
+  Future<List<Map<String, dynamic>>> fetchLastUpdates(String childId) async {
+    final snapshot = await _firestore
+        .collection('updates')
+        .where('childId', isEqualTo: childId)
+        .get();
 
-    return {
-      'id': doc.id,
-      'type': data['type'] ?? '',
-      'note': data['note'] ??
-          data['description'] ??
-          data['body'] ??
-          data['message'] ??
-          '',
-      'time': data['time'],
-      'createdAt': data['createdAt'],
-      'eventAt': data['eventAt'],
-      'updatedAt': data['updatedAt'],
+    final items = snapshot.docs.where((doc) {
+      return !_isIncidentUpdate(doc.data());
+    }).map((doc) {
+      final data = doc.data();
 
-      // مهم للتحديث الجماعي
-      'isGroupUpdate': isGroupUpdate,
-      'groupUpdateId': data['groupUpdateId'],
-      'groupId': data['groupId'],
-      'groupName': data['groupName'],
-      'updateScope': data['updateScope'] ?? data['scope'] ?? '',
-    };
-  }).toList();
+      final isGroupUpdate =
+          data['isGroupUpdate'] == true ||
+          data['source'] == 'group_update' ||
+          data['type'] == 'group_update' ||
+          data['updateSource'] == 'group_update' ||
+          data['groupUpdateId'] != null;
 
-  items.sort((a, b) {
-    final aTime = (a['eventAt'] as Timestamp?) ??
-        (a['time'] as Timestamp?) ??
-        (a['createdAt'] as Timestamp?) ??
-        (a['updatedAt'] as Timestamp?);
+      return {
+        'id': doc.id,
+        'type': data['type'] ?? '',
+        'note': data['note'] ??
+            data['description'] ??
+            data['body'] ??
+            data['message'] ??
+            '',
+        'time': data['time'],
+        'createdAt': data['createdAt'],
+        'eventAt': data['eventAt'],
+        'updatedAt': data['updatedAt'],
+        'isGroupUpdate': isGroupUpdate,
+        'groupUpdateId': data['groupUpdateId'],
+        'groupId': data['groupId'],
+        'groupName': data['groupName'],
+        'updateScope': data['updateScope'] ?? data['scope'] ?? '',
+      };
+    }).toList();
 
-    final bTime = (b['eventAt'] as Timestamp?) ??
-        (b['time'] as Timestamp?) ??
-        (b['createdAt'] as Timestamp?) ??
-        (b['updatedAt'] as Timestamp?);
+    items.sort((a, b) {
+      final aTime = (a['eventAt'] as Timestamp?) ??
+          (a['time'] as Timestamp?) ??
+          (a['createdAt'] as Timestamp?) ??
+          (a['updatedAt'] as Timestamp?);
 
-    if (aTime == null && bTime == null) return 0;
-    if (aTime == null) return 1;
-    if (bTime == null) return -1;
+      final bTime = (b['eventAt'] as Timestamp?) ??
+          (b['time'] as Timestamp?) ??
+          (b['createdAt'] as Timestamp?) ??
+          (b['updatedAt'] as Timestamp?);
 
-    return bTime.compareTo(aTime);
-  });
+      if (aTime == null && bTime == null) return 0;
+      if (aTime == null) return 1;
+      if (bTime == null) return -1;
 
-  return items.take(2).toList();
-}
+      return bTime.compareTo(aTime);
+    });
+
+    return items.take(60).toList();
+  }
 
   String firstLetter(String name) {
     if (name.trim().isEmpty) return 'ط';
@@ -288,6 +287,20 @@ class _ParentHomePageState extends State<ParentHomePage> {
     setState(() {});
   }
 
+  Future<void> _openConsultations() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ParentConsultationsPage(
+          parentUsername: widget.parentUsername,
+        ),
+      ),
+    );
+
+    if (!mounted) return;
+    setState(() {});
+  }
+
   Future<void> _openLiveStream(Map<String, dynamic> streamData) async {
     final roomId = (streamData['roomId'] ?? '').toString();
     final title = (streamData['title'] ?? 'بث مباشر من الحضانة').toString();
@@ -315,195 +328,67 @@ class _ParentHomePageState extends State<ParentHomePage> {
     setState(() {});
   }
 
-  Future<void> _cancelLiveStreamRequest(String requestId) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-
-    if (uid == null) {
+  Future<void> _openActiveLiveStreamForChildren(List<ChildModel> children) async {
+    if (children.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('يجب تسجيل الدخول أولًا')),
+        const SnackBar(content: Text('لا يوجد أطفال مرتبطون بهذا الحساب')),
       );
       return;
     }
 
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (_) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          title: const Text('إلغاء البث المباشر'),
-        content: const Text(
-        'هل تريدين إلغاء دورك أو خروجك من قائمة انتظار البث المباشر؟',
-         style: TextStyle(height: 1.5),
-         ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('تراجع'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('إلغاء الطلب'),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    if (confirm != true) return;
-
     try {
-      await _liveStreamService.cancelLiveStreamRequest(
-        requestId: requestId,
-        cancelledByUid: uid,
-        cancelledByRole: 'parent',
-      );
+      QueryDocumentSnapshot<Map<String, dynamic>>? activeStream;
+
+      for (final child in children) {
+        final snapshot = await _firestore
+            .collection('live_streams')
+            .where('status', isEqualTo: 'active')
+            .where('childId', isEqualTo: child.id)
+            .limit(1)
+            .get();
+
+        if (snapshot.docs.isNotEmpty) {
+          activeStream = snapshot.docs.first;
+          break;
+        }
+      }
+
+      if (activeStream == null) {
+        final snapshot = await _firestore
+            .collection('live_streams')
+            .where('status', isEqualTo: 'active')
+            .limit(1)
+            .get();
+
+        if (snapshot.docs.isNotEmpty) {
+          activeStream = snapshot.docs.first;
+        }
+      }
 
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم إلغاء البث المباشر أو دور الانتظار')),
-      );
+      if (activeStream == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('لا يوجد بث مباشر الآن')),
+        );
+        return;
+      }
 
-      setState(() {});
-    } catch (e) {
-      debugPrint('Cancel live stream request error: $e');
-
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            e.toString().contains('permission-denied')
-                ? 'لا توجد صلاحية لإلغاء هذا الطلب'
-                : 'حدث خطأ أثناء إلغاء الطلب',
-          ),
-        ),
-      );
-    }
-  }
-
- Future<void> _requestLiveStreamForChild(ChildModel child) async {
-  final uid = FirebaseAuth.instance.currentUser?.uid;
-  final cleanUsername = widget.parentUsername.trim().toLowerCase();
-
-  if (uid == null) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('يجب تسجيل الدخول أولًا')),
-    );
-    return;
-  }
-
-  if (_liveStreamRequestingChildIds.contains(child.id)) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('جاري تنفيذ الطلب، يرجى الانتظار')),
-    );
-    return;
-  }
-
-  final confirm = await showDialog<bool>(
-    context: context,
-    builder: (_) => Directionality(
-      textDirection: TextDirection.rtl,
-      child: AlertDialog(
-        title: const Text('البث المباشر'),
-        content: Text(
-          'هل تريدين استخدام البث المباشر لمشاهدة ${child.name}؟\n\n'
-          'إذا كان هناك بث قائم حاليًا، سيتم وضعك في قائمة الانتظار.',
-          style: const TextStyle(height: 1.5),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('إلغاء'),
-          ),
-          ElevatedButton.icon(
-            onPressed: () => Navigator.pop(context, true),
-            icon: const Icon(Icons.wifi_tethering_rounded),
-            label: const Text('متابعة'),
-          ),
-        ],
-      ),
-    ),
-  );
-
-  if (confirm != true) return;
-
-  setState(() {
-    _liveStreamRequestingChildIds.add(child.id);
-  });
-
-  try {
-    final userDoc = await _firestore.collection('users').doc(uid).get();
-    final userData = userDoc.data() ?? <String, dynamic>{};
-
-    final parentName = (userData['displayName'] ??
-            userData['name'] ??
-            userData['fullName'] ??
-            userData['username'] ??
-            'ولي الأمر')
-        .toString()
-        .trim();
-
-    final result = await _liveStreamService.requestLiveStreamForChild(
-      childId: child.id,
-      childName: child.name,
-      parentUid: uid,
-      parentUsername: cleanUsername,
-      parentName: parentName,
-      section: child.section.trim().isEmpty ? 'Nursery' : child.section,
-      group: child.group,
-    );
-
-    if (!mounted) return;
-
-    String message;
-
-    if (result.status == 'ready') {
-      message =
-          'يمكنك الآن استخدام البث المباشر. لديك 10 دقائق قبل انتقال الدور لولي أمر آخر.';
-    } else if (result.status == 'queued' || result.status == 'waiting') {
-      message =
-          'يوجد بث مباشر قائم حاليًا. تم وضعك في قائمة الانتظار. رقمك: ${result.queuePosition}';
-    } else if (result.status == 'active') {
-      message = 'يوجد بث مباشر نشط لهذا الطفل. تابعي كرت البث أعلى الصفحة.';
-    } else {
-      message = 'تم تسجيل طلب البث المباشر.';
-    }
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
-
-    setState(() {});
-  } catch (e) {
-    debugPrint('Parent live stream request error: $e');
-
-    if (!mounted) return;
-
-    final errorText = e.toString();
-
-    String message;
-
-    if (errorText.contains('permission-denied')) {
-      message = 'لا توجد صلاحية لتنفيذ طلب البث. راجعي Firestore Rules.';
-    } else {
-      message = errorText.replaceFirst(
-        'Exception: ',
-        'حدث خطأ أثناء طلب البث: ',
-      );
-    }
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
-  } finally {
-    if (mounted) {
-      setState(() {
-        _liveStreamRequestingChildIds.remove(child.id);
+      await _openLiveStream({
+        ...activeStream.data(),
+        'id': activeStream.id,
+        'streamId': activeStream.id,
       });
+    } catch (e) {
+      debugPrint('Open active live stream error: $e');
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تعذر فتح البث المباشر الآن')),
+      );
     }
   }
-}
 
   Future<void> _openComplaints() async {
     await Navigator.push(
@@ -570,8 +455,6 @@ class _ParentHomePageState extends State<ParentHomePage> {
   }
 
   Widget _buildDashboardTab(List<ChildModel> children) {
-    final nurseryChildren = children.length;
-
     return RefreshIndicator(
       onRefresh: _refreshPage,
       child: ListView(
@@ -579,65 +462,12 @@ class _ParentHomePageState extends State<ParentHomePage> {
         children: [
           _WelcomeHeader(),
           const SizedBox(height: 16),
-          _ParentLiveStreamSection(
-            parentUid: currentUserId ?? '',
-            parentUsername: widget.parentUsername.trim().toLowerCase(),
-            onOpenLiveStream: _openLiveStream,
-          ),
-          const SizedBox(height: 16),
           _SummaryCard(
             totalChildren: children.length,
-            nurseryCount: nurseryChildren,
           ),
           const SizedBox(height: 20),
-          const _SectionTitle(
-            title: 'إجراءات سريعة',
-            icon: Icons.flash_on_rounded,
-          ),
-          const SizedBox(height: 12),
-          GridView.count(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            crossAxisCount: MediaQuery.of(context).size.width > 700 ? 4 : 2,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            childAspectRatio: 1.15,
-            children: [
-              _QuickActionCard(
-                icon: Icons.person_add_alt_1_rounded,
-                title: 'طلب إضافة طفل',
-                subtitle: 'إرسال طلب جديد',
-                onTap: _openAddChildRequest,
-              ),
-              _QuickActionCard(
-                icon: Icons.receipt_long_rounded,
-                title: 'الفواتير',
-                subtitle: 'عرض الفواتير',
-                onTap: _openInvoices,
-              ),
-              _QuickActionCard(
-                icon: Icons.notifications_none_rounded,
-                title: 'الإشعارات',
-                subtitle: 'متابعة التنبيهات',
-                onTap: _openNotifications,
-              ),
-              _QuickActionCard(
-                icon: Icons.report_problem_outlined,
-                title: 'الشكاوى',
-                subtitle: 'إرسال شكوى أو ملاحظة',
-                onTap: _openComplaints,
-              ),
-              _QuickActionCard(
-                icon: Icons.send_outlined,
-                title: 'الرسائل',
-                subtitle: 'فتح المحادثات',
-                onTap: () => _openChats(children),
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
-          const _SectionTitle(
-            title: 'لمحة سريعة عن الأطفال',
+          _SectionTitle(
+            title: children.length == 1 ? 'لمحة عن طفلك' : 'لمحة عن أطفالك',
             icon: Icons.child_care_rounded,
           ),
           const SizedBox(height: 12),
@@ -645,8 +475,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
             const _EmptyStateBox(
               icon: Icons.child_care,
               title: 'لا يوجد أطفال مرتبطون بهذا الحساب',
-              subtitle:
-                  'يمكنك مراجعة الإدارة أو إرسال طلب إضافة طفل جديد لربطه بحساب ولي الأمر.',
+              subtitle: 'يمكنك إرسال طلب إضافة طفل.',
             )
           else
             ...children.take(2).map(
@@ -654,17 +483,9 @@ class _ParentHomePageState extends State<ParentHomePage> {
                     padding: const EdgeInsets.only(bottom: 12),
                     child: _ChildPreviewCard(
                       childModel: child,
-                      sectionText: sectionLabel(child.section),
-                      sectionBadgeColor: sectionColor(child.section),
                       ageText: childAgeText(child.birthDate),
                       letter: firstLetter(child.name),
-                      parentUid: currentUserId ?? '',
-                      isSendingLiveStreamRequest:
-                          _liveStreamRequestingChildIds.contains(child.id),
                       onOpenProfile: () => _openChildProfile(child),
-                      onRequestLiveStream: () =>
-                          _requestLiveStreamForChild(child),
-                      onCancelLiveStreamRequest: _cancelLiveStreamRequest,
                     ),
                   ),
                 ),
@@ -686,6 +507,46 @@ class _ParentHomePageState extends State<ParentHomePage> {
               ),
             ),
           ],
+          const SizedBox(height: 20),
+          const _SectionTitle(
+            title: 'إجراءات سريعة',
+            icon: Icons.flash_on_rounded,
+          ),
+          const SizedBox(height: 12),
+          GridView.count(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisCount: MediaQuery.of(context).size.width > 700 ? 4 : 2,
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 12,
+            childAspectRatio: 1.15,
+            children: [
+              _QuickActionCard(
+                icon: Icons.wifi_tethering_rounded,
+                title: 'البث المباشر',
+                subtitle: 'فتح البث',
+                onTap: () => _openActiveLiveStreamForChildren(children),
+              ),
+              _QuickActionCard(
+                icon: Icons.person_add_alt_1_rounded,
+                title: 'طلب إضافة طفل',
+                subtitle: 'إرسال طلب جديد',
+                onTap: _openAddChildRequest,
+              ),
+              _QuickActionCard(
+                icon: Icons.receipt_long_rounded,
+                title: 'الفواتير',
+                subtitle: 'عرض الفواتير',
+                onTap: _openInvoices,
+              ),
+              _QuickActionCard(
+                icon: Icons.report_problem_outlined,
+                title: 'الشكاوى',
+                subtitle: 'إرسال شكوى أو ملاحظة',
+                onTap: _openComplaints,
+              ),
+            ],
+          ),
           const SizedBox(height: 12),
         ],
       ),
@@ -702,16 +563,15 @@ class _ParentHomePageState extends State<ParentHomePage> {
                 _EmptyStateBox(
                   icon: Icons.child_care,
                   title: 'لا يوجد أطفال للمتابعة حالياً',
-                  subtitle:
-                      'عند ربط طفل بالحساب ستظهر هنا جميع عناصر المتابعة الخاصة به.',
+                  subtitle: 'ستظهر المتابعة هنا.',
                 ),
               ],
             )
           : ListView(
               physics: const AlwaysScrollableScrollPhysics(),
               children: [
-                const _SectionTitle(
-                  title: 'أطفالي',
+                _SectionTitle(
+                  title: children.length == 1 ? 'طفلك' : 'أطفالك',
                   icon: Icons.groups_2_rounded,
                 ),
                 const SizedBox(height: 12),
@@ -720,21 +580,22 @@ class _ParentHomePageState extends State<ParentHomePage> {
                     padding: const EdgeInsets.only(bottom: 12),
                     child: _ChildFollowUpCard(
                       childModel: child,
-                      sectionText: sectionLabel(child.section),
-                      sectionBadgeColor: sectionColor(child.section),
                       ageText: childAgeText(child.birthDate),
                       letter: firstLetter(child.name),
-                      updatesFuture: fetchLastUpdates(child.id),
-                      parentUid: currentUserId ?? '',
-                      isSendingLiveStreamRequest:
-                          _liveStreamRequestingChildIds.contains(child.id),
                       onOpenProfile: () => _openChildProfile(child),
                       onOpenUpdates: () => _openUpdates(child),
-                      onRequestLiveStream: () =>
-                          _requestLiveStreamForChild(child),
-                      onCancelLiveStreamRequest: _cancelLiveStreamRequest,
                     ),
                   ),
+                ),
+                const SizedBox(height: 12),
+                const _SectionTitle(
+                  title: 'التحديثات',
+                  icon: Icons.calendar_month_rounded,
+                ),
+                const SizedBox(height: 12),
+                _AllChildrenUpdatesList(
+                  children: children,
+                  fetchUpdates: fetchLastUpdates,
                 ),
               ],
             ),
@@ -742,84 +603,15 @@ class _ParentHomePageState extends State<ParentHomePage> {
   }
 
   Widget _buildMessagesTab(List<ChildModel> children) {
-    return RefreshIndicator(
-      onRefresh: _refreshPage,
-      child: ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        children: [
-          const _SectionTitle(
-            title: 'المحادثات',
-            icon: Icons.chat_bubble_outline_rounded,
-          ),
-          const SizedBox(height: 12),
-          StreamBuilder<int>(
-            stream: currentUserId == null
-                ? null
-                : _messageService.getUnreadMessagesCountForUser(
-                    currentUserId: currentUserId!,
-                  ),
-            builder: (context, snapshot) {
-              final unreadCount = snapshot.data ?? 0;
+    if (children.isEmpty) {
+      return const _EmptyStateBox(
+        icon: Icons.chat_bubble_outline_rounded,
+        title: 'لا توجد محادثات',
+        subtitle: '',
+      );
+    }
 
-              return Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(18),
-                  child: Column(
-                    children: [
-                      CircleAvatar(
-                        radius: 28,
-                        backgroundColor: AppColors.primary.withOpacity(0.12),
-                        child: const Icon(
-                          Icons.send_outlined,
-                          color: AppColors.primary,
-                          size: 28,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      const Text(
-                        'رسائل وليّ الأمر',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 17,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        unreadCount > 0
-                            ? 'لديك $unreadCount رسالة غير مقروءة'
-                            : 'لا توجد رسائل غير مقروءة حالياً',
-                        style: const TextStyle(
-                          color: AppColors.textLight,
-                          fontSize: 14,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 16),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: () => _openChats(children),
-                          icon: const Icon(Icons.open_in_new_rounded),
-                          label: const Text('فتح المحادثات'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-          const SizedBox(height: 16),
-          const _InfoMessageBox(
-            icon: Icons.info_outline_rounded,
-            title: 'تنظيم الرسائل',
-            message:
-                'من هنا يمكنكِ الوصول إلى محادثاتك مع الإدارة أو كادر الحضانة المرتبط بأطفالك.',
-          ),
-        ],
-      ),
-    );
+    return ParentChatsPage(children: children);
   }
 
   Widget _buildSettingsTab(List<ChildModel> children) {
@@ -837,7 +629,9 @@ class _ParentHomePageState extends State<ParentHomePage> {
 
               final subtitle = data == null
                   ? widget.parentUsername.trim().toLowerCase()
-                  : '${data.roleLabel} • ${data.username.isNotEmpty ? data.username : widget.parentUsername.trim().toLowerCase()}';
+                  : data.username.isNotEmpty
+                      ? data.username
+                      : widget.parentUsername.trim().toLowerCase();
 
               return ListTile(
                 contentPadding: const EdgeInsets.symmetric(
@@ -846,7 +640,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
                 ),
                 leading: CircleAvatar(
                   radius: 28,
-                  backgroundColor: AppColors.primary.withOpacity(0.10),
+                  backgroundColor: AppColors.primary.withValues(alpha: 0.10),
                   child: Text(
                     displayName.trim().isNotEmpty ? displayName.trim()[0] : 'و',
                     style: const TextStyle(
@@ -863,7 +657,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
                 subtitle: Text(subtitle),
                 trailing: CircleAvatar(
                   radius: 18,
-                  backgroundColor: AppColors.primary.withOpacity(0.12),
+                  backgroundColor: AppColors.primary.withValues(alpha: 0.12),
                   child: const Icon(
                     Icons.edit,
                     size: 18,
@@ -885,49 +679,79 @@ class _ParentHomePageState extends State<ParentHomePage> {
             },
           ),
         ),
-        const SizedBox(height: 18),
-        Text(
-          'الإعدادات العامة',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: AppColors.textLight,
-                fontWeight: FontWeight.w700,
-              ),
-        ),        
-        const SizedBox(height: 18),
-        Text(
-          'الخدمات',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: AppColors.textLight,
-                fontWeight: FontWeight.w700,
-              ),
-        ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 12),
         Card(
           child: Column(
             children: [
               ListTile(
                 leading: CircleAvatar(
-                  backgroundColor: Colors.green.withOpacity(0.12),
+                  backgroundColor: Colors.green.withValues(alpha: 0.12),
                   child: const Icon(
                     Icons.notifications_none_rounded,
                     color: Colors.green,
                   ),
                 ),
                 title: const Text('الإشعارات'),
-                subtitle: const Text('عرض إشعارات وليّ الأمر'),
                 onTap: _openNotifications,
               ),
               const Divider(height: 1),
               ListTile(
                 leading: CircleAvatar(
-                  backgroundColor: Colors.teal.withOpacity(0.12),
+                  backgroundColor: Colors.indigo.withValues(alpha: 0.12),
+                  child: const Icon(
+                    Icons.receipt_long_rounded,
+                    color: Colors.indigo,
+                  ),
+                ),
+                title: const Text('الفواتير'),
+                onTap: _openInvoices,
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Colors.deepPurple.withValues(alpha: 0.12),
+                  child: const Icon(
+                    Icons.psychology_alt_rounded,
+                    color: Colors.deepPurple,
+                  ),
+                ),
+                title: const Text('الاستشارات'),
+                onTap: _openConsultations,
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Colors.red.withValues(alpha: 0.12),
+                  child: const Icon(
+                    Icons.report_problem_outlined,
+                    color: Colors.red,
+                  ),
+                ),
+                title: const Text('الشكاوى والملاحظات'),
+                onTap: _openComplaints,
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Colors.blueGrey.withValues(alpha: 0.12),
+                  child: const Icon(
+                    Icons.chat_bubble_outline_rounded,
+                    color: Colors.blueGrey,
+                  ),
+                ),
+                title: const Text('الرسائل'),
+                onTap: () => _openChats(children),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Colors.teal.withValues(alpha: 0.12),
                   child: const Icon(
                     Icons.history_rounded,
                     color: Colors.teal,
                   ),
                 ),
                 title: const Text('سجل نشاط الحساب'),
-                subtitle: const Text('عرض تغييرات الحساب والنشاطات الأخيرة'),
                 onTap: () {
                   Navigator.push(
                     context,
@@ -940,138 +764,51 @@ class _ParentHomePageState extends State<ParentHomePage> {
               const Divider(height: 1),
               ListTile(
                 leading: CircleAvatar(
-                  backgroundColor: Colors.indigo.withOpacity(0.12),
+                  backgroundColor: Colors.red.withValues(alpha: 0.12),
                   child: const Icon(
-                    Icons.receipt_long_rounded,
-                    color: Colors.indigo,
+                    Icons.support_agent_rounded,
+                    color: Colors.red,
                   ),
                 ),
-                title: const Text('الفواتير'),
-                subtitle: const Text('عرض الفواتير المرتبطة بالحساب'),
-                onTap: _openInvoices,
-              ),
-              const Divider(height: 1),
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Colors.deepPurple.withOpacity(0.12),
-                  child: const Icon(
-                    Icons.psychology_alt_rounded,
-                    color: Colors.deepPurple,
-                  ),
-                ),
-                title: const Text('الاستشارات'),
-                subtitle: const Text('عرض الاستشارات وموافقة وليّ الأمر'),
+                title: const Text('مركز الدعم'),
                 onTap: () {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => ParentConsultationsPage(
-                        parentUsername: widget.parentUsername,
-                      ),
+                      builder: (_) => const ParentSupportCenterPage(),
                     ),
                   );
                 },
               ),
-              const Divider(height: 1),
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: AppColors.primary.withOpacity(0.12),
-                  child: const Icon(
-                    Icons.person_add_alt_1_rounded,
-                    color: AppColors.primary,
-                  ),
-                ),
-                title: const Text('طلب إضافة طفل'),
-                subtitle: const Text('إرسال طلب جديد للإدارة'),
-                onTap: _openAddChildRequest,
-              ),
-              const Divider(height: 1),
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Colors.red.withOpacity(0.12),
-                  child: const Icon(
-                    Icons.report_problem_outlined,
-                    color: Colors.red,
-                  ),
-                ),
-                title: const Text('الشكاوى والملاحظات'),
-                subtitle: const Text('إرسال شكوى أو متابعة رد الإدارة'),
-                onTap: _openComplaints,
-              ),
-              const Divider(height: 1),
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Colors.blueGrey.withOpacity(0.12),
-                  child: const Icon(
-                    Icons.chat_bubble_outline_rounded,
-                    color: Colors.blueGrey,
-                  ),
-                ),
-                title: const Text('الرسائل'),
-                subtitle: const Text('فتح محادثات وليّ الأمر'),
-                onTap: () => _openChats(children),
-              ),
             ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        Card(
+          child: ListTile(
+            leading: CircleAvatar(
+              backgroundColor: Colors.redAccent.withValues(alpha: 0.12),
+              child: const Icon(
+                Icons.logout_rounded,
+                color: Colors.redAccent,
+              ),
+            ),
+            title: const Text(
+              'تسجيل الخروج',
+              style: TextStyle(color: Colors.redAccent),
+            ),
+            onTap: _logout,
           ),
         ),
         const SizedBox(height: 18),
-        Text(
-          'المساعدة والدعم',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: AppColors.textLight,
-                fontWeight: FontWeight.w700,
-              ),
-        ),
-        const SizedBox(height: 8),
-        Card(
-          child: Column(
-            children: [
-              ListTile(
-  leading: CircleAvatar(
-    backgroundColor: Colors.red.withOpacity(0.12),
-    child: const Icon(
-      Icons.support_agent_rounded,
-      color: Colors.red,
-    ),
-  ),
-  title: const Text('مركز الدعم'),
-  subtitle: const Text(
-    'المساعدة، الشكاوى، الفواتير، الحساب والأسئلة الشائعة',
-  ),
-  onTap: () {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => ParentSupportCenterPage(),
-      ),
-    );
-  },
-),
-              const Divider(height: 1),
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Colors.redAccent.withOpacity(0.12),
-                  child: const Icon(
-                    Icons.logout_rounded,
-                    color: Colors.redAccent,
-                  ),
-                ),
-                title: const Text(
-                  'تسجيل الخروج',
-                  style: TextStyle(color: Colors.redAccent),
-                ),
-                onTap: _logout,
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 20),
-        Center(
+        const Center(
           child: Text(
-            'إصدار النظام V1.0.0',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: AppColors.textLight,
-                ),
+            'الإصدار 1.0.0',
+            style: TextStyle(
+              color: AppColors.textLight,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
           ),
         ),
         const SizedBox(height: 12),
@@ -1106,7 +843,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
             actions: selectedIndex == 0
                 ? [
                     IconButton(
-                      icon: const Icon(Icons.history_rounded),
+                      icon: const Icon(Icons.refresh_rounded),
                       tooltip: 'تحديث الصفحة',
                       onPressed: _refreshPage,
                     ),
@@ -1116,30 +853,13 @@ class _ParentHomePageState extends State<ParentHomePage> {
                       onPressed: _openNotifications,
                     ),
                   ]
-                : selectedIndex == 2
-                    ? [
-                        IconButton(
-                          icon: const Icon(Icons.refresh_rounded),
-                          tooltip: 'تحديث الصفحة',
-                          onPressed: _refreshPage,
-                        ),
-                      ]
-                    : selectedIndex == 3
-                        ? [
-                            IconButton(
-                              icon:
-                                  const Icon(Icons.notifications_none_rounded),
-                              tooltip: 'الإشعارات',
-                              onPressed: _openNotifications,
-                            ),
-                          ]
-                        : [
-                            IconButton(
-                              icon: const Icon(Icons.refresh_rounded),
-                              tooltip: 'تحديث الصفحة',
-                              onPressed: _refreshPage,
-                            ),
-                          ],
+                : [
+                    IconButton(
+                      icon: const Icon(Icons.refresh_rounded),
+                      tooltip: 'تحديث الصفحة',
+                      onPressed: _refreshPage,
+                    ),
+                  ],
             child: child,
           ),
           bottomNavigationBar: NavigationBar(
@@ -1179,7 +899,6 @@ class _ParentHomePageState extends State<ParentHomePage> {
 }
 
 class _WelcomeHeader extends StatelessWidget {
-
   String greetingText() {
     final hour = DateTime.now().hour;
     if (hour < 12) return 'صباح الخير';
@@ -1212,7 +931,7 @@ class _WelcomeHeader extends StatelessWidget {
           Text(
             'يسعدنا متابعتك لأطفالك بكل سهولة واطمئنان',
             style: TextStyle(
-              color: Colors.white.withOpacity(0.95),
+              color: Colors.white.withValues(alpha: 0.95),
               fontSize: 14,
             ),
           ),
@@ -1220,7 +939,7 @@ class _WelcomeHeader extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.18),
+              color: Colors.white.withValues(alpha: 0.18),
               borderRadius: BorderRadius.circular(14),
             ),
           ),
@@ -1232,11 +951,9 @@ class _WelcomeHeader extends StatelessWidget {
 
 class _SummaryCard extends StatelessWidget {
   final int totalChildren;
-  final int nurseryCount;
 
   const _SummaryCard({
     required this.totalChildren,
-    required this.nurseryCount,
   });
 
   @override
@@ -1244,23 +961,10 @@ class _SummaryCard extends StatelessWidget {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            Expanded(
-              child: _MiniStatItem(
-                title: 'إجمالي الأطفال',
-                value: '$totalChildren',
-                icon: Icons.child_friendly,
-              ),
-            ),
-            Expanded(
-              child: _MiniStatItem(
-                title: 'الحضانة',
-                value: '$nurseryCount',
-                icon: Icons.baby_changing_station,
-              ),
-            ),
-          ],
+        child: _MiniStatItem(
+          title: 'إجمالي الأطفال',
+          value: '$totalChildren',
+          icon: Icons.child_friendly,
         ),
       ),
     );
@@ -1283,7 +987,7 @@ class _MiniStatItem extends StatelessWidget {
     return Column(
       children: [
         CircleAvatar(
-          backgroundColor: AppColors.primary.withOpacity(0.12),
+          backgroundColor: AppColors.primary.withValues(alpha: 0.12),
           child: Icon(icon, color: AppColors.primary),
         ),
         const SizedBox(height: 8),
@@ -1362,7 +1066,7 @@ class _QuickActionCard extends StatelessWidget {
             children: [
               CircleAvatar(
                 radius: 24,
-                backgroundColor: AppColors.primary.withOpacity(0.10),
+                backgroundColor: AppColors.primary.withValues(alpha: 0.10),
                 child: Icon(icon, color: AppColors.primary),
               ),
               const SizedBox(height: 12),
@@ -1394,106 +1098,68 @@ class _QuickActionCard extends StatelessWidget {
 
 class _ChildPreviewCard extends StatelessWidget {
   final ChildModel childModel;
-  final String sectionText;
-  final Color sectionBadgeColor;
   final String ageText;
   final String letter;
-  final String parentUid;
-  final bool isSendingLiveStreamRequest;
   final VoidCallback onOpenProfile;
-  final VoidCallback onRequestLiveStream;
-  final Future<void> Function(String requestId) onCancelLiveStreamRequest;
 
   const _ChildPreviewCard({
     required this.childModel,
-    required this.sectionText,
-    required this.sectionBadgeColor,
     required this.ageText,
     required this.letter,
-    required this.parentUid,
-    required this.isSendingLiveStreamRequest,
     required this.onOpenProfile,
-    required this.onRequestLiveStream,
-    required this.onCancelLiveStreamRequest,
   });
 
   @override
   Widget build(BuildContext context) {
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            CircleAvatar(
-              radius: 28,
-              backgroundColor: sectionBadgeColor.withOpacity(0.18),
-              child: Text(
-                letter,
-                style: TextStyle(
-                  color: sectionBadgeColor,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 22,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onOpenProfile,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 28,
+                backgroundColor: AppColors.primary.withValues(alpha: 0.12),
+                child: Text(
+                  letter,
+                  style: const TextStyle(
+                    color: AppColors.primary,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 22,
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    childModel.name,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16.5,
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      childModel.name,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16.5,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'العمر: $ageText',
-                    style: const TextStyle(
-                      color: AppColors.textLight,
-                      fontSize: 13,
+                    const SizedBox(height: 4),
+                    Text(
+                      'العمر: $ageText',
+                      style: const TextStyle(
+                        color: AppColors.textLight,
+                        fontSize: 13,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            Column(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 7,
-                  ),
-                  decoration: BoxDecoration(
-                    color: sectionBadgeColor.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Text(
-                    sectionText,
-                    style: TextStyle(
-                      color: sectionBadgeColor,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextButton(
-                  onPressed: onOpenProfile,
-                  child: const Text('فتح'),
-                ),
-                _LiveStreamRequestAction(
-                  parentUid: parentUid,
-                  childId: childModel.id,
-                  isSending: isSendingLiveStreamRequest,
-                  compact: true,
-                  onRequest: onRequestLiveStream,
-                  onCancel: onCancelLiveStreamRequest,
-                ),
-              ],
-            ),
-          ],
+              const Icon(
+                Icons.chevron_left_rounded,
+                color: AppColors.textLight,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1502,31 +1168,17 @@ class _ChildPreviewCard extends StatelessWidget {
 
 class _ChildFollowUpCard extends StatelessWidget {
   final ChildModel childModel;
-  final String sectionText;
-  final Color sectionBadgeColor;
   final String ageText;
   final String letter;
-  final Future<List<Map<String, dynamic>>> updatesFuture;
-  final String parentUid;
-  final bool isSendingLiveStreamRequest;
   final VoidCallback onOpenProfile;
   final VoidCallback onOpenUpdates;
-  final VoidCallback onRequestLiveStream;
-  final Future<void> Function(String requestId) onCancelLiveStreamRequest;
 
   const _ChildFollowUpCard({
     required this.childModel,
-    required this.sectionText,
-    required this.sectionBadgeColor,
     required this.ageText,
     required this.letter,
-    required this.updatesFuture,
-    required this.parentUid,
-    required this.isSendingLiveStreamRequest,
     required this.onOpenProfile,
     required this.onOpenUpdates,
-    required this.onRequestLiveStream,
-    required this.onCancelLiveStreamRequest,
   });
 
   @override
@@ -1540,11 +1192,11 @@ class _ChildFollowUpCard extends StatelessWidget {
               children: [
                 CircleAvatar(
                   radius: 28,
-                  backgroundColor: sectionBadgeColor.withOpacity(0.18),
+                  backgroundColor: AppColors.primary.withValues(alpha: 0.12),
                   child: Text(
                     letter,
-                    style: TextStyle(
-                      color: sectionBadgeColor,
+                    style: const TextStyle(
+                      color: AppColors.primary,
                       fontWeight: FontWeight.bold,
                       fontSize: 22,
                     ),
@@ -1573,198 +1225,7 @@ class _ChildFollowUpCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 7,
-                  ),
-                  decoration: BoxDecoration(
-                    color: sectionBadgeColor.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Text(
-                    sectionText,
-                    style: TextStyle(
-                      color: sectionBadgeColor,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
               ],
-            ),
-            const SizedBox(height: 14),
-            Align(
-              alignment: Alignment.centerRight,
-              child: Text(
-                'آخر التحديثات',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            FutureBuilder<List<Map<String, dynamic>>>(
-              future: updatesFuture,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: AppColors.background,
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: const Center(child: CircularProgressIndicator()),
-                  );
-                }
-
-                final updates = snapshot.data ?? [];
-
-                if (updates.isEmpty) {
-                  return Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: AppColors.background,
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: const Text(
-                      'لا يوجد تحديثات بعد',
-                      style: TextStyle(color: AppColors.textLight),
-                    ),
-                  );
-                }
-
-               final latest = updates.first;
-               final latestType = (latest['type'] ?? '').toString().trim();
-               final latestNote = (latest['note'] ?? '').toString().trim();
-
-               final isGroupUpdate =
-                latest['isGroupUpdate'] == true ||
-                (latest['groupUpdateId'] ?? '').toString().trim().isNotEmpty ||
-                latestType == 'group_update';
-
-               final cleanType = latestType == 'group_update' ? 'تحديث' : latestType;
-
-               final latestText = latestNote.isEmpty
-                ? (cleanType.isEmpty ? 'تحديث جديد' : cleanType)
-                : '${cleanType.isEmpty ? 'تحديث' : cleanType}: $latestNote';
-                return Container(
-  width: double.infinity,
-  padding: const EdgeInsets.all(12),
-  decoration: BoxDecoration(
-    color: isGroupUpdate
-        ? Colors.purple.withOpacity(0.055)
-        : AppColors.background,
-    borderRadius: BorderRadius.circular(14),
-    border: isGroupUpdate
-        ? Border.all(color: Colors.purple.withOpacity(0.22))
-        : null,
-  ),
-  child: Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 10,
-              vertical: 6,
-            ),
-            decoration: BoxDecoration(
-              color: AppColors.primary.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Text(
-              _timeText(
-                latest['eventAt'] ??
-                    latest['time'] ??
-                    latest['createdAt'] ??
-                    latest['updatedAt'],
-              ),
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 12,
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              latestText,
-              style: const TextStyle(fontSize: 13.5),
-            ),
-          ),
-        ],
-      ),
-      if (isGroupUpdate) ...[
-        const SizedBox(height: 10),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 10,
-                vertical: 5,
-              ),
-              decoration: BoxDecoration(
-                color: Colors.purple.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(
-                  color: Colors.purple.withOpacity(0.28),
-                ),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.groups_2_rounded,
-                    size: 15,
-                    color: Colors.purple,
-                  ),
-                  SizedBox(width: 5),
-                  Text(
-                    'تحديث جماعي',
-                    style: TextStyle(
-                      color: Colors.purple,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if ((latest['groupName'] ?? '').toString().trim().isNotEmpty)
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 5,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(
-                    color: Colors.purple.withOpacity(0.18),
-                  ),
-                ),
-                child: Text(
-                  'المجموعة: ${latest['groupName']}',
-                  style: const TextStyle(
-                    color: Colors.purple,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 12,
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ],
-    ],
-  ),
-);
-              },
             ),
             const SizedBox(height: 14),
             Row(
@@ -1792,17 +1253,195 @@ class _ChildFollowUpCard extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 10),
-            _LiveStreamRequestAction(
-              parentUid: parentUid,
-              childId: childModel.id,
-              isSending: isSendingLiveStreamRequest,
-              compact: false,
-              onRequest: onRequestLiveStream,
-              onCancel: onCancelLiveStreamRequest,
-            ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _AllChildrenUpdatesList extends StatelessWidget {
+  final List<ChildModel> children;
+  final Future<List<Map<String, dynamic>>> Function(String childId) fetchUpdates;
+
+  const _AllChildrenUpdatesList({
+    required this.children,
+    required this.fetchUpdates,
+  });
+
+  Future<List<Map<String, dynamic>>> _loadAllUpdates() async {
+    final allUpdates = <Map<String, dynamic>>[];
+
+    for (final child in children) {
+      final updates = await fetchUpdates(child.id);
+
+      for (final update in updates) {
+        allUpdates.add({
+          ...update,
+          'childName': child.name,
+        });
+      }
+    }
+
+    allUpdates.sort((a, b) {
+      final aDate = _dateFromDynamic(
+        a['eventAt'] ?? a['time'] ?? a['createdAt'] ?? a['updatedAt'],
+      );
+      final bDate = _dateFromDynamic(
+        b['eventAt'] ?? b['time'] ?? b['createdAt'] ?? b['updatedAt'],
+      );
+
+      if (aDate == null && bDate == null) return 0;
+      if (aDate == null) return 1;
+      if (bDate == null) return -1;
+
+      return bDate.compareTo(aDate);
+    });
+
+    return allUpdates;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _loadAllUpdates(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Card(
+            child: Padding(
+              padding: EdgeInsets.all(18),
+              child: Center(child: CircularProgressIndicator()),
+            ),
+          );
+        }
+
+        final updates = snapshot.data ?? [];
+
+        if (updates.isEmpty) {
+          return const _EmptyStateBox(
+            icon: Icons.notifications_none_outlined,
+            title: 'لا توجد تحديثات',
+            subtitle: '',
+          );
+        }
+
+        final grouped = <String, List<Map<String, dynamic>>>{};
+
+        for (final update in updates) {
+          final date = _dateFromDynamic(
+            update['eventAt'] ??
+                update['time'] ??
+                update['createdAt'] ??
+                update['updatedAt'],
+          );
+
+          final key = _dateKey(date);
+          grouped.putIfAbsent(key, () => []).add(update);
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: grouped.entries.map((entry) {
+            return Card(
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      entry.key,
+                      style: const TextStyle(
+                        color: AppColors.primary,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    ...entry.value.map(_buildUpdateLine),
+                  ],
+                ),
+              ),
+            );
+          }).toList(),
+        );
+      },
+    );
+  }
+
+  static DateTime? _dateFromDynamic(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    return null;
+  }
+
+  static String _dateKey(DateTime? date) {
+    if (date == null) return 'بدون تاريخ';
+
+    final y = date.year;
+    final m = date.month.toString().padLeft(2, '0');
+    final d = date.day.toString().padLeft(2, '0');
+
+    return '$y-$m-$d';
+  }
+
+  static String _updateText(Map<String, dynamic> update) {
+    final type = (update['type'] ?? '').toString().trim();
+    final note = (update['note'] ?? '').toString().trim();
+    final cleanType = type == 'group_update' ? 'تحديث' : type;
+
+    if (note.isEmpty) return cleanType.isEmpty ? 'تحديث جديد' : cleanType;
+    return '${cleanType.isEmpty ? 'تحديث' : cleanType}: $note';
+  }
+
+  static Widget _buildUpdateLine(Map<String, dynamic> update) {
+    final rawTime = update['eventAt'] ??
+        update['time'] ??
+        update['createdAt'] ??
+        update['updatedAt'];
+
+    final childName = (update['childName'] ?? '').toString().trim();
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              _timeText(rawTime),
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 12,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (childName.isNotEmpty)
+                  Text(
+                    childName,
+                    style: const TextStyle(
+                      color: AppColors.textLight,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
+                Text(
+                  _updateText(update),
+                  style: const TextStyle(fontSize: 13.5, height: 1.4),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1839,7 +1478,7 @@ class _EmptyStateBox extends StatelessWidget {
           children: [
             CircleAvatar(
               radius: 28,
-              backgroundColor: AppColors.primary.withOpacity(0.12),
+              backgroundColor: AppColors.primary.withValues(alpha: 0.12),
               child: Icon(icon, color: AppColors.primary, size: 28),
             ),
             const SizedBox(height: 12),
@@ -1852,553 +1491,18 @@ class _EmptyStateBox extends StatelessWidget {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 8),
-            Text(
-              subtitle,
-              style: const TextStyle(
-                color: AppColors.textLight,
-                fontSize: 14,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _InfoMessageBox extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String message;
-
-  const _InfoMessageBox({
-    required this.icon,
-    required this.title,
-    required this.message,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: AppColors.primary.withOpacity(0.05),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.primary.withOpacity(0.12)),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            CircleAvatar(
-              backgroundColor: AppColors.primary.withOpacity(0.12),
-              child: Icon(icon, color: AppColors.primary),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14.5,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    message,
-                    style: const TextStyle(
-                      color: Colors.black54,
-                      height: 1.4,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _LiveStreamRequestAction extends StatelessWidget {
-  final String parentUid;
-  final String childId;
-  final bool isSending;
-  final bool compact;
-  final VoidCallback onRequest;
-  final Future<void> Function(String requestId) onCancel;
-
-  const _LiveStreamRequestAction({
-    required this.parentUid,
-    required this.childId,
-    required this.isSending,
-    required this.compact,
-    required this.onRequest,
-    required this.onCancel,
-  });
-
-  bool _shouldShowWaitingStatus(String status) {
-  final clean = status.trim().toLowerCase();
-
-  return clean == 'ready' ||
-      clean == 'queued' ||
-      clean == 'waiting';
-}
-
- bool _shouldHideRequestStatus(String status) {
-  final clean = status.trim().toLowerCase();
-
-  return clean == 'active' ||
-      clean == 'completed' ||
-      clean == 'ended' ||
-      clean == 'finished' ||
-      clean == 'cancelled' ||
-      clean == 'rejected' ||
-      clean == 'expired';
-}
-
- String _statusText(String status) {
-  switch (status.trim().toLowerCase()) {
-    case 'ready':
-      return 'دورك الآن للبث المباشر';
-    case 'queued':
-    case 'waiting':
-      return 'أنتِ ضمن قائمة الانتظار';
-    default:
-      return 'طلب بث قائم';
-  }
-}
-
- bool _canCancel(String status) {
-  final clean = status.trim().toLowerCase();
-  return clean == 'ready' || clean == 'queued' || clean == 'waiting';
-}
-
-  DateTime? _dateFromDynamic(dynamic value) {
-    if (value is Timestamp) return value.toDate();
-    if (value is DateTime) return value;
-    return null;
-  }
-
-int _requestSortValue(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
-  final data = doc.data();
-  final status = (data['status'] ?? '').toString().trim().toLowerCase();
-
-  if (status == 'active') return 1;
-  if (status == 'ready') return 2;
-  if (status == 'queued' || status == 'waiting') return 3;
-  return 9;
-}
-
-  @override
-  Widget build(BuildContext context) {
-    final cleanParentUid = parentUid.trim();
-    final cleanChildId = childId.trim();
-
-    if (cleanParentUid.isEmpty || cleanChildId.isEmpty) {
-      return _buildRequestButton();
-    }
-
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('live_stream_requests')
-          .where('parentUid', isEqualTo: cleanParentUid)
-          .where('childId', isEqualTo: cleanChildId)
-          .limit(20)
-          .snapshots(),
-      builder: (context, snapshot) {
-        final docs = snapshot.data?.docs ?? [];
-
-        if (docs.isEmpty) {
-          return _buildRequestButton();
-        }
-
-        final sortedDocs = [...docs];
-
-        sortedDocs.sort((a, b) {
-          final aPriority = _requestSortValue(a);
-          final bPriority = _requestSortValue(b);
-
-          if (aPriority != bPriority) {
-            return aPriority.compareTo(bPriority);
-          }
-
-          final aData = a.data();
-          final bData = b.data();
-
-          final aDate = _dateFromDynamic(aData['updatedAt']) ??
-              _dateFromDynamic(aData['createdAt']) ??
-              _dateFromDynamic(aData['requestedAt']);
-
-          final bDate = _dateFromDynamic(bData['updatedAt']) ??
-              _dateFromDynamic(bData['createdAt']) ??
-              _dateFromDynamic(bData['requestedAt']);
-
-          if (aDate == null && bDate == null) return 0;
-          if (aDate == null) return 1;
-          if (bDate == null) return -1;
-
-          return bDate.compareTo(aDate);
-        });
-
-        QueryDocumentSnapshot<Map<String, dynamic>>? relevantDoc;
-
-        for (final doc in sortedDocs) {
-          final status = (doc.data()['status'] ?? '').toString();
-
-          if (_shouldShowWaitingStatus(status) ||
-              _shouldHideRequestStatus(status)) {
-            relevantDoc = doc;
-            break;
-          }
-        }
-
-        if (relevantDoc == null) {
-          return _buildRequestButton();
-        }
-
-        final data = relevantDoc.data();
-        final status = (data['status'] ?? '').toString();
-
-        if (_shouldHideRequestStatus(status)) {
-          return const SizedBox.shrink();
-        }
-
-        if (!_shouldShowWaitingStatus(status)) {
-          return _buildRequestButton();
-        }
-
-        final canCancel = _canCancel(status);
-
-        if (compact) {
-          return Column(
-            children: [
+            if (subtitle.trim().isNotEmpty)
               Text(
-                _statusText(status),
-                textAlign: TextAlign.center,
+                subtitle,
                 style: const TextStyle(
-                  color: Colors.orange,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
+                  color: AppColors.textLight,
+                  fontSize: 14,
                 ),
+                textAlign: TextAlign.center,
               ),
-              if (canCancel)
-                TextButton.icon(
-                  onPressed: () => onCancel(relevantDoc!.id),
-                  icon: const Icon(Icons.close_rounded, size: 17),
-                  label: const Text('إلغاء'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: Colors.redAccent,
-                  ),
-                ),
-            ],
-          );
-        }
-
-        return Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Colors.orange.withOpacity(0.08),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: Colors.orange.withOpacity(0.25)),
-          ),
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  const Icon(
-                    Icons.hourglass_top_rounded,
-                    color: Colors.orange,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _statusText(status),
-                      style: const TextStyle(
-                        color: Colors.orange,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              if (canCancel) ...[
-                const SizedBox(height: 8),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: () => onCancel(relevantDoc!.id),
-                    icon: const Icon(Icons.close_rounded),
-                    label: const Text('إلغاء الطلب'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.redAccent,
-                      side: BorderSide(
-                        color: Colors.redAccent.withOpacity(0.35),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildRequestButton() {
-    if (compact) {
-      return TextButton.icon(
-        onPressed: isSending ? null : onRequest,
-        icon: isSending
-            ? const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : const Icon(Icons.wifi_tethering_rounded, size: 18),
-        label: Text(isSending ? 'جاري الطلب' : 'بث مباشر'),
-        style: TextButton.styleFrom(
-          foregroundColor: Colors.red,
-        ),
-      );
-    }
-
-    return SizedBox(
-      width: double.infinity,
-      child: OutlinedButton.icon(
-        onPressed: isSending ? null : onRequest,
-        icon: isSending
-            ? const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : const Icon(Icons.wifi_tethering_rounded),
-        label: Text(isSending ? 'جاري الطلب...' : 'البث المباشر'),
-        style: OutlinedButton.styleFrom(
-          foregroundColor: Colors.red,
-          side: BorderSide(color: Colors.red.withOpacity(0.35)),
-          minimumSize: const Size(double.infinity, 50),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
+          ],
         ),
       ),
-    );
-  }
-}
-
-class _ParentLiveStreamSection extends StatelessWidget {
-  final String parentUid;
-  final String parentUsername;
-  final Future<void> Function(Map<String, dynamic> streamData) onOpenLiveStream;
-
-  const _ParentLiveStreamSection({
-    required this.parentUid,
-    required this.parentUsername,
-    required this.onOpenLiveStream,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final cleanParentUid = parentUid.trim();
-
-    if (cleanParentUid.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('live_streams')
-          .where('status', isEqualTo: 'active')
-          .where('targetParentUid', isEqualTo: cleanParentUid)
-          .limit(1)
-          .snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          debugPrint('Parent live stream query error: ${snapshot.error}');
-          return const SizedBox.shrink();
-        }
-
-        final docs = snapshot.data?.docs ?? [];
-
-        if (docs.isEmpty) {
-          return const SizedBox.shrink();
-        }
-
-        final doc = docs.first;
-        final data = {
-          ...doc.data(),
-          'id': doc.id,
-          'streamId': doc.id,
-        };
-
-        final title = (data['title'] ?? 'بث مباشر من الحضانة').toString();
-        final startedByName = (data['startedByName'] ?? '').toString();
-        final startedByRole = (data['startedByRole'] ?? '').toString();
-        final photoUrl = (data['startedByPhotoUrl'] ?? '').toString();
-        final childName = (data['childName'] ?? '').toString().trim();
-
-        return Card(
-          elevation: 0,
-          color: Colors.red.withOpacity(0.045),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(22),
-            side: BorderSide(
-              color: Colors.red.withOpacity(0.22),
-            ),
-          ),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(22),
-            onTap: () => onOpenLiveStream(data),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(3),
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: Colors.red,
-                            width: 2.5,
-                          ),
-                        ),
-                        child: CircleAvatar(
-                          radius: 31,
-                          backgroundColor: Colors.red.withOpacity(0.12),
-                          backgroundImage: photoUrl.trim().isNotEmpty
-                              ? NetworkImage(photoUrl)
-                              : null,
-                          child: photoUrl.trim().isEmpty
-                              ? const Icon(
-                                  Icons.person_rounded,
-                                  color: Colors.red,
-                                  size: 32,
-                                )
-                              : null,
-                        ),
-                      ),
-                      Positioned(
-                        bottom: -4,
-                        left: -4,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.red,
-                            borderRadius: BorderRadius.circular(999),
-                            border: Border.all(color: Colors.white, width: 2),
-                          ),
-                          child: const Text(
-                            'LIVE',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Row(
-                          children: [
-                            Icon(
-                              Icons.wifi_tethering_rounded,
-                              color: Colors.red,
-                              size: 18,
-                            ),
-                            SizedBox(width: 6),
-                            Text(
-                              'بث مباشر الآن',
-                              style: TextStyle(
-                                color: Colors.red,
-                                fontWeight: FontWeight.w900,
-                                fontSize: 15.5,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          title.trim().isEmpty
-                              ? 'بث مباشر من الحضانة'
-                              : title,
-                          style: const TextStyle(
-                            color: AppColors.textDark,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 14.5,
-                          ),
-                        ),
-                        if (childName.isNotEmpty) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            'خاص بالطفل: $childName',
-                            style: const TextStyle(
-                              color: Colors.red,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ],
-                        const SizedBox(height: 4),
-                        Text(
-                          startedByName.trim().isEmpty
-                              ? 'اضغطي لمشاهدة البث'
-                              : 'بواسطة: $startedByName',
-                          style: const TextStyle(
-                            color: AppColors.textLight,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 13,
-                          ),
-                        ),
-                        if (startedByRole.trim().isNotEmpty) ...[
-                          const SizedBox(height: 3),
-                          Text(
-                            'الدور: $startedByRole',
-                            style: const TextStyle(
-                              color: AppColors.textLight,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  const CircleAvatar(
-                    radius: 18,
-                    backgroundColor: Colors.red,
-                    child: Icon(
-                      Icons.play_arrow_rounded,
-                      color: Colors.white,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
     );
   }
 }

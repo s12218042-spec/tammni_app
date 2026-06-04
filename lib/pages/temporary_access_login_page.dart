@@ -119,6 +119,11 @@ class _TemporaryAccessLoginPageState extends State<TemporaryAccessLoginPage> {
   }
 
   Future<String?> _getFcmToken() async {
+    if (kIsWeb) {
+      debugPrint('TEMP FCM skipped on Web');
+      return null;
+    }
+
     try {
       await _messaging.requestPermission(
         alert: true,
@@ -376,117 +381,133 @@ class _TemporaryAccessLoginPageState extends State<TemporaryAccessLoginPage> {
   }
 
   Future<void> _login() async {
-  final code = _normalizeCode(codeCtrl.text);
+    final code = _normalizeCode(codeCtrl.text);
 
-  if (code.isEmpty || isLoading) {
-    return;
-  }
-
-  FocusScope.of(context).unfocus();
-
-  setState(() {
-    isLoading = true;
-  });
-
-  try {
-    await _ensureAnonymousSession();
-
-    final accessResult = await _findAccessByCode(code);
-
-    if (accessResult == null) {
-      _showMessage('كود الدخول غير صحيح');
+    if (code.isEmpty || isLoading) {
       return;
     }
 
-    final accessCodeId = _cleanText(accessResult['accessCodeId']);
-    final accessData =
-        Map<String, dynamic>.from(accessResult['accessData'] as Map);
+    FocusScope.of(context).unfocus();
 
-    final status = _cleanText(accessData['status']).toLowerCase();
-    final isActive = accessData['isActive'] != false;
+    setState(() {
+      isLoading = true;
+    });
 
-    if (!isActive || _isBlockedStatus(status)) {
-      _showMessage('كود الدخول غير فعّال');
-      return;
-    }
+    try {
+      await _ensureAnonymousSession();
 
-    if (_isExpired(
-      accessData['accessEndAt'] ??
-          accessData['temporaryAccessEndAt'] ??
-          accessData['temporaryEndAt'] ??
-          accessData['temporaryEndDate'] ??
-          accessData['trialEndAt'] ??
-          accessData['expiresAt'],
-    )) {
-      _showMessage('انتهت صلاحية كود الدخول');
-      return;
-    }
+      final accessResult = await _findAccessByCode(code);
 
-    final childDoc = await _loadChildDoc(accessData);
+      if (accessResult == null) {
+        _showMessage('كود الدخول غير صحيح');
+        return;
+      }
 
-    if (childDoc == null || !childDoc.exists) {
-      _showMessage('بيانات الطفل غير موجودة');
-      return;
-    }
+      final accessCodeId = _cleanText(accessResult['accessCodeId']);
+      final accessData =
+          Map<String, dynamic>.from(accessResult['accessData'] as Map);
 
-    final childData = childDoc.data() ?? <String, dynamic>{};
+      final status = _cleanText(accessData['status']).toLowerCase();
+      final isActive = accessData['isActive'] != false;
 
-    final childStatus = _cleanText(childData['childStatus']).toLowerCase();
-    final childIsActive = childData['isActive'] != false;
+      if (!isActive || _isBlockedStatus(status)) {
+        _showMessage('كود الدخول غير فعّال');
+        return;
+      }
 
-    if (!childIsActive || _isBlockedStatus(childStatus)) {
-      _showMessage('حساب الطفل غير فعّال');
-      return;
-    }
+      if (_isExpired(
+        accessData['accessEndAt'] ??
+            accessData['temporaryAccessEndAt'] ??
+            accessData['temporaryEndAt'] ??
+            accessData['temporaryEndDate'] ??
+            accessData['trialEndAt'] ??
+            accessData['expiresAt'],
+      )) {
+        _showMessage('انتهت صلاحية كود الدخول');
+        return;
+      }
 
-    if (!_isAllowedChildType(childData)) {
-      _showMessage('هذا الكود مخصص للأطفال المؤقتين أو أطفال التجربة فقط');
-      return;
-    }
+      final childDoc = await _loadChildDoc(accessData);
 
-    if (_isExpired(
-      childData['temporaryAccessEndAt'] ??
-          childData['temporaryEndAt'] ??
-          childData['temporaryEndDate'] ??
-          childData['trialEndAt'],
-    )) {
-      _showMessage('انتهت صلاحية الدخول لهذا الطفل');
-      return;
-    }
+      if (childDoc == null || !childDoc.exists) {
+        _showMessage('بيانات الطفل غير موجودة');
+        return;
+      }
 
-    await _saveTemporaryDeviceToken(
-      accessCodeId: accessCodeId,
-      code: code,
-      childId: childDoc.id,
-      accessData: accessData,
-      childData: childData,
-    );
+      final childData = childDoc.data() ?? <String, dynamic>{};
 
-    if (!mounted) return;
+      final childStatus = _cleanText(childData['childStatus']).toLowerCase();
+      final childIsActive = childData['isActive'] != false;
 
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (_) => TemporaryChildViewPage(
-          accessCodeId: accessCodeId,
-          accessData: accessData,
-          childId: childDoc.id,
-          childData: childData,
+      if (!childIsActive || _isBlockedStatus(childStatus)) {
+        _showMessage('حساب الطفل غير فعّال');
+        return;
+      }
+
+      if (!_isAllowedChildType(childData)) {
+        _showMessage('هذا الكود مخصص للأطفال المؤقتين أو أطفال التجربة فقط');
+        return;
+      }
+
+      if (_isExpired(
+        childData['temporaryAccessEndAt'] ??
+            childData['temporaryEndAt'] ??
+            childData['temporaryEndDate'] ??
+            childData['trialEndAt'],
+      )) {
+        _showMessage('انتهت صلاحية الدخول لهذا الطفل');
+        return;
+      }
+
+      await _saveTemporaryDeviceToken(
+        accessCodeId: accessCodeId,
+        code: code,
+        childId: childDoc.id,
+        accessData: accessData,
+        childData: childData,
+      );
+
+      if (!mounted) return;
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => TemporaryChildViewPage(
+            accessCodeId: accessCodeId,
+            accessData: accessData,
+            childId: childDoc.id,
+            childData: childData,
+          ),
         ),
-      ),
-    );
-  } catch (e, st) {
-    debugPrint('TEMP ACCESS LOGIN ERROR: $e');
-    debugPrint('$st');
-    _showMessage('تعذر الدخول، حاولي مرة أخرى');
-  } finally {
-    if (mounted) {
-      setState(() {
-        isLoading = false;
-      });
+      );
+    } on FirebaseAuthException catch (e, st) {
+      debugPrint('TEMP ACCESS LOGIN AUTH ERROR: ${e.code}');
+      debugPrint('${e.message}');
+      debugPrint('$st');
+
+      if (e.code == 'admin-restricted-operation') {
+        _showMessage('الدخول المؤقت غير مفعّل حاليًا من إعدادات Firebase');
+      } else {
+        _showMessage('تعذر الدخول: ${e.code}');
+      }
+    } on FirebaseException catch (e, st) {
+      debugPrint('TEMP ACCESS LOGIN FIREBASE ERROR: ${e.code}');
+      debugPrint('${e.message}');
+      debugPrint('$st');
+
+      _showMessage('تعذر الدخول: ${e.code}');
+    } catch (e, st) {
+      debugPrint('TEMP ACCESS LOGIN ERROR: $e');
+      debugPrint('$st');
+      _showMessage('تعذر الدخول، حاولي مرة أخرى');
+    } finally {
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+        });
+      }
     }
   }
-}
 
   void _showMessage(String message) {
     if (!mounted) return;

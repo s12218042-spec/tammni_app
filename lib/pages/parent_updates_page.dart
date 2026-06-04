@@ -24,9 +24,86 @@ class ParentUpdatesPage extends StatefulWidget {
 class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
+  DateTime? _selectedDate;
+  int _visibleDayCount = 2;
+
   Future<void> _refreshPage() async {
     if (!mounted) return;
     setState(() {});
+  }
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate ?? DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+      helpText: 'اختيار التاريخ',
+      cancelText: 'إلغاء',
+      confirmText: 'اختيار',
+    );
+
+    if (picked == null || !mounted) return;
+
+    setState(() {
+      _selectedDate = DateTime(picked.year, picked.month, picked.day);
+    });
+  }
+
+  DateTime? _dateFromTimestamp(Timestamp? timestamp) {
+    if (timestamp == null) return null;
+    final value = timestamp.toDate();
+    return DateTime(value.year, value.month, value.day);
+  }
+
+  bool _isSameDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  String _dateTitle(DateTime? date) {
+    if (date == null) return 'بدون تاريخ';
+
+    final today = DateTime.now();
+    final todayOnly = DateTime(today.year, today.month, today.day);
+    final yesterdayOnly = todayOnly.subtract(const Duration(days: 1));
+
+    if (_isSameDay(date, todayOnly)) return 'اليوم';
+    if (_isSameDay(date, yesterdayOnly)) return 'أمس';
+
+    final y = date.year.toString();
+    final m = date.month.toString().padLeft(2, '0');
+    final d = date.day.toString().padLeft(2, '0');
+    return '$y/$m/$d';
+  }
+
+  List<MapEntry<DateTime?, List<Map<String, dynamic>>>> _groupUpdatesByDate(
+    List<Map<String, dynamic>> updates,
+  ) {
+    final grouped = <String, List<Map<String, dynamic>>>{};
+    final dates = <String, DateTime?>{};
+
+    for (final update in updates) {
+      final date = _dateFromTimestamp(update['displayTime'] as Timestamp?);
+      final key = date == null
+          ? 'no_date'
+          : '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+
+      grouped.putIfAbsent(key, () => []).add(update);
+      dates[key] = date;
+    }
+
+    final entries = grouped.entries.map((entry) {
+      return MapEntry(dates[entry.key], entry.value);
+    }).toList();
+
+    entries.sort((a, b) {
+      if (a.key == null && b.key == null) return 0;
+      if (a.key == null) return 1;
+      if (b.key == null) return -1;
+      return b.key!.compareTo(a.key!);
+    });
+
+    return entries;
   }
 
   String sectionLabel(String section) {
@@ -440,8 +517,6 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
   @override
   Widget build(BuildContext context) {
     final child = widget.child;
-    final badgeColor = sectionColor(child.section);
-
     return AppPageScaffold(
       title: 'تحديثات الطفل',
       child: RefreshIndicator(
@@ -471,6 +546,20 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
             }
 
             final updates = updatesSnapshot.data ?? [];
+            final visibleUpdates = _selectedDate == null
+                ? updates
+                : updates.where((update) {
+                    final date = _dateFromTimestamp(
+                      update['displayTime'] as Timestamp?,
+                    );
+                    return date != null && _isSameDay(date, _selectedDate!);
+                  }).toList();
+            final allGroupedUpdates = _groupUpdatesByDate(visibleUpdates);
+            final groupedUpdates = _selectedDate == null
+                ? allGroupedUpdates.take(_visibleDayCount).toList()
+                : allGroupedUpdates;
+            final hasMoreUpdates = _selectedDate == null &&
+                allGroupedUpdates.length > groupedUpdates.length;
 
             return ListView(
               physics: const AlwaysScrollableScrollPhysics(),
@@ -479,10 +568,7 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
                   padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
-                      colors: [
-                        AppColors.primary,
-                        AppColors.secondary,
-                      ],
+                      colors: [AppColors.primary, AppColors.secondary],
                     ),
                     borderRadius: BorderRadius.circular(22),
                   ),
@@ -502,267 +588,156 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
                       ),
                       const SizedBox(width: 14),
                       Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              child.name,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 20,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              'متابعة آخر المستجدات الخاصة بالطفل',
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.95),
-                                fontSize: 13.5,
-                              ),
-                            ),
-                          ],
+                        child: Text(
+                          child.name,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 20,
+                          ),
                         ),
                       ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 16),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _InfoMiniCard(
-                                icon: Icons.cake_outlined,
-                                title: 'العمر',
-                                value: childAgeText(child.birthDate),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            const Expanded(
-                              child: _InfoMiniCard(
-                                icon: Icons.favorite_border_rounded,
-                                title: 'نوع المتابعة',
-                                value: 'حضانة',
-                              ),
-                            ),
-                          ],
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _pickDate,
+                        icon: const Icon(Icons.calendar_month_outlined),
+                        label: Text(
+                          _selectedDate == null
+                              ? 'اختيار تاريخ'
+                              : _dateTitle(_selectedDate),
                         ),
-                        const SizedBox(height: 10),
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: badgeColor.withOpacity(0.12),
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.apartment_outlined,
-                                color: badgeColor,
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                'القسم: ${sectionLabel(child.section)}',
-                                style: TextStyle(
-                                  color: badgeColor,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 15,
-                                ),
-                              ),
-                            ],
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size(double.infinity, 48),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
                           ),
                         ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                const _StatusCard(
-                  icon: Icons.info_outline,
-                  color: AppColors.primary,
-                  title: 'نظام المتابعة',
-                  value:
-                      'مرن حسب الزيارة والتحديثات، والدخول والخروج يوثّق من الإدارة',
-                ),
-                const SizedBox(height: 18),
-                Text(
-                  'كل التحديثات',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
                       ),
+                    ),
+                    if (_selectedDate != null) ...[
+                      const SizedBox(width: 10),
+                      IconButton.filledTonal(
+                        onPressed: () {
+                          setState(() {
+                            _selectedDate = null;
+                            _visibleDayCount = 2;
+                          });
+                        },
+                        icon: const Icon(Icons.close_rounded),
+                        tooltip: 'كل الأيام',
+                      ),
+                    ],
+                  ],
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 16),
                 if (updates.isEmpty)
-                  Card(
+                  const Card(
                     child: Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: Column(
-                        children: [
-                          CircleAvatar(
-                            radius: 26,
-                            backgroundColor:
-                                AppColors.primary.withOpacity(0.12),
-                            child: const Icon(
-                              Icons.notifications_none,
-                              color: AppColors.primary,
-                              size: 26,
-                            ),
+                      padding: EdgeInsets.all(20),
+                      child: Center(
+                        child: Text(
+                          'لا توجد تحديثات',
+                          style: TextStyle(
+                            color: AppColors.textLight,
+                            fontWeight: FontWeight.bold,
                           ),
-                          const SizedBox(height: 12),
-                          const Text(
-                            'لا توجد تحديثات مسجلة لهذا الطفل بعد',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 15,
-                            ),
-                            textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
+                  )
+                else if (visibleUpdates.isEmpty)
+                  const Card(
+                    child: Padding(
+                      padding: EdgeInsets.all(20),
+                      child: Center(
+                        child: Text(
+                          'لا توجد تحديثات في هذا التاريخ',
+                          style: TextStyle(
+                            color: AppColors.textLight,
+                            fontWeight: FontWeight.bold,
                           ),
-                          const SizedBox(height: 6),
-                          const Text(
-                            'ستظهر هنا تحديثات الزيارة، الأنشطة، الصور، الملاحظات، ومتابعة الرعاية الخاصة بالحضانة.',
-                            style: TextStyle(
-                              color: AppColors.textLight,
-                              fontSize: 13.5,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
+                        ),
                       ),
                     ),
                   )
                 else
-                  ...updates.map(
-                    (u) {
-                      final Timestamp? displayTime =
-                          u['displayTime'] as Timestamp?;
+                  ...groupedUpdates.map((entry) {
+                    final groupDate = entry.key;
+                    final groupItems = entry.value;
 
-                      return _UpdateCard(
-                        type: (u['type'] ?? '').toString(),
-                        note: (u['note'] ?? '').toString(),
-                        senderText: senderLabel((u['byRole'] ?? '').toString()),
-                        creatorName: (u['createdByName'] ?? '').toString(),
-                        badgeColor: typeColor((u['type'] ?? '').toString()),
-                        icon: typeIcon((u['type'] ?? '').toString()),
-                        timeTextValue: timeText(displayTime),
-                        dateTextValue: dateText(displayTime),
-                        mediaUrl: u['mediaUrl']?.toString(),
-                        publicUrl: u['publicUrl']?.toString(),
-                        storageProvider: u['storageProvider']?.toString(),
-                        mediaType: u['mediaType']?.toString(),
-                        mediaPath: u['mediaPath']?.toString(),
-                        hasMedia: u['hasMedia'] == true,
-                        isGroupUpdate: u['isGroupUpdate'] == true,
-                        groupName: (u['groupName'] ?? '').toString(),
-                        updateScope: (u['updateScope'] ?? '').toString(),
-                      );
-                    },
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 14),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Text(
+                              _dateTitle(groupDate),
+                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                    color: AppColors.primary,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                            ),
+                            const SizedBox(height: 10),
+                            ...groupItems.map((u) {
+                              final Timestamp? displayTime =
+                                  u['displayTime'] as Timestamp?;
+
+                              return _UpdateCard(
+                                type: (u['type'] ?? '').toString(),
+                                note: (u['note'] ?? '').toString(),
+                                senderText:
+                                    senderLabel((u['byRole'] ?? '').toString()),
+                                creatorName: (u['createdByName'] ?? '').toString(),
+                                badgeColor: typeColor((u['type'] ?? '').toString()),
+                                icon: typeIcon((u['type'] ?? '').toString()),
+                                timeTextValue: timeText(displayTime),
+                                dateTextValue: dateText(displayTime),
+                                mediaUrl: u['mediaUrl']?.toString(),
+                                publicUrl: u['publicUrl']?.toString(),
+                                storageProvider: u['storageProvider']?.toString(),
+                                mediaType: u['mediaType']?.toString(),
+                                mediaPath: u['mediaPath']?.toString(),
+                                hasMedia: u['hasMedia'] == true,
+                                isGroupUpdate: u['isGroupUpdate'] == true,
+                                groupName: (u['groupName'] ?? '').toString(),
+                                updateScope: (u['updateScope'] ?? '').toString(),
+                              );
+                            }),
+                          ],
+                        ),
+                      ),
+                    );
+                  }),
+                if (hasMoreUpdates)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2, bottom: 12),
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        setState(() {
+                          _visibleDayCount += 2;
+                        });
+                      },
+                      icon: const Icon(Icons.expand_more_rounded),
+                      label: const Text('عرض المزيد'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(double.infinity, 48),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                    ),
                   ),
               ],
             );
           },
-        ),
-      ),
-    );
-  }
-}
-
-class _InfoMiniCard extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String value;
-
-  const _InfoMiniCard({
-    required this.icon,
-    required this.title,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.background,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        children: [
-          CircleAvatar(
-            backgroundColor: AppColors.primary.withOpacity(0.12),
-            child: Icon(
-              icon,
-              color: AppColors.primary,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            title,
-            style: const TextStyle(
-              color: AppColors.textLight,
-              fontSize: 13,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 14.5,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StatusCard extends StatelessWidget {
-  final IconData icon;
-  final Color color;
-  final String title;
-  final String value;
-
-  const _StatusCard({
-    required this.icon,
-    required this.color,
-    required this.title,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          children: [
-            CircleAvatar(
-              backgroundColor: color.withOpacity(0.14),
-              child: Icon(
-                icon,
-                color: color,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                '$title: $value',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15,
-                  color:
-                      color == AppColors.primary ? AppColors.textDark : color,
-                ),
-              ),
-            ),
-          ],
         ),
       ),
     );
@@ -982,18 +957,15 @@ class _UpdateCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 12),
-            Text(
-              note.trim().isNotEmpty
-                  ? note
-                  : 'لا توجد ملاحظة مضافة لهذا التحديث',
-              style: TextStyle(
-                fontSize: 15,
-                height: 1.5,
-                color: note.trim().isNotEmpty
-                    ? AppColors.textDark
-                    : AppColors.textLight,
+            if (note.trim().isNotEmpty)
+              Text(
+                note,
+                style: const TextStyle(
+                  fontSize: 15,
+                  height: 1.5,
+                  color: AppColors.textDark,
+                ),
               ),
-            ),
             if (isGroupUpdate &&
                 (groupName.trim().isNotEmpty ||
                     updateScope.trim().isNotEmpty)) ...[
@@ -1073,26 +1045,7 @@ class _UpdateCard extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 6),
-            Row(
-              children: [
-                const Icon(
-                  Icons.calendar_today_outlined,
-                  size: 18,
-                  color: Colors.black54,
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    'التاريخ: $dateTextValue',
-                    style: const TextStyle(
-                      color: Colors.black54,
-                      fontSize: 13,
-                    ),
-                  ),
-                ),
-              ],
-            ),
+
             if ((_hasPublicUrl || _hasRemoteUrl) &&
                 _normalizedMediaType == 'image')
               Padding(

@@ -57,9 +57,21 @@ class _WelcomePageState extends State<WelcomePage> {
       return;
     }
 
+    if (user.isAnonymous) {
+      await FirebaseAuth.instance.signOut();
+
+      if (!mounted) return;
+      setState(() {
+        isCheckingUser = false;
+      });
+      return;
+    }
+
     try {
       await _goToUserHome(user);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Check logged in user error: $e');
+
       if (!mounted) return;
       setState(() {
         isCheckingUser = false;
@@ -346,6 +358,17 @@ class _WelcomePageState extends State<WelcomePage> {
   }
 
   Future<void> _goToUserHome(User user) async {
+    if (user.isAnonymous) {
+      await FirebaseAuth.instance.signOut();
+
+      if (!mounted) return;
+      setState(() {
+        isCheckingUser = false;
+      });
+
+      return;
+    }
+
     final doc = await FirebaseFirestore.instance
         .collection('users')
         .doc(user.uid)

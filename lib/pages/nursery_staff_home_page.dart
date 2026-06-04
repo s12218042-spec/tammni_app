@@ -1374,137 +1374,137 @@ final end = (data['weekEndDateKey'] ??
     return NurseryChatsPage(children: nurseryChildren);
   }
   Widget _buildSettingsTab(List<ChildModel> nurseryChildren) {
-  return ListView(
-    children: [
-      Card(
-        child: FutureBuilder<AccountSettingsData>(
-          future: _accountSettingsService.getCurrentUserData(),
-          builder: (context, snapshot) {
-            final data = snapshot.data;
+    return ListView(
+      children: [
+        Card(
+          child: FutureBuilder<AccountSettingsData>(
+            future: _accountSettingsService.getCurrentUserData(),
+            builder: (context, snapshot) {
+              final data = snapshot.data;
 
-            final displayName = data?.name.trim().isNotEmpty == true
-                ? data!.name
-                : 'موظفة الحضانة';
+              final displayName = data?.name.trim().isNotEmpty == true
+                  ? data!.name
+                  : 'موظفة الحضانة';
 
-            final subtitle = data == null
-                ? 'متابعة الرعاية اليومية'
-                : '${data.roleLabel} • ${data.username.isNotEmpty ? data.username : "بدون اسم مستخدم"}';
+              final subtitle = data == null
+                  ? 'متابعة الرعاية اليومية'
+                  : '${data.roleLabel} • ${data.username.isNotEmpty ? data.username : "بدون اسم مستخدم"}';
 
-            return ListTile(
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              leading: CircleAvatar(
-                radius: 28,
-                backgroundColor: AppColors.primary.withOpacity(0.10),
-                child: Text(
-                  displayName.trim().isNotEmpty ? displayName.trim()[0] : 'م',
-                  style: const TextStyle(
+              return ListTile(
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                leading: CircleAvatar(
+                  radius: 28,
+                  backgroundColor: AppColors.primary.withOpacity(0.10),
+                  child: Text(
+                    displayName.trim().isNotEmpty ? displayName.trim()[0] : 'م',
+                    style: const TextStyle(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 22,
+                    ),
+                  ),
+                ),
+                title: Text(
+                  displayName,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                subtitle: Text(subtitle),
+                trailing: CircleAvatar(
+                  radius: 18,
+                  backgroundColor: AppColors.primary.withOpacity(0.12),
+                  child: const Icon(
+                    Icons.edit,
+                    size: 18,
                     color: AppColors.primary,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 22,
                   ),
                 ),
-              ),
-              title: Text(
-                displayName,
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              subtitle: Text(subtitle),
-              trailing: CircleAvatar(
-                radius: 18,
-                backgroundColor: AppColors.primary.withOpacity(0.12),
-                child: const Icon(
-                  Icons.edit,
-                  size: 18,
-                  color: AppColors.primary,
-                ),
-              ),
-              onTap: () async {
-                await Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const ProfileDetailsPage(),
-                  ),
-                );
+                onTap: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const ProfileDetailsPage(),
+                    ),
+                  );
 
-                if (!mounted) return;
-                setState(() {});
-              },
-            );
-          },
+                  if (!mounted) return;
+                  setState(() {});
+                },
+              );
+            },
+          ),
         ),
-      ),
-      const SizedBox(height: 18),
-      Text(
-        'الخدمات',
-        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+        const SizedBox(height: 12),
+        Card(
+          child: Column(
+            children: [
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Colors.green.withOpacity(0.12),
+                  child: const Icon(
+                    Icons.notifications_none_rounded,
+                    color: Colors.green,
+                  ),
+                ),
+                title: const Text('الإشعارات'),
+                onTap: () => _openNotificationsPage(nurseryChildren),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Colors.teal.withOpacity(0.12),
+                  child: const Icon(
+                    Icons.history_rounded,
+                    color: Colors.teal,
+                  ),
+                ),
+                title: const Text('سجل نشاط الحساب'),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const AccountHistoryPage(),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        Card(
+          child: ListTile(
+            leading: CircleAvatar(
+              backgroundColor: Colors.redAccent.withOpacity(0.12),
+              child: const Icon(
+                Icons.logout_rounded,
+                color: Colors.redAccent,
+              ),
+            ),
+            title: const Text(
+              'تسجيل الخروج',
+              style: TextStyle(color: Colors.redAccent),
+            ),
+            onTap: _logout,
+          ),
+        ),
+        const SizedBox(height: 18),
+        const Center(
+          child: Text(
+            'الإصدار 1.0.0',
+            style: TextStyle(
               color: AppColors.textLight,
-              fontWeight: FontWeight.w700,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
             ),
-      ),
-      const SizedBox(height: 8),
-
-      Card(
-        child: Column(
-          children: [
-            ListTile(
-              leading: CircleAvatar(
-                backgroundColor: Colors.green.withOpacity(0.12),
-                child: const Icon(
-                  Icons.notifications_none_rounded,
-                  color: Colors.green,
-                ),
-              ),
-              title: const Text('الإشعارات'),
-              onTap: () => _openNotificationsPage(nurseryChildren),
-            ),
-            const Divider(height: 1),
-            ListTile(
-              leading: CircleAvatar(
-                backgroundColor: Colors.teal.withOpacity(0.12),
-                child: const Icon(
-                  Icons.history_rounded,
-                  color: Colors.teal,
-                ),
-              ),
-              title: const Text('سجل نشاط الحساب'),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const AccountHistoryPage(),
-                  ),
-                );
-              },
-            ),
-          ],
+          ),
         ),
-      ),
-
-      const SizedBox(height: 18),
-
-     const SizedBox(height: 16),
-
-Card(
-  child: ListTile(
-    leading: CircleAvatar(
-      backgroundColor: Colors.redAccent.withOpacity(0.12),
-      child: const Icon(
-        Icons.logout_rounded,
-        color: Colors.redAccent,
-      ),
-    ),
-    title: const Text(
-      'تسجيل الخروج',
-      style: TextStyle(color: Colors.redAccent),
-    ),
-    onTap: _logout,
-  ),
-),
-      const SizedBox(height: 20),
-    ],
-  );
-}
+        const SizedBox(height: 12),
+      ],
+    );
+  }
 
 
   @override
@@ -2649,10 +2649,6 @@ class _NurseryNotificationsPageState extends State<_NurseryNotificationsPage> {
       case 'complaint_created':
       case 'complaint_reply':
         return Colors.redAccent;
-      case 'live_stream_started':
-        return Colors.red;
-      case 'live_stream_ended':
-        return Colors.grey;
       case 'update_notification':
       case 'nursery_notification':
         return AppColors.primary;
@@ -2671,10 +2667,6 @@ class _NurseryNotificationsPageState extends State<_NurseryNotificationsPage> {
       case 'complaint_created':
       case 'complaint_reply':
         return Icons.report_problem_outlined;
-      case 'live_stream_started':
-        return Icons.wifi_tethering_rounded;
-      case 'live_stream_ended':
-        return Icons.stop_circle_outlined;
       case 'update_notification':
       case 'nursery_notification':
         return Icons.notifications_active_outlined;

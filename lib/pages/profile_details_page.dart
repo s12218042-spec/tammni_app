@@ -165,24 +165,13 @@ class _ProfileDetailsPageState extends State<ProfileDetailsPage> {
 
               const SizedBox(height: 18),
 
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.arrow_back_rounded),
-                      label: const Text('رجوع'),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: _openEditPage,
-                      icon: const Icon(Icons.edit_outlined),
-                      label: const Text('تعديل'),
-                    ),
-                  ),
-                ],
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _openEditPage,
+                  icon: const Icon(Icons.edit_outlined),
+                  label: const Text('تعديل'),
+                ),
               ),
 
               const SizedBox(height: 16),

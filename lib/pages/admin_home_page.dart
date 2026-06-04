@@ -1181,6 +1181,17 @@ Card(
     onTap: () => logout(context),
   ),
 ),
+        const SizedBox(height: 18),
+        const Center(
+          child: Text(
+            'الإصدار 1.0.0',
+            style: TextStyle(
+              color: AppColors.textLight,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
         const SizedBox(height: 20),
       ],
     );

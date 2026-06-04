@@ -124,6 +124,44 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
         hidden.contains(invoiceStatus);
   }
 
+  bool isActiveLiveStream(Map<String, dynamic> data) {
+    final status = (data['status'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+
+    final streamStatus = (data['streamStatus'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+
+    final isActiveValue = data['isActive'];
+    final activeValue = data['active'];
+
+    final hasEndedAt = data['endedAt'] != null ||
+        data['endedTime'] != null ||
+        data['endedAtTimestamp'] != null ||
+        data['endTime'] != null;
+
+    final isEndedStatus = status == 'ended' ||
+        status == 'completed' ||
+        status == 'cancelled' ||
+        status == 'canceled' ||
+        status == 'inactive' ||
+        status == 'pending' ||
+        streamStatus == 'ended' ||
+        streamStatus == 'completed' ||
+        streamStatus == 'cancelled' ||
+        streamStatus == 'canceled' ||
+        streamStatus == 'inactive' ||
+        streamStatus == 'pending';
+
+    if (isEndedStatus || hasEndedAt) return false;
+    if (isActiveValue == false || activeValue == false) return false;
+
+    return status == 'active' || streamStatus == 'active';
+  }
+
   DateTime startOfToday() {
     final now = DateTime.now();
     return DateTime(now.year, now.month, now.day);
@@ -149,8 +187,16 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
           await _firestore.collection('extra_child_hours').get();
       final consultationsSnapshot =
           await _firestore.collection('child_consultations').get();
-      final liveStreamsSnapshot =
-          await _firestore.collection('live_streams').get();
+      QuerySnapshot<Map<String, dynamic>> liveStreamsSnapshot;
+
+      try {
+        liveStreamsSnapshot = await _firestore
+            .collection('live_streams')
+            .where('status', isEqualTo: 'active')
+            .get();
+      } catch (_) {
+        liveStreamsSnapshot = await _firestore.collection('live_streams').get();
+      }
 
       final today = startOfToday();
       final monthStart = startOfMonth();
@@ -212,7 +258,6 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
           overdueCount++;
           unpaidTotal += amount;
         } else if (status == 'cancelled' || status == 'canceled') {
-          // لا نضيفها للمدفوع أو غير المدفوع.
         } else {
           unpaidCount++;
           unpaidTotal += amount;
@@ -242,13 +287,11 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
         consultationTotal += numValue(data['totalAmount']);
       }
 
-
       int activeStreams = 0;
       for (final doc in liveStreamsSnapshot.docs) {
         final data = doc.data();
-        final status = (data['status'] ?? '').toString().trim().toLowerCase();
 
-        if (status == 'active') {
+        if (isActiveLiveStream(data)) {
           activeStreams++;
         }
       }
@@ -403,13 +446,13 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
 
   Widget reportSectionTitle(String title, IconData icon) {
     return Padding(
-      padding: const EdgeInsets.only(top: 18, bottom: 10),
+      padding: const EdgeInsets.only(top: 10, bottom: 8),
       child: Row(
         children: [
           Icon(
             icon,
             color: AppColors.primary,
-            size: 22,
+            size: 19,
           ),
           const SizedBox(width: 8),
           Text(
@@ -417,7 +460,7 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
             style: const TextStyle(
               color: AppColors.textDark,
               fontWeight: FontWeight.w900,
-              fontSize: 17,
+              fontSize: 15.5,
             ),
           ),
         ],
@@ -432,7 +475,7 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
     String? subtitle,
   }) {
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(22),
@@ -448,19 +491,19 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
       child: Row(
         children: [
           Container(
-            width: 46,
-            height: 46,
+            width: 38,
+            height: 38,
             decoration: BoxDecoration(
               color: AppColors.primary.withOpacity(0.10),
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(13),
             ),
             child: Icon(
               icon,
               color: AppColors.primary,
-              size: 24,
+              size: 21,
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -470,7 +513,7 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
                   style: const TextStyle(
                     color: AppColors.textDark,
                     fontWeight: FontWeight.w900,
-                    fontSize: 19,
+                    fontSize: 16.5,
                   ),
                 ),
                 const SizedBox(height: 3),
@@ -479,7 +522,7 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
                   style: const TextStyle(
                     color: AppColors.textLight,
                     fontWeight: FontWeight.w700,
-                    fontSize: 12.5,
+                    fontSize: 11.5,
                   ),
                 ),
                 if (subtitle != null && subtitle.trim().isNotEmpty) ...[
@@ -488,7 +531,7 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
                     subtitle,
                     style: const TextStyle(
                       color: AppColors.textLight,
-                      fontSize: 11.5,
+                      fontSize: 10.5,
                     ),
                   ),
                 ],
@@ -505,9 +548,9 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
       crossAxisCount: 2,
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      crossAxisSpacing: 10,
-      mainAxisSpacing: 10,
-      childAspectRatio: 1.55,
+      crossAxisSpacing: 8,
+      mainAxisSpacing: 8,
+      childAspectRatio: 2.15,
       children: children,
     );
   }
@@ -646,7 +689,6 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
                 : ListView(
                     physics: const AlwaysScrollableScrollPhysics(),
                     children: [
-                      buildHeaderCard(),
                       reportSectionTitle(
                         'ملخص الحضانة',
                         Icons.child_care_rounded,
@@ -746,3 +788,4 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
     );
   }
 }
+

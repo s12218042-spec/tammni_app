@@ -179,7 +179,7 @@ if (!isAllowedChatRole(role)) return false;
               controller: searchCtrl,
               textAlign: TextAlign.right,
               decoration: InputDecoration(
-                hintText: 'ابحث بالاسم أو اسم المستخدم أو البريد...',
+                hintText: 'بحث',
                 prefixIcon: const Icon(Icons.search_rounded),
                 suffixIcon: searchText.trim().isEmpty
                     ? null
@@ -273,8 +273,6 @@ if (!isAllowedChatRole(role)) return false;
       'مستخدم',
     ]);
     final role = normalizeRole(user['role']);
-    final username = cleanText(user['username']);
-    final email = cleanText(user['email']);
     final color = roleColor(role);
 
     return Card(
@@ -301,11 +299,7 @@ if (!isAllowedChatRole(role)) return false;
         subtitle: Padding(
           padding: const EdgeInsets.only(top: 4),
           child: Text(
-            [
-              roleLabel(role),
-              if (username.isNotEmpty) '@$username',
-              if (email.isNotEmpty) email,
-            ].join('\n'),
+            roleLabel(role),
             style: const TextStyle(
               color: AppColors.textLight,
               fontWeight: FontWeight.w600,

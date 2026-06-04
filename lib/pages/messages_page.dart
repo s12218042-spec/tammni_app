@@ -252,26 +252,7 @@ class _MessagesPageState extends State<MessagesPage> {
 
   String headerSubtitle() {
     final targetRole = normalizeRole(widget.targetRole);
-    final roleText = roleLabel(targetRole);
-    final section = widget.targetSection.trim();
-
-    if (isAdminConversation) {
-      return 'الإدارة • محادثة مباشرة';
-    }
-
-    if (hasChildContext) {
-      if (section.isEmpty) {
-        return '$roleText • متابعة بخصوص الطفل';
-      }
-
-      return '$roleText • ${sectionLabel(section)}';
-    }
-
-    if (section.isNotEmpty && section != 'all') {
-      return '$roleText • ${sectionLabel(section)} • محادثة مباشرة';
-    }
-
-    return '$roleText • محادثة مباشرة';
+    return roleLabel(targetRole);
   }
 
   Future<void> loadCurrentUserIdentity() async {
@@ -821,11 +802,7 @@ class _MessagesPageState extends State<MessagesPage> {
                     'حذف لدي فقط',
                     style: TextStyle(fontWeight: FontWeight.w700),
                   ),
-                  subtitle: Text(
-                    isMyMessage
-                        ? 'ستختفي رسالتك من هذه المحادثة لديك فقط'
-                        : 'ستختفي هذه الرسالة من هذه المحادثة لديك فقط',
-                  ),
+
                   onTap: () async {
                     Navigator.pop(context);
 
@@ -851,9 +828,7 @@ class _MessagesPageState extends State<MessagesPage> {
                         color: Colors.red,
                       ),
                     ),
-                    subtitle: const Text(
-                      'سيتم حذف رسالتك عند الطرفين واستبدالها بعبارة تم حذف هذه الرسالة',
-                    ),
+
                     onTap: () async {
                       Navigator.pop(context);
 
@@ -1538,17 +1513,6 @@ class _MessagesPageState extends State<MessagesPage> {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                if (hasChildContext) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    'بخصوص الطفل: ${widget.child!.name}',
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      color: targetColor,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
               ],
             ),
           ),
@@ -1701,7 +1665,7 @@ class _MessagesPageState extends State<MessagesPage> {
                   textInputAction: TextInputAction.newline,
                   decoration: InputDecoration(
                     hintText: replyingToMessage == null
-                        ? 'اكتب رسالتك إلى $targetDisplayName...'
+                        ? 'اكتب رسالة...'
                         : 'اكتب ردك...',
                     border: InputBorder.none,
                   ),
@@ -1790,18 +1754,7 @@ class _MessagesPageState extends State<MessagesPage> {
                 color: AppColors.textDark,
               ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              hasChildContext
-                  ? 'ابدأ أول رسالة الآن للتواصل مع $targetDisplayName بخصوص الطفل'
-                  : 'ابدأ أول رسالة الآن للتواصل مع $targetDisplayName',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 14,
-                color: AppColors.textLight,
-                height: 1.5,
-              ),
-            ),
+
           ],
         ),
       ),

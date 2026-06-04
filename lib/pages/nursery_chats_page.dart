@@ -661,6 +661,8 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
           );
         }
 
+        final query = searchCtrl.text.trim().toLowerCase();
+
         final rawChats = (snapshot.data ?? []).where((message) {
           final senderRole = normalizeRole(message.senderRole);
           final receiverRole = normalizeRole(message.receiverRole);
@@ -685,7 +687,22 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
 
           final includesAdmin = senderIsAdmin || receiverIsAdmin;
 
-          return includesNursery && (includesAdmin || includesParent);
+          if (!includesNursery || (!includesAdmin && !includesParent)) {
+            return false;
+          }
+
+          if (query.isEmpty) return true;
+
+          final searchValues = [
+            message.senderName,
+            message.receiverName,
+            message.text,
+            message.childName,
+            roleLabel(senderRole),
+            roleLabel(receiverRole),
+          ].join(' ').toLowerCase();
+
+          return searchValues.contains(query);
         }).toList();
 
         final chats = _deduplicateRecentChats(rawChats);
@@ -709,21 +726,11 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
                   ),
                   SizedBox(height: 12),
                   Text(
-                    'لا توجد محادثات بعد',
+                    'لا توجد محادثات',
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w800,
                       color: AppColors.textDark,
-                    ),
-                  ),
-                  SizedBox(height: 8),
-                  Text(
-                    'عندما تبدأ أول محادثة مع ولي أمر أو الإدارة ستظهر هنا',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: AppColors.textLight,
-                      height: 1.5,
                     ),
                   ),
                 ],
@@ -739,6 +746,46 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
           },
         );
       },
+    );
+  }
+
+  Widget buildSearchField() {
+    return TextField(
+      controller: searchCtrl,
+      onChanged: (_) => setState(() {}),
+      decoration: InputDecoration(
+        hintText: 'بحث',
+        prefixIcon: const Icon(Icons.search_rounded),
+        suffixIcon: searchCtrl.text.isEmpty
+            ? null
+            : IconButton(
+                onPressed: () {
+                  searchCtrl.clear();
+                  setState(() {});
+                },
+                icon: const Icon(Icons.close_rounded),
+              ),
+        filled: true,
+        fillColor: Colors.white,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: BorderSide(
+            color: AppColors.primary.withOpacity(0.12),
+          ),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: BorderSide(
+            color: AppColors.primary.withOpacity(0.12),
+          ),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: const BorderSide(
+            color: AppColors.primary,
+          ),
+        ),
+      ),
     );
   }
 
@@ -903,7 +950,7 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
   Widget build(BuildContext context) {
     if (activeChildren.isEmpty) {
       return AppPageScaffold(
-        title: 'المراسلات',
+        title: 'الرسائل',
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
         child: Center(
           child: Container(
@@ -943,18 +990,10 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
       child: Column(
         children: [
-          Row(
-            children: [
-              buildTopTab(label: 'المحادثات', value: 'recent'),
-              const SizedBox(width: 10),
-              buildTopTab(label: 'البحث', value: 'search'),
-            ],
-          ),
-          const SizedBox(height: 16),
+          buildSearchField(),
+          const SizedBox(height: 12),
           Expanded(
-            child: selectedTab == 'recent'
-                ? buildRecentChatsTab()
-                : buildSearchTab(),
+            child: buildRecentChatsTab(),
           ),
         ],
       ),

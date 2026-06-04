@@ -194,7 +194,7 @@ class _AdminGroupsPageState extends State<AdminGroupsPage> {
                           }
 
                           return DropdownButtonFormField<String>(
-                            value: selectedStaffUid.isEmpty
+                            initialValue: selectedStaffUid.isEmpty
                                 ? null
                                 : selectedStaffUid,
                             decoration: const InputDecoration(
@@ -433,7 +433,7 @@ class _AdminGroupsPageState extends State<AdminGroupsPage> {
               Row(
                 children: [
                   CircleAvatar(
-                    backgroundColor: statusColor.withOpacity(0.12),
+                    backgroundColor: statusColor.withValues(alpha: 0.12),
                     child: Icon(Icons.groups_2_rounded, color: statusColor),
                   ),
                   const SizedBox(width: 12),
@@ -489,7 +489,7 @@ class _AdminGroupsPageState extends State<AdminGroupsPage> {
                 child: LinearProgressIndicator(
                   minHeight: 8,
                   value: progress,
-                  backgroundColor: Colors.black.withOpacity(0.06),
+                  backgroundColor: Colors.black.withValues(alpha: 0.06),
                   color: statusColor,
                 ),
               ),
@@ -616,6 +616,8 @@ class _GroupChildrenPage extends StatefulWidget {
 class _GroupChildrenPageState extends State<_GroupChildrenPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
+  bool showArchivedChildren = false;
+
   String _cleanText(dynamic value) {
     if (value == null) return '';
     return value.toString().trim();
@@ -716,6 +718,17 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
         enrollmentType == 'temporary';
   }
 
+  bool _isArchivedChild(Map<String, dynamic> data) {
+    final childStatus = _cleanText(data['childStatus']).toLowerCase();
+    final accountStatus = _cleanText(data['accountStatus']).toLowerCase();
+    final isActive = data['isActive'] != true;
+
+    return isActive ||
+        childStatus == 'archived' ||
+        childStatus == 'rejected_after_trial' ||
+        accountStatus == 'archived';
+  }
+
   String _formatDate(DateTime date) {
     return _dateKey(date);
   }
@@ -764,19 +777,20 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
 
 
   String _childTypeLabel(Map<String, dynamic> data) {
-    final type = _cleanText(data['childType']).isNotEmpty
-        ? _cleanText(data['childType']).toLowerCase()
-        : _cleanText(data['childStatus']).toLowerCase();
+    final childStatus = _cleanText(data['childStatus']).toLowerCase();
+    final accountStatus = _cleanText(data['accountStatus']).toLowerCase();
+    final childType = _cleanText(data['childType']).toLowerCase();
 
-    switch (type) {
+    if (childStatus == 'rejected_after_trial') return 'مؤرشف بعد التجربة';
+    if (childStatus == 'archived' || accountStatus == 'archived') {
+      return 'مؤرشف';
+    }
+
+    switch (childType.isNotEmpty ? childType : childStatus) {
       case 'temporary':
         return 'مؤقت';
       case 'trial':
         return 'تجربة';
-      case 'rejected_after_trial':
-        return 'مؤرشف بعد التجربة';
-      case 'archived':
-        return 'مؤرشف';
       case 'permanent':
       case 'active':
         return 'دائم';
@@ -863,7 +877,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                                 child: ListTile(
                                   leading: CircleAvatar(
                                     backgroundColor:
-                                        AppColors.primary.withOpacity(0.10),
+                                        AppColors.primary.withValues(alpha: 0.10),
                                     child: const Icon(
                                       Icons.child_care_rounded,
                                       color: AppColors.primary,
@@ -905,32 +919,19 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
     final parentNameCtrl = TextEditingController();
     final parentPhoneCtrl = TextEditingController();
     final hoursCountCtrl = TextEditingController(text: '1');
-    final daysCountCtrl = TextEditingController(text: '1');
     final hourlyRateCtrl = TextEditingController(text: '10');
-    final dailyRateCtrl = TextEditingController(text: '50');
-    final fixedAmountCtrl = TextEditingController(text: '50');
     final paidAmountCtrl = TextEditingController(text: '0');
 
     DateTime accessStart = DateTime.now();
     DateTime accessEnd = DateTime.now().add(const Duration(days: 1));
 
-    String billingType = 'daily';
-    String paymentMethod = 'cash';
+    const billingType = 'hourly';
     bool hasConsultation = false;
     bool isSaving = false;
 
     num calculateFinalAmount() {
-      if (billingType == 'hourly') {
-        return _parseMoney(hoursCountCtrl.text) *
-            _parseMoney(hourlyRateCtrl.text);
-      }
-
-      if (billingType == 'daily') {
-        return _parseMoney(daysCountCtrl.text) *
-            _parseMoney(dailyRateCtrl.text);
-      }
-
-      return _parseMoney(fixedAmountCtrl.text);
+      return _parseMoney(hoursCountCtrl.text) *
+          _parseMoney(hourlyRateCtrl.text);
     }
 
     await showModalBottomSheet<void>(
@@ -981,9 +982,9 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
             width: double.infinity,
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: AppColors.primary.withOpacity(0.07),
+              color: AppColors.primary.withValues(alpha: 0.07),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.primary.withOpacity(0.14)),
+              border: Border.all(color: AppColors.primary.withValues(alpha: 0.14)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -996,7 +997,6 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                 Text('الإجمالي: $finalAmount شيكل'),
                 Text('المدفوع: $paidAmount شيكل'),
                 Text('المتبقي: $remainingAmount شيكل'),
-                Text('طريقة الدفع: ${_paymentMethodLabel(paymentMethod)}'),
               ],
             ),
           );
@@ -1094,83 +1094,25 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                         ),
                       ),
                       const SizedBox(height: 10),
-                      DropdownButtonFormField<String>(
-                        value: billingType,
+                      TextField(
+                        controller: hoursCountCtrl,
+                        keyboardType: TextInputType.number,
+                        onChanged: (_) => setSheetState(() {}),
                         decoration: const InputDecoration(
-                          labelText: 'طريقة الحساب',
-                          prefixIcon: Icon(Icons.calculate_outlined),
+                          labelText: 'عدد الساعات',
+                          prefixIcon: Icon(Icons.access_time_rounded),
                         ),
-                        items: const [
-                          DropdownMenuItem(
-                            value: 'daily',
-                            child: Text('حسب الأيام'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'hourly',
-                            child: Text('حسب الساعات'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'fixed',
-                            child: Text('مبلغ ثابت'),
-                          ),
-                        ],
-                        onChanged: (value) {
-                          if (value == null) return;
-                          setSheetState(() => billingType = value);
-                        },
                       ),
                       const SizedBox(height: 12),
-                      if (billingType == 'hourly') ...[
-                        TextField(
-                          controller: hoursCountCtrl,
-                          keyboardType: TextInputType.number,
-                          onChanged: (_) => setSheetState(() {}),
-                          decoration: const InputDecoration(
-                            labelText: 'عدد الساعات',
-                            prefixIcon: Icon(Icons.access_time_rounded),
-                          ),
+                      TextField(
+                        controller: hourlyRateCtrl,
+                        keyboardType: TextInputType.number,
+                        onChanged: (_) => setSheetState(() {}),
+                        decoration: const InputDecoration(
+                          labelText: 'سعر الساعة',
+                          prefixIcon: Icon(Icons.payments_outlined),
                         ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: hourlyRateCtrl,
-                          keyboardType: TextInputType.number,
-                          onChanged: (_) => setSheetState(() {}),
-                          decoration: const InputDecoration(
-                            labelText: 'سعر الساعة',
-                            prefixIcon: Icon(Icons.payments_outlined),
-                          ),
-                        ),
-                      ] else if (billingType == 'daily') ...[
-                        TextField(
-                          controller: daysCountCtrl,
-                          keyboardType: TextInputType.number,
-                          onChanged: (_) => setSheetState(() {}),
-                          decoration: const InputDecoration(
-                            labelText: 'عدد الأيام',
-                            prefixIcon: Icon(Icons.calendar_today_outlined),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: dailyRateCtrl,
-                          keyboardType: TextInputType.number,
-                          onChanged: (_) => setSheetState(() {}),
-                          decoration: const InputDecoration(
-                            labelText: 'سعر اليوم',
-                            prefixIcon: Icon(Icons.payments_outlined),
-                          ),
-                        ),
-                      ] else ...[
-                        TextField(
-                          controller: fixedAmountCtrl,
-                          keyboardType: TextInputType.number,
-                          onChanged: (_) => setSheetState(() {}),
-                          decoration: const InputDecoration(
-                            labelText: 'المبلغ',
-                            prefixIcon: Icon(Icons.payments_outlined),
-                          ),
-                        ),
-                      ],
+                      ),
                       const SizedBox(height: 12),
                       TextField(
                         controller: paidAmountCtrl,
@@ -1180,28 +1122,6 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                           labelText: 'المدفوع',
                           prefixIcon: Icon(Icons.done_all_rounded),
                         ),
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        value: paymentMethod,
-                        decoration: const InputDecoration(
-                          labelText: 'طريقة الدفع',
-                          prefixIcon: Icon(Icons.credit_card_rounded),
-                        ),
-                        items: const [
-                          DropdownMenuItem(
-                            value: 'cash',
-                            child: Text('كاش'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'visa',
-                            child: Text('فيزا'),
-                          ),
-                        ],
-                        onChanged: (value) {
-                          if (value == null) return;
-                          setSheetState(() => paymentMethod = value);
-                        },
                       ),
                       const SizedBox(height: 12),
                       moneySummary(),
@@ -1285,16 +1205,14 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                                     accessEnd: accessEnd,
                                     billingType: billingType,
                                     hoursCount: _parseMoney(hoursCountCtrl.text),
-                                    daysCount: _parseMoney(daysCountCtrl.text),
+                                    daysCount: 0,
                                     hourlyRate: _parseMoney(hourlyRateCtrl.text),
-                                    dailyRate: _parseMoney(dailyRateCtrl.text),
-                                    baseAmount: billingType == 'fixed'
-                                        ? _parseMoney(fixedAmountCtrl.text)
-                                        : finalAmount,
+                                    dailyRate: 0,
+                                    baseAmount: finalAmount,
                                     finalAmount: finalAmount,
                                     paidAmount: paidAmount,
                                     remainingAmount: remainingAmount,
-                                    paymentMethod: paymentMethod,
+                                    paymentMethod: 'cash',
                                     hasConsultation: hasConsultation,
                                     notes: '',
                                   );
@@ -2091,146 +2009,20 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
     );
   }
 
-  Future<void> _approveTrialChild({
+  Future<void> _archiveChild({
     required DocumentSnapshot<Map<String, dynamic>> childDoc,
   }) async {
     final data = childDoc.data() ?? <String, dynamic>{};
 
-    if (!_isTrialChild(data)) return;
+    if (!_isTemporaryChild(data) && !_isTrialChild(data)) return;
 
     final confirm = await showDialog<bool>(
       context: context,
       builder: (_) => Directionality(
         textDirection: TextDirection.rtl,
         child: AlertDialog(
-          title: const Text('اعتماد الطفل'),
-          content: const Text(
-            'سيتم تحويل طفل التجربة إلى طفل دائم، وبعدها يمكن إدخاله ضمن الاشتراك الشهري والفواتير.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('إلغاء'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('اعتماد'),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    if (confirm != true) return;
-
-    try {
-      final parentUid = _cleanText(data['parentUid']);
-      final parentUsername = _cleanText(data['parentUsername']);
-      final accessCodeId = _cleanText(data['temporaryAccessCodeId']);
-
-      final batch = _firestore.batch();
-
-      batch.update(_firestore.collection('children').doc(childDoc.id), {
-        'childType': 'permanent',
-        'enrollmentType': 'permanent',
-        'childStatus': 'active',
-        'accountStatus': 'active',
-        'isActive': true,
-        'isTrialChild': false,
-        'isTemporaryChild': false,
-        'isBillable': true,
-        'excludeFromMonthlyInvoice': false,
-        'trialApprovedAt': FieldValue.serverTimestamp(),
-        'approvedAfterTrialAt': FieldValue.serverTimestamp(),
-        'approvedAt': FieldValue.serverTimestamp(),
-        'canReactivate': true,
-        'permanentDeleted': false,
-        'archiveReason': FieldValue.delete(),
-        'archivedAt': FieldValue.delete(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-
-      if (parentUid.isNotEmpty) {
-        batch.update(_firestore.collection('users').doc(parentUid), {
-          'accountType': 'parent',
-          'accountStatus': 'active',
-          'isTemporaryAccount': false,
-          'isTrialAccount': false,
-          'temporaryAccess': false,
-          'isActive': true,
-          'canReactivate': true,
-          'permanentDeleted': false,
-          'archiveReason': FieldValue.delete(),
-          'archivedAt': FieldValue.delete(),
-          'trialApprovedAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-      }
-
-      if (parentUsername.isNotEmpty) {
-        batch.update(_firestore.collection('login_usernames').doc(parentUsername), {
-          'accountType': 'parent',
-          'accountStatus': 'active',
-          'isTemporaryAccount': false,
-          'isTrialAccount': false,
-          'temporaryAccess': false,
-          'isActive': true,
-          'canReactivate': true,
-          'permanentDeleted': false,
-          'archiveReason': FieldValue.delete(),
-          'archivedAt': FieldValue.delete(),
-          'trialApprovedAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-      }
-
-      if (accessCodeId.isNotEmpty) {
-        batch.update(
-          _firestore.collection('temporary_access_codes').doc(accessCodeId),
-          {
-            'isActive': false,
-            'status': 'approved_to_permanent',
-            'childStatus': 'active',
-            'accountStatus': 'inactive_after_approval',
-            'approvedToPermanentAt': FieldValue.serverTimestamp(),
-            'canReactivate': true,
-            'permanentDeleted': false,
-            'updatedAt': FieldValue.serverTimestamp(),
-          },
-        );
-      }
-
-      await batch.commit();
-      await _updateGroupCount();
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم اعتماد الطفل كطفل دائم')),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذر اعتماد الطفل: $e')),
-      );
-    }
-  }
-
-  Future<void> _archiveTrialChild({
-    required DocumentSnapshot<Map<String, dynamic>> childDoc,
-  }) async {
-    final data = childDoc.data() ?? <String, dynamic>{};
-
-    if (!_isTrialChild(data)) return;
-
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (_) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          title: const Text('أرشفة طفل التجربة'),
-          content: const Text(
-            'لن يتم حذف بيانات الطفل أو ولي الأمر. سيتم إيقاف الوصول فقط مع إبقاء الأرشفة قابلة للرجوع.',
-          ),
+          title: const Text('أرشفة الطفل'),
+          content: const Text('أرشفة الطفل؟'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -2248,73 +2040,64 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
     if (confirm != true) return;
 
     try {
-      final parentUid = _cleanText(data['parentUid']);
-      final parentUsername = _cleanText(data['parentUsername']);
       final accessCodeId = _cleanText(data['temporaryAccessCodeId']);
+      final archiveReason = _isTrialChild(data)
+          ? 'trial_not_approved'
+          : 'temporary_archived';
 
       final batch = _firestore.batch();
 
-      batch.update(_firestore.collection('children').doc(childDoc.id), {
-        'childType': 'trial',
-        'enrollmentType': 'trial',
-        'childStatus': 'rejected_after_trial',
-        'accountStatus': 'archived',
-        'isActive': false,
-        'isTrialChild': true,
-        'isTemporaryChild': false,
-        'isBillable': false,
-        'excludeFromMonthlyInvoice': true,
-        'canReactivate': true,
-        'permanentDeleted': false,
-        'archivedAt': FieldValue.serverTimestamp(),
-        'archiveReason': 'trial_not_approved',
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-
-      if (parentUid.isNotEmpty) {
-        batch.update(_firestore.collection('users').doc(parentUid), {
-          'isActive': false,
+      batch.set(
+        _firestore.collection('children').doc(childDoc.id),
+        {
+          'childStatus': _isTrialChild(data) ? 'rejected_after_trial' : 'archived',
           'accountStatus': 'archived',
-          'isTrialAccount': true,
-          'isTemporaryAccount': true,
-          'temporaryAccess': false,
+          'isActive': false,
+          'isBillable': false,
+          'excludeFromMonthlyInvoice': true,
           'canReactivate': true,
           'permanentDeleted': false,
-          'archiveReason': 'trial_child_not_approved',
+          'archiveReason': archiveReason,
           'archivedAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
-        });
-      }
-
-      if (parentUsername.isNotEmpty) {
-        batch.update(_firestore.collection('login_usernames').doc(parentUsername), {
-          'isActive': false,
-          'accountStatus': 'archived',
-          'isTrialAccount': true,
-          'isTemporaryAccount': true,
-          'temporaryAccess': false,
-          'canReactivate': true,
-          'permanentDeleted': false,
-          'archiveReason': 'trial_child_not_approved',
-          'archivedAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-      }
+        },
+        SetOptions(merge: true),
+      );
 
       if (accessCodeId.isNotEmpty) {
-        batch.update(
+        batch.set(
           _firestore.collection('temporary_access_codes').doc(accessCodeId),
           {
             'isActive': false,
             'status': 'archived',
             'accountStatus': 'archived',
-            'childStatus': 'rejected_after_trial',
+            'childStatus': _isTrialChild(data) ? 'rejected_after_trial' : 'archived',
             'canReactivate': true,
             'permanentDeleted': false,
-            'archiveReason': 'trial_child_not_approved',
+            'archiveReason': archiveReason,
             'archivedAt': FieldValue.serverTimestamp(),
             'updatedAt': FieldValue.serverTimestamp(),
           },
+          SetOptions(merge: true),
+        );
+      }
+
+      final deviceSnapshot = await _firestore
+          .collection('temporary_parent_devices')
+          .where('childId', isEqualTo: childDoc.id)
+          .get();
+
+      for (final deviceDoc in deviceSnapshot.docs) {
+        batch.set(
+          deviceDoc.reference,
+          {
+            'isActive': false,
+            'accountStatus': 'archived',
+            'archiveReason': archiveReason,
+            'archivedAt': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
         );
       }
 
@@ -2323,14 +2106,383 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تمت أرشفة طفل التجربة بدون حذف نهائي')),
+        const SnackBar(content: Text('تمت الأرشفة')),
       );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذر أرشفة طفل التجربة: $e')),
+        SnackBar(content: Text('تعذر الأرشفة: $e')),
       );
     }
+  }
+
+  Future<void> _reactivateArchivedChild({
+    required DocumentSnapshot<Map<String, dynamic>> childDoc,
+  }) async {
+    final data = childDoc.data() ?? <String, dynamic>{};
+    final restoreStatus = _isTrialChild(data) ? 'trial' : 'temporary';
+
+    await _firestore.collection('children').doc(childDoc.id).set(
+      {
+        'childStatus': restoreStatus,
+        'accountStatus': 'active',
+        'isActive': true,
+        'canReactivate': true,
+        'permanentDeleted': false,
+        'archiveReason': FieldValue.delete(),
+        'archivedAt': FieldValue.delete(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+
+    await _updateGroupCount();
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('تمت إعادة التفعيل')),
+    );
+  }
+
+
+  Future<void> _openEditTemporaryInvoiceSheet({
+    required DocumentSnapshot<Map<String, dynamic>> childDoc,
+  }) async {
+    final childData = childDoc.data() ?? <String, dynamic>{};
+
+    if (!_isTemporaryChild(childData)) return;
+
+    QueryDocumentSnapshot<Map<String, dynamic>>? invoiceDoc;
+
+    final invoiceSnapshot = await _firestore
+        .collection('invoices')
+        .where('childId', isEqualTo: childDoc.id)
+        .get();
+
+    for (final doc in invoiceSnapshot.docs) {
+      final data = doc.data();
+      final childType = _cleanText(data['childType']).toLowerCase();
+      final billingType = _cleanText(data['billingType']).toLowerCase();
+      final title = _cleanText(data['title']);
+
+      if (childType == 'temporary' ||
+          billingType == 'hourly' ||
+          title.contains('المؤقت')) {
+        invoiceDoc = doc;
+        break;
+      }
+    }
+
+    final invoiceData = invoiceDoc?.data() ?? <String, dynamic>{};
+
+    final hoursCountCtrl = TextEditingController(
+      text: _cleanText(invoiceData['hoursCount']).isNotEmpty
+          ? _cleanText(invoiceData['hoursCount'])
+          : _cleanText(childData['temporaryHoursCount']).isNotEmpty
+              ? _cleanText(childData['temporaryHoursCount'])
+              : '1',
+    );
+
+    final hourlyRateCtrl = TextEditingController(
+      text: _cleanText(invoiceData['hourlyRate']).isNotEmpty
+          ? _cleanText(invoiceData['hourlyRate'])
+          : _cleanText(childData['temporaryHourlyRate']).isNotEmpty
+              ? _cleanText(childData['temporaryHourlyRate'])
+              : '10',
+    );
+
+    final paidAmountCtrl = TextEditingController(
+      text: _cleanText(invoiceData['paidAmount']).isNotEmpty
+          ? _cleanText(invoiceData['paidAmount'])
+          : _cleanText(childData['temporaryPaidAmount']).isNotEmpty
+              ? _cleanText(childData['temporaryPaidAmount'])
+              : '0',
+    );
+
+    bool isSaving = false;
+
+    num calculateTotal() {
+      return _parseMoney(hoursCountCtrl.text) * _parseMoney(hourlyRateCtrl.text);
+    }
+
+    Future<void> saveChanges(StateSetter setSheetState) async {
+      final hoursCount = _parseMoney(hoursCountCtrl.text);
+      final hourlyRate = _parseMoney(hourlyRateCtrl.text);
+      final paidAmount = _parseMoney(paidAmountCtrl.text);
+      final finalAmount = hoursCount * hourlyRate;
+      final remainingAmount =
+          (finalAmount - paidAmount) < 0 ? 0 : finalAmount - paidAmount;
+
+      if (hoursCount <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('أدخلي عدد ساعات صحيح')),
+        );
+        return;
+      }
+
+      if (hourlyRate <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('أدخلي سعر ساعة صحيح')),
+        );
+        return;
+      }
+
+      setSheetState(() {
+        isSaving = true;
+      });
+
+      try {
+        final adminUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+        final invoiceRef = invoiceDoc?.reference ??
+            _firestore.collection('invoices').doc();
+
+        final childName = _childName(childData);
+        final parentName = _parentName(childData);
+        final parentPhone = _cleanText(
+          childData['parentPhone'] ?? childData['temporaryParentPhone'],
+        );
+
+        final status = _invoiceStatus(
+          finalAmount: finalAmount,
+          paidAmount: paidAmount,
+        );
+
+        final batch = _firestore.batch();
+
+        batch.set(
+          childDoc.reference,
+          {
+            'temporaryBillingType': 'hourly',
+            'temporaryBillingTypeLabel': _billingTypeLabel('hourly'),
+            'temporaryHoursCount': hoursCount,
+            'temporaryHourlyRate': hourlyRate,
+            'temporaryFee': finalAmount,
+            'temporaryPaidAmount': paidAmount,
+            'temporaryRemainingAmount': remainingAmount,
+            'isBillable': true,
+            'excludeFromMonthlyInvoice': true,
+            'updatedByUid': adminUid,
+            'updatedByRole': 'admin',
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+
+        batch.set(
+          invoiceRef,
+          {
+            'id': invoiceRef.id,
+            'invoiceId': invoiceRef.id,
+            'title': 'فاتورة الطفل المؤقت',
+            'childId': childDoc.id,
+            'childName': childName,
+            'childType': 'temporary',
+            'parentUid': _cleanText(childData['parentUid']),
+            'parentUsername': _cleanText(childData['parentUsername']),
+            'parentName': parentName,
+            'parentPhone': parentPhone,
+            'temporaryParentName': _cleanText(childData['temporaryParentName'])
+                    .isNotEmpty
+                ? _cleanText(childData['temporaryParentName'])
+                : parentName,
+            'temporaryParentPhone':
+                _cleanText(childData['temporaryParentPhone']).isNotEmpty
+                    ? _cleanText(childData['temporaryParentPhone'])
+                    : parentPhone,
+            'groupId': widget.groupId,
+            'groupName': widget.groupName,
+            'billingType': 'hourly',
+            'billingTypeLabel': _billingTypeLabel('hourly'),
+            'hoursCount': hoursCount,
+            'daysCount': 0,
+            'hourlyRate': hourlyRate,
+            'dailyRate': 0,
+            'baseAmount': finalAmount,
+            'discount': 0,
+            'discountAmount': 0,
+            'finalAmount': finalAmount,
+            'totalAmount': finalAmount,
+            'paidAmount': paidAmount,
+            'remainingAmount': remainingAmount,
+            'paymentMethod': _cleanText(invoiceData['paymentMethod']).isNotEmpty
+                ? _cleanText(invoiceData['paymentMethod'])
+                : 'cash',
+            'paymentMethodLabel': _paymentMethodLabel(
+              _cleanText(invoiceData['paymentMethod']).isNotEmpty
+                  ? _cleanText(invoiceData['paymentMethod'])
+                  : 'cash',
+            ),
+            'status': status,
+            'invoiceDate':
+                invoiceData['invoiceDate'] ?? FieldValue.serverTimestamp(),
+            'accessStartAt':
+                invoiceData['accessStartAt'] ?? childData['temporaryAccessStartAt'],
+            'accessEndAt':
+                invoiceData['accessEndAt'] ?? childData['temporaryAccessEndAt'],
+            'updatedByUid': adminUid,
+            'updatedByRole': 'admin',
+            'updatedAt': FieldValue.serverTimestamp(),
+            if (invoiceDoc == null) ...{
+              'createdByUid': adminUid,
+              'createdByRole': 'admin',
+              'createdAt': FieldValue.serverTimestamp(),
+            },
+          },
+          SetOptions(merge: true),
+        );
+
+        await batch.commit();
+
+        if (!mounted) return;
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تم حفظ الفاتورة')),
+        );
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('تعذر حفظ الفاتورة: $e')),
+        );
+      } finally {
+        if (mounted) {
+          setSheetState(() {
+            isSaving = false;
+          });
+        }
+      }
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (sheetContext) {
+        Widget moneySummary() {
+          final finalAmount = calculateTotal();
+          final paidAmount = _parseMoney(paidAmountCtrl.text);
+          final remainingAmount =
+              (finalAmount - paidAmount) < 0 ? 0 : finalAmount - paidAmount;
+
+          return Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.07),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.primary.withValues(alpha: 0.14)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'ملخص الفاتورة',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Text('الإجمالي: $finalAmount شيكل'),
+                Text('المدفوع: $paidAmount شيكل'),
+                Text('المتبقي: $remainingAmount شيكل'),
+              ],
+            ),
+          );
+        }
+
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: StatefulBuilder(
+            builder: (context, setSheetState) {
+              return Padding(
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 16,
+                  bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+                ),
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 45,
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: Colors.black12,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      Text(
+                        'تعديل فاتورة الطفل المؤقت',
+                        style: Theme.of(sheetContext)
+                            .textTheme
+                            .titleLarge
+                            ?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 18),
+                      TextField(
+                        controller: hoursCountCtrl,
+                        keyboardType: TextInputType.number,
+                        onChanged: (_) => setSheetState(() {}),
+                        decoration: const InputDecoration(
+                          labelText: 'عدد الساعات',
+                          prefixIcon: Icon(Icons.access_time_rounded),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: hourlyRateCtrl,
+                        keyboardType: TextInputType.number,
+                        onChanged: (_) => setSheetState(() {}),
+                        decoration: const InputDecoration(
+                          labelText: 'سعر الساعة',
+                          prefixIcon: Icon(Icons.payments_outlined),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: paidAmountCtrl,
+                        keyboardType: TextInputType.number,
+                        onChanged: (_) => setSheetState(() {}),
+                        decoration: const InputDecoration(
+                          labelText: 'المدفوع',
+                          prefixIcon: Icon(Icons.done_all_rounded),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      moneySummary(),
+                      const SizedBox(height: 18),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed:
+                              isSaving ? null : () => saveChanges(setSheetState),
+                          icon: isSaving
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.save_rounded),
+                          label: Text(isSaving ? 'جاري الحفظ...' : 'حفظ'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
+
+    hoursCountCtrl.dispose();
+    hourlyRateCtrl.dispose();
+    paidAmountCtrl.dispose();
   }
 
   Future<void> _openMoveChildSheet({
@@ -2449,7 +2601,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                 const SizedBox(height: 18),
                 ListTile(
                   leading: CircleAvatar(
-                    backgroundColor: AppColors.primary.withOpacity(0.10),
+                    backgroundColor: AppColors.primary.withValues(alpha: 0.10),
                     child: const Icon(
                       Icons.person_add_alt_1_rounded,
                       color: AppColors.primary,
@@ -2467,7 +2619,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                 const Divider(height: 1),
                 ListTile(
                   leading: CircleAvatar(
-                    backgroundColor: AppColors.primary.withOpacity(0.10),
+                    backgroundColor: AppColors.primary.withValues(alpha: 0.10),
                     child: const Icon(
                       Icons.child_care_rounded,
                       color: AppColors.primary,
@@ -2485,7 +2637,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                 const Divider(height: 1),
                 ListTile(
                   leading: CircleAvatar(
-                    backgroundColor: Colors.teal.withOpacity(0.10),
+                    backgroundColor: Colors.teal.withValues(alpha: 0.10),
                     child: const Icon(
                       Icons.volunteer_activism_outlined,
                       color: Colors.teal,
@@ -2495,7 +2647,6 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                     'إضافة طفل تجربة',
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
-                  subtitle: const Text('3 أيام مجانية بدون فاتورة شهرية'),
                   onTap: () {
                     Navigator.pop(sheetContext);
                     _openAddTrialChildSheet();
@@ -2513,25 +2664,32 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
     final data = doc.data() ?? <String, dynamic>{};
     final isTrial = _isTrialChild(data);
     final isTemporary = _isTemporaryChild(data);
+    final isArchived = _isArchivedChild(data);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       child: ListTile(
         leading: CircleAvatar(
-          backgroundColor: isTrial
-              ? Colors.teal.withOpacity(0.10)
-              : isTemporary
-                  ? Colors.orange.withOpacity(0.10)
-                  : AppColors.primary.withOpacity(0.10),
+          backgroundColor: isArchived
+              ? Colors.grey.withValues(alpha: 0.12)
+              : isTrial
+                  ? Colors.teal.withValues(alpha: 0.10)
+                  : isTemporary
+                      ? Colors.orange.withValues(alpha: 0.10)
+                      : AppColors.primary.withValues(alpha: 0.10),
           child: Icon(
-            isTrial
-                ? Icons.volunteer_activism_outlined
-                : Icons.child_care_rounded,
-            color: isTrial
-                ? Colors.teal
-                : isTemporary
-                    ? Colors.orange
-                    : AppColors.primary,
+            isArchived
+                ? Icons.archive_outlined
+                : isTrial
+                    ? Icons.volunteer_activism_outlined
+                    : Icons.child_care_rounded,
+            color: isArchived
+                ? Colors.grey
+                : isTrial
+                    ? Colors.teal
+                    : isTemporary
+                        ? Colors.orange
+                        : AppColors.primary,
           ),
         ),
         title: Text(
@@ -2546,38 +2704,43 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
           onSelected: (value) {
             if (value == 'move') {
               _openMoveChildSheet(childId: doc.id);
+            } else if (value == 'edit_temporary_invoice') {
+              _openEditTemporaryInvoiceSheet(childDoc: doc);
             } else if (value == 'remove') {
               _removeChildFromGroup(doc.id);
-            } else if (value == 'approve_trial') {
-              _approveTrialChild(childDoc: doc);
-            } else if (value == 'archive_trial') {
-              _archiveTrialChild(childDoc: doc);
+            } else if (value == 'archive') {
+              _archiveChild(childDoc: doc);
+            } else if (value == 'reactivate') {
+              _reactivateArchivedChild(childDoc: doc);
             }
           },
           itemBuilder: (context) {
             return [
-              const PopupMenuItem(
-                value: 'move',
-                child: Text('نقل'),
-              ),
-              if (isTrial) ...[
+              if (!isArchived) ...[
                 const PopupMenuItem(
-                  value: 'approve_trial',
-                  child: Text('اعتماد كطفل دائم'),
+                  value: 'move',
+                  child: Text('نقل'),
                 ),
+                if (isTemporary)
+                  const PopupMenuItem(
+                    value: 'edit_temporary_invoice',
+                    child: Text('تعديل الفاتورة'),
+                  ),
+                if (isTrial || isTemporary)
+                  const PopupMenuItem(
+                    value: 'archive',
+                    child: Text('أرشفة'),
+                  ),
                 const PopupMenuItem(
-                  value: 'archive_trial',
-                  child: Text('أرشفة بعد التجربة'),
+                  value: 'remove',
+                  child: Text('إزالة'),
                 ),
-              ] else
+              ] else ...[
                 const PopupMenuItem(
-                  value: 'type',
-                  child: Text('نوع الطفل'),
+                  value: 'reactivate',
+                  child: Text('إعادة تفعيل'),
                 ),
-              const PopupMenuItem(
-                value: 'remove',
-                child: Text('إزالة'),
-              ),
+              ],
             ];
           },
         ),
@@ -2590,17 +2753,18 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
     return AppPageScaffold(
       title: widget.groupName.isEmpty ? 'أطفال المجموعة' : widget.groupName,
       actions: [
-        IconButton(
-          tooltip: 'إضافة',
-          onPressed: _openAddOptionsSheet,
-          icon: const Icon(Icons.add_circle_outline_rounded),
-        ),
+        if (!showArchivedChildren)
+          IconButton(
+            tooltip: 'إضافة',
+            onPressed: _openAddOptionsSheet,
+            icon: const Icon(Icons.add_circle_outline_rounded),
+          ),
       ],
       child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: _firestore
             .collection('children')
             .where('groupId', isEqualTo: widget.groupId)
-            .where('isActive', isEqualTo: true)
+            .where('isActive', isEqualTo: !showArchivedChildren)
             .snapshots(),
         builder: (context, snapshot) {
           final docs = snapshot.data?.docs ?? [];
@@ -2617,23 +2781,54 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                   children: [
                     Expanded(
                       child: Text(
-                        'الأطفال (${docs.length})',
+                        showArchivedChildren
+                            ? 'الأرشيف (${docs.length})'
+                            : 'الأطفال (${docs.length})',
                         style:
                             Theme.of(context).textTheme.headlineSmall?.copyWith(
                                   fontWeight: FontWeight.bold,
                                 ),
                       ),
                     ),
-                    IconButton(
-                      tooltip: 'إضافة',
-                      onPressed: _openAddOptionsSheet,
-                      icon: const Icon(Icons.add_circle_outline_rounded),
+                    if (!showArchivedChildren)
+                      IconButton(
+                        tooltip: 'إضافة',
+                        onPressed: _openAddOptionsSheet,
+                        icon: const Icon(Icons.add_circle_outline_rounded),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ChoiceChip(
+                        label: const Center(child: Text('النشطون')),
+                        selected: !showArchivedChildren,
+                        onSelected: (_) {
+                          setState(() {
+                            showArchivedChildren = false;
+                          });
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: ChoiceChip(
+                        label: const Center(child: Text('الأرشيف')),
+                        selected: showArchivedChildren,
+                        onSelected: (_) {
+                          setState(() {
+                            showArchivedChildren = true;
+                          });
+                        },
+                      ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 16),
                 if (docs.isEmpty)
-                  const _EmptyChildrenBox()
+                  _EmptyChildrenBox(showArchivedChildren: showArchivedChildren)
                 else
                   ...docs.map(_buildChildCard),
                 const SizedBox(height: 16),
@@ -2670,9 +2865,9 @@ class _InfoChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.09),
+        color: color.withValues(alpha: 0.09),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withOpacity(0.18)),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -2705,7 +2900,7 @@ class _EmptyGroupsBox extends StatelessWidget {
           children: [
             CircleAvatar(
               radius: 28,
-              backgroundColor: AppColors.primary.withOpacity(0.10),
+              backgroundColor: AppColors.primary.withValues(alpha: 0.10),
               child: const Icon(
                 Icons.groups_2_outlined,
                 color: AppColors.primary,
@@ -2728,17 +2923,26 @@ class _EmptyGroupsBox extends StatelessWidget {
 }
 
 class _EmptyChildrenBox extends StatelessWidget {
-  const _EmptyChildrenBox();
+  final bool showArchivedChildren;
+
+  const _EmptyChildrenBox({
+    required this.showArchivedChildren,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return const Card(
+    return Card(
       child: Padding(
-        padding: EdgeInsets.all(22),
+        padding: const EdgeInsets.all(22),
         child: Center(
-          child: Text('لا يوجد أطفال داخل هذه المجموعة'),
+          child: Text(
+            showArchivedChildren
+                ? 'لا يوجد أطفال داخل الأرشيف'
+                : 'لا يوجد أطفال داخل هذه المجموعة',
+          ),
         ),
       ),
     );
   }
 }
+

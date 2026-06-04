@@ -22,11 +22,21 @@ class LiveStreamRequestResult {
 }
 
 class LiveStreamService {
-  final FirebaseFirestore _firestore;
-
   LiveStreamService({
     FirebaseFirestore? firestore,
   }) : _firestore = firestore ?? FirebaseFirestore.instance;
+
+  static const String nurseryMainStreamId = 'nursery_main_stream';
+
+  static const int maxConcurrentViewers = 3;
+  static const Duration normalViewingDuration = Duration(minutes: 10);
+  static const Duration congestedViewingDuration = Duration(minutes: 5);
+  static const Duration readyJoinTimeout = Duration(minutes: 1);
+  static const Duration stationHeartbeatInterval = Duration(seconds: 15);
+  static const Duration stationOfflineAfter = Duration(seconds: 45);
+  static const Duration maintenanceInterval = Duration(seconds: 10);
+
+  final FirebaseFirestore _firestore;
 
   RTCPeerConnection? _peerConnection;
   MediaStream? _localStream;
@@ -38,19 +48,47 @@ class LiveStreamService {
 
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
       _roomSubscription;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _queueSubscription;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _viewersSubscription;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
       _viewerDocSubscription;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
+      _viewerEntitlementSubscription;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
       _viewerHostCandidatesSubscription;
 
+  Timer? _stationHeartbeatTimer;
+  Timer? _stationMaintenanceTimer;
+
   String? _currentRoomId;
   String? _currentViewerId;
+  String? _currentRequestId;
+
+  String _stationUid = '';
+  String _stationName = '';
+  String _stationRole = 'nursery_staff';
+
+  bool _stationModeEnabled = false;
+  bool _stationBroadcastActive = false;
+  bool _stationMaintenanceRunning = false;
+  bool _viewerClosing = false;
   bool _isDisposed = false;
 
   MediaStream? get localStream => _localStream;
   MediaStream? get remoteStream => _remoteStream;
   String? get currentRoomId => _currentRoomId;
+  String? get currentRequestId => _currentRequestId;
+  bool get stationModeEnabled => _stationModeEnabled;
+  bool get stationBroadcastActive => _stationBroadcastActive;
+
+  DocumentReference<Map<String, dynamic>> get _mainRoomRef =>
+      _firestore.collection('live_streams').doc(nurseryMainStreamId);
+
+  CollectionReference<Map<String, dynamic>> get _queueRef =>
+      _mainRoomRef.collection('queue');
+
+  CollectionReference<Map<String, dynamic>> get _viewersRef =>
+      _mainRoomRef.collection('viewers');
 
   final Map<String, dynamic> _rtcConfiguration = {
     'iceServers': [
@@ -67,7 +105,7 @@ class LiveStreamService {
   final Map<String, dynamic> _mediaConstraints = {
     'audio': true,
     'video': {
-      'facingMode': 'user',
+      'facingMode': 'environment',
       'width': {
         'ideal': 1280,
       },
@@ -95,6 +133,52 @@ class LiveStreamService {
     }
 
     return role;
+  }
+
+  DateTime? _dateFromDynamic(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    return null;
+  }
+
+  int _asInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  bool _isStationHeartbeatFresh(Map<String, dynamic> roomData) {
+    final lastHeartbeatAt = _dateFromDynamic(roomData['lastHeartbeatAt']);
+    if (lastHeartbeatAt == null) return false;
+
+    return DateTime.now().difference(lastHeartbeatAt) <= stationOfflineAfter;
+  }
+
+  Future<void> _ensureMainRoomDocument() async {
+    final snapshot = await _mainRoomRef.get();
+
+    if (snapshot.exists) return;
+
+    await _mainRoomRef.set({
+      'roomId': nurseryMainStreamId,
+      'title': 'البث المباشر من الحضانة',
+      'scope': 'nursery',
+      'status': 'idle',
+      'isActive': false,
+      'stationOnline': false,
+      'stationUid': '',
+      'stationName': '',
+      'stationRole': 'nursery_staff',
+      'maxViewers': maxConcurrentViewers,
+      'allocatedSlotsCount': 0,
+      'activeConnectionsCount': 0,
+      'queueCount': 0,
+      'startedAt': null,
+      'endedAt': null,
+      'lastHeartbeatAt': null,
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
   }
 
   Future<MediaStream> openUserMedia() async {
@@ -133,16 +217,13 @@ class LiveStreamService {
     if (value is int) return value;
     if (value is num) return value.toInt();
 
-    final parsed = int.tryParse(value?.toString() ?? '');
-    return parsed ?? 0;
+    return int.tryParse(value?.toString() ?? '') ?? 0;
   }
 
   RTCIceCandidate? _buildIceCandidateFromData(Map<String, dynamic> data) {
     final candidateText = (data['candidate'] ?? '').toString().trim();
 
-    if (candidateText.isEmpty) {
-      return null;
-    }
+    if (candidateText.isEmpty) return null;
 
     return RTCIceCandidate(
       candidateText,
@@ -151,101 +232,405 @@ class LiveStreamService {
     );
   }
 
-  Future<Map<String, dynamic>?> getActiveLiveStreamIfExists() async {
-    final snapshot = await _firestore
-        .collection('live_streams')
-        .where('status', isEqualTo: 'active')
-        .orderBy('startedAt', descending: true)
-        .limit(1)
-        .get();
+  Future<Map<String, dynamic>?> getNurseryStationState() async {
+    await _ensureMainRoomDocument();
 
-    if (snapshot.docs.isEmpty) return null;
+    final snapshot = await _mainRoomRef.get();
+    final data = snapshot.data();
 
-    final doc = snapshot.docs.first;
+    if (data == null) return null;
 
     return {
-      'id': doc.id,
-      ...doc.data(),
+      'id': snapshot.id,
+      ...data,
+      'stationOnlineNow': _isStationHeartbeatFresh(data),
     };
   }
 
-  Future<int> _nextQueuePosition() async {
-    final snapshot = await _firestore
-        .collection('live_stream_requests')
-        .where('status', whereIn: ['queued', 'waiting'])
-        .get();
-
-    return snapshot.docs.length + 1;
+  Stream<DocumentSnapshot<Map<String, dynamic>>> watchNurseryStationState() {
+    return _mainRoomRef.snapshots();
   }
 
-  Future<bool> _hasActiveOrReadyLiveStreamRequest() async {
-    final snapshot = await _firestore
-        .collection('live_stream_requests')
-        .where('status', whereIn: ['active', 'ready'])
-        .limit(1)
-        .get();
+  Future<bool> isNurseryStationOnline() async {
+    final state = await getNurseryStationState();
+    if (state == null) return false;
 
-    return snapshot.docs.isNotEmpty;
+    return state['stationOnline'] == true &&
+        _isStationHeartbeatFresh(state);
   }
 
-  DateTime? _dateFromDynamic(dynamic value) {
-    if (value is Timestamp) return value.toDate();
-    if (value is DateTime) return value;
-    return null;
+  Future<void> startNurseryStationMode({
+    required String stationUid,
+    required String stationName,
+    String stationRole = 'nursery_staff',
+  }) async {
+    if (_isDisposed) return;
+
+    _stationUid = stationUid.trim();
+    _stationName = stationName.trim().isEmpty ? 'محطة البث' : stationName.trim();
+    _stationRole = _normalizeRole(stationRole);
+    _stationModeEnabled = true;
+
+    await _ensureMainRoomDocument();
+    await _writeStationHeartbeat();
+
+    _stationHeartbeatTimer?.cancel();
+    _stationHeartbeatTimer = Timer.periodic(
+      stationHeartbeatInterval,
+      (_) => _writeStationHeartbeat(),
+    );
+
+    _stationMaintenanceTimer?.cancel();
+    _stationMaintenanceTimer = Timer.periodic(
+      maintenanceInterval,
+      (_) => runStationMaintenance(),
+    );
+
+    _roomSubscription?.cancel();
+    _roomSubscription = _mainRoomRef.snapshots().listen(
+      (snapshot) async {
+        if (_isDisposed || !_stationModeEnabled || !snapshot.exists) return;
+
+        final data = snapshot.data();
+        if (data == null) return;
+
+        final status = _cleanText(data['status']);
+        final allocatedSlotsCount = _asInt(data['allocatedSlotsCount']);
+
+        if ((status == 'starting' || status == 'active') &&
+            allocatedSlotsCount > 0 &&
+            !_stationBroadcastActive) {
+          await startNurseryStationStream();
+          return;
+        }
+
+        if ((status == 'idle' || status == 'offline') &&
+            _stationBroadcastActive) {
+          await _releaseStationBroadcastResources();
+        }
+      },
+      onError: (Object error) {
+        debugPrint('station room listener error: $error');
+      },
+    );
+
+    _queueSubscription?.cancel();
+    _queueSubscription = _queueRef.snapshots().listen(
+      (_) => runStationMaintenance(),
+      onError: (Object error) {
+        debugPrint('station queue listener error: $error');
+      },
+    );
+
+    await runStationMaintenance();
   }
 
-  Future<void> expireReadyRequestsIfNeeded() async {
+  Future<void> stopNurseryStationMode() async {
+    _stationModeEnabled = false;
+
+    _stationHeartbeatTimer?.cancel();
+    _stationMaintenanceTimer?.cancel();
+    _stationHeartbeatTimer = null;
+    _stationMaintenanceTimer = null;
+
+    await _queueSubscription?.cancel();
+    _queueSubscription = null;
+
+    await _roomSubscription?.cancel();
+    _roomSubscription = null;
+
+    await _releaseStationBroadcastResources();
+
     try {
+      await _mainRoomRef.set({
+        'status': 'offline',
+        'isActive': false,
+        'stationOnline': false,
+        'activeConnectionsCount': 0,
+        'endedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('stop nursery station mode error: $e');
+    }
+  }
+
+  Future<void> _writeStationHeartbeat() async {
+    if (_isDisposed || !_stationModeEnabled) return;
+
+    try {
+      await _mainRoomRef.set({
+        'roomId': nurseryMainStreamId,
+        'scope': 'nursery',
+        'stationUid': _stationUid,
+        'stationName': _stationName,
+        'stationRole': _stationRole,
+        'stationOnline': true,
+        'lastHeartbeatAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('station heartbeat error: $e');
+    }
+  }
+
+  Future<void> startNurseryStationStream() async {
+    if (_isDisposed || !_stationModeEnabled || _stationBroadcastActive) return;
+
+    try {
+      _localStream ??= await openUserMedia();
+      _currentRoomId = nurseryMainStreamId;
+      _stationBroadcastActive = true;
+
+      await _mainRoomRef.set({
+        'roomId': nurseryMainStreamId,
+        'title': 'البث المباشر من الحضانة',
+        'scope': 'nursery',
+        'status': 'active',
+        'isActive': true,
+        'stationOnline': true,
+        'stationUid': _stationUid,
+        'stationName': _stationName,
+        'stationRole': _stationRole,
+        'maxViewers': maxConcurrentViewers,
+        'startedAt': FieldValue.serverTimestamp(),
+        'endedAt': null,
+        'lastHeartbeatAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      _listenForViewers(_mainRoomRef);
+    } catch (e) {
+      _stationBroadcastActive = false;
+      debugPrint('start nursery station stream error: $e');
+
+      await _mainRoomRef.set({
+        'status': 'idle',
+        'isActive': false,
+        'stationError': e.toString(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      rethrow;
+    }
+  }
+
+  Future<void> stopNurseryStationStream({
+    String reason = 'no_viewers',
+  }) async {
+    try {
+      await _releaseStationBroadcastResources();
+
+      await _mainRoomRef.set({
+        'status': 'idle',
+        'isActive': false,
+        'activeConnectionsCount': 0,
+        'endedAt': FieldValue.serverTimestamp(),
+        'endReason': reason,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('stop nursery station stream error: $e');
+    }
+  }
+
+  Future<void> runStationMaintenance() async {
+    if (_isDisposed || !_stationModeEnabled || _stationMaintenanceRunning) {
+      return;
+    }
+
+    _stationMaintenanceRunning = true;
+
+    try {
+      await _ensureMainRoomDocument();
+
       final now = DateTime.now();
+      final queueSnapshot = await _queueRef.orderBy('requestedAt').get();
 
-      final snapshot = await _firestore
-          .collection('live_stream_requests')
-          .where('status', isEqualTo: 'ready')
-          .limit(20)
-          .get();
+      final allocatedDocs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+      final queuedDocs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
 
-      bool expiredAnyRequest = false;
-
-      for (final doc in snapshot.docs) {
+      for (final doc in queueSnapshot.docs) {
         final data = doc.data();
-        final expiresAt = _dateFromDynamic(data['readyExpiresAt']);
+        final status = _cleanText(data['status']);
 
-        if (expiresAt == null) continue;
-        if (expiresAt.isAfter(now)) continue;
+        if (status == 'ready') {
+          final readyExpiresAt = _dateFromDynamic(data['readyExpiresAt']);
 
-        await doc.reference.update({
-          'status': 'expired',
-          'expiredAt': FieldValue.serverTimestamp(),
-          'expireReason': 'ready_timeout',
+          if (readyExpiresAt != null && !readyExpiresAt.isAfter(now)) {
+            await doc.reference.set({
+              'status': 'expired',
+              'expiredAt': FieldValue.serverTimestamp(),
+              'expireReason': 'ready_timeout',
+              'updatedAt': FieldValue.serverTimestamp(),
+            }, SetOptions(merge: true));
+            continue;
+          }
+
+          allocatedDocs.add(doc);
+          continue;
+        }
+
+        if (status == 'active') {
+          final viewerExpiresAt = _dateFromDynamic(data['viewerExpiresAt']);
+
+          if (viewerExpiresAt != null && !viewerExpiresAt.isAfter(now)) {
+            await _expireActiveRequest(doc.reference);
+            continue;
+          }
+
+          allocatedDocs.add(doc);
+          continue;
+        }
+
+        if (status == 'queued' || status == 'waiting') {
+          queuedDocs.add(doc);
+        }
+      }
+
+      if (queuedDocs.isNotEmpty) {
+        await _applyCongestedDurationLimit(allocatedDocs);
+      }
+
+      int availableSlots = maxConcurrentViewers - allocatedDocs.length;
+      int promotedCount = 0;
+
+      for (final doc in queuedDocs) {
+        if (availableSlots <= 0) break;
+
+        final data = doc.data();
+
+        await doc.reference.set({
+          'status': 'ready',
+          'queuePosition': 0,
+          'readyAt': FieldValue.serverTimestamp(),
+          'readyExpiresAt': Timestamp.fromDate(
+            DateTime.now().add(readyJoinTimeout),
+          ),
           'updatedAt': FieldValue.serverTimestamp(),
-        });
+        }, SetOptions(merge: true));
 
-        expiredAnyRequest = true;
+        allocatedDocs.add(doc);
+        availableSlots--;
+        promotedCount++;
 
-        await _sendNotificationToParent(
-          type: 'live_stream_request_expired',
-          title: 'انتهت مهلة البث المباشر',
+        await _sendAutomaticParentNotification(
+          type: 'live_stream_request_ready',
+          title: 'يمكنك الآن مشاهدة البث المباشر',
           body:
-              'انتهت مهلة استخدام البث المباشر للطفل ${(data['childName'] ?? 'الطفل').toString()}، وتم الانتقال للطلب التالي.',
-          parentUid: (data['parentUid'] ?? '').toString(),
-          parentUsername: (data['parentUsername'] ?? '').toString(),
-          parentName: (data['parentName'] ?? '').toString(),
-          childId: (data['childId'] ?? '').toString(),
-          childName: (data['childName'] ?? '').toString(),
-          roomId: '',
+              'أصبح دورك متاحًا لمشاهدة البث المباشر للطفل ${_cleanText(data['childName']).isEmpty ? "الطفل" : _cleanText(data['childName'])}.',
+          parentUid: _cleanText(data['parentUid']),
+          parentUsername: _cleanText(data['parentUsername']),
+          parentName: _cleanText(data['parentName']),
+          childId: _cleanText(data['childId']),
+          childName: _cleanText(data['childName']),
           requestId: doc.id,
-          actorUid: 'system',
-          actorName: 'النظام',
-          actorRole: 'admin',
         );
       }
 
-      if (expiredAnyRequest) {
-        await _promoteNextQueuedRequest();
+      final refreshedSnapshot = await _queueRef.get();
+      final refreshedAllocatedCount = refreshedSnapshot.docs.where((doc) {
+        final status = _cleanText(doc.data()['status']);
+        return status == 'ready' || status == 'active';
+      }).length;
+      final refreshedQueueCount = refreshedSnapshot.docs.where((doc) {
+        final status = _cleanText(doc.data()['status']);
+        return status == 'queued' || status == 'waiting';
+      }).length;
+      final activeConnectionsCount = refreshedSnapshot.docs.where((doc) {
+        return _cleanText(doc.data()['status']) == 'active';
+      }).length;
+
+      final roomSnapshot = await _mainRoomRef.get();
+      final roomData = roomSnapshot.data() ?? <String, dynamic>{};
+      final roomStatus = _cleanText(roomData['status']);
+
+      String nextRoomStatus = roomStatus;
+      bool nextIsActive = roomData['isActive'] == true;
+
+      if (refreshedAllocatedCount > 0 &&
+          (roomStatus == 'idle' || roomStatus == 'offline')) {
+        nextRoomStatus = 'starting';
+        nextIsActive = false;
+      }
+
+      await _mainRoomRef.set({
+        'allocatedSlotsCount': refreshedAllocatedCount,
+        'activeConnectionsCount': activeConnectionsCount,
+        'queueCount': refreshedQueueCount,
+        'status': nextRoomStatus,
+        'isActive': nextIsActive,
+        'maxViewers': maxConcurrentViewers,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      if (refreshedAllocatedCount == 0 &&
+          refreshedQueueCount == 0 &&
+          _stationBroadcastActive) {
+        await stopNurseryStationStream(reason: 'no_viewers_or_queue');
+      }
+
+      if (promotedCount > 0 && !_stationBroadcastActive) {
+        await startNurseryStationStream();
       }
     } catch (e) {
-      debugPrint('expire ready live stream requests error: $e');
+      debugPrint('run station maintenance error: $e');
+    } finally {
+      _stationMaintenanceRunning = false;
     }
+  }
+
+  Future<void> _applyCongestedDurationLimit(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> allocatedDocs,
+  ) async {
+    for (final doc in allocatedDocs) {
+      final data = doc.data();
+      final status = _cleanText(data['status']);
+
+      if (status != 'active') continue;
+
+      final joinedAt = _dateFromDynamic(data['viewerJoinedAt']);
+      final currentExpiresAt = _dateFromDynamic(data['viewerExpiresAt']);
+
+      if (joinedAt == null || currentExpiresAt == null) continue;
+
+      final congestedExpiresAt = joinedAt.add(congestedViewingDuration);
+
+      if (!currentExpiresAt.isAfter(congestedExpiresAt)) continue;
+
+      await doc.reference.set({
+        'viewerExpiresAt': Timestamp.fromDate(congestedExpiresAt),
+        'durationMode': 'congested',
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+  }
+
+  Future<void> _expireActiveRequest(
+    DocumentReference<Map<String, dynamic>> requestRef,
+  ) async {
+    final requestId = requestRef.id;
+
+    await requestRef.set({
+      'status': 'expired',
+      'expiredAt': FieldValue.serverTimestamp(),
+      'expireReason': 'viewing_timeout',
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    try {
+      await _viewersRef.doc(requestId).set({
+        'status': 'ended',
+        'endedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (_) {}
+
+    await _closeHostViewerConnection(requestId);
+  }
+
+  Future<void> expireReadyRequestsIfNeeded() async {
+    await runStationMaintenance();
   }
 
   Future<LiveStreamRequestResult> requestLiveStreamForChild({
@@ -258,157 +643,179 @@ class LiveStreamService {
     String group = '',
     String note = '',
   }) async {
-    final cleanParentUid = parentUid.trim();
-    final cleanParentUsername = parentUsername.trim().toLowerCase();
+    final currentUser = FirebaseAuth.instance.currentUser;
+
+    if (currentUser == null) {
+      throw Exception('يجب تسجيل الدخول لفتح البث المباشر.');
+    }
+
     final cleanChildId = childId.trim();
     final cleanChildName = childName.trim();
+    final cleanParentUid = parentUid.trim();
+    final cleanParentUsername = parentUsername.trim().toLowerCase();
     final cleanParentName = parentName.trim();
 
     if (cleanChildId.isEmpty) {
       throw Exception('تعذر تحديد الطفل للبث المباشر.');
     }
 
-    if (cleanParentUid.isEmpty) {
-      throw Exception('تعذر تحديد ولي الأمر للبث المباشر.');
+    await _ensureMainRoomDocument();
+
+    final roomSnapshot = await _mainRoomRef.get();
+    final roomData = roomSnapshot.data() ?? <String, dynamic>{};
+
+    if (roomData['stationOnline'] != true ||
+        !_isStationHeartbeatFresh(roomData)) {
+      throw Exception('البث المباشر غير متاح الآن.');
     }
 
-    if (cleanParentUsername.isEmpty) {
-      throw Exception('تعذر تحديد اسم مستخدم ولي الأمر.');
-    }
-
-    await expireReadyRequestsIfNeeded();
-
-    final existingSnapshot = await _firestore
-        .collection('live_stream_requests')
-        .where('parentUid', isEqualTo: cleanParentUid)
+    final existingSnapshot = await _queueRef
+        .where('requesterAuthUid', isEqualTo: currentUser.uid)
         .where('childId', isEqualTo: cleanChildId)
-        .where('status', whereIn: ['ready', 'queued', 'waiting', 'active'])
-        .limit(1)
         .get();
 
-    if (existingSnapshot.docs.isNotEmpty) {
-      final doc = existingSnapshot.docs.first;
+    for (final doc in existingSnapshot.docs) {
       final data = doc.data();
+      final status = _cleanText(data['status']);
 
-      return LiveStreamRequestResult(
-        requestId: doc.id,
-        status: (data['status'] ?? 'queued').toString(),
-        queuePosition: (data['queuePosition'] is int)
-            ? data['queuePosition'] as int
-            : 0,
-        hasActiveStream: (data['status'] ?? '').toString() == 'active',
-      );
+      if (status == 'ready' ||
+          status == 'active' ||
+          status == 'queued' ||
+          status == 'waiting') {
+        return LiveStreamRequestResult(
+          requestId: doc.id,
+          status: status,
+          queuePosition: _asInt(data['queuePosition']),
+          hasActiveStream: roomData['status'] == 'active',
+        );
+      }
     }
 
-    final hasActiveOrReady = await _hasActiveOrReadyLiveStreamRequest();
-
-    final status = hasActiveOrReady ? 'queued' : 'ready';
-    final queuePosition = hasActiveOrReady ? await _nextQueuePosition() : 0;
-
+    final requestRef = _queueRef.doc();
     final now = Timestamp.now();
-    final requestRef = _firestore.collection('live_stream_requests').doc();
 
-    await requestRef.set({
-      'requestId': requestRef.id,
-      'requestType': 'live_stream_direct',
-      'status': status,
-      'queuePosition': queuePosition,
-      'childId': cleanChildId,
-      'childName': cleanChildName.isEmpty ? 'الطفل' : cleanChildName,
-      'parentUid': cleanParentUid,
-      'parentUsername': cleanParentUsername,
-      'parentName': cleanParentName,
-      'requestedByUid': cleanParentUid,
-      'requestedByRole': 'parent',
-      'requestedByUsername': cleanParentUsername,
-      'section': section.trim().isEmpty ? 'Nursery' : section.trim(),
-      'group': group.trim(),
-      'note': note.trim(),
-      'activeStreamAtRequest': hasActiveOrReady,
-      'activeRoomIdAtRequest': '',
-      'requestedAt': now,
-      'createdAt': now,
-      'updatedAt': now,
-      'readyAt': status == 'ready' ? now : null,
-      'readyExpiresAt': status == 'ready'
-          ? Timestamp.fromDate(
-              DateTime.now().add(const Duration(minutes: 10)),
-            )
-          : null,
-      'approvedAt': null,
-      'startedAt': null,
-      'endedAt': null,
-      'approvedByUid': '',
-      'approvedByName': '',
-      'approvedByRole': '',
-      'startedRoomId': '',
-      'cancelledAt': null,
-      'cancelledByUid': '',
-      'cancelledByRole': '',
+    late String status;
+    late int queuePosition;
+    late bool hasActiveStream;
+
+    await _firestore.runTransaction((transaction) async {
+      final freshRoomSnapshot = await transaction.get(_mainRoomRef);
+      final freshRoomData = freshRoomSnapshot.data() ?? <String, dynamic>{};
+
+      if (freshRoomData['stationOnline'] != true ||
+          !_isStationHeartbeatFresh(freshRoomData)) {
+        throw Exception('البث المباشر غير متاح الآن.');
+      }
+
+      final allocatedSlotsCount = _asInt(freshRoomData['allocatedSlotsCount']);
+      final currentQueueCount = _asInt(freshRoomData['queueCount']);
+      final roomStatus = _cleanText(freshRoomData['status']);
+
+      hasActiveStream = roomStatus == 'active';
+
+      if (allocatedSlotsCount < maxConcurrentViewers) {
+        status = 'ready';
+        queuePosition = 0;
+
+        transaction.set(requestRef, {
+          'requestId': requestRef.id,
+          'requestType': 'nursery_live_stream',
+          'status': status,
+          'queuePosition': 0,
+          'requesterAuthUid': currentUser.uid,
+          'requesterIsAnonymous': currentUser.isAnonymous,
+          'childId': cleanChildId,
+          'childName': cleanChildName.isEmpty ? 'الطفل' : cleanChildName,
+          'parentUid': cleanParentUid,
+          'parentUsername': cleanParentUsername,
+          'parentName': cleanParentName,
+          'section': section.trim().isEmpty ? 'Nursery' : section.trim(),
+          'group': group.trim(),
+          'note': note.trim(),
+          'requestedAt': now,
+          'createdAt': now,
+          'updatedAt': now,
+          'readyAt': now,
+          'readyExpiresAt': Timestamp.fromDate(
+            DateTime.now().add(readyJoinTimeout),
+          ),
+        });
+
+        transaction.set(
+          _mainRoomRef,
+          {
+            'allocatedSlotsCount': allocatedSlotsCount + 1,
+            'status': roomStatus == 'idle' || roomStatus == 'offline'
+                ? 'starting'
+                : roomStatus,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      } else {
+        status = 'queued';
+        queuePosition = currentQueueCount + 1;
+
+        transaction.set(requestRef, {
+          'requestId': requestRef.id,
+          'requestType': 'nursery_live_stream',
+          'status': status,
+          'queuePosition': queuePosition,
+          'requesterAuthUid': currentUser.uid,
+          'requesterIsAnonymous': currentUser.isAnonymous,
+          'childId': cleanChildId,
+          'childName': cleanChildName.isEmpty ? 'الطفل' : cleanChildName,
+          'parentUid': cleanParentUid,
+          'parentUsername': cleanParentUsername,
+          'parentName': cleanParentName,
+          'section': section.trim().isEmpty ? 'Nursery' : section.trim(),
+          'group': group.trim(),
+          'note': note.trim(),
+          'requestedAt': now,
+          'createdAt': now,
+          'updatedAt': now,
+        });
+
+        transaction.set(
+          _mainRoomRef,
+          {
+            'queueCount': currentQueueCount + 1,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      }
     });
-
-    if (status == 'ready') {
-      await _sendNotificationToAdmins(
-        type: 'live_stream_request_ready',
-        title: 'ولي أمر جاهز للبث المباشر',
-        body:
-            'ولي الأمر يريد فتح بث مباشر الآن للطفل ${cleanChildName.isEmpty ? "الطفل" : cleanChildName}.',
-        childId: cleanChildId,
-        childName: cleanChildName,
-        requestId: requestRef.id,
-        parentUid: cleanParentUid,
-        parentUsername: cleanParentUsername,
-        parentName: cleanParentName,
-      );
-
-      await _sendNotificationToParent(
-        type: 'live_stream_request_ready',
-        title: 'يمكنك الآن استخدام البث المباشر',
-        body:
-            'طلب البث المباشر للطفل ${cleanChildName.isEmpty ? "الطفل" : cleanChildName} أصبح جاهزًا. لديك 10 دقائق للبدء.',
-        parentUid: cleanParentUid,
-        parentUsername: cleanParentUsername,
-        parentName: cleanParentName,
-        childId: cleanChildId,
-        childName: cleanChildName,
-        roomId: '',
-        requestId: requestRef.id,
-        actorUid: 'system',
-        actorName: 'النظام',
-        actorRole: 'admin',
-      );
-    } else {
-      await _sendNotificationToParent(
-        type: 'live_stream_queued',
-        title: 'تمت إضافتك إلى قائمة انتظار البث',
-        body:
-            'يوجد بث مباشر قائم حاليًا. تم وضعك في قائمة الانتظار، ورقمك: $queuePosition.',
-        parentUid: cleanParentUid,
-        parentUsername: cleanParentUsername,
-        parentName: cleanParentName,
-        childId: cleanChildId,
-        childName: cleanChildName,
-        roomId: '',
-        requestId: requestRef.id,
-        actorUid: 'system',
-        actorName: 'النظام',
-        actorRole: 'admin',
-      );
-    }
 
     return LiveStreamRequestResult(
       requestId: requestRef.id,
       status: status,
       queuePosition: queuePosition,
-      hasActiveStream: hasActiveOrReady,
+      hasActiveStream: hasActiveStream,
     );
+  }
+
+  Future<Map<String, dynamic>?> getActiveLiveStreamIfExists() async {
+    await _ensureMainRoomDocument();
+
+    final snapshot = await _mainRoomRef.get();
+    final data = snapshot.data();
+
+    if (data == null) return null;
+    if (_cleanText(data['status']) != 'active') return null;
+    if (data['isActive'] != true) return null;
+    if (!_isStationHeartbeatFresh(data)) return null;
+
+    return {
+      'id': snapshot.id,
+      ...data,
+    };
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> watchLiveStreamRequests({
     List<String> statuses = const ['ready', 'queued', 'waiting', 'active'],
   }) {
-    return _firestore
-        .collection('live_stream_requests')
+    return _queueRef
         .where('status', whereIn: statuses)
         .orderBy('requestedAt', descending: false)
         .snapshots();
@@ -417,10 +824,7 @@ class LiveStreamService {
   Stream<DocumentSnapshot<Map<String, dynamic>>> watchLiveStreamRequest({
     required String requestId,
   }) {
-    return _firestore
-        .collection('live_stream_requests')
-        .doc(requestId)
-        .snapshots();
+    return _queueRef.doc(requestId).snapshots();
   }
 
   Future<void> cancelLiveStreamRequest({
@@ -428,19 +832,13 @@ class LiveStreamService {
     required String cancelledByUid,
     required String cancelledByRole,
   }) async {
-    final requestRef =
-        _firestore.collection('live_stream_requests').doc(requestId);
-
+    final requestRef = _queueRef.doc(requestId);
     final snapshot = await requestRef.get();
 
     if (!snapshot.exists) return;
 
     final data = snapshot.data() ?? <String, dynamic>{};
-    final status = (data['status'] ?? '').toString();
-
-    if (status == 'active') {
-      throw Exception('لا يمكن إلغاء بث بدأ بالفعل.');
-    }
+    final status = _cleanText(data['status']);
 
     if (status == 'completed' ||
         status == 'cancelled' ||
@@ -449,13 +847,23 @@ class LiveStreamService {
       return;
     }
 
-    await requestRef.update({
+    await requestRef.set({
       'status': 'cancelled',
       'cancelledAt': FieldValue.serverTimestamp(),
-      'cancelledByUid': cancelledByUid,
+      'cancelledByUid': cancelledByUid.trim(),
       'cancelledByRole': _normalizeRole(cancelledByRole),
       'updatedAt': FieldValue.serverTimestamp(),
-    });
+    }, SetOptions(merge: true));
+
+    if (status == 'active') {
+      try {
+        await _viewersRef.doc(requestId).set({
+          'status': 'ended',
+          'endedAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      } catch (_) {}
+    }
   }
 
   Future<void> rejectLiveStreamRequest({
@@ -465,42 +873,20 @@ class LiveStreamService {
     required String rejectedByRole,
     String reason = '',
   }) async {
-    final requestRef =
-        _firestore.collection('live_stream_requests').doc(requestId);
-
+    final requestRef = _queueRef.doc(requestId);
     final snapshot = await requestRef.get();
 
     if (!snapshot.exists) return;
 
-    final data = snapshot.data() ?? <String, dynamic>{};
-
-    await requestRef.update({
+    await requestRef.set({
       'status': 'rejected',
       'rejectedAt': FieldValue.serverTimestamp(),
-      'rejectedByUid': rejectedByUid,
-      'rejectedByName': rejectedByName,
+      'rejectedByUid': rejectedByUid.trim(),
+      'rejectedByName': rejectedByName.trim(),
       'rejectedByRole': _normalizeRole(rejectedByRole),
       'rejectReason': reason.trim(),
       'updatedAt': FieldValue.serverTimestamp(),
-    });
-
-    await _sendNotificationToParent(
-      type: 'live_stream_request_rejected',
-      title: 'تعذر بدء البث المباشر',
-      body: reason.trim().isEmpty
-          ? 'تم رفض طلب البث المباشر حاليًا.'
-          : 'تم رفض طلب البث المباشر: ${reason.trim()}',
-      parentUid: (data['parentUid'] ?? '').toString(),
-      parentUsername: (data['parentUsername'] ?? '').toString(),
-      parentName: (data['parentName'] ?? '').toString(),
-      childId: (data['childId'] ?? '').toString(),
-      childName: (data['childName'] ?? '').toString(),
-      roomId: '',
-      requestId: requestId,
-      actorUid: rejectedByUid,
-      actorName: rejectedByName,
-      actorRole: _normalizeRole(rejectedByRole),
-    );
+    }, SetOptions(merge: true));
   }
 
   Future<String> startLiveStream({
@@ -525,137 +911,139 @@ class LiveStreamService {
     String requestedParentUid = '',
     String requestedParentUsername = '',
   }) async {
+    _stationUid = startedByUid.trim();
+    _stationName = startedByName.trim().isEmpty
+        ? 'محطة البث'
+        : startedByName.trim();
+    _stationRole = _normalizeRole(startedByRole);
+    _stationModeEnabled = true;
+
+    await _ensureMainRoomDocument();
+    await startNurseryStationStream();
+
+    return nurseryMainStreamId;
+  }
+
+  Future<void> joinLiveStream({
+    required String roomId,
+  }) async {
     try {
       _isDisposed = false;
+      _currentRoomId = nurseryMainStreamId;
 
-      _localStream ??= await openUserMedia();
-
-      final cleanRequestId = liveStreamRequestId.trim().isNotEmpty
-          ? liveStreamRequestId.trim()
-          : (requestId?.trim() ?? '');
-
-      final cleanParentUid = requestedParentUid.trim().isNotEmpty
-          ? requestedParentUid.trim()
-          : (parentUid?.trim() ?? '');
-
-      final cleanParentUsername = requestedParentUsername.trim().isNotEmpty
-          ? requestedParentUsername.trim().toLowerCase()
-          : (parentUsername?.trim().toLowerCase() ?? '');
-
-      final cleanChildId = requestedChildId.trim().isNotEmpty
-          ? requestedChildId.trim()
-          : (childId?.trim() ?? '');
-
-      final cleanChildName = requestedChildName.trim().isNotEmpty
-          ? requestedChildName.trim()
-          : (childName?.trim() ?? '');
-
-      final isIndividualStream = cleanRequestId.isNotEmpty ||
-          cleanParentUid.isNotEmpty ||
-          cleanParentUsername.isNotEmpty ||
-          cleanChildId.isNotEmpty;
-
-      final cleanAllowedViewersType = cleanChildId.isNotEmpty
-          ? 'specific_child'
-          : isIndividualStream
-              ? 'individual_parent'
-              : allowedViewersType.trim().isEmpty
-                  ? 'all'
-                  : allowedViewersType.trim();
-
-      final roomRef = _firestore.collection('live_streams').doc();
-      final roomId = roomRef.id;
-      _currentRoomId = roomId;
-
-      final cleanTitle =
-          title.trim().isEmpty ? 'بث مباشر من الحضانة' : title.trim();
-
-      await roomRef.set({
-        'title': cleanTitle,
-        'status': 'active',
-        'roomId': roomId,
-        'requestId': cleanRequestId,
-        'childId': cleanChildId,
-        'childName': cleanChildName,
-        'parentUid': cleanParentUid,
-        'parentUsername': cleanParentUsername,
-        'liveStreamRequestId': cleanRequestId,
-        'requestedChildId': cleanChildId,
-        'requestedChildName': cleanChildName,
-        'requestedParentUid': cleanParentUid,
-        'requestedParentUsername': cleanParentUsername,
-        'parentName': parentName?.trim() ?? '',
-        'startedByUid': startedByUid,
-        'startedByName': startedByName,
-        'startedByRole': _normalizeRole(startedByRole),
-        'startedByPhotoUrl': startedByPhotoUrl ?? '',
-        'section': section.trim().isEmpty ? 'Nursery' : section.trim(),
-        'group': group.trim(),
-        'allowedViewersType': cleanAllowedViewersType,
-        'targetParentUid': cleanParentUid,
-        'targetParentUsername': cleanParentUsername,
-        'targetChildId': cleanChildId,
-        'maxViewers': cleanChildId.isNotEmpty || isIndividualStream ? 1 : 3,
-        'notifyParents': notifyParents,
-        'isIndividualStream': isIndividualStream,
-        'isChildSpecificStream': cleanChildId.isNotEmpty,
-        'startedAt': FieldValue.serverTimestamp(),
-        'endedAt': null,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-
-      if (cleanRequestId.isNotEmpty) {
-        await _firestore
-            .collection('live_stream_requests')
-            .doc(cleanRequestId)
-            .set({
-          'status': 'active',
-          'startedRoomId': roomId,
-          'startedAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
+      if (roomId.trim().isNotEmpty && roomId.trim() != nurseryMainStreamId) {
+        throw Exception('غرفة البث غير صحيحة.');
       }
 
-      if (notifyParents) {
-        if (isIndividualStream) {
-          await _sendNotificationToParent(
-            type: 'live_stream_started',
-            title: 'بدأ البث المباشر لطفلك الآن',
-            body:
-                'تم بدء البث المباشر للطفل ${cleanChildName.isEmpty ? "الطفل" : cleanChildName}. اضغطي للمشاهدة.',
-            parentUid: cleanParentUid,
-            parentUsername: cleanParentUsername,
-            parentName: parentName?.trim() ?? '',
-            childId: cleanChildId,
-            childName: cleanChildName,
-            roomId: roomId,
-            requestId: cleanRequestId,
-            actorUid: startedByUid,
-            actorName: startedByName,
-            actorRole: _normalizeRole(startedByRole),
-          );
-        } else {
-          await _sendLiveStreamNotificationToParents(
-            type: 'live_stream_started',
-            title: 'بدأ بث مباشر الآن',
-            body:
-                '${startedByName.trim().isEmpty ? "الحضانة" : startedByName} بدأ بثًا مباشرًا. اضغطي للمشاهدة.',
-            roomId: roomId,
-            streamTitle: cleanTitle,
-            actorUid: startedByUid,
-            actorName: startedByName,
-            actorRole: _normalizeRole(startedByRole),
-          );
+      final roomSnapshot = await _mainRoomRef.get();
+      final roomData = roomSnapshot.data();
+
+      if (roomData == null ||
+          _cleanText(roomData['status']) != 'active' ||
+          roomData['isActive'] != true ||
+          !_isStationHeartbeatFresh(roomData)) {
+        throw Exception('البث غير نشط حاليًا.');
+      }
+
+      final currentUser = FirebaseAuth.instance.currentUser;
+
+      if (currentUser == null) {
+        throw Exception('يجب تسجيل الدخول لمشاهدة البث.');
+      }
+
+      final entitlementSnapshot = await _queueRef
+          .where('requesterAuthUid', isEqualTo: currentUser.uid)
+          .get();
+
+      QueryDocumentSnapshot<Map<String, dynamic>>? entitlementDoc;
+
+      for (final doc in entitlementSnapshot.docs) {
+        final status = _cleanText(doc.data()['status']);
+
+        if (status == 'ready' || status == 'active') {
+          entitlementDoc = doc;
+          break;
         }
       }
 
-      _listenForRoomEnded(roomRef);
-      _listenForViewers(roomRef);
+      if (entitlementDoc == null) {
+        throw Exception('لا يوجد دور متاح لك في البث المباشر.');
+      }
 
-      return roomId;
+      final entitlementData = entitlementDoc.data();
+      final requestId = entitlementDoc.id;
+      final queueCount = _asInt(roomData['queueCount']);
+      final duration =
+          queueCount > 0 ? congestedViewingDuration : normalViewingDuration;
+      final viewerExpiresAt = DateTime.now().add(duration);
+
+      _currentRequestId = requestId;
+      _currentViewerId = requestId;
+
+      _peerConnection = await _createPeerConnection();
+      _remoteStream = await createLocalMediaStream('remoteStream');
+
+      _peerConnection!.onTrack = (RTCTrackEvent event) {
+        if (event.track.kind == 'video' || event.track.kind == 'audio') {
+          _remoteStream?.addTrack(event.track);
+        }
+      };
+
+      final viewerRef = _viewersRef.doc(requestId);
+      final viewerCandidatesRef = viewerRef.collection('viewerCandidates');
+
+      _peerConnection!.onIceCandidate = (RTCIceCandidate candidate) async {
+        if (_isDisposed) return;
+
+        await viewerCandidatesRef.add({
+          'candidate': candidate.candidate,
+          'sdpMid': candidate.sdpMid,
+          'sdpMLineIndex': candidate.sdpMLineIndex,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      };
+
+      final offer = await _peerConnection!.createOffer({
+        'offerToReceiveAudio': true,
+        'offerToReceiveVideo': true,
+      });
+
+      await _peerConnection!.setLocalDescription(offer);
+
+      await entitlementDoc.reference.set({
+        'status': 'active',
+        'viewerJoinedAt': FieldValue.serverTimestamp(),
+        'viewerExpiresAt': Timestamp.fromDate(viewerExpiresAt),
+        'durationMinutes': duration.inMinutes,
+        'durationMode': queueCount > 0 ? 'congested' : 'normal',
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      await viewerRef.set({
+        'viewerId': requestId,
+        'requestId': requestId,
+        'viewerUid': currentUser.uid,
+        'viewerIsAnonymous': currentUser.isAnonymous,
+        'parentUid': _cleanText(entitlementData['parentUid']),
+        'parentUsername': _cleanText(entitlementData['parentUsername']),
+        'childId': _cleanText(entitlementData['childId']),
+        'childName': _cleanText(entitlementData['childName']),
+        'status': 'waiting',
+        'viewerExpiresAt': Timestamp.fromDate(viewerExpiresAt),
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+        'offer': {
+          'type': offer.type,
+          'sdp': offer.sdp,
+        },
+      }, SetOptions(merge: true));
+
+      _listenForViewerAnswer(viewerRef);
+      _listenForHostCandidates(viewerRef);
+      _listenForRoomEnded(_mainRoomRef);
+      _listenForViewerEntitlement(entitlementDoc.reference);
     } catch (e) {
-      debugPrint('startLiveStream error: $e');
+      debugPrint('joinLiveStream error: $e');
       rethrow;
     }
   }
@@ -664,50 +1052,82 @@ class LiveStreamService {
     _roomSubscription?.cancel();
 
     _roomSubscription = roomRef.snapshots().listen((snapshot) async {
-      if (_isDisposed) return;
-      if (!snapshot.exists) return;
+      if (_isDisposed || !snapshot.exists) return;
 
       final data = snapshot.data();
       if (data == null) return;
 
-      if (data['status'] == 'ended') {
+      final status = _cleanText(data['status']);
+
+      if (status == 'idle' || status == 'offline' || status == 'ended') {
         await close();
       }
     });
   }
 
+  void _listenForViewerEntitlement(
+    DocumentReference<Map<String, dynamic>> entitlementRef,
+  ) {
+    _viewerEntitlementSubscription?.cancel();
+
+    _viewerEntitlementSubscription = entitlementRef.snapshots().listen(
+      (snapshot) async {
+        if (_isDisposed || !snapshot.exists) return;
+
+        final status = _cleanText(snapshot.data()?['status']);
+
+        if (status == 'expired' ||
+            status == 'cancelled' ||
+            status == 'completed' ||
+            status == 'rejected') {
+          await close(markRequestCompleted: false);
+        }
+      },
+      onError: (Object error) {
+        debugPrint('viewer entitlement listener error: $error');
+      },
+    );
+  }
+
   void _listenForViewers(DocumentReference<Map<String, dynamic>> roomRef) {
     _viewersSubscription?.cancel();
 
-    _viewersSubscription = roomRef
-        .collection('viewers')
-        .orderBy('createdAt', descending: false)
-        .snapshots()
-        .listen((snapshot) async {
-      if (_isDisposed) return;
+    _viewersSubscription = roomRef.collection('viewers').snapshots().listen(
+      (snapshot) async {
+        if (_isDisposed || !_stationBroadcastActive) return;
 
-      for (final change in snapshot.docChanges) {
-        if (change.type != DocumentChangeType.added &&
-            change.type != DocumentChangeType.modified) {
-          continue;
+        for (final change in snapshot.docChanges) {
+          final viewerId = change.doc.id;
+          final data = change.doc.data();
+
+          if (data == null) continue;
+
+          final status = _cleanText(data['status']);
+
+          if (status == 'left' || status == 'ended') {
+            await _closeHostViewerConnection(viewerId);
+            continue;
+          }
+
+          if (change.type != DocumentChangeType.added &&
+              change.type != DocumentChangeType.modified) {
+            continue;
+          }
+
+          if (_hostPeerConnections.containsKey(viewerId)) continue;
+          if (data['offer'] == null) continue;
+
+          await _answerViewer(
+            roomRef: roomRef,
+            viewerId: viewerId,
+            viewerData: data,
+          );
         }
-
-        final viewerId = change.doc.id;
-        final data = change.doc.data();
-
-        if (data == null) continue;
-        if (_hostPeerConnections.containsKey(viewerId)) continue;
-
-        final offer = data['offer'];
-        if (offer == null) continue;
-
-        await _answerViewer(
-          roomRef: roomRef,
-          viewerId: viewerId,
-          viewerData: data,
-        );
-      }
-    });
+      },
+      onError: (Object error) {
+        debugPrint('station viewers listener error: $error');
+      },
+    );
   }
 
   Future<void> _answerViewer({
@@ -719,7 +1139,6 @@ class LiveStreamService {
       if (_localStream == null) return;
 
       final viewerRef = roomRef.collection('viewers').doc(viewerId);
-
       final pc = await _createPeerConnection();
       _hostPeerConnections[viewerId] = pc;
 
@@ -741,7 +1160,6 @@ class LiveStreamService {
       };
 
       final offer = viewerData['offer'];
-
       final rtcOffer = RTCSessionDescription(
         offer['sdp']?.toString(),
         offer['type']?.toString(),
@@ -752,7 +1170,7 @@ class LiveStreamService {
       final answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
 
-      await viewerRef.update({
+      await viewerRef.set({
         'answer': {
           'type': answer.type,
           'sdp': answer.sdp,
@@ -760,7 +1178,7 @@ class LiveStreamService {
         'status': 'connected',
         'hostAnsweredAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
-      });
+      }, SetOptions(merge: true));
 
       _listenForViewerCandidates(
         viewerRef: viewerRef,
@@ -790,148 +1208,14 @@ class LiveStreamService {
         if (change.type != DocumentChangeType.added) continue;
 
         final data = change.doc.data();
-
         if (data == null) continue;
 
         final candidate = _buildIceCandidateFromData(data);
-
         if (candidate == null) continue;
 
         await peerConnection.addCandidate(candidate);
       }
     });
-  }
-
-  Future<void> joinLiveStream({
-    required String roomId,
-  }) async {
-    try {
-      _isDisposed = false;
-      _currentRoomId = roomId;
-
-      final roomRef = _firestore.collection('live_streams').doc(roomId);
-      final roomSnapshot = await roomRef.get();
-
-      if (!roomSnapshot.exists) {
-        throw Exception('البث غير موجود.');
-      }
-
-      final roomData = roomSnapshot.data();
-      if (roomData == null) {
-        throw Exception('بيانات البث غير متوفرة.');
-      }
-
-      if (roomData['status'] != 'active') {
-        throw Exception('البث غير نشط حاليًا.');
-      }
-
-      final currentUser = FirebaseAuth.instance.currentUser;
-
-      if (currentUser == null) {
-        throw Exception('يجب تسجيل الدخول لمشاهدة البث.');
-      }
-
-      final allowedViewersType =
-          (roomData['allowedViewersType'] ?? '').toString().trim();
-
-      if (allowedViewersType == 'individual_parent') {
-        final targetParentUid =
-            (roomData['targetParentUid'] ?? roomData['parentUid'] ?? '')
-                .toString()
-                .trim();
-
-        if (targetParentUid.isNotEmpty && targetParentUid != currentUser.uid) {
-          throw Exception('هذا البث مخصص لولي أمر آخر.');
-        }
-      }
-
-      if (allowedViewersType == 'specific_child') {
-        final targetChildId = _cleanText(
-          roomData['childId'] ?? roomData['requestedChildId'],
-        );
-
-        if (targetChildId.isEmpty) {
-          throw Exception('بيانات الطفل غير متوفرة لهذا البث.');
-        }
-
-        if (currentUser.isAnonymous) {
-          final deviceSnapshot = await _firestore
-              .collection('temporary_parent_devices')
-              .where('authUid', isEqualTo: currentUser.uid)
-              .where('childId', isEqualTo: targetChildId)
-              .where('isActive', isEqualTo: true)
-              .limit(1)
-              .get();
-
-          if (deviceSnapshot.docs.isEmpty) {
-            throw Exception('هذا البث مخصص لطفل آخر.');
-          }
-        } else {
-          final targetParentUid =
-              (roomData['targetParentUid'] ?? roomData['parentUid'] ?? '')
-                  .toString()
-                  .trim();
-
-          if (targetParentUid.isNotEmpty && targetParentUid != currentUser.uid) {
-            throw Exception('هذا البث مخصص لولي أمر آخر.');
-          }
-        }
-      }
-
-      final viewerRef = roomRef.collection('viewers').doc();
-      final viewerId = viewerRef.id;
-
-      _currentViewerId = viewerId;
-
-      _peerConnection = await _createPeerConnection();
-      _remoteStream = await createLocalMediaStream('remoteStream');
-
-      _peerConnection!.onTrack = (RTCTrackEvent event) {
-        if (event.track.kind == 'video' || event.track.kind == 'audio') {
-          _remoteStream?.addTrack(event.track);
-        }
-      };
-
-      final viewerCandidatesRef = viewerRef.collection('viewerCandidates');
-
-      _peerConnection!.onIceCandidate = (RTCIceCandidate candidate) async {
-        if (_isDisposed) return;
-
-        await viewerCandidatesRef.add({
-          'candidate': candidate.candidate,
-          'sdpMid': candidate.sdpMid,
-          'sdpMLineIndex': candidate.sdpMLineIndex,
-          'createdAt': FieldValue.serverTimestamp(),
-        });
-      };
-
-      final offer = await _peerConnection!.createOffer({
-        'offerToReceiveAudio': true,
-        'offerToReceiveVideo': true,
-      });
-
-      await _peerConnection!.setLocalDescription(offer);
-
-      await viewerRef.set({
-        'viewerId': viewerId,
-        'viewerUid': currentUser.uid,
-        'viewerIsAnonymous': currentUser.isAnonymous,
-        'status': 'waiting',
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-        'offer': {
-          'type': offer.type,
-          'sdp': offer.sdp,
-        },
-      });
-
-      _listenForViewerAnswer(viewerRef);
-      _listenForHostCandidates(viewerRef);
-      _listenForRoomEnded(roomRef);
-    } catch (e) {
-      debugPrint('joinLiveStream error: $e');
-      rethrow;
-    }
   }
 
   void _listenForViewerAnswer(
@@ -940,16 +1224,15 @@ class LiveStreamService {
     _viewerDocSubscription?.cancel();
 
     _viewerDocSubscription = viewerRef.snapshots().listen((snapshot) async {
-      if (_isDisposed) return;
-      if (!snapshot.exists) return;
-      if (_peerConnection == null) return;
+      if (_isDisposed || !snapshot.exists || _peerConnection == null) return;
 
       final data = snapshot.data();
       if (data == null) return;
 
-      final status = data['status']?.toString();
-      if (status == 'ended') {
-        await close();
+      final status = _cleanText(data['status']);
+
+      if (status == 'ended' || status == 'left') {
+        await close(markRequestCompleted: false);
         return;
       }
 
@@ -980,18 +1263,15 @@ class LiveStreamService {
         .orderBy('createdAt')
         .snapshots()
         .listen((snapshot) async {
-      if (_isDisposed) return;
-      if (_peerConnection == null) return;
+      if (_isDisposed || _peerConnection == null) return;
 
       for (final change in snapshot.docChanges) {
         if (change.type != DocumentChangeType.added) continue;
 
         final data = change.doc.data();
-
         if (data == null) continue;
 
         final candidate = _buildIceCandidateFromData(data);
-
         if (candidate == null) continue;
 
         await _peerConnection!.addCandidate(candidate);
@@ -1005,412 +1285,112 @@ class LiveStreamService {
     String? parentUid,
     String? childId,
   }) {
-    Query<Map<String, dynamic>> query = _firestore
+    return _firestore
         .collection('live_streams')
         .where('status', isEqualTo: 'active')
-        .orderBy('startedAt', descending: true);
-
-    if (section != null && section.trim().isNotEmpty) {
-      query = query.where('section', isEqualTo: section.trim());
-    }
-
-    if (group != null && group.trim().isNotEmpty) {
-      query = query.where('group', isEqualTo: group.trim());
-    }
-
-    if (parentUid != null && parentUid.trim().isNotEmpty) {
-      query = query.where('parentUid', isEqualTo: parentUid.trim());
-    }
-
-    if (childId != null && childId.trim().isNotEmpty) {
-      query = query.where('childId', isEqualTo: childId.trim());
-    }
-
-    return query.snapshots();
-  }
-
-  Future<void> _sendNotificationToAdmins({
-    required String type,
-    required String title,
-    required String body,
-    required String childId,
-    required String childName,
-    required String requestId,
-    required String parentUid,
-    required String parentUsername,
-    required String parentName,
-  }) async {
-    try {
-      await AppNotificationService.instance.notifyAdmin(
-        title: title,
-        body: body,
-        type: type,
-        priority: 'important',
-        parentUid: parentUid,
-        parentUsername: parentUsername,
-        parentName: parentName,
-        childId: childId,
-        childName: childName,
-        section: 'Nursery',
-        createdByUid: parentUid,
-        createdByName: parentName.isEmpty ? 'ولي الأمر' : parentName,
-        createdByRole: 'parent',
-        extraData: {
-          'notificationType': type,
-          'category': 'live_stream',
-          'templateType': 'live_stream_request',
-          'requestId': requestId,
-          'liveStreamRequestId': requestId,
-          'route': 'live_stream_requests',
-          'screen': 'live_stream',
-        },
-      );
-    } catch (e) {
-      debugPrint('send admin live stream request notification error: $e');
-    }
-  }
-
-  Future<void> _sendNotificationToParent({
-    required String type,
-    required String title,
-    required String body,
-    required String parentUid,
-    required String parentUsername,
-    required String parentName,
-    required String childId,
-    required String childName,
-    required String roomId,
-    required String requestId,
-    required String actorUid,
-    required String actorName,
-    required String actorRole,
-  }) async {
-    try {
-      final cleanParentUid = parentUid.trim();
-      final cleanParentUsername = parentUsername.trim().toLowerCase();
-      final cleanChildId = childId.trim();
-      final cleanChildName = childName.trim();
-
-      if (cleanParentUid.isEmpty &&
-          cleanParentUsername.isEmpty &&
-          cleanChildId.isEmpty) {
-        debugPrint(
-          'live stream notification skipped: no parentUid, parentUsername, or childId',
-        );
-        return;
-      }
-
-      await AppNotificationService.instance.notifyChildParent(
-        parentUid: cleanParentUid,
-        parentUsername: cleanParentUsername,
-        parentName: parentName.trim(),
-        title: title,
-        body: body,
-        type: type,
-        childId: cleanChildId,
-        childName: cleanChildName,
-        section: 'Nursery',
-        priority: type == 'live_stream_request_rejected' ||
-                type == 'live_stream_started'
-            ? 'important'
-            : 'normal',
-        createdByUid: actorUid,
-        createdByName: actorName,
-        createdByRole: actorRole,
-        extraData: {
-          'notificationType': type,
-          'category': 'live_stream',
-          'templateType': 'live_stream',
-          'roomId': roomId,
-          'liveStreamId': roomId,
-          'requestId': requestId,
-          'liveStreamRequestId': requestId,
-          'route': 'live_stream',
-          'screen': 'live_stream',
-        },
-      );
-    } catch (e) {
-      debugPrint('send parent live stream notification error: $e');
-    }
-  }
-
-  Future<void> _sendLiveStreamNotificationToParents({
-    required String type,
-    required String title,
-    required String body,
-    required String roomId,
-    required String streamTitle,
-    required String actorUid,
-    required String actorName,
-    required String actorRole,
-  }) async {
-    try {
-      final parentsSnapshot = await _firestore
-          .collection('users')
-          .where('role', isEqualTo: 'parent')
-          .where('isActive', isEqualTo: true)
-          .get();
-
-      if (parentsSnapshot.docs.isEmpty) return;
-
-      for (final parentDoc in parentsSnapshot.docs) {
-        final parentData = parentDoc.data();
-
-        final parentUid = parentDoc.id;
-        final parentUsername =
-            (parentData['username'] ?? '').toString().trim().toLowerCase();
-
-        final parentName = (parentData['displayName'] ??
-                parentData['name'] ??
-                parentData['fullName'] ??
-                parentData['username'] ??
-                '')
-            .toString()
-            .trim();
-
-        try {
-          await AppNotificationService.instance.notifyParent(
-            parentUid: parentUid,
-            parentUsername: parentUsername,
-            parentName: parentName,
-            title: title,
-            body: body,
-            type: type,
-            section: 'Nursery',
-            priority: 'normal',
-            createdByUid: actorUid,
-            createdByName: actorName,
-            createdByRole: actorRole,
-            extraData: {
-              'notificationType': type,
-              'category': 'live_stream',
-              'templateType': 'live_stream',
-              'roomId': roomId,
-              'liveStreamId': roomId,
-              'streamTitle': streamTitle,
-              'route': 'live_stream',
-              'screen': 'live_stream',
-            },
-          );
-        } catch (e) {
-          debugPrint(
-            'send live stream notification to parent $parentUid error: $e',
-          );
-        }
-      }
-    } catch (e) {
-      debugPrint('send live stream notifications error: $e');
-    }
-  }
-
-  Future<void> _promoteNextQueuedRequest() async {
-    try {
-      final snapshot = await _firestore
-          .collection('live_stream_requests')
-          .where('status', isEqualTo: 'queued')
-          .orderBy('requestedAt', descending: false)
-          .limit(1)
-          .get();
-
-      if (snapshot.docs.isEmpty) return;
-
-      final doc = snapshot.docs.first;
-      final data = doc.data();
-
-      await doc.reference.update({
-        'status': 'ready',
-        'queuePosition': 0,
-        'readyAt': FieldValue.serverTimestamp(),
-        'readyExpiresAt': Timestamp.fromDate(
-          DateTime.now().add(const Duration(minutes: 10)),
-        ),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-
-      await _sendNotificationToAdmins(
-        type: 'live_stream_request_ready',
-        title: 'طلب بث مباشر جاهز الآن',
-        body:
-            'انتهى البث السابق، وأصبح طلب بث الطفل ${(data['childName'] ?? 'الطفل').toString()} جاهزًا للبدء.',
-        childId: (data['childId'] ?? '').toString(),
-        childName: (data['childName'] ?? '').toString(),
-        requestId: doc.id,
-        parentUid: (data['parentUid'] ?? '').toString(),
-        parentUsername: (data['parentUsername'] ?? '').toString(),
-        parentName: (data['parentName'] ?? '').toString(),
-      );
-
-      await _sendNotificationToParent(
-        type: 'live_stream_request_ready',
-        title: 'يمكنك الآن استخدام البث المباشر',
-        body:
-            'يمكنك الآن استخدام البث المباشر للطفل ${(data['childName'] ?? 'الطفل').toString()}. لديك 10 دقائق للبدء.',
-        parentUid: (data['parentUid'] ?? '').toString(),
-        parentUsername: (data['parentUsername'] ?? '').toString(),
-        parentName: (data['parentName'] ?? '').toString(),
-        childId: (data['childId'] ?? '').toString(),
-        childName: (data['childName'] ?? '').toString(),
-        roomId: '',
-        requestId: doc.id,
-        actorUid: 'system',
-        actorName: 'النظام',
-        actorRole: 'admin',
-      );
-    } catch (e) {
-      debugPrint('promote next queued request error: $e');
-    }
+        .snapshots();
   }
 
   Future<void> endLiveStream({
     required String roomId,
   }) async {
+    await stopNurseryStationStream(reason: 'manual_stop');
+  }
+
+  Future<void> close({
+    bool markRequestCompleted = true,
+  }) async {
+    if (_viewerClosing) return;
+    _viewerClosing = true;
+
+    final requestId = _currentRequestId;
+    final viewerId = _currentViewerId;
+
     try {
-      final roomRef = _firestore.collection('live_streams').doc(roomId);
-      final roomSnapshot = await roomRef.get();
-      final roomData = roomSnapshot.data();
-
-      await roomRef.update({
-        'status': 'ended',
-        'endedAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-
-      final viewersSnapshot = await roomRef.collection('viewers').get();
-
-      WriteBatch batch = _firestore.batch();
-      int counter = 0;
-
-      for (final viewerDoc in viewersSnapshot.docs) {
-        batch.update(viewerDoc.reference, {
-          'status': 'ended',
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-
-        counter++;
-
-        if (counter >= 450) {
-          await batch.commit();
-          batch = _firestore.batch();
-          counter = 0;
-        }
-      }
-
-      if (counter > 0) {
-        await batch.commit();
-      }
-
-      if (roomData != null) {
-        final requestId = (roomData['requestId'] ?? '').toString().trim();
-        final isIndividualStream = roomData['isIndividualStream'] == true;
-        final isChildSpecificStream =
-            roomData['isChildSpecificStream'] == true ||
-                (roomData['allowedViewersType'] ?? '').toString() ==
-                    'specific_child';
-        final notifyParents = roomData['notifyParents'] == true;
-
-        if (requestId.isNotEmpty) {
-          await _firestore
-              .collection('live_stream_requests')
-              .doc(requestId)
-              .set({
-            'status': 'completed',
-            'endedAt': FieldValue.serverTimestamp(),
+      if (viewerId != null) {
+        try {
+          await _viewersRef.doc(viewerId).set({
+            'status': 'left',
+            'leftAt': FieldValue.serverTimestamp(),
             'updatedAt': FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));
-        }
-
-        if (notifyParents) {
-          if (isIndividualStream || isChildSpecificStream) {
-            await _sendNotificationToParent(
-              type: 'live_stream_ended',
-              title: 'انتهى البث المباشر',
-              body: 'تم إنهاء البث المباشر الخاص بطفلك.',
-              parentUid: (roomData['parentUid'] ?? '').toString(),
-              parentUsername: (roomData['parentUsername'] ?? '').toString(),
-              parentName: (roomData['parentName'] ?? '').toString(),
-              childId: (roomData['childId'] ?? '').toString(),
-              childName: (roomData['childName'] ?? '').toString(),
-              roomId: roomId,
-              requestId: requestId,
-              actorUid: (roomData['startedByUid'] ?? '').toString(),
-              actorName: (roomData['startedByName'] ?? '').toString(),
-              actorRole: (roomData['startedByRole'] ?? '').toString(),
-            );
-          } else {
-            await _sendLiveStreamNotificationToParents(
-              type: 'live_stream_ended',
-              title: 'انتهى البث المباشر',
-              body: 'تم إنهاء البث المباشر من الحضانة.',
-              roomId: roomId,
-              streamTitle:
-                  (roomData['title'] ?? 'بث مباشر من الحضانة').toString(),
-              actorUid: (roomData['startedByUid'] ?? '').toString(),
-              actorName: (roomData['startedByName'] ?? '').toString(),
-              actorRole: (roomData['startedByRole'] ?? '').toString(),
-            );
-          }
-        }
+        } catch (_) {}
       }
 
-      await _promoteNextQueuedRequest();
+      if (markRequestCompleted && requestId != null) {
+        try {
+          final requestRef = _queueRef.doc(requestId);
+          final requestSnapshot = await requestRef.get();
+          final status = _cleanText(requestSnapshot.data()?['status']);
 
-      await close();
-    } catch (e) {
-      debugPrint('endLiveStream error: $e');
-      rethrow;
+          if (status == 'active' || status == 'ready') {
+            await requestRef.set({
+              'status': 'completed',
+              'endedAt': FieldValue.serverTimestamp(),
+              'updatedAt': FieldValue.serverTimestamp(),
+            }, SetOptions(merge: true));
+          }
+        } catch (_) {}
+      }
+
+      await _viewerDocSubscription?.cancel();
+      await _viewerEntitlementSubscription?.cancel();
+      await _viewerHostCandidatesSubscription?.cancel();
+
+      _viewerDocSubscription = null;
+      _viewerEntitlementSubscription = null;
+      _viewerHostCandidatesSubscription = null;
+
+      try {
+        final senders = await _peerConnection?.getSenders();
+        if (senders != null) {
+          for (final sender in senders) {
+            try {
+              await _peerConnection?.removeTrack(sender);
+            } catch (_) {}
+          }
+        }
+      } catch (_) {}
+
+      try {
+        await _peerConnection?.close();
+      } catch (_) {}
+
+      try {
+        for (final track in _remoteStream?.getTracks() ?? <MediaStreamTrack>[]) {
+          track.stop();
+        }
+      } catch (_) {}
+
+      try {
+        await _remoteStream?.dispose();
+      } catch (_) {}
+
+      _peerConnection = null;
+      _remoteStream = null;
+      _currentViewerId = null;
+      _currentRequestId = null;
+
+      if (!_stationModeEnabled) {
+        await _roomSubscription?.cancel();
+        _roomSubscription = null;
+        _currentRoomId = null;
+      }
+    } finally {
+      _viewerClosing = false;
     }
   }
 
-  Future<void> close() async {
-    _isDisposed = true;
+  Future<void> _releaseStationBroadcastResources() async {
+    _stationBroadcastActive = false;
 
-    final roomId = _currentRoomId;
-    final viewerId = _currentViewerId;
-
-    if (roomId != null && viewerId != null) {
-      try {
-        await _firestore
-            .collection('live_streams')
-            .doc(roomId)
-            .collection('viewers')
-            .doc(viewerId)
-            .update({
-          'status': 'left',
-          'leftAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-      } catch (_) {}
-    }
-
-    await _roomSubscription?.cancel();
     await _viewersSubscription?.cancel();
-    await _viewerDocSubscription?.cancel();
-    await _viewerHostCandidatesSubscription?.cancel();
+    _viewersSubscription = null;
 
     for (final sub in _hostCandidateSubscriptions.values) {
       await sub.cancel();
     }
-
-    _roomSubscription = null;
-    _viewersSubscription = null;
-    _viewerDocSubscription = null;
-    _viewerHostCandidatesSubscription = null;
     _hostCandidateSubscriptions.clear();
-
-    try {
-      final senders = await _peerConnection?.getSenders();
-      if (senders != null) {
-        for (final sender in senders) {
-          try {
-            await _peerConnection?.removeTrack(sender);
-          } catch (_) {}
-        }
-      }
-    } catch (_) {}
-
-    try {
-      await _peerConnection?.close();
-    } catch (_) {}
 
     for (final pc in _hostPeerConnections.values) {
       try {
@@ -1436,27 +1416,114 @@ class LiveStreamService {
     } catch (_) {}
 
     try {
-      for (final track in _remoteStream?.getTracks() ?? <MediaStreamTrack>[]) {
-        track.stop();
+      await _localStream?.dispose();
+    } catch (_) {}
+
+    _localStream = null;
+  }
+
+  Future<void> _closeHostViewerConnection(String viewerId) async {
+    await _hostCandidateSubscriptions.remove(viewerId)?.cancel();
+
+    final pc = _hostPeerConnections.remove(viewerId);
+    if (pc == null) return;
+
+    try {
+      final senders = await pc.getSenders();
+      for (final sender in senders) {
+        try {
+          await pc.removeTrack(sender);
+        } catch (_) {}
       }
     } catch (_) {}
 
     try {
-      await _localStream?.dispose();
+      await pc.close();
     } catch (_) {}
+  }
 
+  Future<void> _sendAutomaticParentNotification({
+    required String type,
+    required String title,
+    required String body,
+    required String parentUid,
+    required String parentUsername,
+    required String parentName,
+    required String childId,
+    required String childName,
+    required String requestId,
+  }) async {
     try {
-      await _remoteStream?.dispose();
-    } catch (_) {}
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser == null) return;
 
-    _peerConnection = null;
-    _localStream = null;
-    _remoteStream = null;
-    _currentRoomId = null;
-    _currentViewerId = null;
+      final userSnapshot =
+          await _firestore.collection('users').doc(currentUser.uid).get();
+      final userData = userSnapshot.data() ?? <String, dynamic>{};
+
+      final actorName = _cleanText(
+        userData['displayName'] ??
+            userData['name'] ??
+            userData['username'] ??
+            _stationName,
+      );
+      final actorRole = _normalizeRole(
+        _cleanText(userData['role']).isEmpty
+            ? _stationRole
+            : _cleanText(userData['role']),
+      );
+
+      if (parentUid.trim().isEmpty &&
+          parentUsername.trim().isEmpty &&
+          childId.trim().isEmpty) {
+        return;
+      }
+
+      await AppNotificationService.instance.notifyChildParent(
+        parentUid: parentUid.trim(),
+        parentUsername: parentUsername.trim().toLowerCase(),
+        parentName: parentName.trim(),
+        title: title,
+        body: body,
+        type: type,
+        childId: childId.trim(),
+        childName: childName.trim(),
+        section: 'Nursery',
+        priority: 'important',
+        createdByUid: currentUser.uid,
+        createdByName: actorName.isEmpty ? 'محطة البث' : actorName,
+        createdByRole: actorRole.isEmpty ? 'nursery_staff' : actorRole,
+        extraData: {
+          'notificationType': type,
+          'category': 'live_stream',
+          'templateType': 'live_stream',
+          'roomId': nurseryMainStreamId,
+          'liveStreamId': nurseryMainStreamId,
+          'requestId': requestId,
+          'route': 'live_stream',
+          'screen': 'live_stream',
+        },
+      );
+    } catch (e) {
+      debugPrint('send automatic live stream notification error: $e');
+    }
   }
 
   Future<void> dispose() async {
-    await close();
+    _isDisposed = true;
+
+    _stationHeartbeatTimer?.cancel();
+    _stationMaintenanceTimer?.cancel();
+    _stationHeartbeatTimer = null;
+    _stationMaintenanceTimer = null;
+
+    await _queueSubscription?.cancel();
+    _queueSubscription = null;
+
+    await close(markRequestCompleted: false);
+    await _releaseStationBroadcastResources();
+
+    await _roomSubscription?.cancel();
+    _roomSubscription = null;
   }
 }

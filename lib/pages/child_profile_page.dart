@@ -27,14 +27,6 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
 
   int selectedTabIndex = 0;
 
-  String sectionLabel(String section) {
-    return 'حضانة';
-  }
-
-  Color sectionColor(String section) {
-    return const Color(0xFFEFA7C8);
-  }
-
   String statusLabel(String status, bool isActive) {
     if (!isActive) return 'مؤرشف';
     if (status == 'active') return 'نشط';
@@ -210,37 +202,6 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
     };
   }
 
-  Future<List<Map<String, dynamic>>> fetchLastUpdates() async {
-    final snapshot = await _firestore
-        .collection('updates')
-        .where('childId', isEqualTo: widget.child.id)
-        .get();
-
-    final items = snapshot.docs.map((doc) {
-      final data = doc.data();
-      final displayTime = _resolveTimestamp(data);
-
-      return {
-        'type': _resolveType(data),
-        'note': _resolveNote(data),
-        'displayTime': displayTime,
-      };
-    }).toList();
-
-    items.sort((a, b) {
-      final aTime = a['displayTime'] as Timestamp?;
-      final bTime = b['displayTime'] as Timestamp?;
-
-      if (aTime == null && bTime == null) return 0;
-      if (aTime == null) return 1;
-      if (bTime == null) return -1;
-
-      return bTime.compareTo(aTime);
-    });
-
-    return items.take(3).toList();
-  }
-
   Future<List<Map<String, dynamic>>> fetchLatestMedia() async {
     final snapshot = await _firestore
         .collection('updates')
@@ -291,8 +252,12 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
     return const [
       _ProfileTabItem(label: 'نظرة عامة', icon: Icons.dashboard_outlined),
       _ProfileTabItem(
-        label: 'التحديثات',
+        label: 'متابعة الطفل',
         icon: Icons.notifications_none_outlined,
+      ),
+      _ProfileTabItem(
+        label: 'بلاغات الحوادث',
+        icon: Icons.report_problem_outlined,
       ),
       _ProfileTabItem(label: 'السجلات', icon: Icons.assignment_outlined),
       _ProfileTabItem(label: 'الوسائط', icon: Icons.photo_library_outlined),
@@ -326,7 +291,7 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
                 border: Border.all(
                   color: selected
                       ? AppColors.primary
-                      : AppColors.primary.withOpacity(0.14),
+                      : AppColors.primary.withValues(alpha: 0.14),
                 ),
               ),
               child: Row(
@@ -355,12 +320,9 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
   }
 
   Widget buildOverviewTab({
-    required String currentName,
-    required String currentSection,
     required DateTime? currentBirthDate,
     required bool isActive,
     required String status,
-    required Color badgeColor,
     required Color currentStatusColor,
   }) {
     return ListView(
@@ -385,32 +347,7 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
                   width: double.infinity,
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: badgeColor.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.apartment_outlined, color: badgeColor),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'القسم الحالي: ${sectionLabel(currentSection)}',
-                          style: TextStyle(
-                            color: badgeColor,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 15,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: currentStatusColor.withOpacity(0.10),
+                    color: currentStatusColor.withValues(alpha: 0.10),
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: Row(
@@ -438,63 +375,6 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
               ],
             ),
           ),
-        ),
-        const SizedBox(height: 18),
-        const _ProfileSectionHeader(
-          title: 'آخر التحديثات',
-          icon: Icons.notifications_none_outlined,
-        ),
-        const SizedBox(height: 10),
-        FutureBuilder<List<Map<String, dynamic>>>(
-          future: fetchLastUpdates(),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Card(
-                child: Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Center(child: CircularProgressIndicator()),
-                ),
-              );
-            }
-
-            if (snapshot.hasError) {
-              return const Card(
-                child: Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text('حدث خطأ أثناء تحميل التحديثات'),
-                ),
-              );
-            }
-
-            final updates = snapshot.data ?? [];
-
-            if (updates.isEmpty) {
-              return const Card(
-                child: Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text(
-                    'لا توجد تحديثات مسجلة لهذا الطفل بعد',
-                    style: TextStyle(
-                      color: AppColors.textLight,
-                      fontSize: 15,
-                    ),
-                  ),
-                ),
-              );
-            }
-
-            return Column(
-              children: updates
-                  .map(
-                    (u) => _RecentUpdateTile(
-                      time: timeText(u['displayTime']),
-                      type: (u['type'] ?? '').toString(),
-                      note: (u['note'] ?? '').toString(),
-                    ),
-                  )
-                  .toList(),
-            );
-          },
         ),
         const SizedBox(height: 18),
         const _ProfileSectionHeader(
@@ -594,102 +474,42 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
     );
   }
 
-  Widget buildUpdatesTab(ChildModel child) {
+  Widget buildFollowUpTab(ChildModel child) {
     return ListView(
       children: [
         const _ProfileSectionHeader(
-          title: 'التحديثات',
+          title: 'متابعة الطفل',
           icon: Icons.notifications_none_outlined,
         ),
         const SizedBox(height: 10),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                const SizedBox(height: 14),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => ParentUpdatesPage(child: child),
-                        ),
-                      );
-                    },
-                    icon: const Icon(Icons.open_in_new_rounded),
-                    label: const Text('فتح كل التحديثات'),
-                  ),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ParentUpdatesPage(child: child),
                 ),
-              ],
-            ),
+              );
+            },
+            icon: const Icon(Icons.open_in_new_rounded),
+            label: const Text('فتح متابعة الطفل'),
           ),
-        ),
-        const SizedBox(height: 18),
-        const _ProfileSectionHeader(
-          title: 'آخر التحديثات المختصرة',
-          icon: Icons.history_rounded,
-        ),
-        const SizedBox(height: 10),
-        FutureBuilder<List<Map<String, dynamic>>>(
-          future: fetchLastUpdates(),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Card(
-                child: Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Center(child: CircularProgressIndicator()),
-                ),
-              );
-            }
-
-            if (snapshot.hasError) {
-              return const Card(
-                child: Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text('حدث خطأ أثناء تحميل التحديثات'),
-                ),
-              );
-            }
-
-            final updates = snapshot.data ?? [];
-
-            if (updates.isEmpty) {
-              return const Card(
-                child: Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text(
-                    'لا توجد تحديثات مسجلة لهذا الطفل بعد',
-                    style: TextStyle(color: AppColors.textLight),
-                  ),
-                ),
-              );
-            }
-
-            return Column(
-              children: updates
-                  .map(
-                    (u) => _RecentUpdateTile(
-                      time: timeText(u['displayTime']),
-                      type: (u['type'] ?? '').toString(),
-                      note: (u['note'] ?? '').toString(),
-                    ),
-                  )
-                  .toList(),
-            );
-          },
         ),
       ],
     );
+  }
+
+  Widget buildIncidentReportsTab(ChildModel child) {
+    return ParentIncidentReportsPage(child: child);
   }
 
   Widget buildNurseryRecordsTab(ChildModel child) {
     return ListView(
       children: [
         const _ProfileSectionHeader(
-          title: 'السجلات الإدارية',
+          title: 'السجلات',
           icon: Icons.assignment_outlined,
         ),
         const SizedBox(height: 10),
@@ -728,20 +548,7 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
             ),
           ],
         ),
-        const SizedBox(height: 10),
-        _ActionFeatureCard(
-          title: 'بلاغات الحوادث',
-          subtitle: 'الاطلاع على الحوادث والملاحظات المهمة',
-          icon: Icons.report_problem_outlined,
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => ParentIncidentReportsPage(child: child),
-              ),
-            );
-          },
-        ),
+
       ],
     );
   }
@@ -844,40 +651,33 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
   }
 
   Widget buildCurrentTabBody({
-    required String currentSection,
-    required String currentName,
     required DateTime? currentBirthDate,
     required bool isActive,
     required String status,
-    required Color badgeColor,
     required Color currentStatusColor,
     required ChildModel child,
   }) {
     switch (selectedTabIndex) {
       case 0:
         return buildOverviewTab(
-          currentName: currentName,
-          currentSection: currentSection,
           currentBirthDate: currentBirthDate,
           isActive: isActive,
           status: status,
-          badgeColor: badgeColor,
           currentStatusColor: currentStatusColor,
         );
       case 1:
-        return buildUpdatesTab(child);
+        return buildFollowUpTab(child);
       case 2:
-        return buildNurseryRecordsTab(child);
+        return buildIncidentReportsTab(child);
       case 3:
+        return buildNurseryRecordsTab(child);
+      case 4:
         return buildMediaTab(child);
       default:
         return buildOverviewTab(
-          currentName: currentName,
-          currentSection: currentSection,
           currentBirthDate: currentBirthDate,
           isActive: isActive,
           status: status,
-          badgeColor: badgeColor,
           currentStatusColor: currentStatusColor,
         );
     }
@@ -894,14 +694,12 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
         builder: (context, childSnapshot) {
           final currentData = childSnapshot.data;
           final currentName = (currentData?['name'] ?? child.name).toString();
-          final currentSection = 'Nursery';
           final isActive = currentData?['isActive'] ?? true;
           final status = (currentData?['status'] ?? 'active').toString();
           final birthDateRaw = currentData?['birthDate'];
           final currentBirthDate =
               birthDateRaw is Timestamp ? birthDateRaw.toDate() : child.birthDate;
 
-          final badgeColor = sectionColor(currentSection);
           final currentStatusColor = statusColor(status, isActive);
           final tabs = getTabs();
 
@@ -923,7 +721,7 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
                   children: [
                     CircleAvatar(
                       radius: 30,
-                      backgroundColor: Colors.white.withOpacity(0.18),
+                      backgroundColor: Colors.white.withValues(alpha: 0.18),
                       child: Text(
                         firstLetter(currentName),
                         style: const TextStyle(
@@ -949,23 +747,7 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
                         ],
                       ),
                     ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 7,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.18),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Text(
-                        sectionLabel(currentSection),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
+
                   ],
                 ),
               ),
@@ -974,13 +756,10 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
               const SizedBox(height: 16),
               Expanded(
                 child: buildCurrentTabBody(
-                  currentSection: currentSection,
-                  currentName: currentName,
-                  currentBirthDate: currentBirthDate,
+                                  currentBirthDate: currentBirthDate,
                   isActive: isActive,
                   status: status,
-                  badgeColor: badgeColor,
-                  currentStatusColor: currentStatusColor,
+                          currentStatusColor: currentStatusColor,
                   child: child,
                 ),
               ),
@@ -1053,7 +832,7 @@ class _ProfileInfoBox extends StatelessWidget {
       child: Column(
         children: [
           CircleAvatar(
-            backgroundColor: AppColors.primary.withOpacity(0.12),
+            backgroundColor: AppColors.primary.withValues(alpha: 0.12),
             child: Icon(icon, color: AppColors.primary),
           ),
           const SizedBox(height: 8),
@@ -1075,57 +854,6 @@ class _ProfileInfoBox extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _RecentUpdateTile extends StatelessWidget {
-  final String time;
-  final String type;
-  final String note;
-
-  const _RecentUpdateTile({
-    required this.time,
-    required this.type,
-    required this.note,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final displayType = type.trim().isEmpty ? 'تحديث' : type;
-    final displayText = note.trim().isEmpty ? displayType : '$displayType: $note';
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: AppColors.primary.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Text(
-                time,
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12.5,
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                displayText,
-                style: const TextStyle(fontSize: 14),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -1165,7 +893,7 @@ class _MediaPreviewTile extends StatelessWidget {
         child: Row(
           children: [
             CircleAvatar(
-              backgroundColor: AppColors.primary.withOpacity(0.12),
+              backgroundColor: AppColors.primary.withValues(alpha: 0.12),
               child: Icon(_iconForType(), color: AppColors.primary),
             ),
             const SizedBox(width: 12),
@@ -1194,7 +922,7 @@ class _MediaPreviewTile extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
-                color: AppColors.primary.withOpacity(0.12),
+                color: AppColors.primary.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Text(
@@ -1235,7 +963,7 @@ class _ActionIntroBox extends StatelessWidget {
       child: Row(
         children: [
           CircleAvatar(
-            backgroundColor: AppColors.primary.withOpacity(0.12),
+            backgroundColor: AppColors.primary.withValues(alpha: 0.12),
             child: Icon(icon, color: AppColors.primary),
           ),
           const SizedBox(width: 12),
@@ -1292,10 +1020,10 @@ class _ActionFeatureCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: AppColors.primary.withOpacity(0.16)),
+          border: Border.all(color: AppColors.primary.withValues(alpha: 0.16)),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.03),
+              color: Colors.black.withValues(alpha: 0.03),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
@@ -1305,7 +1033,7 @@ class _ActionFeatureCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             CircleAvatar(
-              backgroundColor: AppColors.primary.withOpacity(0.12),
+              backgroundColor: AppColors.primary.withValues(alpha: 0.12),
               child: Icon(icon, color: AppColors.primary),
             ),
             const SizedBox(height: 12),
@@ -1332,3 +1060,4 @@ class _ActionFeatureCard extends StatelessWidget {
     );
   }
 }
+

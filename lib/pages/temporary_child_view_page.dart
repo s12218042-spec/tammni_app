@@ -1,11 +1,14 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/material.dart';
 
+import '../services/live_stream_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 import 'live_stream_viewer_page.dart';
+import 'temporary_parent_chat_page.dart';
 import 'welcome_page.dart';
 
 class TemporaryChildViewPage extends StatefulWidget {
@@ -30,15 +33,15 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseMessaging _messaging = FirebaseMessaging.instance;
-  final TextEditingController messageCtrl = TextEditingController();
+  final LiveStreamService _liveStreamService = LiveStreamService();
+  final TextEditingController chatSearchCtrl = TextEditingController();
   
   int selectedIndex = 0;
-  String selectedMessageTarget = 'admin';
-  bool isSendingMessage = false;
+  bool isRequestingLiveStream = false;
 
   @override
   void dispose() {
-    messageCtrl.dispose();
+    chatSearchCtrl.dispose();
     super.dispose();
   }
 
@@ -231,53 +234,113 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
     setState(() {});
   }
 
- Future<void> _logout() async {
-  try {
-    final currentUser = _auth.currentUser;
-    final token = await _messaging.getToken();
+  Future<void> _confirmLogout() async {
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) {
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(22),
+            ),
+            title: const Text(
+              'تسجيل الخروج',
+              textAlign: TextAlign.center,
+            ),
+            content: const Text(
+              'هل تريدين تسجيل الخروج من الدخول المؤقت؟',
+              textAlign: TextAlign.center,
+              style: TextStyle(height: 1.5),
+            ),
+            actionsAlignment: MainAxisAlignment.spaceBetween,
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('إلغاء'),
+              ),
+              ElevatedButton.icon(
+                onPressed: () => Navigator.pop(context, true),
+                icon: const Icon(Icons.logout_rounded, size: 18),
+                label: const Text('تسجيل خروج'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.redAccent,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
 
-    if (currentUser != null && currentUser.isAnonymous) {
-      final query = await _firestore
-          .collection('temporary_parent_devices')
-          .where('authUid', isEqualTo: currentUser.uid)
-          .where('childId', isEqualTo: widget.childId)
-          .get();
+    if (shouldLogout == true) {
+      await _logout();
+    }
+  }
 
-      final batch = _firestore.batch();
+  Future<void> _logout() async {
+    try {
+      final currentUser = _auth.currentUser;
+      String? token;
 
-      for (final doc in query.docs) {
-        final data = doc.data();
-        final savedToken = _cleanText(data['fcmToken']);
-
-        if (token == null || token.trim().isEmpty || savedToken == token) {
-          batch.set(
-            doc.reference,
-            {
-              'isActive': false,
-              'accountStatus': 'logged_out',
-              'loggedOutAt': FieldValue.serverTimestamp(),
-              'updatedAt': FieldValue.serverTimestamp(),
-            },
-            SetOptions(merge: true),
-          );
+      if (!kIsWeb) {
+        try {
+          token = await _messaging.getToken();
+        } catch (e) {
+          debugPrint('TEMP LOGOUT FCM token skipped: $e');
         }
       }
 
-      await batch.commit();
+      if (currentUser != null && currentUser.isAnonymous) {
+        final query = await _firestore
+            .collection('temporary_parent_devices')
+            .where('authUid', isEqualTo: currentUser.uid)
+            .where('childId', isEqualTo: widget.childId)
+            .get();
+
+        final batch = _firestore.batch();
+
+        for (final doc in query.docs) {
+          final data = doc.data();
+          final savedToken = _cleanText(data['fcmToken']);
+
+          if (token == null || token.trim().isEmpty || savedToken == token) {
+            batch.set(
+              doc.reference,
+              {
+                'isActive': false,
+                'accountStatus': 'logged_out',
+                'loggedOutAt': FieldValue.serverTimestamp(),
+                'updatedAt': FieldValue.serverTimestamp(),
+              },
+              SetOptions(merge: true),
+            );
+          }
+        }
+
+        await batch.commit();
+      }
+
       await _auth.signOut();
+    } catch (e) {
+      debugPrint('TEMP LOGOUT ERROR: $e');
+      try {
+        await _auth.signOut();
+      } catch (signOutError) {
+        debugPrint('TEMP LOGOUT signOut fallback failed: $signOutError');
+      }
     }
-  } catch (e) {
-    debugPrint('TEMP LOGOUT ERROR: $e');
+
+    if (!mounted) return;
+
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (_) => const WelcomePage()),
+      (route) => false,
+    );
   }
-
-  if (!mounted) return;
-
-  Navigator.pushAndRemoveUntil(
-    context,
-    MaterialPageRoute(builder: (_) => const WelcomePage()),
-    (route) => false,
-  );
-}
 
   Widget _sectionTitle({
     required String title,
@@ -308,7 +371,7 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
       margin: const EdgeInsets.only(bottom: 10),
       child: ListTile(
         leading: CircleAvatar(
-          backgroundColor: AppColors.primary.withOpacity(0.10),
+          backgroundColor: AppColors.primary.withValues(alpha: 0.10),
           child: Icon(icon, color: AppColors.primary),
         ),
         title: Text(
@@ -336,7 +399,7 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
         children: [
           CircleAvatar(
             radius: 31,
-            backgroundColor: Colors.white.withOpacity(0.22),
+            backgroundColor: Colors.white.withValues(alpha: 0.22),
             child: Text(
               _childName().trim().isEmpty ? 'ط' : _childName().trim()[0],
               style: const TextStyle(
@@ -370,7 +433,7 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
                         vertical: 5,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.18),
+                        color: Colors.white.withValues(alpha: 0.18),
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(
@@ -389,7 +452,7 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
                           vertical: 5,
                         ),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.18),
+                          color: Colors.white.withValues(alpha: 0.18),
                           borderRadius: BorderRadius.circular(999),
                         ),
                         child: const Text(
@@ -420,8 +483,6 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
         physics: const AlwaysScrollableScrollPhysics(),
         children: [
           _buildChildHeader(),
-          const SizedBox(height: 16),
-          _buildLiveStreamCard(),
           const SizedBox(height: 16),
           _sectionTitle(
             title: 'بيانات الطفل',
@@ -583,7 +644,7 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
       return Card(
         child: ListTile(
           leading: CircleAvatar(
-            backgroundColor: Colors.teal.withOpacity(0.10),
+            backgroundColor: Colors.teal.withValues(alpha: 0.10),
             child: const Icon(
               Icons.volunteer_activism_outlined,
               color: Colors.teal,
@@ -607,7 +668,7 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
           return Card(
             child: ListTile(
               leading: CircleAvatar(
-                backgroundColor: AppColors.primary.withOpacity(0.10),
+                backgroundColor: AppColors.primary.withValues(alpha: 0.10),
                 child: const Icon(
                   Icons.receipt_long_rounded,
                   color: AppColors.primary,
@@ -655,7 +716,7 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
           return Card(
             child: ListTile(
               leading: CircleAvatar(
-                backgroundColor: AppColors.primary.withOpacity(0.10),
+                backgroundColor: AppColors.primary.withValues(alpha: 0.10),
                 child: const Icon(
                   Icons.receipt_long_rounded,
                   color: AppColors.primary,
@@ -708,7 +769,7 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
                   Row(
                     children: [
                       CircleAvatar(
-                        backgroundColor: AppColors.primary.withOpacity(0.10),
+                        backgroundColor: AppColors.primary.withValues(alpha: 0.10),
                         child: const Icon(
                           Icons.receipt_long_rounded,
                           color: AppColors.primary,
@@ -730,7 +791,7 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
                           vertical: 5,
                         ),
                         decoration: BoxDecoration(
-                          color: AppColors.primary.withOpacity(0.10),
+                          color: AppColors.primary.withValues(alpha: 0.10),
                           borderRadius: BorderRadius.circular(999),
                         ),
                         child: Text(
@@ -803,7 +864,7 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
       decoration: BoxDecoration(
         color: AppColors.background,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.border.withOpacity(0.6)),
+        border: Border.all(color: AppColors.border.withValues(alpha: 0.6)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -833,76 +894,209 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
   }
 
 
-  Stream<QuerySnapshot<Map<String, dynamic>>> _liveStreamStream() {
+  Stream<QuerySnapshot<Map<String, dynamic>>> _liveStreamRequestStream() {
+    final authUid = _auth.currentUser?.uid ?? '';
+
     return _firestore
         .collection('live_streams')
+        .doc(LiveStreamService.nurseryMainStreamId)
+        .collection('queue')
+        .where('requesterAuthUid', isEqualTo: authUid)
         .where('childId', isEqualTo: widget.childId)
-        .where('status', isEqualTo: 'active')
-        .limit(1)
         .snapshots();
   }
 
-  Future<void> _openLiveStream(Map<String, dynamic> data) async {
-    final roomId = _cleanText(
-      data['roomId'] ?? data['id'] ?? data['streamId'],
-    );
+  bool _isOpenLiveStreamStatus(String status) {
+    final clean = status.trim().toLowerCase();
 
-    if (roomId.isEmpty) {
+    return clean == 'ready' ||
+        clean == 'queued' ||
+        clean == 'waiting' ||
+        clean == 'active';
+  }
+
+  bool _canCancelLiveStreamStatus(String status) {
+    final clean = status.trim().toLowerCase();
+    return clean == 'ready' || clean == 'queued' || clean == 'waiting';
+  }
+
+  int _asInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  String _liveStreamStatusText(String status, int queuePosition) {
+    switch (status.trim().toLowerCase()) {
+      case 'ready':
+        return 'دورك متاح الآن';
+      case 'active':
+        return 'البث مباشر الآن';
+      case 'queued':
+      case 'waiting':
+        return queuePosition > 0
+            ? 'أنتِ في قائمة الانتظار: $queuePosition'
+            : 'أنتِ في قائمة الانتظار';
+      default:
+        return 'طلب بث قائم';
+    }
+  }
+
+  String _liveStreamButtonText(String status) {
+    switch (status.trim().toLowerCase()) {
+      case 'queued':
+      case 'waiting':
+        return 'متابعة الانتظار';
+      case 'active':
+        return 'فتح البث';
+      default:
+        return 'الدخول للبث';
+    }
+  }
+
+  QueryDocumentSnapshot<Map<String, dynamic>>? _latestOpenLiveStreamRequest(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    QueryDocumentSnapshot<Map<String, dynamic>>? result;
+
+    for (final doc in docs) {
+      final data = doc.data();
+      final status = _cleanText(data['status']);
+
+      if (!_isOpenLiveStreamStatus(status)) continue;
+
+      if (result == null) {
+        result = doc;
+        continue;
+      }
+
+      final resultData = result.data();
+      final currentDate = _dateFromDynamic(data['updatedAt']) ??
+          _dateFromDynamic(data['createdAt']) ??
+          _dateFromDynamic(data['requestedAt']);
+
+      final previousDate = _dateFromDynamic(resultData['updatedAt']) ??
+          _dateFromDynamic(resultData['createdAt']) ??
+          _dateFromDynamic(resultData['requestedAt']);
+
+      if (currentDate != null &&
+          (previousDate == null || currentDate.isAfter(previousDate))) {
+        result = doc;
+      }
+    }
+
+    return result;
+  }
+
+  Future<void> _openLiveStreamRequest(String requestId) async {
+    final cleanRequestId = requestId.trim();
+
+    if (cleanRequestId.isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('بيانات البث غير متاحة حالياً')),
+        const SnackBar(content: Text('تعذر تحديد طلب البث المباشر')),
       );
       return;
     }
 
-    try {
-      await Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => LiveStreamViewerPage(
-            roomId: roomId,
-            title: _cleanText(data['title']).isEmpty
-                ? 'بث مباشر من الحضانة'
-                : _cleanText(data['title']),
-            startedByName: _cleanText(data['startedByName']).isEmpty
-                ? 'الحضانة'
-                : _cleanText(data['startedByName']),
-          ),
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LiveStreamViewerPage(
+          roomId: LiveStreamService.nurseryMainStreamId,
+          title: 'بث مباشر من الحضانة',
+          startedByName: 'الحضانة',
         ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-
-      final errorText = e.toString().toLowerCase();
-      final message = errorText.contains('permission-denied') ||
-              errorText.contains('permission_denied') ||
-              errorText.contains('missing or insufficient permissions')
-          ? 'البث المباشر غير متاح حالياً، يرجى المحاولة لاحقاً.'
-          : 'تعذر فتح البث المباشر حالياً.';
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
-    }
+      ),
+    );
 
     if (!mounted) return;
     setState(() {});
   }
 
+  Future<void> _requestLiveStream() async {
+    final currentUser = _auth.currentUser;
+
+    if (currentUser == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('يجب تسجيل الدخول أولًا')),
+      );
+      return;
+    }
+
+    if (isRequestingLiveStream) return;
+
+    setState(() {
+      isRequestingLiveStream = true;
+    });
+
+    try {
+      final result = await _liveStreamService.requestLiveStreamForChild(
+        childId: widget.childId,
+        childName: _childName(),
+        parentUid: '',
+        parentUsername: '',
+        parentName: _parentName() == '-' ? 'ولي الأمر' : _parentName(),
+        section: 'Nursery',
+        group: _groupName() == '-' ? '' : _groupName(),
+      );
+
+      if (!mounted) return;
+      await _openLiveStreamRequest(result.requestId);
+    } catch (e) {
+      if (!mounted) return;
+
+      final errorText = e.toString();
+      final message = errorText.contains('permission-denied') ||
+              errorText.contains('permission_denied') ||
+              errorText.contains('missing or insufficient permissions')
+          ? 'لا توجد صلاحية لاستخدام البث المباشر.'
+          : errorText.replaceFirst('Exception: ', '');
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          isRequestingLiveStream = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _cancelLiveStreamRequest(String requestId) async {
+    final currentUser = _auth.currentUser;
+
+    if (currentUser == null) return;
+
+    try {
+      await _liveStreamService.cancelLiveStreamRequest(
+        requestId: requestId,
+        cancelledByUid: currentUser.uid,
+        cancelledByRole: 'temporary_parent',
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تعذر إلغاء الطلب')),
+      );
+    }
+  }
+
   Widget _buildLiveStreamCard() {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: _liveStreamStream(),
+      stream: _liveStreamRequestStream(),
       builder: (context, snapshot) {
-        final hasPermissionOrQueryError = snapshot.hasError;
-
-        if (hasPermissionOrQueryError) {
+        if (snapshot.hasError) {
           return Card(
             child: Padding(
               padding: const EdgeInsets.all(14),
               child: Row(
                 children: [
                   CircleAvatar(
-                    backgroundColor: AppColors.primary.withOpacity(0.10),
+                    backgroundColor: AppColors.primary.withValues(alpha: 0.10),
                     child: const Icon(
                       Icons.videocam_off_outlined,
                       color: AppColors.primary,
@@ -910,25 +1104,9 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
                   ),
                   const SizedBox(width: 12),
                   const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'البث المباشر',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 15.5,
-                          ),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          'البث المباشر غير متاح حالياً، يرجى المحاولة لاحقاً.',
-                          style: TextStyle(
-                            color: AppColors.textLight,
-                            height: 1.35,
-                          ),
-                        ),
-                      ],
+                    child: Text(
+                      'البث المباشر غير متاح حاليًا',
+                      style: TextStyle(fontWeight: FontWeight.bold),
                     ),
                   ),
                 ],
@@ -946,87 +1124,117 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
           );
         }
 
-        final docs = [...(snapshot.data?.docs ?? [])];
-        final hasLive = docs.isNotEmpty;
+        final request = _latestOpenLiveStreamRequest(snapshot.data?.docs ?? []);
+
+        if (request == null) {
+          return Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor: AppColors.primary.withValues(alpha: 0.10),
+                    child: const Icon(
+                      Icons.videocam_outlined,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text(
+                      'البث المباشر',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15.5,
+                      ),
+                    ),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: isRequestingLiveStream ? null : _requestLiveStream,
+                    icon: isRequestingLiveStream
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.play_arrow_rounded, size: 18),
+                    label: Text(
+                      isRequestingLiveStream ? 'جاري...' : 'فتح',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        final data = request.data();
+        final status = _cleanText(data['status']);
+        final queuePosition = _asInt(data['queuePosition']);
+        final canCancel = _canCancelLiveStreamStatus(status);
 
         return Card(
-          color: hasLive ? Colors.red.withOpacity(0.045) : null,
+          color: Colors.red.withValues(alpha: 0.045),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(18),
-            side: BorderSide(
-              color: hasLive ? Colors.red.withOpacity(0.22) : Colors.transparent,
-            ),
+            side: BorderSide(color: Colors.red.withValues(alpha: 0.22)),
           ),
           child: Padding(
             padding: const EdgeInsets.all(14),
-            child: Row(
+            child: Column(
               children: [
-                CircleAvatar(
-                  backgroundColor: hasLive
-                      ? Colors.red.withOpacity(0.12)
-                      : AppColors.primary.withOpacity(0.10),
-                  child: Icon(
-                    hasLive
-                        ? Icons.wifi_tethering_rounded
-                        : Icons.videocam_outlined,
-                    color: hasLive ? Colors.red : AppColors.primary,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        hasLive ? 'بث مباشر الآن' : 'البث المباشر',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 15.5,
-                          color: hasLive ? Colors.red : AppColors.textDark,
-                        ),
+                Row(
+                  children: [
+                    CircleAvatar(
+                      backgroundColor: Colors.red.withValues(alpha: 0.12),
+                      child: const Icon(
+                        Icons.wifi_tethering_rounded,
+                        color: Colors.red,
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        hasLive
-                            ? 'يمكنك مشاهدة البث الآن'
-                            : 'لا يوجد بث نشط الآن',
-                        style: const TextStyle(
-                          color: AppColors.textLight,
-                          height: 1.35,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 10),
-                SizedBox(
-                  width: 104,
-                  height: 42,
-                  child: ElevatedButton.icon(
-                    onPressed: hasLive
-                        ? () {
-                            final doc = docs.first;
-                            _openLiveStream({
-                              ...doc.data(),
-                              'id': doc.id,
-                            });
-                          }
-                        : () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('لا يوجد بث مباشر نشط الآن'),
-                              ),
-                            );
-                          },
-                    icon: Icon(
-                      hasLive
-                          ? Icons.play_arrow_rounded
-                          : Icons.videocam_off_outlined,
-                      size: 17,
                     ),
-                    label: Text(hasLive ? 'فتح' : 'غير متاح'),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'البث المباشر',
+                            style: TextStyle(
+                              color: Colors.red,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15.5,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _liveStreamStatusText(status, queuePosition),
+                            style: const TextStyle(
+                              color: AppColors.textLight,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () => _openLiveStreamRequest(request.id),
+                    icon: const Icon(Icons.play_arrow_rounded),
+                    label: Text(_liveStreamButtonText(status)),
                   ),
                 ),
+                if (canCancel) ...[
+                  const SizedBox(height: 4),
+                  TextButton.icon(
+                    onPressed: () => _cancelLiveStreamRequest(request.id),
+                    icon: const Icon(Icons.close_rounded),
+                    label: const Text('إلغاء الطلب'),
+                  ),
+                ],
               ],
             ),
           ),
@@ -1142,7 +1350,7 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
     return '';
   }
 
-String _mediaUrl(Map<String, dynamic> data) {
+  String _mediaUrl(Map<String, dynamic> data) {
   final candidates = [
     data['publicUrl'],
     data['mediaPublicUrl'],
@@ -1171,7 +1379,7 @@ String _mediaUrl(Map<String, dynamic> data) {
   }
 
   return '';
-}
+  }
 
   IconData _categoryIcon(String category) {
     switch (category) {
@@ -1256,7 +1464,7 @@ String _mediaUrl(Map<String, dynamic> data) {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             CircleAvatar(
-              backgroundColor: AppColors.primary.withOpacity(0.10),
+              backgroundColor: AppColors.primary.withValues(alpha: 0.10),
               child: Icon(
                 _categoryIcon(category),
                 color: AppColors.primary,
@@ -1298,7 +1506,7 @@ String _mediaUrl(Map<String, dynamic> data) {
                             height: 90,
                             alignment: Alignment.center,
                             decoration: BoxDecoration(
-                              color: AppColors.primary.withOpacity(0.06),
+                              color: AppColors.primary.withValues(alpha: 0.06),
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child:
@@ -1347,8 +1555,8 @@ String _mediaUrl(Map<String, dynamic> data) {
               children: [
                 CircleAvatar(
                   backgroundColor: isGroupUpdate
-                      ? Colors.purple.withOpacity(0.10)
-                      : AppColors.primary.withOpacity(0.10),
+                      ? Colors.purple.withValues(alpha: 0.10)
+                      : AppColors.primary.withValues(alpha: 0.10),
                   child: Icon(
                     isGroupUpdate
                         ? Icons.groups_2_rounded
@@ -1397,7 +1605,7 @@ String _mediaUrl(Map<String, dynamic> data) {
                       height: 110,
                       alignment: Alignment.center,
                       decoration: BoxDecoration(
-                        color: AppColors.primary.withOpacity(0.06),
+                        color: AppColors.primary.withValues(alpha: 0.06),
                         borderRadius: BorderRadius.circular(14),
                       ),
                       child: const Icon(Icons.image_not_supported_outlined),
@@ -1414,7 +1622,7 @@ String _mediaUrl(Map<String, dynamic> data) {
                   vertical: 5,
                 ),
                 decoration: BoxDecoration(
-                  color: Colors.purple.withOpacity(0.10),
+                  color: Colors.purple.withValues(alpha: 0.10),
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: const Text(
@@ -1461,7 +1669,7 @@ String _mediaUrl(Map<String, dynamic> data) {
                     children: [
                       CircleAvatar(
                         radius: 28,
-                        backgroundColor: AppColors.primary.withOpacity(0.12),
+                        backgroundColor: AppColors.primary.withValues(alpha: 0.12),
                         child: Text(
                           _childName().trim().isEmpty
                               ? 'ط'
@@ -1502,7 +1710,7 @@ String _mediaUrl(Map<String, dynamic> data) {
                           vertical: 7,
                         ),
                         decoration: BoxDecoration(
-                          color: AppColors.primary.withOpacity(0.12),
+                          color: AppColors.primary.withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(14),
                         ),
                         child: Text(
@@ -1577,181 +1785,480 @@ String _mediaUrl(Map<String, dynamic> data) {
     );
   }
 
-  String _targetLabel(String target) {
-    if (target == 'staff') return _staffName();
-    return 'الإدارة';
+  Future<void> _openTemporaryChat({
+    required String targetRole,
+    required String targetUid,
+    required String targetName,
+  }) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TemporaryParentChatPage(
+          accessCodeId: widget.accessCodeId,
+          accessCode: _accessCode,
+          childId: widget.childId,
+          childName: _childName(),
+          parentName: _parentName(),
+          parentPhone: _parentPhone(),
+          groupId: _cleanText(widget.childData['groupId']),
+          groupName: _groupName(),
+          targetRole: targetRole,
+          targetUid: targetUid,
+          targetName: targetName,
+        ),
+      ),
+    );
+
+    if (!mounted) return;
+    setState(() {});
   }
 
-  Future<void> _sendMessage() async {
-    final text = messageCtrl.text.trim();
+  bool _isMessageForChatTarget(
+    Map<String, dynamic> data, {
+    required String targetRole,
+    required String targetUid,
+  }) {
+    final fromRole = _cleanText(data['fromRole']).toLowerCase();
+    final messageTargetRole = _cleanText(data['targetRole']).toLowerCase();
+    final messageTargetUid = _cleanText(data['targetUid']);
 
-    if (text.isEmpty || isSendingMessage) return;
+    final cleanTargetRole = targetRole.trim().toLowerCase();
+    final cleanTargetUid = targetUid.trim();
 
-    setState(() {
-      isSendingMessage = true;
+    final fromTemporaryToTarget =
+        fromRole == 'temporary_parent' && messageTargetRole == cleanTargetRole;
+
+    final fromTargetToTemporary =
+        fromRole == cleanTargetRole && messageTargetRole == 'temporary_parent';
+
+    if (!fromTemporaryToTarget && !fromTargetToTemporary) {
+      return false;
+    }
+
+    if (cleanTargetUid.isEmpty || cleanTargetUid == 'admin') {
+      return true;
+    }
+
+    return messageTargetUid.isEmpty || messageTargetUid == cleanTargetUid;
+  }
+
+  Map<String, dynamic>? _latestMessageForChatTarget(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs, {
+    required String targetRole,
+    required String targetUid,
+  }) {
+    final filtered = docs.where((doc) {
+      return _isMessageForChatTarget(
+        doc.data(),
+        targetRole: targetRole,
+        targetUid: targetUid,
+      );
+    }).toList();
+
+    if (filtered.isEmpty) return null;
+
+    filtered.sort((a, b) {
+      final aDate = _dateFromDynamic(a.data()['createdAt']) ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      final bDate = _dateFromDynamic(b.data()['createdAt']) ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+
+      return bDate.compareTo(aDate);
     });
 
-    try {
-      final targetUid =
-          selectedMessageTarget == 'staff' ? _staffUid() : 'admin';
-
-      await _firestore.collection('temporary_messages').add({
-        'accessCodeId': widget.accessCodeId,
-        'accessCode': _accessCode,
-        'childId': widget.childId,
-        'childName': _childName(),
-        'parentName': _parentName(),
-        'parentPhone': _parentPhone(),
-        'groupId': _cleanText(widget.childData['groupId']),
-        'groupName': _groupName(),
-        'fromRole': 'temporary_parent',
-        'fromName': _parentName(),
-        'targetRole':
-            selectedMessageTarget == 'staff' ? 'nursery_staff' : 'admin',
-        'targetUid': targetUid,
-        'targetName': _targetLabel(selectedMessageTarget),
-        'message': text,
-        'isRead': false,
-        'isDelivered': true,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-
-      messageCtrl.clear();
-
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم إرسال الرسالة')),
-      );
-    } catch (_) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تعذر إرسال الرسالة')),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          isSendingMessage = false;
-        });
-      }
-    }
+    return filtered.first.data();
   }
 
-  Widget _buildMessagesTab() {
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: ListView(
-        children: [
-          Card(
-            child: ListTile(
-              leading: CircleAvatar(
-                backgroundColor: AppColors.primary.withOpacity(0.12),
-                child: const Icon(
-                  Icons.chat_bubble_outline_rounded,
-                  color: AppColors.primary,
-                ),
-              ),
-              title: const Text(
-                'إرسال رسالة',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              subtitle: Text(
-                selectedMessageTarget == 'staff' ? _staffName() : 'الإدارة',
-              ),
+  String _messagePreview(Map<String, dynamic>? data) {
+    if (data == null) return '';
+
+    final text = _cleanText(
+      data['message'] ?? data['text'] ?? data['body'],
+    );
+
+    if (text.isEmpty) return 'رسالة';
+
+    if (text.length <= 45) return text;
+
+    return '${text.substring(0, 45)}...';
+  }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> _temporaryMessagesStream() {
+    return _firestore
+        .collection('temporary_messages')
+        .where('childId', isEqualTo: widget.childId)
+        .limit(200)
+        .snapshots();
+  }
+
+  Widget _buildChatOptionCard({
+    required IconData icon,
+    required String title,
+    required Color color,
+    required String targetRole,
+    required String targetUid,
+    required VoidCallback onTap,
+    bool enabled = true,
+    String disabledText = 'غير محددة حالياً',
+  }) {
+    if (!enabled) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 12,
+              offset: const Offset(0, 5),
             ),
-          ),
-          const SizedBox(height: 8),
-          Row(
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
             children: [
-              Expanded(
-                child: ChoiceChip(
-                  label: const Center(child: Text('الإدارة')),
-                  selected: selectedMessageTarget == 'admin',
-                  onSelected: (_) {
-                    setState(() {
-                      selectedMessageTarget = 'admin';
-                    });
-                  },
-                ),
+              CircleAvatar(
+                radius: 25,
+                backgroundColor: color.withValues(alpha: 0.14),
+                child: Icon(icon, color: color),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 12),
               Expanded(
-                child: ChoiceChip(
-                  label: const Center(child: Text('الموظفة')),
-                  selected: selectedMessageTarget == 'staff',
-                  onSelected: (_) {
-                    setState(() {
-                      selectedMessageTarget = 'staff';
-                    });
-                  },
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.textDark,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      disabledText,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppColors.textLight,
+                        fontWeight: FontWeight.w600,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 14),
-          Card(
+        ),
+      );
+    }
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: _temporaryMessagesStream(),
+      builder: (context, snapshot) {
+        final latest = _latestMessageForChatTarget(
+          snapshot.data?.docs ?? [],
+          targetRole: targetRole,
+          targetUid: targetUid,
+        );
+
+        final preview = _messagePreview(latest);
+        final time = latest == null ? '' : _formatTime(latest['createdAt']);
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 12,
+                offset: const Offset(0, 5),
+              ),
+            ],
+          ),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(24),
+            onTap: onTap,
             child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              padding: const EdgeInsets.all(16),
+              child: Row(
                 children: [
-                  const Text(
-                    'اكتبي رسالتك',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.textDark,
+                  CircleAvatar(
+                    radius: 25,
+                    backgroundColor: color.withValues(alpha: 0.14),
+                    child: Icon(
+                      icon,
+                      color: color,
                     ),
                   ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: messageCtrl,
-                    minLines: 4,
-                    maxLines: 6,
-                    textDirection: TextDirection.rtl,
-                    textAlign: TextAlign.right,
-                    decoration: InputDecoration(
-                      hintText: 'اكتبي رسالة',
-                      filled: true,
-                      fillColor: Colors.white,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 12,
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 50,
-                    child: ElevatedButton.icon(
-                      onPressed: isSendingMessage ? null : _sendMessage,
-                      icon: isSendingMessage
-                          ? const SizedBox(
-                              width: 17,
-                              height: 17,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.textDark,
+                                ),
                               ),
-                            )
-                          : const Icon(Icons.send_rounded),
-                      label: Text(
-                        isSendingMessage ? 'جاري الإرسال...' : 'إرسال',
-                      ),
+                            ),
+                            if (time.isNotEmpty)
+                              Text(
+                                time,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.textLight,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                          ],
+                        ),
+                        if (preview.isNotEmpty) ...[
+                          const SizedBox(height: 5),
+                          Text(
+                            preview,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: AppColors.textDark,
+                              fontWeight: FontWeight.w700,
+                              height: 1.35,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
+                  ),
+                  const SizedBox(width: 10),
+                  const Icon(
+                    Icons.chevron_left_rounded,
+                    color: AppColors.textLight,
                   ),
                 ],
               ),
             ),
           ),
+        );
+      },
+    );
+  }
+
+  Widget _buildChatSearchField() {
+    return TextField(
+      controller: chatSearchCtrl,
+      onChanged: (_) => setState(() {}),
+      decoration: InputDecoration(
+        hintText: 'بحث',
+        prefixIcon: const Icon(Icons.search_rounded),
+        suffixIcon: chatSearchCtrl.text.trim().isEmpty
+            ? null
+            : IconButton(
+                onPressed: () {
+                  chatSearchCtrl.clear();
+                  setState(() {});
+                },
+                icon: const Icon(Icons.close_rounded),
+              ),
+        filled: true,
+        fillColor: Colors.white,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: BorderSide(
+            color: AppColors.primary.withValues(alpha: 0.12),
+          ),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: BorderSide(
+            color: AppColors.primary.withValues(alpha: 0.12),
+          ),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: const BorderSide(
+            color: AppColors.primary,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMessagesTab() {
+    final staffUid = _staffUid();
+    final hasStaff = staffUid.isNotEmpty;
+    final query = chatSearchCtrl.text.trim().toLowerCase();
+
+    final showAdmin = query.isEmpty ||
+        'الإدارة admin'.toLowerCase().contains(query);
+
+    final staffTitle = hasStaff ? _staffName() : 'الموظفة';
+    final showStaff = query.isEmpty ||
+        '$staffTitle موظفة الحضانة'.toLowerCase().contains(query);
+
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: ListView(
+        children: [
+          _buildChatSearchField(),
+          const SizedBox(height: 12),
+          if (showAdmin)
+            _buildChatOptionCard(
+              icon: Icons.admin_panel_settings_outlined,
+              title: 'الإدارة',
+              color: AppColors.secondary,
+              targetRole: 'admin',
+              targetUid: 'admin',
+              onTap: () {
+                _openTemporaryChat(
+                  targetRole: 'admin',
+                  targetUid: 'admin',
+                  targetName: 'الإدارة',
+                );
+              },
+            ),
+          if (showStaff)
+            _buildChatOptionCard(
+              icon: Icons.child_care_outlined,
+              title: staffTitle,
+              color: const Color(0xFFEFA7C8),
+              targetRole: 'nursery_staff',
+              targetUid: staffUid,
+              enabled: hasStaff,
+              disabledText: 'لم يتم تحديد موظفة مسؤولة بعد',
+              onTap: () {
+                _openTemporaryChat(
+                  targetRole: 'nursery_staff',
+                  targetUid: staffUid,
+                  targetName: _staffName(),
+                );
+              },
+            ),
+          if (!showAdmin && !showStaff)
+            const _SimpleEmptyBox(
+              icon: Icons.search_off_rounded,
+              title: 'لا توجد نتائج',
+            ),
           const SizedBox(height: 16),
         ],
       ),
+    );
+  }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> _temporaryNotificationsStream() {
+    return _firestore
+        .collection('notifications')
+        .where('childId', isEqualTo: widget.childId)
+        .limit(100)
+        .snapshots();
+  }
+
+  Future<int> _temporaryUnreadNotificationsCount() async {
+    try {
+      final snapshot = await _firestore
+          .collection('notifications')
+          .where('childId', isEqualTo: widget.childId)
+          .limit(100)
+          .get();
+
+      return snapshot.docs.where((doc) {
+        final data = doc.data();
+        return data['isRead'] != true &&
+            data['read'] != true &&
+            data['seen'] != true;
+      }).length;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  Future<void> _markTemporaryNotificationAsRead(String notificationId) async {
+    if (notificationId.trim().isEmpty) return;
+
+    await _firestore.collection('notifications').doc(notificationId).set({
+      'isRead': true,
+      'read': true,
+      'seen': true,
+      'readAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  Future<void> _openTemporaryNotificationsPage() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _TemporaryNotificationsPage(
+          notificationsStream: _temporaryNotificationsStream,
+          markAsRead: _markTemporaryNotificationAsRead,
+          formatDate: _formatDate,
+          formatTime: _formatTime,
+          cleanText: _cleanText,
+        ),
+      ),
+    );
+
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  Widget _buildTemporaryNotificationActionButton() {
+    return FutureBuilder<int>(
+      future: _temporaryUnreadNotificationsCount(),
+      builder: (context, snapshot) {
+        final count = snapshot.data ?? 0;
+
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.notifications_none_rounded),
+              tooltip: 'الإشعارات',
+              onPressed: _openTemporaryNotificationsPage,
+            ),
+            if (count > 0)
+              PositionedDirectional(
+                top: 6,
+                end: 6,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 5,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.red,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  constraints: const BoxConstraints(minWidth: 18),
+                  child: Text(
+                    count > 99 ? '99+' : '$count',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 
@@ -1769,7 +2276,7 @@ String _mediaUrl(Map<String, dynamic> data) {
               ),
               leading: CircleAvatar(
                 radius: 28,
-                backgroundColor: AppColors.primary.withOpacity(0.10),
+                backgroundColor: AppColors.primary.withValues(alpha: 0.10),
                 child: Text(
                   _parentName().trim().isEmpty || _parentName() == '-'
                       ? 'و'
@@ -1806,15 +2313,30 @@ String _mediaUrl(Map<String, dynamic> data) {
             value: _formatDate(_accessEnd),
           ),
           const SizedBox(height: 8),
-          SizedBox(
-            height: 50,
-            child: OutlinedButton.icon(
-              onPressed: _logout,
-              icon: const Icon(Icons.logout_rounded),
-              label: const Text('خروج'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.redAccent,
-                side: BorderSide(color: Colors.redAccent.withOpacity(0.35)),
+          Card(
+            child: ListTile(
+              leading: CircleAvatar(
+                backgroundColor: Colors.redAccent.withValues(alpha: 0.12),
+                child: const Icon(
+                  Icons.logout_rounded,
+                  color: Colors.redAccent,
+                ),
+              ),
+              title: const Text(
+                'تسجيل الخروج',
+                style: TextStyle(color: Colors.redAccent),
+              ),
+              onTap: _confirmLogout,
+            ),
+          ),
+          const SizedBox(height: 18),
+          const Center(
+            child: Text(
+              'الإصدار 1.0.0',
+              style: TextStyle(
+                color: AppColors.textLight,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
               ),
             ),
           ),
@@ -1851,15 +2373,15 @@ String _mediaUrl(Map<String, dynamic> data) {
     return Scaffold(
       body: AppPageScaffold(
         title: _pageTitle,
-        actions: selectedIndex == 1
-            ? [
-                IconButton(
-                  icon: const Icon(Icons.refresh_rounded),
-                  tooltip: 'تحديث',
-                  onPressed: _refreshPage,
-                ),
-              ]
-            : null,
+        actions: [
+          _buildTemporaryNotificationActionButton(),
+          if (selectedIndex == 1)
+            IconButton(
+              icon: const Icon(Icons.refresh_rounded),
+              tooltip: 'تحديث',
+              onPressed: _refreshPage,
+            ),
+        ],
         child: content,
       ),
       bottomNavigationBar: NavigationBar(
@@ -1896,6 +2418,170 @@ String _mediaUrl(Map<String, dynamic> data) {
   }
 }
 
+class _TemporaryNotificationsPage extends StatelessWidget {
+  final Stream<QuerySnapshot<Map<String, dynamic>>> Function()
+      notificationsStream;
+  final Future<void> Function(String notificationId) markAsRead;
+  final String Function(dynamic value) formatDate;
+  final String Function(dynamic value) formatTime;
+  final String Function(dynamic value) cleanText;
+
+  const _TemporaryNotificationsPage({
+    required this.notificationsStream,
+    required this.markAsRead,
+    required this.formatDate,
+    required this.formatTime,
+    required this.cleanText,
+  });
+
+  IconData _iconForType(String type) {
+    final value = type.trim().toLowerCase();
+
+    if (value.contains('invoice')) return Icons.receipt_long_rounded;
+    if (value.contains('incident')) return Icons.report_problem_outlined;
+    if (value.contains('handoff')) return Icons.how_to_reg_outlined;
+    if (value.contains('live_stream')) return Icons.wifi_tethering_rounded;
+    if (value.contains('message')) return Icons.chat_bubble_outline_rounded;
+
+    return Icons.notifications_none_rounded;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AppPageScaffold(
+      title: 'الإشعارات',
+      child: Directionality(
+        textDirection: TextDirection.rtl,
+        child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: notificationsStream(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            final docs = [...(snapshot.data?.docs ?? [])];
+
+            docs.sort((a, b) {
+              DateTime? dateOf(Map<String, dynamic> data) {
+                final value = data['createdAt'] ??
+                    data['time'] ??
+                    data['eventAt'] ??
+                    data['updatedAt'];
+
+                if (value is Timestamp) return value.toDate();
+                if (value is DateTime) return value;
+                return null;
+              }
+
+              final aDate =
+                  dateOf(a.data()) ?? DateTime.fromMillisecondsSinceEpoch(0);
+              final bDate =
+                  dateOf(b.data()) ?? DateTime.fromMillisecondsSinceEpoch(0);
+
+              return bDate.compareTo(aDate);
+            });
+
+            if (docs.isEmpty) {
+              return const _SimpleEmptyBox(
+                icon: Icons.notifications_none_rounded,
+                title: 'لا توجد إشعارات',
+              );
+            }
+
+            return ListView.separated(
+              padding: const EdgeInsets.only(bottom: 16),
+              itemCount: docs.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 10),
+              itemBuilder: (context, index) {
+                final doc = docs[index];
+                final data = doc.data();
+
+                final title = cleanText(
+                  data['title'] ?? data['subject'] ?? 'إشعار',
+                );
+
+                final body = cleanText(
+                  data['body'] ??
+                      data['message'] ??
+                      data['text'] ??
+                      data['description'],
+                );
+
+                final type =
+                    cleanText(data['type'] ?? data['notificationType']);
+                final createdAt = data['createdAt'] ??
+                    data['time'] ??
+                    data['eventAt'] ??
+                    data['updatedAt'];
+
+                final isRead = data['isRead'] == true ||
+                    data['read'] == true ||
+                    data['seen'] == true;
+
+                return Card(
+                  margin: EdgeInsets.zero,
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 8,
+                    ),
+                    leading: CircleAvatar(
+                      backgroundColor: AppColors.primary.withValues(alpha: 0.10),
+                      child: Icon(
+                        _iconForType(type),
+                        color: AppColors.primary,
+                      ),
+                    ),
+                    title: Text(
+                      title.isEmpty ? 'إشعار' : title,
+                      style: TextStyle(
+                        fontWeight:
+                            isRead ? FontWeight.w700 : FontWeight.w900,
+                      ),
+                    ),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (body.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            body,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                        const SizedBox(height: 5),
+                        Text(
+                          '${formatDate(createdAt)} - ${formatTime(createdAt)}',
+                          style: const TextStyle(
+                            color: AppColors.textLight,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                    trailing: isRead
+                        ? null
+                        : Container(
+                            width: 9,
+                            height: 9,
+                            decoration: const BoxDecoration(
+                              color: Colors.red,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                    onTap: () => markAsRead(doc.id),
+                  ),
+                );
+              },
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
 class _SimpleEmptyBox extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -1914,7 +2600,7 @@ class _SimpleEmptyBox extends StatelessWidget {
           children: [
             CircleAvatar(
               radius: 28,
-              backgroundColor: AppColors.primary.withOpacity(0.10),
+              backgroundColor: AppColors.primary.withValues(alpha: 0.10),
               child: Icon(icon, color: AppColors.primary, size: 28),
             ),
             const SizedBox(height: 12),

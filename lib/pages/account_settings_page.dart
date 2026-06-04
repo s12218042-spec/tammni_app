@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import '../services/account_settings_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
-import 'account_history_page.dart';
 import 'welcome_page.dart';
 
 class AccountSettingsPage extends StatefulWidget {
@@ -445,6 +444,10 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
                     children: [
                       _AccountHeaderCard(userData: _userData!),
                       const SizedBox(height: 18),
+                      const _SectionLabel(title: 'حالة الحساب'),
+                      const SizedBox(height: 8),
+                      _buildAccountStatusCard(),
+                      const SizedBox(height: 18),
                       const _SectionLabel(title: 'معلومات الحساب'),
                       const SizedBox(height: 8),
                       _buildAccountInfoCard(),
@@ -460,45 +463,10 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
                       const _SectionLabel(title: 'تغيير كلمة المرور'),
                       const SizedBox(height: 8),
                       _buildPasswordCard(),
-                      const SizedBox(height: 18),
-                      const _SectionLabel(title: 'سجل الحساب'),
-                      const SizedBox(height: 8),
-                      _buildAccountHistoryCard(),
-                      const SizedBox(height: 18),
-                      const _SectionLabel(title: 'حالة الحساب'),
-                      const SizedBox(height: 8),
-                      _buildAccountStatusCard(),
                       const SizedBox(height: 12),
                     ],
                   ),
                 ),
-    );
-  }
-
-  Widget _buildAccountHistoryCard() {
-    return Card(
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: AppColors.primary.withOpacity(0.12),
-          child: const Icon(
-            Icons.history_rounded,
-            color: AppColors.primary,
-          ),
-        ),
-        title: const Text(
-          'سجل تغييرات الحساب',
-          style: TextStyle(fontWeight: FontWeight.w800),
-        ),
-        trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 16),
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => const AccountHistoryPage(),
-            ),
-          );
-        },
-      ),
     );
   }
 
@@ -1025,29 +993,7 @@ class _AccountHeaderCard extends StatelessWidget {
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  const SizedBox(height: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: userData.isActive
-                          ? AppColors.success.withOpacity(0.10)
-                          : AppColors.danger.withOpacity(0.10),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      userData.isActive ? 'نشط' : 'غير نشط',
-                      style: TextStyle(
-                        color: userData.isActive
-                            ? AppColors.success
-                            : AppColors.danger,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 12.5,
-                      ),
-                    ),
-                  ),
+
                 ],
               ),
             ),

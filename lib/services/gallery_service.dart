@@ -27,17 +27,12 @@ class GalleryUploadResult {
       'bucket': bucket,
       'path': path,
       'mediaPath': path,
-
-      // رابط دائم من Supabase Public Bucket
       'publicUrl': publicUrl,
       'mediaUrl': publicUrl,
       'url': publicUrl,
-
       'mediaType': mediaType,
       'mimeType': mimeType,
       'sizeBytes': sizeBytes,
-
-      // مهم: الآن الرابط ليس signed url مؤقت
       'isSignedUrl': false,
       'mediaUrlExpiresAt': null,
     };
@@ -113,11 +108,11 @@ class GalleryService {
   }
 
   Future<String?> createFreshSignedUrl({
-    required String mediaPath,
-    int expiresInSeconds = 3600,
+    required String path,
+    int expiresInSeconds = 21600,
   }) async {
     try {
-      final cleanPath = mediaPath.trim();
+      final cleanPath = path.trim();
 
       if (cleanPath.isEmpty) return null;
 
@@ -133,8 +128,15 @@ class GalleryService {
 
   Future<String?> resolveFreshMediaUrl({
     required Map<String, dynamic> mediaData,
-    int expiresInSeconds = 3600,
+    int expiresInSeconds = 21600,
   }) async {
+    final mediaPath = _firstNonEmpty([
+      mediaData['mediaPath'],
+      mediaData['path'],
+      mediaData['imagePath'],
+      mediaData['videoPath'],
+    ]);
+
     final publicUrl = _firstNonEmpty([
       mediaData['publicUrl'],
       mediaData['mediaPublicUrl'],
@@ -147,29 +149,38 @@ class GalleryService {
       mediaData['url'],
     ]);
 
+    final storageProvider = _firstNonEmpty([
+      mediaData['storageProvider'],
+      mediaData['provider'],
+    ]).toLowerCase();
+
     final isSignedUrl = mediaData['isSignedUrl'] == true;
 
-    final mediaPath = _firstNonEmpty([
-      mediaData['mediaPath'],
-      mediaData['path'],
-      mediaData['imagePath'],
-      mediaData['videoPath'],
-    ]);
+    if (mediaPath.isNotEmpty &&
+        !mediaPath.startsWith('blob:') &&
+        !_isRemoteUrl(mediaPath) &&
+        (storageProvider.isEmpty || storageProvider == 'supabase')) {
+      final freshUrl = await createFreshSignedUrl(
+        path: mediaPath,
+        expiresInSeconds: expiresInSeconds,
+      );
 
-    // الأولوية الآن للرابط الدائم
+      if (freshUrl != null && freshUrl.trim().isNotEmpty) {
+        return freshUrl;
+      }
+    }
+
     if (publicUrl.isNotEmpty) {
       return publicUrl;
     }
 
-    // إذا mediaUrl قديم لكنه ليس signedUrl، نستخدمه
     if (oldUrl.isNotEmpty && !isSignedUrl) {
       return oldUrl;
     }
 
-    // دعم قديم فقط: لو البيانات القديمة signedUrl منتهي، نحاول إنشاء رابط جديد
     if (isSignedUrl && mediaPath.isNotEmpty) {
       return createFreshSignedUrl(
-        mediaPath: mediaPath,
+        path: mediaPath,
         expiresInSeconds: expiresInSeconds,
       );
     }
@@ -186,7 +197,7 @@ class GalleryService {
     String? mediaPath,
     String? oldMediaUrl,
     String? publicUrl,
-    int expiresInSeconds = 3600,
+    int expiresInSeconds = 21600,
   }) async {
     return resolveFreshMediaUrl(
       mediaData: {
@@ -206,6 +217,11 @@ class GalleryService {
     return 'image';
   }
 
+  bool _isRemoteUrl(String value) {
+    final clean = value.trim().toLowerCase();
+    return clean.startsWith('http://') || clean.startsWith('https://');
+  }
+
   String _firstNonEmpty(List<dynamic> values) {
     for (final value in values) {
       if (value != null && value.toString().trim().isNotEmpty) {
@@ -216,3 +232,4 @@ class GalleryService {
     return '';
   }
 }
+

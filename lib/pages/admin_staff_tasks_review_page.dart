@@ -408,10 +408,18 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
               ),
             ),
             const SizedBox(width: 8),
-            OutlinedButton.icon(
-              onPressed: _pickDate,
-              icon: const Icon(Icons.date_range),
-              label: const Text('تاريخ'),
+            SizedBox(
+              width: 112,
+              height: 44,
+              child: OutlinedButton.icon(
+                onPressed: _pickDate,
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(0, 44),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                ),
+                icon: const Icon(Icons.date_range, size: 18),
+                label: const Text('تاريخ'),
+              ),
             ),
           ],
         ),
@@ -550,10 +558,16 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
             ),
             const SizedBox(height: 12),
             if (isToday)
-              OutlinedButton.icon(
-                onPressed: isLoading ? null : () => _openReviewDialog(doc),
-                icon: const Icon(Icons.edit_outlined),
-                label: const Text('تعديل حالة المهمة'),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: isLoading ? null : () => _openReviewDialog(doc),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(0, 44),
+                  ),
+                  icon: const Icon(Icons.edit_outlined),
+                  label: const Text('تعديل حالة المهمة'),
+                ),
               ),
           ],
         ),

@@ -166,37 +166,6 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
     return null;
   }
 
-  Color _sectionColor(String section) {
-    switch (section) {
-      case 'Nursery':
-        return const Color(0xFFEFA7C8);
-      case 'OutOfRange':
-      default:
-        return Colors.redAccent;
-    }
-  }
-
-  Widget _buildSectionBadge(String section) {
-    final color = _sectionColor(section);
-    final label = ChildSectionUtils.sectionArabicLabel(section);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.14),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withOpacity(0.24)),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: color,
-          fontWeight: FontWeight.w700,
-          fontSize: 13,
-        ),
-      ),
-    );
-  }
 
   Future<void> _pickBirthDate() async {
     final now = DateTime.now();
@@ -506,149 +475,6 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
     );
   }
 
-  Widget buildHeaderCard() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            AppColors.primary.withOpacity(0.18),
-            AppColors.secondary.withOpacity(0.10),
-          ],
-          begin: Alignment.topRight,
-          end: Alignment.bottomLeft,
-        ),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: AppColors.primary.withOpacity(0.18),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.shadow.withOpacity(0.08),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 58,
-            height: 58,
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.75),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.person_add_alt_1_rounded,
-              color: AppColors.primary,
-              size: 28,
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'طلب إضافة طفل جديد',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.textDark,
-                      ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'املئي بيانات الطفل بدقة، ثم أرسلي الطلب ليتم مراجعته من الإدارة قبل إضافته إلى الحساب.',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: AppColors.textLight,
-                        height: 1.45,
-                      ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget buildInfoCard() {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Icon(
-            Icons.info_outline_rounded,
-            color: AppColors.secondary,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              'هذا الطلب لا يضيف الطفل مباشرة. بعد مراجعة الإدارة والموافقة عليه، سيتم إنشاء سجل الطفل وربطه بحساب ولي الأمر.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppColors.textDark,
-                    height: 1.5,
-                  ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSectionStatusCard() {
-    final color = _sectionColor(resolvedSection);
-    final isOutOfRange = resolvedSection == 'OutOfRange';
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withOpacity(0.22)),
-      ),
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 20,
-            backgroundColor: color.withOpacity(0.14),
-            child: Icon(
-              isOutOfRange
-                  ? Icons.warning_amber_rounded
-                  : Icons.apartment_rounded,
-              color: color,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'القسم المتوقع',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: AppColors.textLight,
-                        fontWeight: FontWeight.w600,
-                      ),
-                ),
-                const SizedBox(height: 6),
-                _buildSectionBadge(resolvedSection),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget buildChildSection() {
     return buildMainCard(
       child: Column(
@@ -703,38 +529,6 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
             },
           ),
           const SizedBox(height: 14),
-          _buildSectionStatusCard(),
-          if (resolvedSection == 'OutOfRange') ...[
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.red.withOpacity(0.08),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: Colors.red.withOpacity(0.25)),
-              ),
-              child: const Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(
-                    Icons.error_outline_rounded,
-                    color: Colors.redAccent,
-                  ),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'عمر الطفل خارج نطاق الحضانة في النظام الحالي، لذلك لا يمكن إرسال الطلب بهذه البيانات.',
-                      style: TextStyle(
-                        color: Colors.redAccent,
-                        fontWeight: FontWeight.w600,
-                        height: 1.45,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
           const SizedBox(height: 14),
           DropdownButtonFormField<String>(
             value: selectedGender,
@@ -963,14 +757,6 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
                         ),
                     ],
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'سيُعتمد هذا الشخص ضمن قائمة المسموح لهم باستلام الطفل بعد الموافقة على الطلب.',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: AppColors.textLight,
-                          height: 1.35,
-                        ),
-                  ),
                   const SizedBox(height: 10),
                   TextFormField(
                     controller: pickup.nameCtrl,
@@ -1044,63 +830,21 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
   Widget buildSubmitSection() {
     final isOutOfRange = resolvedSection == 'OutOfRange';
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              CircleAvatar(
-                backgroundColor: isOutOfRange
-                    ? Colors.red.withOpacity(0.12)
-                    : AppColors.primary.withOpacity(0.12),
-                child: Icon(
-                  isOutOfRange
-                      ? Icons.warning_amber_rounded
-                      : Icons.assignment_turned_in_rounded,
-                  color: isOutOfRange ? Colors.redAccent : AppColors.primary,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  isOutOfRange
-                      ? 'لا يمكن إرسال الطلب لأن عمر الطفل خارج نطاق النظام الحالي'
-                      : 'سيتم إرسال الطلب إلى الإدارة لمراجعته قبل إضافة الطفل إلى الحساب',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.textDark,
-                        height: 1.4,
-                      ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            height: 54,
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: (isSubmitting || isOutOfRange) ? null : submitRequest,
-              icon: isSubmitting
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2.3),
-                    )
-                  : const Icon(Icons.send_rounded),
-              label: Text(
-                isSubmitting ? 'جارٍ إرسال الطلب...' : 'إرسال طلب إضافة الطفل',
-              ),
-            ),
-          ),
-        ],
+    return SizedBox(
+      height: 54,
+      width: double.infinity,
+      child: ElevatedButton.icon(
+        onPressed: (isSubmitting || isOutOfRange) ? null : submitRequest,
+        icon: isSubmitting
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2.3),
+              )
+            : const Icon(Icons.send_rounded),
+        label: Text(
+          isSubmitting ? 'جارٍ إرسال الطلب...' : 'إرسال طلب إضافة الطفل',
+        ),
       ),
     );
   }
@@ -1114,8 +858,6 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
         autovalidateMode: AutovalidateMode.onUserInteraction,
         child: ListView(
           children: [
-            buildHeaderCard(),
-            const SizedBox(height: 16),
             buildChildSection(),
             const SizedBox(height: 14),
             buildHealthSection(),
