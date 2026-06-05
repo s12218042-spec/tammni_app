@@ -31,7 +31,7 @@ class LiveStreamService {
   static const int maxConcurrentViewers = 3;
   static const Duration normalViewingDuration = Duration(minutes: 10);
   static const Duration congestedViewingDuration = Duration(minutes: 5);
-  static const Duration readyJoinTimeout = Duration(minutes: 1);
+  static const Duration readyJoinTimeout = Duration(minutes: 2);
   static const Duration stationHeartbeatInterval = Duration(seconds: 15);
   static const Duration stationOfflineAfter = Duration(seconds: 45);
   static const Duration maintenanceInterval = Duration(seconds: 10);

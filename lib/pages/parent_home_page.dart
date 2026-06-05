@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../models/child_model.dart';
 import '../services/account_settings_service.dart';
 import '../services/auth_service.dart';
+import '../services/live_stream_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 import 'account_history_page.dart';
@@ -21,6 +22,7 @@ import 'parent_updates_page.dart';
 import 'welcome_page.dart';
 import 'parent_support_center_page.dart';
 
+
 class ParentHomePage extends StatefulWidget {
   final String parentUsername;
 
@@ -35,6 +37,7 @@ class ParentHomePage extends StatefulWidget {
 
 class _ParentHomePageState extends State<ParentHomePage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final LiveStreamService _liveStreamService = LiveStreamService();
   final AccountSettingsService _accountSettingsService =
       AccountSettingsService();
 
@@ -301,94 +304,106 @@ class _ParentHomePageState extends State<ParentHomePage> {
     setState(() {});
   }
 
-  Future<void> _openLiveStream(Map<String, dynamic> streamData) async {
-    final roomId = (streamData['roomId'] ?? '').toString();
-    final title = (streamData['title'] ?? 'بث مباشر من الحضانة').toString();
-    final startedByName = (streamData['startedByName'] ?? '').toString();
 
-    if (roomId.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('بيانات البث غير مكتملة')),
-      );
-      return;
-    }
+  Future<ChildModel?> _chooseChildForLiveStream(
+  List<ChildModel> children,
+) async {
+  if (children.isEmpty) return null;
 
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => LiveStreamViewerPage(
-          roomId: roomId,
-          title: title,
-          startedByName: startedByName,
+  if (children.length == 1) {
+    return children.first;
+  }
+
+  return showDialog<ChildModel>(
+    context: context,
+    builder: (_) {
+      return Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('اختاري الطفل'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: children.map((child) {
+              return ListTile(
+                leading: const Icon(Icons.child_care_rounded),
+                title: Text(child.name),
+                onTap: () => Navigator.pop(context, child),
+              );
+            }).toList(),
+          ),
         ),
+      );
+    },
+  );
+}
+
+Future<void> _requestLiveStreamForChildren(
+  List<ChildModel> children,
+) async {
+  if (children.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('لا يوجد أطفال مرتبطون بهذا الحساب'),
       ),
     );
+    return;
+  }
 
+  final child = await _chooseChildForLiveStream(children);
+
+  if (child == null) return;
+
+  final currentUser = FirebaseAuth.instance.currentUser;
+
+  if (currentUser == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('يجب تسجيل الدخول أولًا'),
+      ),
+    );
+    return;
+  }
+
+  try {
+    final result = await _liveStreamService.requestLiveStreamForChild(
+        childId: child.id,
+        childName: child.name,
+        parentUid: currentUser.uid,
+        parentUsername: widget.parentUsername,
+        parentName: '',
+        section: 'Nursery',
+        group: child.groupName,
+      );
+
+      if (!mounted) return;
+
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => LiveStreamViewerPage(
+            roomId: LiveStreamService.nurseryMainStreamId,
+            title: 'بث مباشر من الحضانة',
+            startedByName: 'الحضانة',
+            liveStreamRequestId: result.requestId,
+          ),
+        ),
+      );
+  } catch (e) {
     if (!mounted) return;
-    setState(() {});
+
+    final errorText = e.toString();
+
+    final message = errorText.contains('permission-denied') ||
+            errorText.contains('permission_denied') ||
+            errorText.contains('missing or insufficient permissions')
+        ? 'لا توجد صلاحية لاستخدام البث المباشر.'
+        : errorText.replaceFirst('Exception: ', '');
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
   }
-
-  Future<void> _openActiveLiveStreamForChildren(List<ChildModel> children) async {
-    if (children.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('لا يوجد أطفال مرتبطون بهذا الحساب')),
-      );
-      return;
-    }
-
-    try {
-      QueryDocumentSnapshot<Map<String, dynamic>>? activeStream;
-
-      for (final child in children) {
-        final snapshot = await _firestore
-            .collection('live_streams')
-            .where('status', isEqualTo: 'active')
-            .where('childId', isEqualTo: child.id)
-            .limit(1)
-            .get();
-
-        if (snapshot.docs.isNotEmpty) {
-          activeStream = snapshot.docs.first;
-          break;
-        }
-      }
-
-      if (activeStream == null) {
-        final snapshot = await _firestore
-            .collection('live_streams')
-            .where('status', isEqualTo: 'active')
-            .limit(1)
-            .get();
-
-        if (snapshot.docs.isNotEmpty) {
-          activeStream = snapshot.docs.first;
-        }
-      }
-
-      if (!mounted) return;
-
-      if (activeStream == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('لا يوجد بث مباشر الآن')),
-        );
-        return;
-      }
-
-      await _openLiveStream({
-        ...activeStream.data(),
-        'id': activeStream.id,
-        'streamId': activeStream.id,
-      });
-    } catch (e) {
-      debugPrint('Open active live stream error: $e');
-
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تعذر فتح البث المباشر الآن')),
-      );
-    }
-  }
+}
 
   Future<void> _openComplaints() async {
     await Navigator.push(
@@ -525,7 +540,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
                 icon: Icons.wifi_tethering_rounded,
                 title: 'البث المباشر',
                 subtitle: 'فتح البث',
-                onTap: () => _openActiveLiveStreamForChildren(children),
+                onTap: () => _requestLiveStreamForChildren(children),
               ),
               _QuickActionCard(
                 icon: Icons.person_add_alt_1_rounded,

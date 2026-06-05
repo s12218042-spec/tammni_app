@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -35,12 +37,33 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
   final FirebaseMessaging _messaging = FirebaseMessaging.instance;
   final LiveStreamService _liveStreamService = LiveStreamService();
   final TextEditingController chatSearchCtrl = TextEditingController();
-  
+
+  late Map<String, dynamic> _childData;
+  late Map<String, dynamic> _accessData;
+
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+      _notificationsSubscription;
+
+  final List<Map<String, dynamic>> _popupQueue = [];
+  final Set<String> _handledPopupNotificationIds = <String>{};
+
+  bool _receivedInitialNotificationsSnapshot = false;
+  bool _isShowingNotificationPopup = false;
+
   int selectedIndex = 0;
   bool isRequestingLiveStream = false;
 
   @override
+  void initState() {
+    super.initState();
+    _childData = Map<String, dynamic>.from(widget.childData);
+    _accessData = Map<String, dynamic>.from(widget.accessData);
+    _listenForNewNotifications();
+  }
+
+  @override
   void dispose() {
+    _notificationsSubscription?.cancel();
     chatSearchCtrl.dispose();
     super.dispose();
   }
@@ -90,8 +113,8 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
   }
 
   String _childName() {
-    final childName = _cleanText(widget.childData['childName']);
-    final name = _cleanText(widget.childData['name']);
+    final childName = _cleanText(_childData['childName']);
+    final name = _cleanText(_childData['name']);
 
     if (childName.isNotEmpty) return childName;
     if (name.isNotEmpty) return name;
@@ -100,8 +123,12 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
   }
 
   String _parentName() {
-    final childParentName = _cleanText(widget.childData['parentName']);
-    final accessParentName = _cleanText(widget.accessData['parentName']);
+    final childParentName = _cleanText(
+      _childData['parentName'] ?? _childData['temporaryParentName'],
+    );
+    final accessParentName = _cleanText(
+      _accessData['parentName'] ?? _accessData['temporaryParentName'],
+    );
 
     if (childParentName.isNotEmpty) return childParentName;
     if (accessParentName.isNotEmpty) return accessParentName;
@@ -110,8 +137,12 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
   }
 
   String _parentPhone() {
-    final childPhone = _cleanText(widget.childData['parentPhone']);
-    final accessPhone = _cleanText(widget.accessData['parentPhone']);
+    final childPhone = _cleanText(
+      _childData['parentPhone'] ?? _childData['temporaryParentPhone'],
+    );
+    final accessPhone = _cleanText(
+      _accessData['parentPhone'] ?? _accessData['temporaryParentPhone'],
+    );
 
     if (childPhone.isNotEmpty) return childPhone;
     if (accessPhone.isNotEmpty) return accessPhone;
@@ -120,8 +151,8 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
   }
 
   String _groupName() {
-    final childGroupName = _cleanText(widget.childData['groupName']);
-    final accessGroupName = _cleanText(widget.accessData['groupName']);
+    final childGroupName = _cleanText(_childData['groupName']);
+    final accessGroupName = _cleanText(_accessData['groupName']);
 
     if (childGroupName.isNotEmpty) return childGroupName;
     if (accessGroupName.isNotEmpty) return accessGroupName;
@@ -130,19 +161,19 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
   }
 
   String _staffUid() {
-    return _cleanText(widget.childData['assignedStaffUid']);
+    return _cleanText(_childData['assignedStaffUid']);
   }
 
   String _staffName() {
-    final name = _cleanText(widget.childData['assignedStaffName']);
+    final name = _cleanText(_childData['assignedStaffName']);
     return name.isEmpty ? 'موظفة الحضانة' : name;
   }
 
   String _consultationText() {
-    final hasConsultation = widget.childData['hasConsultation'] == true;
+    final hasConsultation = _childData['hasConsultation'] == true;
     if (!hasConsultation) return 'لا';
 
-    final status = _cleanText(widget.childData['consultationStatus']);
+    final status = _cleanText(_childData['consultationStatus']);
 
     switch (status) {
       case 'pending':
@@ -159,26 +190,26 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
   }
 
   bool get _isTrialChild {
-    final childType = _cleanText(widget.childData['childType']).toLowerCase();
+    final childType = _cleanText(_childData['childType']).toLowerCase();
     final enrollmentType =
-        _cleanText(widget.childData['enrollmentType']).toLowerCase();
+        _cleanText(_childData['enrollmentType']).toLowerCase();
     final childStatus =
-        _cleanText(widget.childData['childStatus']).toLowerCase();
+        _cleanText(_childData['childStatus']).toLowerCase();
 
-    return widget.childData['isTrialChild'] == true ||
+    return _childData['isTrialChild'] == true ||
         childType == 'trial' ||
         enrollmentType == 'trial' ||
         childStatus == 'trial';
   }
 
   bool get _isTemporaryChild {
-    final childType = _cleanText(widget.childData['childType']).toLowerCase();
+    final childType = _cleanText(_childData['childType']).toLowerCase();
     final enrollmentType =
-        _cleanText(widget.childData['enrollmentType']).toLowerCase();
+        _cleanText(_childData['enrollmentType']).toLowerCase();
     final childStatus =
-        _cleanText(widget.childData['childStatus']).toLowerCase();
+        _cleanText(_childData['childStatus']).toLowerCase();
 
-    return widget.childData['isTemporaryChild'] == true ||
+    return _childData['isTemporaryChild'] == true ||
         childType == 'temporary' ||
         enrollmentType == 'temporary' ||
         childStatus == 'temporary';
@@ -191,26 +222,26 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
   }
 
   dynamic get _accessStart {
-    return widget.childData['temporaryAccessStartAt'] ??
-        widget.childData['temporaryStartAt'] ??
-        widget.childData['temporaryStartDate'] ??
-        widget.childData['trialStartAt'] ??
-        widget.accessData['accessStartAt'];
+    return _childData['temporaryAccessStartAt'] ??
+        _childData['temporaryStartAt'] ??
+        _childData['temporaryStartDate'] ??
+        _childData['trialStartAt'] ??
+        _accessData['accessStartAt'];
   }
 
   dynamic get _accessEnd {
-    return widget.childData['temporaryAccessEndAt'] ??
-        widget.childData['temporaryEndAt'] ??
-        widget.childData['temporaryEndDate'] ??
-        widget.childData['trialEndAt'] ??
-        widget.accessData['accessEndAt'];
+    return _childData['temporaryAccessEndAt'] ??
+        _childData['temporaryEndAt'] ??
+        _childData['temporaryEndDate'] ??
+        _childData['trialEndAt'] ??
+        _accessData['accessEndAt'];
   }
 
   String get _accessCode {
-    final code = _cleanText(widget.accessData['code']);
+    final code = _cleanText(_accessData['code']);
     if (code.isNotEmpty) return code;
 
-    final childCode = _cleanText(widget.childData['temporaryAccessCode']);
+    final childCode = _cleanText(_childData['temporaryAccessCode']);
     return childCode.isEmpty ? '-' : childCode;
   }
 
@@ -230,8 +261,163 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
   }
 
   Future<void> _refreshPage() async {
+    try {
+      final childDoc =
+          await _firestore.collection('children').doc(widget.childId).get();
+
+      Map<String, dynamic>? accessData;
+
+      if (widget.accessCodeId.trim().isNotEmpty) {
+        final accessDoc = await _firestore
+            .collection('temporary_access_codes')
+            .doc(widget.accessCodeId)
+            .get();
+
+        if (accessDoc.exists) {
+          accessData = accessDoc.data();
+        }
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        if (childDoc.exists) {
+          _childData = childDoc.data() ?? _childData;
+        }
+
+        if (accessData != null) {
+          _accessData = accessData;
+        }
+      });
+    } catch (e) {
+      debugPrint('TEMP CHILD VIEW REFRESH ERROR: $e');
+    }
+  }
+
+  void _listenForNewNotifications() {
+    _notificationsSubscription = _temporaryNotificationsStream().listen(
+      (snapshot) {
+        if (!_receivedInitialNotificationsSnapshot) {
+          _receivedInitialNotificationsSnapshot = true;
+
+          for (final doc in snapshot.docs) {
+            _handledPopupNotificationIds.add(doc.id);
+          }
+
+          return;
+        }
+
+        for (final change in snapshot.docChanges) {
+          if (change.type != DocumentChangeType.added) continue;
+
+          final doc = change.doc;
+          final data = doc.data();
+
+          if (data == null) {
+            continue;
+          }
+
+          final isRead = data['isRead'] == true ||
+              data['read'] == true ||
+              data['seen'] == true;
+
+          if (isRead || _handledPopupNotificationIds.contains(doc.id)) {
+            continue;
+          }
+
+          _handledPopupNotificationIds.add(doc.id);
+          _popupQueue.add({
+            'id': doc.id,
+            ...data,
+          });
+        }
+
+        _showNextNotificationPopup();
+      },
+      onError: (Object error) {
+        debugPrint('TEMP NOTIFICATIONS LISTENER ERROR: $error');
+      },
+    );
+  }
+
+  Future<void> _showNextNotificationPopup() async {
+    if (!mounted || _isShowingNotificationPopup || _popupQueue.isEmpty) {
+      return;
+    }
+
+    _isShowingNotificationPopup = true;
+
+    final notification = _popupQueue.removeAt(0);
+    final notificationId = _cleanText(notification['id']);
+
+    final title = _cleanText(
+      notification['title'] ?? notification['subject'] ?? 'إشعار جديد',
+    );
+
+    final body = _cleanText(
+      notification['body'] ??
+          notification['message'] ??
+          notification['text'] ??
+          notification['description'],
+    );
+
+    final openNotifications = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) {
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(22),
+            ),
+            title: Row(
+              children: [
+                const Icon(
+                  Icons.notifications_active_outlined,
+                  color: AppColors.primary,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    title.isEmpty ? 'إشعار جديد' : title,
+                  ),
+                ),
+              ],
+            ),
+            content: body.isEmpty ? null : Text(body),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('إغلاق'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('عرض الإشعارات'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (notificationId.isNotEmpty) {
+      try {
+        await _markTemporaryNotificationAsRead(notificationId);
+      } catch (e) {
+        debugPrint('TEMP NOTIFICATION READ UPDATE ERROR: $e');
+      }
+    }
+
+    _isShowingNotificationPopup = false;
+
     if (!mounted) return;
-    setState(() {});
+
+    if (openNotifications == true) {
+      await _openTemporaryNotificationsPage();
+    }
+
+    _showNextNotificationPopup();
   }
 
   Future<void> _confirmLogout() async {
@@ -475,7 +661,9 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
   }
 
   Widget _buildHomeTab() {
-    final notes = _cleanText(widget.childData['temporaryNotes']);
+    final notes = _cleanText(
+      _childData['temporaryNote'] ?? _childData['temporaryNotes'],
+    );
 
     return RefreshIndicator(
       onRefresh: _refreshPage,
@@ -568,19 +756,24 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
           data['amount'] ??
           data['total'],
     );
+
     final paid = _toNum(data['paidAmount'] ?? data['paid']);
+
     final remaining = _toNum(
       data['remainingAmount'] ?? data['remaining'] ?? (total - paid),
     );
 
-    String paymentMethod = _cleanText(data['paymentMethod']).isEmpty
-        ? '-'
-        : _cleanText(data['paymentMethod']);
+    final hours = _toNum(
+      data['hoursCount'] ??
+          data['temporaryHoursCount'] ??
+          data['serviceUnits'],
+    );
 
-    if (paymentMethod == 'cash') paymentMethod = 'كاش';
-    if (paymentMethod == 'visa' || paymentMethod == 'card') {
-      paymentMethod = 'فيزا';
-    }
+    final hourlyRate = _toNum(
+      data['hourlyRate'] ??
+          data['temporaryHourlyRate'] ??
+          data['unitPrice'],
+    );
 
     final status = _cleanText(data['status']).isEmpty
         ? 'غير محددة'
@@ -624,10 +817,11 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
                   ],
                 ),
                 const SizedBox(height: 16),
+                if (hours > 0) _invoiceLine('عدد الساعات', '$hours'),
+                if (hourlyRate > 0) _invoiceLine('سعر الساعة', _money(hourlyRate)),
                 _invoiceLine('الإجمالي', _money(total)),
                 _invoiceLine('المدفوع', _money(paid)),
                 _invoiceLine('المتبقي', _money(remaining)),
-                _invoiceLine('طريقة الدفع', paymentMethod),
                 _invoiceLine('الحالة', status),
                 if (notes.isNotEmpty) _invoiceLine('ملاحظات', notes),
                 const SizedBox(height: 10),
@@ -744,14 +938,17 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
           data['remainingAmount'] ?? data['remaining'] ?? (total - paid),
         );
 
-        String paymentMethod = _cleanText(data['paymentMethod']).isEmpty
-            ? '-'
-            : _cleanText(data['paymentMethod']);
+        final hours = _toNum(
+          data['hoursCount'] ??
+              data['temporaryHoursCount'] ??
+              data['serviceUnits'],
+        );
 
-        if (paymentMethod == 'cash') paymentMethod = 'كاش';
-        if (paymentMethod == 'visa' || paymentMethod == 'card') {
-          paymentMethod = 'فيزا';
-        }
+        final hourlyRate = _toNum(
+          data['hourlyRate'] ??
+              data['temporaryHourlyRate'] ??
+              data['unitPrice'],
+        );
 
         final status = _cleanText(data['status']).isEmpty
             ? 'غير محددة'
@@ -838,9 +1035,9 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: _invoiceMiniBox(
-                          title: 'الدفع',
-                          value: paymentMethod,
-                          icon: Icons.credit_card_rounded,
+                          title: hours > 0 ? 'الساعات' : 'سعر الساعة',
+                          value: hours > 0 ? '$hours' : _money(hourlyRate),
+                          icon: Icons.schedule_rounded,
                         ),
                       ),
                     ],
@@ -1006,6 +1203,7 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
           roomId: LiveStreamService.nurseryMainStreamId,
           title: 'بث مباشر من الحضانة',
           startedByName: 'الحضانة',
+          liveStreamRequestId: cleanRequestId,
         ),
       ),
     );
@@ -1093,20 +1291,49 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
           return Card(
             child: Padding(
               padding: const EdgeInsets.all(14),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  CircleAvatar(
-                    backgroundColor: AppColors.primary.withValues(alpha: 0.10),
-                    child: const Icon(
-                      Icons.videocam_off_outlined,
-                      color: AppColors.primary,
+                  Row(
+                    children: [
+                      CircleAvatar(
+                        backgroundColor:
+                            AppColors.primary.withValues(alpha: 0.10),
+                        child: const Icon(
+                          Icons.videocam_off_outlined,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Text(
+                          'البث المباشر',
+                          style: TextStyle(
+                            color: AppColors.textDark,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15.5,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'تعذر تحميل حالة البث المباشر',
+                    style: TextStyle(
+                      color: AppColors.textLight,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Text(
-                      'البث المباشر غير متاح حاليًا',
-                      style: TextStyle(fontWeight: FontWeight.bold),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        setState(() {});
+                      },
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: const Text('إعادة المحاولة'),
                     ),
                   ),
                 ],
@@ -1116,10 +1343,41 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
         }
 
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Card(
+          return Card(
             child: Padding(
-              padding: EdgeInsets.all(18),
-              child: Center(child: CircularProgressIndicator()),
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      CircleAvatar(
+                        backgroundColor:
+                            AppColors.primary.withValues(alpha: 0.10),
+                        child: const Icon(
+                          Icons.videocam_outlined,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Text(
+                          'البث المباشر',
+                          style: TextStyle(
+                            color: AppColors.textDark,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15.5,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  const Center(
+                    child: CircularProgressIndicator(),
+                  ),
+                ],
+              ),
             ),
           );
         }
@@ -1130,36 +1388,61 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
           return Card(
             child: Padding(
               padding: const EdgeInsets.all(14),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  CircleAvatar(
-                    backgroundColor: AppColors.primary.withValues(alpha: 0.10),
-                    child: const Icon(
-                      Icons.videocam_outlined,
-                      color: AppColors.primary,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Text(
-                      'البث المباشر',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 15.5,
+                  Row(
+                    children: [
+                      CircleAvatar(
+                        backgroundColor:
+                            AppColors.primary.withValues(alpha: 0.10),
+                        child: const Icon(
+                          Icons.videocam_outlined,
+                          color: AppColors.primary,
+                        ),
                       ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Text(
+                          'البث المباشر',
+                          style: TextStyle(
+                            color: AppColors.textDark,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15.5,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'يمكنك فتح بث الحضانة المباشر',
+                    style: TextStyle(
+                      color: AppColors.textLight,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
-                  ElevatedButton.icon(
-                    onPressed: isRequestingLiveStream ? null : _requestLiveStream,
-                    icon: isRequestingLiveStream
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.play_arrow_rounded, size: 18),
-                    label: Text(
-                      isRequestingLiveStream ? 'جاري...' : 'فتح',
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed:
+                          isRequestingLiveStream ? null : _requestLiveStream,
+                      icon: isRequestingLiveStream
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.play_arrow_rounded),
+                      label: Text(
+                        isRequestingLiveStream
+                            ? 'جاري فتح البث...'
+                            : 'فتح البث المباشر',
+                      ),
                     ),
                   ),
                 ],
@@ -1177,11 +1460,14 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
           color: Colors.red.withValues(alpha: 0.045),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(18),
-            side: BorderSide(color: Colors.red.withValues(alpha: 0.22)),
+            side: BorderSide(
+              color: Colors.red.withValues(alpha: 0.22),
+            ),
           ),
           child: Padding(
             padding: const EdgeInsets.all(14),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Row(
                   children: [
@@ -1219,13 +1505,10 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
                   ],
                 ),
                 const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: () => _openLiveStreamRequest(request.id),
-                    icon: const Icon(Icons.play_arrow_rounded),
-                    label: Text(_liveStreamButtonText(status)),
-                  ),
+                ElevatedButton.icon(
+                  onPressed: () => _openLiveStreamRequest(request.id),
+                  icon: const Icon(Icons.play_arrow_rounded),
+                  label: Text(_liveStreamButtonText(status)),
                 ),
                 if (canCancel) ...[
                   const SizedBox(height: 4),
@@ -1651,6 +1934,13 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
             return const Center(child: CircularProgressIndicator());
           }
 
+          if (snapshot.hasError) {
+            return const _SimpleEmptyBox(
+              icon: Icons.error_outline_rounded,
+              title: 'تعذر تحميل التحديثات',
+            );
+          }
+
           final docs = _sortedDocs(snapshot.data?.docs ?? []);
           final latestByCategory = _latestByCategory(docs);
 
@@ -1800,7 +2090,7 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
           childName: _childName(),
           parentName: _parentName(),
           parentPhone: _parentPhone(),
-          groupId: _cleanText(widget.childData['groupId']),
+          groupId: _cleanText(_childData['groupId']),
           groupName: _groupName(),
           targetRole: targetRole,
           targetUid: targetUid,
@@ -2168,24 +2458,6 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
         .snapshots();
   }
 
-  Future<int> _temporaryUnreadNotificationsCount() async {
-    try {
-      final snapshot = await _firestore
-          .collection('notifications')
-          .where('childId', isEqualTo: widget.childId)
-          .limit(100)
-          .get();
-
-      return snapshot.docs.where((doc) {
-        final data = doc.data();
-        return data['isRead'] != true &&
-            data['read'] != true &&
-            data['seen'] != true;
-      }).length;
-    } catch (_) {
-      return 0;
-    }
-  }
 
   Future<void> _markTemporaryNotificationAsRead(String notificationId) async {
     if (notificationId.trim().isEmpty) return;
@@ -2218,10 +2490,16 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
   }
 
   Widget _buildTemporaryNotificationActionButton() {
-    return FutureBuilder<int>(
-      future: _temporaryUnreadNotificationsCount(),
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: _temporaryNotificationsStream(),
       builder: (context, snapshot) {
-        final count = snapshot.data ?? 0;
+        final count = (snapshot.data?.docs ?? []).where((doc) {
+          final data = doc.data();
+
+          return data['isRead'] != true &&
+              data['read'] != true &&
+              data['seen'] != true;
+        }).length;
 
         return Stack(
           clipBehavior: Clip.none,
@@ -2457,6 +2735,13 @@ class _TemporaryNotificationsPage extends StatelessWidget {
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator());
+            }
+
+            if (snapshot.hasError) {
+              return const _SimpleEmptyBox(
+                icon: Icons.error_outline_rounded,
+                title: 'تعذر تحميل الإشعارات',
+              );
             }
 
             final docs = [...(snapshot.data?.docs ?? [])];

@@ -19,7 +19,7 @@
         android:maxSdkVersion="32" />
 
     <application
-        android:label="طمّني"
+        android:label="حضانتي"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
 

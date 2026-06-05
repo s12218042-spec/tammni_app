@@ -9,7 +9,6 @@ class UserModel {
   final bool isActive;
   final String accountStatus;
 
- 
   final String phone;
   final String alternatePhone;
   final String nationalId;
@@ -19,7 +18,6 @@ class UserModel {
 
   final String relationship;
 
-  
   final String jobTitle;
   final String qualification;
   final String university;
@@ -37,21 +35,19 @@ class UserModel {
   final String groupName;
   final List<String> assignedGroups;
 
-
-  final String salaryCalculationType; // hourly
-  final double hourlyRate; // 8
+  final String salaryCalculationType;
+  final double hourlyRate;
   final double baseSalary;
 
- 
   final List<String> responsibilities;
   final List<String> certifications;
 
   final String adminScope;
   final List<String> permissions;
 
-
   final List<String> fcmTokens;
 
+  final bool isLiveStreamStation;
 
   final String cvNotes;
   final String adminNotes;
@@ -98,6 +94,7 @@ class UserModel {
     this.adminScope = '',
     this.permissions = const [],
     this.fcmTokens = const [],
+    this.isLiveStreamStation = false,
     this.cvNotes = '',
     this.adminNotes = '',
     this.createdAt,
@@ -108,16 +105,36 @@ class UserModel {
   static String normalizeRole(dynamic value) {
     final role = (value ?? '').toString().trim().toLowerCase();
 
-    if (role == 'nursery' ||
-        role == 'nursery staff' ||
-        role == 'nursery_staff') {
-      return 'nursery_staff';
+    switch (role) {
+      case 'nursery':
+      case 'nursery staff':
+      case 'nursery_staff':
+      case 'staff':
+      case 'employee':
+      case 'teacher':
+      case 'موظفة':
+      case 'موظفة حضانة':
+      case 'حضانة':
+        return 'nursery_staff';
+
+      case 'admin':
+      case 'manager':
+      case 'مدير':
+      case 'مدير النظام':
+      case 'ادمن':
+      case 'أدمن':
+        return 'admin';
+
+      case 'parent':
+      case 'ولي امر':
+      case 'ولي أمر':
+      case 'ولي الامر':
+      case 'ولي الأمر':
+        return 'parent';
+
+      default:
+        return role.isEmpty ? 'parent' : role;
     }
-
-    if (role == 'parent') return 'parent';
-    if (role == 'admin') return 'admin';
-
-    return role.isEmpty ? 'parent' : role;
   }
 
   static String normalizeSection(dynamic value) {
@@ -140,8 +157,11 @@ class UserModel {
       case 'hours':
       case 'بالساعة':
         return 'hourly';
+
+      // يبقى للقراءة من السجلات القديمة فقط.
       case 'monthly':
         return 'monthly';
+
       default:
         return type.isEmpty ? 'hourly' : type;
     }
@@ -152,8 +172,10 @@ class UserModel {
     String key,
   ) {
     final value = map[key];
+
     if (value is Map<String, dynamic>) return value;
     if (value is Map) return Map<String, dynamic>.from(value);
+
     return <String, dynamic>{};
   }
 
@@ -165,15 +187,29 @@ class UserModel {
   static String _firstNonEmpty(List<dynamic> values) {
     for (final value in values) {
       final text = _string(value);
+
       if (text.isNotEmpty) return text;
     }
+
     return '';
+  }
+
+  static bool _boolValue(dynamic value, {required bool defaultValue}) {
+    if (value is bool) return value;
+
+    final text = _string(value).toLowerCase();
+
+    if (text == 'true' || text == '1' || text == 'yes') return true;
+    if (text == 'false' || text == '0' || text == 'no') return false;
+
+    return defaultValue;
   }
 
   static int? _intOrNull(dynamic value) {
     if (value == null) return null;
     if (value is int) return value;
     if (value is num) return value.toInt();
+
     return int.tryParse(value.toString().trim());
   }
 
@@ -186,6 +222,7 @@ class UserModel {
     if (value is int) return value.toDouble();
     if (value is double) return value;
     if (value is num) return value.toDouble();
+
     return double.tryParse(value.toString().trim()) ?? 0;
   }
 
@@ -195,6 +232,7 @@ class UserModel {
     if (value is DateTime) return value;
 
     final text = value.toString().trim();
+
     if (text.isEmpty) return null;
 
     return DateTime.tryParse(text);
@@ -221,10 +259,25 @@ class UserModel {
     return <String>[];
   }
 
-  bool get isParent => role == 'parent';
-  bool get isNurseryStaff => role == 'nursery_staff';
-  bool get isAdmin => role == 'admin';
+  static List<String> _mergedStringLists(List<dynamic> values) {
+    final result = <String>{};
+
+    for (final value in values) {
+      result.addAll(_stringList(value));
+
+      if (value is String && value.trim().isNotEmpty) {
+        result.add(value.trim());
+      }
+    }
+
+    return result.toList();
+  }
+
+  bool get isParent => normalizeRole(role) == 'parent';
+  bool get isNurseryStaff => normalizeRole(role) == 'nursery_staff';
+  bool get isAdmin => normalizeRole(role) == 'admin';
   bool get isEmployee => isNurseryStaff || isAdmin;
+  bool get isStreamStation => isLiveStreamStation;
 
   bool get hasGroup {
     return groupId.trim().isNotEmpty ||
@@ -245,13 +298,16 @@ class UserModel {
   }
 
   String get roleLabel {
-    switch (role) {
+    switch (normalizeRole(role)) {
       case 'parent':
         return 'ولي أمر';
+
       case 'nursery_staff':
         return 'موظفة حضانة';
+
       case 'admin':
         return 'مدير النظام';
+
       default:
         return role;
     }
@@ -261,8 +317,10 @@ class UserModel {
     switch (salaryCalculationType) {
       case 'hourly':
         return 'بالساعة';
+
       case 'monthly':
         return 'شهري';
+
       default:
         return salaryCalculationType;
     }
@@ -296,6 +354,8 @@ class UserModel {
 
     final phone = _firstNonEmpty([
       map['phone'],
+      map['phoneNumber'],
+      map['mobile'],
       parentInfo['phone'],
       personalInfo['phone'],
     ]);
@@ -330,6 +390,7 @@ class UserModel {
 
     final city = _firstNonEmpty([
       parentInfo['city'],
+      personalInfo['city'],
       map['city'],
     ]);
 
@@ -364,6 +425,17 @@ class UserModel {
       ]),
     );
 
+    final isActive = _boolValue(
+      map['isActive'],
+      defaultValue: true,
+    );
+
+    final accountStatus = _firstNonEmpty([
+      map['accountStatus'],
+      map['status'],
+      isActive ? 'active' : 'inactive',
+    ]);
+
     return UserModel(
       id: _firstNonEmpty([
         map['id'],
@@ -374,12 +446,8 @@ class UserModel {
       email: email,
       role: normalizedRole,
       username: username,
-      isActive: (map['isActive'] ?? true) == true,
-      accountStatus: _firstNonEmpty([
-        map['accountStatus'],
-        map['status'],
-        'active',
-      ]),
+      isActive: isActive,
+      accountStatus: accountStatus,
       phone: phone,
       alternatePhone: alternatePhone,
       nationalId: nationalId,
@@ -459,14 +527,18 @@ class UserModel {
             adminNotesMap['extraPermissions'] ??
             map['permissions'],
       ),
-      fcmTokens: _stringList(map['fcmTokens']),
+      fcmTokens: _mergedStringLists([
+        map['fcmTokens'],
+        map['fcmToken'],
+      ]),
+      isLiveStreamStation:
+          _boolValue(map['isLiveStreamStation'], defaultValue: false),
       cvNotes: _firstNonEmpty([
         professionalInfo['cvNotes'],
         map['cvNotes'],
       ]),
       adminNotes: _firstNonEmpty([
         adminNotesMap['internalNotes'],
-        map['adminNotes'],
         map['notes'],
       ]),
       createdAt: _date(map['createdAt']),
@@ -525,6 +597,7 @@ class UserModel {
       'assignedGroups':
           normalizedRole == 'nursery_staff' ? assignedGroups : <String>[],
       'fcmTokens': cleanFcmTokens,
+      'isLiveStreamStation': isLiveStreamStation,
       'updatedAt': updatedAt == null
           ? FieldValue.serverTimestamp()
           : Timestamp.fromDate(updatedAt!),
@@ -560,6 +633,7 @@ class UserModel {
         'phone': phone,
         'alternativePhone': alternatePhone,
         'address': address,
+        'city': city,
       };
 
       if (birthDate != null) {
@@ -656,6 +730,7 @@ class UserModel {
     String? adminScope,
     List<String>? permissions,
     List<String>? fcmTokens,
+    bool? isLiveStreamStation,
     String? cvNotes,
     String? adminNotes,
     DateTime? createdAt,
@@ -702,6 +777,8 @@ class UserModel {
       adminScope: adminScope ?? this.adminScope,
       permissions: permissions ?? this.permissions,
       fcmTokens: fcmTokens ?? this.fcmTokens,
+      isLiveStreamStation:
+          isLiveStreamStation ?? this.isLiveStreamStation,
       cvNotes: cvNotes ?? this.cvNotes,
       adminNotes: adminNotes ?? this.adminNotes,
       createdAt: createdAt ?? this.createdAt,

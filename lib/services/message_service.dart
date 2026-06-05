@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 
 import '../models/message_model.dart';
 import 'app_notification_service.dart';
@@ -12,13 +15,36 @@ class MessageService {
   String _normalizeRole(String value) {
     final role = value.trim().toLowerCase();
 
-    if (role == 'nursery' ||
-        role == 'nursery staff' ||
-        role == 'nursery_staff') {
-      return 'nursery_staff';
-    }
+    switch (role) {
+      case 'nursery':
+      case 'nursery staff':
+      case 'nursery_staff':
+      case 'staff':
+      case 'employee':
+      case 'teacher':
+      case 'موظفة':
+      case 'موظفة حضانة':
+      case 'حضانة':
+        return 'nursery_staff';
 
-    return role;
+      case 'admin':
+      case 'manager':
+      case 'مدير':
+      case 'مدير النظام':
+      case 'ادمن':
+      case 'أدمن':
+        return 'admin';
+
+      case 'parent':
+      case 'ولي امر':
+      case 'ولي أمر':
+      case 'ولي الامر':
+      case 'ولي الأمر':
+        return 'parent';
+
+      default:
+        return role;
+    }
   }
 
   bool _isParentRole(String value) {
@@ -45,6 +71,68 @@ class MessageService {
     if (clean.length <= 80) return clean;
 
     return '${clean.substring(0, 80)}...';
+  }
+
+  List<String> _participants({
+    required String senderId,
+    required String receiverId,
+  }) {
+    return <String>{
+      senderId.trim(),
+      receiverId.trim(),
+    }.where((value) => value.isNotEmpty).toList();
+  }
+
+
+  Stream<List<MessageModel>> _mergeMessageQueries({
+    required List<Query<Map<String, dynamic>>> queries,
+    required List<MessageModel> Function(List<MessageModel>) transform,
+  }) {
+    late final StreamController<List<MessageModel>> controller;
+
+    final latestDocsByQuery =
+        List<List<QueryDocumentSnapshot<Map<String, dynamic>>>>.generate(
+      queries.length,
+      (_) => <QueryDocumentSnapshot<Map<String, dynamic>>>[],
+    );
+
+    final subscriptions =
+        <StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>[];
+
+    void emitMergedMessages() {
+      final uniqueById = <String, MessageModel>{};
+
+      for (final docs in latestDocsByQuery) {
+        for (final doc in docs) {
+          uniqueById[doc.id] = MessageModel.fromMap(doc.id, doc.data());
+        }
+      }
+
+      controller.add(transform(uniqueById.values.toList()));
+    }
+
+    controller = StreamController<List<MessageModel>>(
+      onListen: () {
+        for (int index = 0; index < queries.length; index++) {
+          final subscription = queries[index].snapshots().listen(
+            (snapshot) {
+              latestDocsByQuery[index] = snapshot.docs;
+              emitMergedMessages();
+            },
+            onError: controller.addError,
+          );
+
+          subscriptions.add(subscription);
+        }
+      },
+      onCancel: () async {
+        for (final subscription in subscriptions) {
+          await subscription.cancel();
+        }
+      },
+    );
+
+    return controller.stream;
   }
 
   Future<Map<String, String>> _fetchUserInfo(String uid) async {
@@ -101,16 +189,13 @@ class MessageService {
     final normalizedReceiverRole = _normalizeRole(receiverRole);
     final normalizedSenderRole = _normalizeRole(senderRole);
 
-    String title;
+    final title =
+        childName.trim().isNotEmpty && !childName.startsWith('محادثة مباشرة')
+            ? 'رسالة جديدة بخصوص $childName'
+            : 'رسالة جديدة من ${senderName.trim().isEmpty ? _roleLabel(senderRole) : senderName.trim()}';
 
-    if (childName.trim().isNotEmpty && !childName.startsWith('محادثة مباشرة')) {
-      title = 'رسالة جديدة بخصوص $childName';
-    } else {
-      title =
-          'رسالة جديدة من ${senderName.trim().isEmpty ? _roleLabel(senderRole) : senderName.trim()}';
-    }
-
-    final previewText = messageType == 'audio' ? 'رسالة صوتية' : _safePreview(text);
+    final previewText =
+        messageType == 'audio' ? 'رسالة صوتية' : _safePreview(text);
 
     final body =
         '${senderName.trim().isEmpty ? _roleLabel(senderRole) : senderName.trim()}: $previewText';
@@ -196,74 +281,128 @@ class MessageService {
     );
   }
 
+  Future<void> _tryCreateMessageNotification({
+    required DocumentReference<Map<String, dynamic>> messageRef,
+    required String childId,
+    required String childName,
+    required String senderId,
+    required String senderName,
+    required String senderRole,
+    required String receiverId,
+    required String receiverName,
+    required String receiverRole,
+    required String text,
+    required String messageType,
+  }) async {
+    try {
+      await _createMessageNotification(
+        childId: childId,
+        childName: childName,
+        senderId: senderId,
+        senderName: senderName,
+        senderRole: senderRole,
+        receiverId: receiverId,
+        receiverName: receiverName,
+        receiverRole: receiverRole,
+        text: text,
+        messageId: messageRef.id,
+        messageType: messageType,
+      );
+
+      try {
+        await messageRef.update({
+          'notificationCreated': true,
+          'notificationCreatedAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      } catch (e) {
+        debugPrint(
+          'MessageService: notification marker update skipped for ${messageRef.id}: $e',
+        );
+      }
+    } catch (e) {
+      debugPrint(
+        'MessageService: notification creation failed but message remains saved: $e',
+      );
+    }
+  }
+
   Stream<List<MessageModel>> getConversationMessages({
     required String childId,
     required String currentUserId,
     required String targetUserId,
   }) {
-    return _messagesRef
+    final sentByCurrentUser = _messagesRef
         .where('childId', isEqualTo: childId)
-        .where('participants', arrayContains: currentUserId)
-        .snapshots()
-        .map((snapshot) {
-      final messages = snapshot.docs
-          .map((doc) => MessageModel.fromMap(doc.id, doc.data()))
-          .where((message) {
-        final hasCurrentUser =
-            message.senderId == currentUserId ||
-            message.receiverId == currentUserId;
+        .where('senderId', isEqualTo: currentUserId);
 
-        final hasTargetUser =
-            message.senderId == targetUserId ||
-            message.receiverId == targetUserId;
+    final receivedByCurrentUser = _messagesRef
+        .where('childId', isEqualTo: childId)
+        .where('receiverId', isEqualTo: currentUserId);
 
-        final hiddenForCurrentUser =
-            message.deletedForUserIds.contains(currentUserId);
+    return _mergeMessageQueries(
+      queries: [
+        sentByCurrentUser,
+        receivedByCurrentUser,
+      ],
+      transform: (rawMessages) {
+        final messages = rawMessages.where((message) {
+          final hasTargetUser =
+              message.senderId == targetUserId ||
+              message.receiverId == targetUserId;
 
-        return hasCurrentUser && hasTargetUser && !hiddenForCurrentUser;
-      }).toList();
+          final hiddenForCurrentUser =
+              message.deletedForUserIds.contains(currentUserId);
 
-      messages.sort((a, b) => a.sentAt.compareTo(b.sentAt));
-      return messages;
-    });
+          return hasTargetUser && !hiddenForCurrentUser;
+        }).toList();
+
+        messages.sort((a, b) => a.sentAt.compareTo(b.sentAt));
+        return messages;
+      },
+    );
   }
 
   Stream<List<MessageModel>> getLatestChatsForUser({
     required String currentUserId,
   }) {
-    return _messagesRef
-        .where('participants', arrayContains: currentUserId)
-        .snapshots()
-        .map((snapshot) {
-      final allMessages = snapshot.docs
-          .map((doc) => MessageModel.fromMap(doc.id, doc.data()))
-          .where((message) => !message.deletedForUserIds.contains(currentUserId))
-          .toList();
+    final sentByCurrentUser =
+        _messagesRef.where('senderId', isEqualTo: currentUserId);
 
-      allMessages.sort((a, b) => b.sentAt.compareTo(a.sentAt));
+    final receivedByCurrentUser =
+        _messagesRef.where('receiverId', isEqualTo: currentUserId);
 
-      final Map<String, MessageModel> latestByChat = {};
+    return _mergeMessageQueries(
+      queries: [
+        sentByCurrentUser,
+        receivedByCurrentUser,
+      ],
+      transform: (rawMessages) {
+        final allMessages = rawMessages
+            .where(
+              (message) =>
+                  !message.deletedForUserIds.contains(currentUserId),
+            )
+            .toList()
+          ..sort((a, b) => b.sentAt.compareTo(a.sentAt));
 
-      for (final message in allMessages) {
-        final otherUserId = message.senderId == currentUserId
-            ? message.receiverId
-            : message.senderId;
+        final latestByChat = <String, MessageModel>{};
 
-        final key = '${message.childId}_$otherUserId';
+        for (final message in allMessages) {
+          final key = message.conversationKeyFor(currentUserId);
+          latestByChat.putIfAbsent(key, () => message);
+        }
 
-        latestByChat.putIfAbsent(key, () => message);
-      }
-
-      return latestByChat.values.toList()
-        ..sort((a, b) => b.sentAt.compareTo(a.sentAt));
-    });
+        return latestByChat.values.toList()
+          ..sort((a, b) => b.sentAt.compareTo(a.sentAt));
+      },
+    );
   }
 
   Stream<int> getUnreadMessagesCountForUser({
     required String currentUserId,
   }) {
     return _messagesRef
-        .where('participants', arrayContains: currentUserId)
         .where('receiverId', isEqualTo: currentUserId)
         .where('isRead', isEqualTo: false)
         .snapshots()
@@ -323,11 +462,10 @@ class MessageService {
       'audioStorageProvider': '',
       'sentAt': Timestamp.now(),
       'isRead': false,
-      'participants': [
-        senderId,
-        receiverId,
-        childId,
-      ],
+      'participants': _participants(
+        senderId: senderId,
+        receiverId: receiverId,
+      ),
       'reactions': <String, String>{},
       'deletedForUserIds': <String>[],
       'isDeletedForEveryone': false,
@@ -341,7 +479,8 @@ class MessageService {
       'updatedAt': FieldValue.serverTimestamp(),
     });
 
-    await _createMessageNotification(
+    await _tryCreateMessageNotification(
+      messageRef: docRef,
       childId: childId,
       childName: childName,
       senderId: senderId,
@@ -351,14 +490,8 @@ class MessageService {
       receiverName: receiverName,
       receiverRole: normalizedReceiverRole,
       text: cleanText,
-      messageId: docRef.id,
       messageType: 'text',
     );
-
-    await docRef.update({
-  'notificationCreated': true,
-  'notificationCreatedAt': FieldValue.serverTimestamp(),
-});
   }
 
   Future<void> sendAudioMessage({
@@ -410,11 +543,10 @@ class MessageService {
       'audioStorageProvider': audioStorageProvider.trim(),
       'sentAt': Timestamp.now(),
       'isRead': false,
-      'participants': [
-        senderId,
-        receiverId,
-        childId,
-      ],
+      'participants': _participants(
+        senderId: senderId,
+        receiverId: receiverId,
+      ),
       'reactions': <String, String>{},
       'deletedForUserIds': <String>[],
       'isDeletedForEveryone': false,
@@ -428,7 +560,8 @@ class MessageService {
       'updatedAt': FieldValue.serverTimestamp(),
     });
 
-    await _createMessageNotification(
+    await _tryCreateMessageNotification(
+      messageRef: docRef,
       childId: childId,
       childName: childName,
       senderId: senderId,
@@ -438,14 +571,8 @@ class MessageService {
       receiverName: receiverName,
       receiverRole: normalizedReceiverRole,
       text: 'رسالة صوتية',
-      messageId: docRef.id,
       messageType: 'audio',
     );
-
-  await docRef.update({
-  'notificationCreated': true,
-  'notificationCreatedAt': FieldValue.serverTimestamp(),
-});
   }
 
   Future<void> markConversationAsRead({
@@ -455,7 +582,7 @@ class MessageService {
   }) async {
     final snapshot = await _messagesRef
         .where('childId', isEqualTo: childId)
-        .where('participants', arrayContains: currentUserId)
+        .where('receiverId', isEqualTo: currentUserId)
         .get();
 
     final docsToUpdate = snapshot.docs.where((doc) {
@@ -537,12 +664,14 @@ class MessageService {
         currentReactions[userId] = emoji;
 
         final senderId = (data['senderId'] ?? '').toString();
+
         if (senderId.isNotEmpty && senderId != userId) {
           shouldNotify = true;
           messageOwnerId = senderId;
           messageOwnerRole = (data['senderRole'] ?? '').toString();
 
           final messageType = (data['messageType'] ?? 'text').toString();
+
           messageText = messageType == 'audio'
               ? 'رسالة صوتية'
               : (data['text'] ?? '').toString();
@@ -562,18 +691,24 @@ class MessageService {
 
     final reactorInfo = await _fetchUserInfo(userId);
 
-    await _createReactionNotification(
-      messageId: messageId,
-      messageText: messageText,
-      childId: childId,
-      childName: childName,
-      messageOwnerId: messageOwnerId,
-      messageOwnerRole: messageOwnerRole,
-      reactedByUid: userId,
-      reactedByName: reactorInfo['name'] ?? 'مستخدم',
-      reactedByRole: reactorInfo['role'] ?? '',
-      emoji: emoji,
-    );
+    try {
+      await _createReactionNotification(
+        messageId: messageId,
+        messageText: messageText,
+        childId: childId,
+        childName: childName,
+        messageOwnerId: messageOwnerId,
+        messageOwnerRole: messageOwnerRole,
+        reactedByUid: userId,
+        reactedByName: reactorInfo['name'] ?? 'مستخدم',
+        reactedByRole: reactorInfo['role'] ?? '',
+        emoji: emoji,
+      );
+    } catch (e) {
+      debugPrint(
+        'MessageService: reaction notification failed but reaction remains saved: $e',
+      );
+    }
   }
 
   Future<void> deleteMessageForMe({
@@ -617,6 +752,7 @@ class MessageService {
       final data = snapshot.data() ?? {};
 
       final senderId = (data['senderId'] ?? '').toString();
+
       if (senderId != currentUserId) {
         return;
       }

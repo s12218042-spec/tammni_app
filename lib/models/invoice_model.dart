@@ -195,8 +195,7 @@ class InvoiceChildItem {
 
     final resolvedIsTrial = isTrialChild || resolvedType == 'trial';
     final resolvedIsTemporary = isTemporaryChild || resolvedType == 'temporary';
-    final resolvedIsBillable =
-        isBillable && !resolvedIsTrial && !excludeFromMonthlyInvoice;
+    final resolvedIsBillable = isBillable && !resolvedIsTrial;
 
     return {
       'childId': childId,
@@ -213,7 +212,7 @@ class InvoiceChildItem {
       'isTrialChild': resolvedIsTrial,
       'isBillable': resolvedIsBillable,
       'excludeFromMonthlyInvoice':
-          excludeFromMonthlyInvoice || resolvedIsTrial,
+          excludeFromMonthlyInvoice || resolvedIsTemporary || resolvedIsTrial,
     };
   }
 }
@@ -232,6 +231,17 @@ class InvoiceModel {
   final String parentUid;
   final String parentUsername;
   final String parentName;
+  final String parentPhone;
+
+  final String temporaryParentName;
+  final String temporaryParentPhone;
+
+  final String childType;
+  final String childStatus;
+  final bool isTemporaryChild;
+  final bool isTrialChild;
+  final bool isBillable;
+  final bool excludeFromMonthlyInvoice;
 
   final String section;
   final String group;
@@ -296,6 +306,15 @@ class InvoiceModel {
   final double extraHours;
   final double extraHourRate;
 
+  final double hoursCount;
+  final double hourlyRate;
+  final double daysCount;
+  final double dailyRate;
+  final double finalAmount;
+
+  final DateTime? accessStartAt;
+  final DateTime? accessEndAt;
+
   final String consultationId;
   final String consultationType;
   final double consultationHours;
@@ -336,6 +355,15 @@ class InvoiceModel {
     required this.parentUid,
     required this.parentUsername,
     required this.parentName,
+    this.parentPhone = '',
+    this.temporaryParentName = '',
+    this.temporaryParentPhone = '',
+    this.childType = '',
+    this.childStatus = '',
+    this.isTemporaryChild = false,
+    this.isTrialChild = false,
+    this.isBillable = true,
+    this.excludeFromMonthlyInvoice = false,
     required this.section,
     required this.group,
     required this.invoiceCategory,
@@ -386,6 +414,13 @@ class InvoiceModel {
     this.includesSaturday = false,
     this.extraHours = 0,
     this.extraHourRate = 10,
+    this.hoursCount = 0,
+    this.hourlyRate = 0,
+    this.daysCount = 0,
+    this.dailyRate = 0,
+    this.finalAmount = 0,
+    this.accessStartAt,
+    this.accessEndAt,
     this.consultationId = '',
     this.consultationType = '',
     this.consultationHours = 0,
@@ -467,7 +502,7 @@ class InvoiceModel {
     );
 
     final resolvedTotal = _toDouble(
-      data['totalAmount'],
+      data['totalAmount'] ?? data['finalAmount'],
       fallback: (resolvedSubtotal - resolvedTotalDiscount)
           .clamp(0, double.infinity)
           .toDouble(),
@@ -489,6 +524,37 @@ class InvoiceModel {
       data['offerTitle'],
       data['offerName'],
     ]);
+
+    final resolvedChildType = _normalizeChildType(
+      _firstNonEmpty([
+        data['childType'],
+        data['enrollmentType'],
+      ]),
+    );
+
+    final resolvedChildStatus = _firstNonEmpty([
+      data['childStatus'],
+      data['status'],
+      resolvedChildType == 'temporary' ? 'temporary' : '',
+      resolvedChildType == 'trial' ? 'trial' : '',
+    ]).toLowerCase();
+
+    final resolvedIsTemporaryChild = data['isTemporaryChild'] == true ||
+        resolvedChildType == 'temporary' ||
+        resolvedChildStatus == 'temporary';
+
+    final resolvedIsTrialChild = data['isTrialChild'] == true ||
+        resolvedChildType == 'trial' ||
+        resolvedChildStatus == 'trial';
+
+    final resolvedIsBillable = data['isBillable'] == null
+        ? !resolvedIsTrialChild
+        : data['isBillable'] == true;
+
+    final resolvedExcludeFromMonthlyInvoice =
+        data['excludeFromMonthlyInvoice'] == true ||
+            resolvedIsTemporaryChild ||
+            resolvedIsTrialChild;
 
     return InvoiceModel(
       id: _firstNonEmpty([
@@ -513,6 +579,15 @@ class InvoiceModel {
       parentUid: _string(data['parentUid']),
       parentUsername: _string(data['parentUsername']).toLowerCase(),
       parentName: _string(data['parentName']),
+      parentPhone: _string(data['parentPhone']),
+      temporaryParentName: _string(data['temporaryParentName']),
+      temporaryParentPhone: _string(data['temporaryParentPhone']),
+      childType: resolvedChildType,
+      childStatus: resolvedChildStatus,
+      isTemporaryChild: resolvedIsTemporaryChild,
+      isTrialChild: resolvedIsTrialChild,
+      isBillable: resolvedIsBillable,
+      excludeFromMonthlyInvoice: resolvedExcludeFromMonthlyInvoice,
       section: _firstNonEmpty([
         data['section'],
         'Nursery',
@@ -592,6 +667,19 @@ class InvoiceModel {
       includesSaturday: _bool(data['includesSaturday']),
       extraHours: _toDouble(data['extraHours']),
       extraHourRate: _toDouble(data['extraHourRate'], fallback: 10),
+      hoursCount: _toDouble(data['hoursCount']),
+      hourlyRate: _toDouble(data['hourlyRate']),
+      daysCount: _toDouble(data['daysCount']),
+      dailyRate: _toDouble(data['dailyRate']),
+      finalAmount: _toDouble(
+        data['finalAmount'] ?? data['totalAmount'],
+      ),
+      accessStartAt: _parseDate(
+        data['accessStartAt'] ?? data['startDate'],
+      ),
+      accessEndAt: _parseDate(
+        data['accessEndAt'] ?? data['endDate'],
+      ),
       consultationId: _string(data['consultationId']),
       consultationType: _string(data['consultationType']),
       consultationHours: _toDouble(data['consultationHours']),
@@ -636,14 +724,33 @@ class InvoiceModel {
   }) {
     final status = _string(value).toLowerCase();
 
-    if (status == 'paid') return 'paid';
-    if (status == 'partial' || status == 'partially_paid') return 'partial';
-    if (status == 'overdue') return 'overdue';
-    if (status == 'cancelled' || status == 'canceled') return 'cancelled';
+    if (status == 'paid' || status == 'مدفوعة' || status == 'مدفوع') {
+      return 'paid';
+    }
+
+    if (status == 'partial' ||
+        status == 'partially_paid' ||
+        status == 'مدفوعة جزئياً' ||
+        status == 'مدفوعة جزئيًا' ||
+        status == 'مدفوع جزئياً' ||
+        status == 'مدفوع جزئيًا') {
+      return 'partial';
+    }
+
+    if (status == 'overdue' || status == 'متأخرة') return 'overdue';
+    if (status == 'cancelled' ||
+        status == 'canceled' ||
+        status == 'ملغاة') {
+      return 'cancelled';
+    }
     if (status == 'draft') return 'draft';
     if (status == 'superseded') return 'superseded';
 
-    if (status == 'unpaid' || status == 'pending' || status.isEmpty) {
+    if (status == 'unpaid' ||
+        status == 'pending' ||
+        status == 'غير مدفوعة' ||
+        status == 'غير مدفوع' ||
+        status.isEmpty) {
       if (totalAmount != null && paidAmount != null) {
         if (totalAmount <= 0 || paidAmount <= 0) return 'unpaid';
         if (paidAmount >= totalAmount) return 'paid';
@@ -696,6 +803,15 @@ class InvoiceModel {
       'parentUid': parentUid,
       'parentUsername': parentUsername.trim().toLowerCase(),
       'parentName': parentName,
+      'parentPhone': parentPhone,
+      'temporaryParentName': temporaryParentName,
+      'temporaryParentPhone': temporaryParentPhone,
+      'childType': childType,
+      'childStatus': childStatus,
+      'isTemporaryChild': isTemporaryChild,
+      'isTrialChild': isTrialChild,
+      'isBillable': isBillable,
+      'excludeFromMonthlyInvoice': excludeFromMonthlyInvoice,
       'section': section.trim().isEmpty ? 'Nursery' : section,
       'group': resolvedGroup,
       'groupId': groupId,
@@ -733,6 +849,11 @@ class InvoiceModel {
       'totalAmount': calculatedTotal,
       'paidAmount': paidAmount,
       'remainingAmount': calculatedRemaining,
+      'finalAmount': calculatedTotal,
+      'hoursCount': hoursCount,
+      'hourlyRate': hourlyRate,
+      'daysCount': daysCount,
+      'dailyRate': dailyRate,
       'offerId': offerId,
       'offerTitle': offerTitle.trim().isNotEmpty ? offerTitle : offerName,
       'offerName': offerName.trim().isNotEmpty ? offerName : offerTitle,
@@ -779,6 +900,14 @@ class InvoiceModel {
 
     if (paidAt != null) {
       data['paidAt'] = Timestamp.fromDate(paidAt!);
+    }
+
+    if (accessStartAt != null) {
+      data['accessStartAt'] = Timestamp.fromDate(accessStartAt!);
+    }
+
+    if (accessEndAt != null) {
+      data['accessEndAt'] = Timestamp.fromDate(accessEndAt!);
     }
 
     if (createdAt != null) {
@@ -843,6 +972,7 @@ class InvoiceModel {
 
   double get effectiveTotalAmount {
     if (totalAmount > 0) return totalAmount;
+    if (finalAmount > 0) return finalAmount;
     return (effectiveSubtotal - effectiveDiscount).clamp(0, double.infinity);
   }
 
@@ -873,6 +1003,10 @@ class InvoiceModel {
   }
 
   bool get hasTemporaryChild {
+    if (isTemporaryChild || _normalizeChildType(childType) == 'temporary') {
+      return true;
+    }
+
     if (children.any((child) => child.isTemporaryChild)) return true;
 
     final consultationsTemporary = consultations.any((item) {
@@ -884,6 +1018,10 @@ class InvoiceModel {
   }
 
   bool get hasTrialChild {
+    if (isTrialChild || _normalizeChildType(childType) == 'trial') {
+      return true;
+    }
+
     if (children.any((child) => child.isTrialChild)) return true;
 
     final consultationsTrial = consultations.any((item) {
@@ -919,6 +1057,7 @@ class InvoiceModel {
       case 'cash':
         return 'كاش';
       case 'card':
+      case 'visa':
         return 'بطاقة / فيزا';
       case 'bank_transfer':
         return 'تحويل بنكي';
@@ -937,6 +1076,8 @@ class InvoiceModel {
 
   String get billingTypeLabel {
     switch (billingType) {
+      case 'hourly':
+        return 'حسب الساعات';
       case 'daily':
         return 'يومي';
       case 'weekly':
@@ -962,6 +1103,9 @@ class InvoiceModel {
         return 'رسوم تسجيل';
       case 'late_fee':
         return 'رسوم تأخير';
+      case 'temporary_child':
+      case 'temporary_fee':
+        return 'فاتورة طفل مؤقت';
       case 'extra_hours':
         return 'ساعات إضافية';
       case 'consultation':
@@ -984,6 +1128,15 @@ class InvoiceModel {
     String? parentUid,
     String? parentUsername,
     String? parentName,
+    String? parentPhone,
+    String? temporaryParentName,
+    String? temporaryParentPhone,
+    String? childType,
+    String? childStatus,
+    bool? isTemporaryChild,
+    bool? isTrialChild,
+    bool? isBillable,
+    bool? excludeFromMonthlyInvoice,
     String? section,
     String? group,
     String? groupId,
@@ -1034,6 +1187,13 @@ class InvoiceModel {
     bool? includesSaturday,
     double? extraHours,
     double? extraHourRate,
+    double? hoursCount,
+    double? hourlyRate,
+    double? daysCount,
+    double? dailyRate,
+    double? finalAmount,
+    DateTime? accessStartAt,
+    DateTime? accessEndAt,
     String? consultationId,
     String? consultationType,
     double? consultationHours,
@@ -1067,6 +1227,16 @@ class InvoiceModel {
       parentUid: parentUid ?? this.parentUid,
       parentUsername: parentUsername ?? this.parentUsername,
       parentName: parentName ?? this.parentName,
+      parentPhone: parentPhone ?? this.parentPhone,
+      temporaryParentName: temporaryParentName ?? this.temporaryParentName,
+      temporaryParentPhone: temporaryParentPhone ?? this.temporaryParentPhone,
+      childType: childType ?? this.childType,
+      childStatus: childStatus ?? this.childStatus,
+      isTemporaryChild: isTemporaryChild ?? this.isTemporaryChild,
+      isTrialChild: isTrialChild ?? this.isTrialChild,
+      isBillable: isBillable ?? this.isBillable,
+      excludeFromMonthlyInvoice:
+          excludeFromMonthlyInvoice ?? this.excludeFromMonthlyInvoice,
       section: section ?? this.section,
       group: group ?? this.group,
       groupId: groupId ?? this.groupId,
@@ -1117,6 +1287,13 @@ class InvoiceModel {
       includesSaturday: includesSaturday ?? this.includesSaturday,
       extraHours: extraHours ?? this.extraHours,
       extraHourRate: extraHourRate ?? this.extraHourRate,
+      hoursCount: hoursCount ?? this.hoursCount,
+      hourlyRate: hourlyRate ?? this.hourlyRate,
+      daysCount: daysCount ?? this.daysCount,
+      dailyRate: dailyRate ?? this.dailyRate,
+      finalAmount: finalAmount ?? this.finalAmount,
+      accessStartAt: accessStartAt ?? this.accessStartAt,
+      accessEndAt: accessEndAt ?? this.accessEndAt,
       consultationId: consultationId ?? this.consultationId,
       consultationType: consultationType ?? this.consultationType,
       consultationHours: consultationHours ?? this.consultationHours,

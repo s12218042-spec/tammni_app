@@ -144,7 +144,7 @@ serve(async (req) => {
     const body = await req.json();
 
     const token = String(body.token ?? "").trim();
-    const title = String(body.title ?? "طمّني").trim();
+    const title = String(body.title ?? "حضانتي").trim();
     const messageBody = String(body.body ?? "").trim();
 
     const type = String(body.type ?? "general");

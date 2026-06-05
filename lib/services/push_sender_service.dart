@@ -21,13 +21,23 @@ class PushSenderService {
   String _normalizeRole(String value) {
     final role = value.trim().toLowerCase();
 
-    if (role == 'nursery' ||
-        role == 'nursery staff' ||
-        role == 'nursery_staff') {
-      return 'nursery_staff';
-    }
+    switch (role) {
+      case 'nursery':
+      case 'nursery staff':
+      case 'nursery_staff':
+      case 'staff':
+      case 'employee':
+      case 'teacher':
+        return 'nursery_staff';
 
-    return role;
+      case 'temporary parent':
+      case 'temporary_parent':
+      case 'temp_parent':
+        return 'temporary_parent';
+
+      default:
+        return role;
+    }
   }
 
   List<String> _extractTokens(Map<String, dynamic> data) {
@@ -151,6 +161,12 @@ class PushSenderService {
     return null;
   }
 
+  bool _isExpired(dynamic value) {
+    final date = _dateFromDynamic(value);
+    if (date == null) return false;
+    return !date.isAfter(DateTime.now());
+  }
+
   Future<bool> sendToToken({
     required String token,
     required String title,
@@ -183,9 +199,10 @@ class PushSenderService {
         _functionName,
         body: {
           'token': cleanToken,
-          'title': cleanTitle.isNotEmpty ? cleanTitle : 'طمّني',
+          'title': cleanTitle.isNotEmpty ? cleanTitle : 'حضانتي',
           'body': cleanBody,
           'data': {
+            ...?extraData,
             'type': type,
             'screen': screen.trim().isEmpty ? _screenForType(type) : screen,
             'childId': childId,
@@ -197,7 +214,6 @@ class PushSenderService {
             'notificationId': notificationId,
             'roomId': roomId,
             'liveStreamId': liveStreamId,
-            ...?extraData,
           },
         },
       );
@@ -353,40 +369,51 @@ class PushSenderService {
       }
 
       final tokens = <String>{};
-      final now = DateTime.now();
 
       int inactiveCount = 0;
       int expiredCount = 0;
+      int noPushSupportCount = 0;
       int emptyTokenCount = 0;
 
       for (final doc in snapshot.docs) {
         final data = doc.data();
 
-        final isActive = data['isActive'];
-        if (isActive == false) {
+        final isActive = data['isActive'] == true;
+        final accountStatus =
+            (data['accountStatus'] ?? '').toString().trim().toLowerCase();
+
+        if (!isActive || accountStatus != 'active') {
           inactiveCount++;
           continue;
         }
 
-        final token = (data['fcmToken'] ?? '').toString().trim();
-        if (token.isEmpty) {
-          emptyTokenCount++;
-          continue;
-        }
-
-        final accessEndDate = _dateFromDynamic(data['accessEndAt']);
-
-        if (accessEndDate != null && now.isAfter(accessEndDate)) {
+        if (_isExpired(data['accessEndAt'])) {
           expiredCount++;
           continue;
         }
 
-        tokens.add(token);
+        if (data['supportsPush'] == false) {
+          noPushSupportCount++;
+          continue;
+        }
+
+        final deviceTokens = _extractTokens(data);
+
+        if (deviceTokens.isEmpty) {
+          emptyTokenCount++;
+          continue;
+        }
+
+        tokens.addAll(deviceTokens);
       }
 
       if (tokens.isEmpty) {
         lastError =
-            'تم العثور على أجهزة مؤقتة لكن بدون token صالح. inactive=$inactiveCount expired=$expiredCount emptyToken=$emptyTokenCount childId=$cleanChildId';
+            'تم العثور على أجهزة مؤقتة لكن بدون token صالح. '
+            'inactive=$inactiveCount expired=$expiredCount '
+            'noPush=$noPushSupportCount emptyToken=$emptyTokenCount '
+            'childId=$cleanChildId';
+
         debugPrint('PushSenderService: $lastError');
       } else {
         lastError = '';
@@ -425,6 +452,9 @@ class PushSenderService {
       if (cleanRole == 'nursery_staff') {
         await collectRoleTokens('nursery');
         await collectRoleTokens('nursery staff');
+        await collectRoleTokens('staff');
+        await collectRoleTokens('employee');
+        await collectRoleTokens('teacher');
       }
 
       if (tokens.isEmpty) {
@@ -458,6 +488,7 @@ class PushSenderService {
     Map<String, dynamic>? extraData,
   }) async {
     final cleanUid = uid.trim();
+
     if (cleanUid.isEmpty) {
       lastError = 'uid فارغ';
       return 0;
@@ -615,7 +646,7 @@ class PushSenderService {
   }) async {
     lastError = '';
 
-    final title = (notificationData['title'] ?? 'طمّني').toString().trim();
+    final title = (notificationData['title'] ?? 'حضانتي').toString().trim();
 
     final body = (notificationData['body'] ??
             notificationData['message'] ??
@@ -644,8 +675,9 @@ class PushSenderService {
 
     final parentUid = (notificationData['parentUid'] ?? '').toString().trim();
 
-    final parentUsername =
-        (notificationData['parentUsername'] ?? '').toString().trim();
+    final parentUsername = _normalizeUsername(
+      (notificationData['parentUsername'] ?? '').toString(),
+    );
 
     final childId = (notificationData['childId'] ?? '').toString().trim();
     final childName = (notificationData['childName'] ?? '').toString().trim();
@@ -679,6 +711,25 @@ class PushSenderService {
     };
 
     int sentCount = 0;
+
+    final explicitlyTemporaryParent = targetRole == 'temporary_parent';
+
+    if (explicitlyTemporaryParent && childId.isNotEmpty) {
+      sentCount = await sendToTemporaryParentDevices(
+        childId: childId,
+        title: title,
+        body: body,
+        type: type,
+        screen: screen,
+        childName: childName,
+        notificationId: notificationId,
+        roomId: roomId,
+        liveStreamId: liveStreamId,
+        extraData: extraPayload,
+      );
+
+      if (sentCount > 0) return sentCount;
+    }
 
     if (targetUid.isNotEmpty) {
       sentCount = await sendToUser(
@@ -745,7 +796,9 @@ class PushSenderService {
       if (sentCount > 0) return sentCount;
     }
 
-    if (targetRole.isNotEmpty && targetRole != 'parent') {
+    if (targetRole.isNotEmpty &&
+        targetRole != 'parent' &&
+        targetRole != 'temporary_parent') {
       sentCount = await sendToRole(
         role: targetRole,
         title: title,
@@ -761,7 +814,10 @@ class PushSenderService {
 
     if (lastError.isEmpty) {
       lastError =
-          'لا يوجد token صالح للإشعار notificationId=$notificationId targetUid=$targetUid parentUid=$parentUid parentUsername=$parentUsername targetRole=$targetRole childId=$childId';
+          'لا يوجد token صالح للإشعار notificationId=$notificationId '
+          'targetUid=$targetUid parentUid=$parentUid '
+          'parentUsername=$parentUsername targetRole=$targetRole '
+          'childId=$childId';
     }
 
     debugPrint('PushSenderService: $lastError');

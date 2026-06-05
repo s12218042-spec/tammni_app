@@ -1,5 +1,5 @@
 name: tammni_app
-description: "A new Flutter project."
+description: "حضانتي - نظام لإدارة الحضانة ومتابعة الأطفال والتواصل مع أولياء الأمور."
 publish_to: 'none'
 
 version: 1.0.0+1
@@ -51,6 +51,25 @@ dev_dependencies:
     sdk: flutter
 
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
 
 flutter:
   uses-material-design: true
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icons/hadanati_icon.png"
+  min_sdk_android: 21
+  remove_alpha_ios: true
+
+  web:
+    generate: true
+    image_path: "assets/icons/hadanati_icon.png"
+    background_color: "#F8FBFF"
+    theme_color: "#7C83FD"
+
+  windows:
+    generate: true
+    image_path: "assets/icons/hadanati_icon.png"
+    icon_size: 256

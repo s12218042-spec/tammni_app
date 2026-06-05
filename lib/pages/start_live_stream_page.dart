@@ -8,6 +8,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../services/live_stream_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
+import 'welcome_page.dart';
 
 class StartLiveStreamPage extends StatefulWidget {
   const StartLiveStreamPage({super.key});
@@ -30,6 +31,7 @@ class _StartLiveStreamPageState extends State<StartLiveStreamPage>
 
   bool _isInitializing = true;
   bool _isStopping = false;
+  bool _isLoggingOut = false;
   bool _isStationOnline = false;
   bool _isBroadcastActive = false;
   bool _rendererInitialized = false;
@@ -307,6 +309,61 @@ class _StartLiveStreamPageState extends State<StartLiveStreamPage>
     }
   }
 
+  Future<void> _logout() async {
+    if (_isLoggingOut) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) {
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: const Text('تسجيل الخروج'),
+            content: const Text(
+              'هل تريدين تسجيل الخروج من محطة البث؟',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('إلغاء'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('تسجيل خروج'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+
+    setState(() {
+      _isLoggingOut = true;
+      _errorMessage = null;
+    });
+
+    try {
+      await _liveStreamService.stopNurseryStationMode();
+      await _auth.signOut();
+    } catch (_) {
+      try {
+        await _auth.signOut();
+      } catch (_) {}
+    }
+
+    if (!mounted) return;
+
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const WelcomePage(),
+      ),
+      (route) => false,
+    );
+  }
+
   Color _statusColor() {
     if (!_isStationOnline) return Colors.orange;
     if (_isBroadcastActive) return Colors.red;
@@ -551,6 +608,19 @@ class _StartLiveStreamPageState extends State<StartLiveStreamPage>
             onPressed: _isInitializing ? null : _retryStation,
             icon: const Icon(Icons.refresh_rounded),
             tooltip: 'تحديث',
+          ),
+          IconButton(
+            onPressed: _isLoggingOut ? null : _logout,
+            icon: _isLoggingOut
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                    ),
+                  )
+                : const Icon(Icons.logout_rounded),
+            tooltip: 'تسجيل الخروج',
           ),
         ],
         child: _isInitializing

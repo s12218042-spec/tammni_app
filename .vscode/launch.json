@@ -5,18 +5,18 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "tammni_app",
+            "name": "حضانتي",
             "request": "launch",
             "type": "dart"
         },
         {
-            "name": "tammni_app (profile mode)",
+            "name": "حضانتي (profile mode)",
             "request": "launch",
             "type": "dart",
             "flutterMode": "profile"
         },
         {
-            "name": "tammni_app (release mode)",
+            "name": "حضانتي (release mode)",
             "request": "launch",
             "type": "dart",
             "flutterMode": "release"

@@ -14,7 +14,7 @@ class MessageModel {
   final String receiverName;
   final String receiverRole;
 
-  final String messageType; // text / audio
+  final String messageType;
   final String text;
 
   final String audioPath;
@@ -41,6 +41,8 @@ class MessageModel {
   final String? replyToText;
   final String? replyToSenderId;
   final String? replyToSenderName;
+
+  final bool notificationCreated;
 
   const MessageModel({
     required this.id,
@@ -74,11 +76,21 @@ class MessageModel {
     required this.replyToSenderId,
     required this.replyToSenderName,
     this.readAt,
+    this.notificationCreated = false,
   });
 
   static String _string(dynamic value) {
     if (value == null) return '';
     return value.toString().trim();
+  }
+
+  static String _firstNonEmpty(List<dynamic> values) {
+    for (final value in values) {
+      final text = _string(value);
+      if (text.isNotEmpty) return text;
+    }
+
+    return '';
   }
 
   static int _intFromDynamic(dynamic value) {
@@ -93,31 +105,67 @@ class MessageModel {
     return 0;
   }
 
+  static bool _bool(dynamic value) {
+    if (value is bool) return value;
+
+    final text = _string(value).toLowerCase();
+    return text == 'true' || text == '1' || text == 'yes';
+  }
+
   static Timestamp _timestampOrNow(dynamic value) {
     if (value is Timestamp) return value;
     if (value is DateTime) return Timestamp.fromDate(value);
-    return Timestamp.now();
+
+    final text = _string(value);
+    final parsed = DateTime.tryParse(text);
+
+    return parsed == null ? Timestamp.now() : Timestamp.fromDate(parsed);
   }
 
   static Timestamp? _timestampOrNull(dynamic value) {
     if (value is Timestamp) return value;
     if (value is DateTime) return Timestamp.fromDate(value);
-    return null;
+
+    final text = _string(value);
+    if (text.isEmpty) return null;
+
+    final parsed = DateTime.tryParse(text);
+    return parsed == null ? null : Timestamp.fromDate(parsed);
   }
 
   static String normalizeRole(dynamic value) {
     final role = _string(value).toLowerCase();
 
-    if (role == 'nursery' ||
-        role == 'nursery staff' ||
-        role == 'nursery_staff') {
-      return 'nursery_staff';
+    switch (role) {
+      case 'nursery':
+      case 'nursery staff':
+      case 'nursery_staff':
+      case 'staff':
+      case 'employee':
+      case 'teacher':
+      case 'موظفة':
+      case 'موظفة حضانة':
+      case 'حضانة':
+        return 'nursery_staff';
+
+      case 'admin':
+      case 'manager':
+      case 'مدير':
+      case 'مدير النظام':
+      case 'ادمن':
+      case 'أدمن':
+        return 'admin';
+
+      case 'parent':
+      case 'ولي امر':
+      case 'ولي أمر':
+      case 'ولي الامر':
+      case 'ولي الأمر':
+        return 'parent';
+
+      default:
+        return role;
     }
-
-    if (role == 'parent') return 'parent';
-    if (role == 'admin') return 'admin';
-
-    return role;
   }
 
   static bool isNurseryRole(dynamic value) {
@@ -131,12 +179,14 @@ class MessageModel {
   }) {
     final normalizedRole = normalizeRole(role);
     final cleanName = _string(name).toLowerCase();
+    final cleanUserId = _string(userId).toLowerCase();
 
     return normalizedRole == 'admin' ||
         cleanName == 'admin' ||
         cleanName == 'الإدارة' ||
         cleanName == 'ادارة' ||
-        cleanName == 'الإداره';
+        cleanName == 'الإداره' ||
+        cleanUserId == 'admin';
   }
 
   static Map<String, String> _parseReactions(dynamic rawReactions) {
@@ -152,17 +202,34 @@ class MessageModel {
     return <String, String>{};
   }
 
-  static List<dynamic> _parseParticipants(dynamic rawParticipants) {
+  static List<dynamic> _parseParticipants(
+    dynamic rawParticipants, {
+    required String senderId,
+    required String receiverId,
+  }) {
+    final participants = <String>{};
+
     if (rawParticipants is List) {
-      return List<dynamic>.from(rawParticipants);
+      participants.addAll(
+        rawParticipants
+            .map((e) => e.toString().trim())
+            .where((e) => e.isNotEmpty),
+      );
     }
 
-    return <dynamic>[];
+    if (senderId.trim().isNotEmpty) participants.add(senderId.trim());
+    if (receiverId.trim().isNotEmpty) participants.add(receiverId.trim());
+
+    return participants.toList();
   }
 
   static List<String> _parseDeletedFor(dynamic raw) {
     if (raw is List) {
-      return raw.map((e) => e.toString()).toSet().toList();
+      return raw
+          .map((e) => e.toString().trim())
+          .where((e) => e.isNotEmpty)
+          .toSet()
+          .toList();
     }
 
     return <String>[];
@@ -209,32 +276,36 @@ class MessageModel {
   String get displayText {
     if (isDeletedForEveryone) return 'تم حذف هذه الرسالة';
     if (isAudioMessage) return 'رسالة صوتية';
+
     return text;
   }
 
   String otherUserId(String currentUserId) {
     if (senderId == currentUserId) return receiverId;
     if (receiverId == currentUserId) return senderId;
+
     return receiverId.isNotEmpty ? receiverId : senderId;
   }
 
   String otherUserName(String currentUserId) {
     if (senderId == currentUserId) return receiverName;
     if (receiverId == currentUserId) return senderName;
+
     return receiverName.isNotEmpty ? receiverName : senderName;
   }
 
   String otherUserRole(String currentUserId) {
     if (senderId == currentUserId) return normalizedReceiverRole;
     if (receiverId == currentUserId) return normalizedSenderRole;
+
     return normalizedReceiverRole.isNotEmpty
         ? normalizedReceiverRole
         : normalizedSenderRole;
   }
 
-  /// مفتاح مفيد لمنع التكرار في صفحات المحادثات.
-  /// - الإدارة تظهر مرة واحدة فقط مهما اختلف childId.
-  /// - ولي الأمر يبقى حسب الطفل لأن محادثة ولي الأمر مرتبطة بالطفل.
+  /// مفتاح مباشر لمنع تكرار بطاقات المحادثات.
+  /// لا يعتمد على childId حتى لا تظهر الموظفة أو الإدارة أكثر من مرة
+  /// إذا كان لولي الأمر أكثر من طفل.
   String conversationKeyFor(String currentUserId) {
     final otherId = otherUserId(currentUserId).trim();
     final otherRole = otherUserRole(currentUserId).trim();
@@ -243,20 +314,53 @@ class MessageModel {
       return 'admin_chat';
     }
 
-    if (otherRole == 'parent') {
-      return 'parent_${otherId}_$childId';
+    if (otherRole == 'nursery_staff') {
+      return 'nursery_$otherId';
     }
 
-    if (otherRole == 'nursery_staff') {
-      return 'nursery_${otherId}_$childId';
+    if (otherRole == 'parent') {
+      return 'parent_$otherId';
+    }
+
+    return '${otherRole}_$otherId';
+  }
+
+  /// للتوافق فقط مع أي منطق قديم كان يفصل المحادثة حسب الطفل.
+  String legacyConversationKeyFor(String currentUserId) {
+    final otherId = otherUserId(currentUserId).trim();
+    final otherRole = otherUserRole(currentUserId).trim();
+
+    if (isAdminConversation || otherRole == 'admin') {
+      return 'admin_chat';
     }
 
     return '${otherRole}_${otherId}_$childId';
   }
 
   factory MessageModel.fromMap(String id, Map<String, dynamic> data) {
-    final audioPath = _string(data['audioPath']);
-    final audioUrl = _string(data['audioUrl']);
+    final senderId = _firstNonEmpty([
+      data['senderId'],
+      data['senderUid'],
+      data['fromUid'],
+    ]);
+
+    final receiverId = _firstNonEmpty([
+      data['receiverId'],
+      data['receiverUid'],
+      data['targetUid'],
+      data['toUid'],
+    ]);
+
+    final audioPath = _firstNonEmpty([
+      data['audioPath'],
+      data['mediaPath'],
+    ]);
+
+    final audioUrl = _firstNonEmpty([
+      data['audioUrl'],
+      data['mediaUrl'],
+      data['url'],
+    ]);
 
     final rawMessageType = _string(data['messageType']).toLowerCase();
 
@@ -270,12 +374,30 @@ class MessageModel {
       id: id,
       childId: _string(data['childId']),
       childName: _string(data['childName']),
-      senderId: _string(data['senderId']),
-      senderName: _string(data['senderName']),
-      senderRole: normalizeRole(data['senderRole']),
-      receiverId: _string(data['receiverId']),
-      receiverName: _string(data['receiverName']),
-      receiverRole: normalizeRole(data['receiverRole']),
+      senderId: senderId,
+      senderName: _firstNonEmpty([
+        data['senderName'],
+        data['fromName'],
+      ]),
+      senderRole: normalizeRole(
+        _firstNonEmpty([
+          data['senderRole'],
+          data['fromRole'],
+        ]),
+      ),
+      receiverId: receiverId,
+      receiverName: _firstNonEmpty([
+        data['receiverName'],
+        data['targetName'],
+        data['toName'],
+      ]),
+      receiverRole: normalizeRole(
+        _firstNonEmpty([
+          data['receiverRole'],
+          data['targetRole'],
+          data['toRole'],
+        ]),
+      ),
       messageType: resolvedMessageType,
       text: _string(data['text']),
       audioPath: audioPath,
@@ -286,18 +408,25 @@ class MessageModel {
       audioBucket: _string(data['audioBucket']),
       audioStorageProvider: _string(data['audioStorageProvider']),
       sentAt: _timestampOrNow(data['sentAt'] ?? data['createdAt']),
-      isRead: data['isRead'] == true,
+      isRead: _bool(data['isRead'] ?? data['read']),
       readAt: _timestampOrNull(data['readAt']),
-      participants: _parseParticipants(data['participants']),
+      participants: _parseParticipants(
+        data['participants'],
+        senderId: senderId,
+        receiverId: receiverId,
+      ),
       reactions: _parseReactions(data['reactions']),
-      deletedForUserIds: _parseDeletedFor(data['deletedForUserIds']),
-      isDeletedForEveryone: data['isDeletedForEveryone'] == true,
+      deletedForUserIds: _parseDeletedFor(
+        data['deletedForUserIds'] ?? data['deletedForUsers'],
+      ),
+      isDeletedForEveryone: _bool(data['isDeletedForEveryone']),
       deletedForEveryoneAt: _timestampOrNull(data['deletedForEveryoneAt']),
       deletedForEveryoneBy: _string(data['deletedForEveryoneBy']),
       replyToMessageId: data['replyToMessageId']?.toString(),
       replyToText: data['replyToText']?.toString(),
       replyToSenderId: data['replyToSenderId']?.toString(),
       replyToSenderName: data['replyToSenderName']?.toString(),
+      notificationCreated: _bool(data['notificationCreated']),
     );
   }
 
@@ -311,59 +440,63 @@ class MessageModel {
   }
 
   Map<String, dynamic> toMap() {
-  final data = <String, dynamic>{
-    'childId': childId,
-    'childName': childName,
-    'senderId': senderId,
-    'senderName': senderName,
-    'senderRole': normalizeRole(senderRole),
-    'receiverId': receiverId,
-    'receiverName': receiverName,
-    'receiverRole': normalizeRole(receiverRole),
-    'messageType': messageType.trim().isEmpty ? 'text' : messageType,
-    'text': text,
-    'audioPath': audioPath,
-    'audioUrl': audioUrl,
-    'audioDurationSeconds': audioDurationSeconds,
-    'audioMimeType': audioMimeType,
-    'audioSizeBytes': audioSizeBytes,
-    'audioBucket': audioBucket,
-    'audioStorageProvider': audioStorageProvider,
-    'sentAt': sentAt,
-    'isRead': isRead,
-    'participants': participants,
-    'reactions': reactions,
-    'deletedForUserIds': deletedForUserIds,
-    'isDeletedForEveryone': isDeletedForEveryone,
-    'deletedForEveryoneBy': deletedForEveryoneBy,
-  };
+    final data = <String, dynamic>{
+      'childId': childId,
+      'childName': childName,
+      'senderId': senderId,
+      'senderName': senderName,
+      'senderRole': normalizeRole(senderRole),
+      'receiverId': receiverId,
+      'receiverName': receiverName,
+      'receiverRole': normalizeRole(receiverRole),
+      'messageType': messageType.trim().isEmpty ? 'text' : messageType,
+      'text': text,
+      'sentAt': sentAt,
+      'isRead': isRead,
+      'participants': participants,
+      'reactions': reactions,
+      'deletedForUserIds': deletedForUserIds,
+      'isDeletedForEveryone': isDeletedForEveryone,
+      'deletedForEveryoneBy': deletedForEveryoneBy,
+      'notificationCreated': notificationCreated,
+    };
 
-  if (readAt != null) {
-    data['readAt'] = readAt;
+    if (hasAudio || isAudioMessage) {
+      data['audioPath'] = audioPath;
+      data['audioUrl'] = audioUrl;
+      data['audioDurationSeconds'] = audioDurationSeconds;
+      data['audioMimeType'] = audioMimeType;
+      data['audioSizeBytes'] = audioSizeBytes;
+      data['audioBucket'] = audioBucket;
+      data['audioStorageProvider'] = audioStorageProvider;
+    }
+
+    if (readAt != null) {
+      data['readAt'] = readAt;
+    }
+
+    if (deletedForEveryoneAt != null) {
+      data['deletedForEveryoneAt'] = deletedForEveryoneAt;
+    }
+
+    if ((replyToMessageId ?? '').trim().isNotEmpty) {
+      data['replyToMessageId'] = replyToMessageId;
+    }
+
+    if ((replyToText ?? '').trim().isNotEmpty) {
+      data['replyToText'] = replyToText;
+    }
+
+    if ((replyToSenderId ?? '').trim().isNotEmpty) {
+      data['replyToSenderId'] = replyToSenderId;
+    }
+
+    if ((replyToSenderName ?? '').trim().isNotEmpty) {
+      data['replyToSenderName'] = replyToSenderName;
+    }
+
+    return data;
   }
-
-  if (deletedForEveryoneAt != null) {
-    data['deletedForEveryoneAt'] = deletedForEveryoneAt;
-  }
-
-  if ((replyToMessageId ?? '').trim().isNotEmpty) {
-    data['replyToMessageId'] = replyToMessageId;
-  }
-
-  if ((replyToText ?? '').trim().isNotEmpty) {
-    data['replyToText'] = replyToText;
-  }
-
-  if ((replyToSenderId ?? '').trim().isNotEmpty) {
-    data['replyToSenderId'] = replyToSenderId;
-  }
-
-  if ((replyToSenderName ?? '').trim().isNotEmpty) {
-    data['replyToSenderName'] = replyToSenderName;
-  }
-
-  return data;
-}
 
   MessageModel copyWith({
     String? id,
@@ -397,6 +530,7 @@ class MessageModel {
     String? replyToText,
     String? replyToSenderId,
     String? replyToSenderName,
+    bool? notificationCreated,
   }) {
     return MessageModel(
       id: id ?? this.id,
@@ -438,6 +572,7 @@ class MessageModel {
       replyToText: replyToText ?? this.replyToText,
       replyToSenderId: replyToSenderId ?? this.replyToSenderId,
       replyToSenderName: replyToSenderName ?? this.replyToSenderName,
+      notificationCreated: notificationCreated ?? this.notificationCreated,
     );
   }
 }

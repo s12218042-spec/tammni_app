@@ -130,6 +130,14 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
       return activeChildren.first;
     }
 
+    final childId = (person['childId'] ?? '').toString().trim();
+
+    for (final child in nurseryChildren) {
+      if (child.id == childId) {
+        return child;
+      }
+    }
+
     if (nurseryChildren.isNotEmpty) {
       return nurseryChildren.first;
     }
@@ -173,34 +181,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
   }) {
     if (isAdminChat) return 'الإدارة';
 
-    final normalizedTargetRole = normalizeRole(targetRole);
-
-    if (normalizedTargetRole == 'admin') {
-      return 'الإدارة';
-    }
-
-    if (activeChildren.isEmpty) {
-      return roleLabel(targetRole);
-    }
-
-    if (childBelongsToCurrentParent(message.childId)) {
-      final child = pickChildForMessage(message);
-      return '${roleLabel(targetRole)} • بخصوص ${child.name}';
-    }
-
-    if (activeChildren.length == 1) {
-      return '${roleLabel(targetRole)} • بخصوص ${activeChildren.first.name}';
-    }
-
-    final names = activeChildren
-        .map((child) => child.name.trim())
-        .where((name) => name.isNotEmpty)
-        .take(3)
-        .join(' و ');
-
-    return names.isEmpty
-        ? '${roleLabel(targetRole)} • بخصوص أكثر من طفل'
-        : '${roleLabel(targetRole)} • بخصوص $names';
+    return roleLabel(targetRole);
   }
 
   String conversationKeyForMessage(MessageModel message) {
@@ -225,16 +206,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
       return 'admin_chat';
     }
 
-    if (childBelongsToCurrentParent(message.childId)) {
-      return '${otherRole}_${otherUserId.trim()}_${message.childId.trim()}';
-    }
-
-    if (activeChildren.isNotEmpty) {
-      final ownedChildIds = activeChildren.map((child) => child.id).join('_');
-      return '${otherRole}_${otherUserId.trim()}_$ownedChildIds';
-    }
-
-    return '${otherRole}_${otherUserId.trim()}_${message.childId.trim()}';
+    return '${otherRole}_${otherUserId.trim()}';
   }
 
   List<MessageModel> deduplicateRecentChats(List<MessageModel> rawMessages) {
@@ -299,7 +271,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
       final staffUid = child.assignedStaffUid.trim();
       if (staffUid.isEmpty) continue;
 
-      final key = '${staffUid}_${child.id}';
+      final key = staffUid;
       if (addedStaffKeys.contains(key)) continue;
       addedStaffKeys.add(key);
 
@@ -371,10 +343,10 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
   String contactKeyFromPerson(Map<String, dynamic> person) {
     final role = normalizeRole((person['role'] ?? '').toString());
     final id = (person['id'] ?? '').toString().trim();
-    final childId = (person['childId'] ?? '').toString().trim();
 
     if (role == 'admin') return 'admin_chat';
-    return '${role}_${id}_$childId';
+
+    return '${role}_$id';
   }
 
   String contactKeyFromMessage(MessageModel message) {
@@ -397,7 +369,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
 
     if (isAdminChat || otherRole == 'admin') return 'admin_chat';
 
-    return '${otherRole}_${otherUserId.trim()}_${message.childId.trim()}';
+    return '${otherRole}_${otherUserId.trim()}';
   }
 
 
@@ -604,7 +576,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  isAdmin ? 'الإدارة' : 'موظفة حضانة • بخصوص ${childForChat.name}',
+                  isAdmin ? 'الإدارة' : 'موظفة حضانة',
                   style: const TextStyle(
                     fontSize: 13,
                     color: AppColors.textLight,

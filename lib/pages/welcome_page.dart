@@ -13,6 +13,7 @@ import 'force_change_password_page.dart';
 import 'nursery_staff_home_page.dart';
 import 'parent_home_page.dart';
 import 'parent_registration_request_page.dart';
+import 'start_live_stream_page.dart';
 import 'temporary_access_login_page.dart';
 
 class WelcomePage extends StatefulWidget {
@@ -448,9 +449,13 @@ class _WelcomePageState extends State<WelcomePage> {
       return;
     }
 
+    final isLiveStreamStation = data['isLiveStreamStation'] == true;
+
     Widget nextPage;
 
-    if (normalizedRole == 'parent') {
+    if (isLiveStreamStation) {
+      nextPage = const StartLiveStreamPage();
+    } else if (normalizedRole == 'parent') {
       nextPage = ParentHomePage(parentUsername: username);
     } else if (normalizedRole == 'nursery_staff') {
       nextPage = const NurseryStaffHomePage();
@@ -635,7 +640,7 @@ class _WelcomePageState extends State<WelcomePage> {
                           ),
                           const SizedBox(height: 28),
                           const Text(
-                            'أهلاً بك في طمّني',
+                            'أهلاً بك في حضانتي',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               fontSize: 29,

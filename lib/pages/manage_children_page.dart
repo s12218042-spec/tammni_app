@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../models/child_model.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
+import 'admin_groups_page.dart';
 import 'entry_exit_log_page.dart';
 
 class ManageChildrenPage extends StatefulWidget {
@@ -103,8 +104,385 @@ String resolveChildType(Map<String, dynamic> child) {
   });
 }
 
+  DateTime? _toDateTime(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+
+    final raw = _cleanText(value);
+    if (raw.isEmpty) return null;
+
+    final parsed = DateTime.tryParse(raw);
+    if (parsed == null) return null;
+
+    if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(raw)) {
+      return DateTime(parsed.year, parsed.month, parsed.day, 23, 59, 59);
+    }
+
+    return parsed;
+  }
+
+  bool _isTemporaryChildData(Map<String, dynamic> data) {
+    final childType = _cleanText(data['childType']).toLowerCase();
+    final enrollmentType = _cleanText(data['enrollmentType']).toLowerCase();
+    final childStatus = _cleanText(data['childStatus']).toLowerCase();
+
+    return data['isTemporaryChild'] == true ||
+        data['isTemporary'] == true ||
+        childType == 'temporary' ||
+        enrollmentType == 'temporary' ||
+        childStatus == 'temporary';
+  }
+
+  bool _isTrialChildData(Map<String, dynamic> data) {
+    final childType = _cleanText(data['childType']).toLowerCase();
+    final enrollmentType = _cleanText(data['enrollmentType']).toLowerCase();
+    final childStatus = _cleanText(data['childStatus']).toLowerCase();
+
+    return data['isTrialChild'] == true ||
+        childType == 'trial' ||
+        enrollmentType == 'trial' ||
+        childStatus == 'trial';
+  }
+
+  bool _isArchivedChildData(Map<String, dynamic> data) {
+    final childStatus = _cleanText(data['childStatus']).toLowerCase();
+    final accountStatus = _cleanText(data['accountStatus']).toLowerCase();
+    final status = _cleanText(data['status']).toLowerCase();
+
+    return data['isActive'] == false ||
+        childStatus == 'archived' ||
+        childStatus == 'rejected_after_trial' ||
+        accountStatus == 'archived' ||
+        status == 'archived';
+  }
+
+  DateTime? _expiryDateForChild(Map<String, dynamic> data) {
+    if (_isTrialChildData(data)) {
+      return _toDateTime(data['trialEndAt']) ??
+          _toDateTime(data['temporaryAccessEndAt']) ??
+          _toDateTime(data['temporaryEndDate']) ??
+          _toDateTime(data['temporaryEndAt']);
+    }
+
+    if (_isTemporaryChildData(data)) {
+      return _toDateTime(data['temporaryAccessEndAt']) ??
+          _toDateTime(data['temporaryEndDate']) ??
+          _toDateTime(data['temporaryEndAt']);
+    }
+
+    return null;
+  }
+
+
+  List<String> _readStringList(dynamic value) {
+    if (value is! List) return <String>[];
+
+    return value
+        .map(_cleanText)
+        .where((item) => item.isNotEmpty)
+        .toSet()
+        .toList();
+  }
+
+  String _childNameFromData(Map<String, dynamic> data) {
+    final name = _cleanText(data['name']);
+    if (name.isNotEmpty) return name;
+
+    final childName = _cleanText(data['childName']);
+    if (childName.isNotEmpty) return childName;
+
+    return 'طفل بدون اسم';
+  }
+
+  Future<Set<String>> _findAccessCodeIdsForChild({
+    required String childId,
+    required Map<String, dynamic> childData,
+  }) async {
+    final ids = <String>{
+      _cleanText(childData['temporaryAccessCodeId']),
+      _cleanText(childData['sharedAccessCodeId']),
+    }..removeWhere((value) => value.isEmpty);
+
+    final legacySnapshot = await _firestore
+        .collection('temporary_access_codes')
+        .where('childId', isEqualTo: childId)
+        .get();
+
+    for (final doc in legacySnapshot.docs) {
+      ids.add(doc.id);
+    }
+
+    try {
+      final sharedSnapshot = await _firestore
+          .collection('temporary_access_codes')
+          .where('childIds', arrayContains: childId)
+          .get();
+
+      for (final doc in sharedSnapshot.docs) {
+        ids.add(doc.id);
+      }
+    } catch (_) {
+      // بعض السجلات القديمة لا تحتوي childIds بعد.
+    }
+
+    return ids;
+  }
+
+  Future<List<DocumentSnapshot<Map<String, dynamic>>>> _loadActiveSiblingDocs({
+    required Iterable<String> linkedChildIds,
+    required String excludedChildId,
+  }) async {
+    final siblings = <DocumentSnapshot<Map<String, dynamic>>>[];
+
+    for (final siblingId in linkedChildIds) {
+      if (siblingId.isEmpty || siblingId == excludedChildId) continue;
+
+      final siblingDoc =
+          await _firestore.collection('children').doc(siblingId).get();
+      final siblingData = siblingDoc.data();
+
+      if (siblingDoc.exists &&
+          siblingData != null &&
+          !_isArchivedChildData(siblingData)) {
+        siblings.add(siblingDoc);
+      }
+    }
+
+    return siblings;
+  }
+
+  Future<void> _updateAccessCodesAfterChildRemoval({
+    required WriteBatch batch,
+    required String childId,
+    required Map<String, dynamic> childData,
+    required String archiveReason,
+    required bool automated,
+  }) async {
+    final accessCodeIds = await _findAccessCodeIdsForChild(
+      childId: childId,
+      childData: childData,
+    );
+
+    for (final codeId in accessCodeIds) {
+      final codeRef = _firestore.collection('temporary_access_codes').doc(codeId);
+      final codeDoc = await codeRef.get();
+
+      if (!codeDoc.exists) continue;
+
+      final codeData = codeDoc.data() ?? <String, dynamic>{};
+      final linkedChildIds = <String>{
+        ..._readStringList(codeData['childIds']),
+        _cleanText(codeData['childId']),
+      }..removeWhere((value) => value.isEmpty || value == childId);
+
+      final siblingDocs = await _loadActiveSiblingDocs(
+        linkedChildIds: linkedChildIds,
+        excludedChildId: childId,
+      );
+
+      if (siblingDocs.isEmpty) {
+        batch.set(
+          codeRef,
+          {
+            'childIds': <String>[],
+            'childNames': <String>[],
+            'childTypes': <String>[],
+            'groupIds': <String>[],
+            'groupNames': <String>[],
+            'hasMultipleChildren': false,
+            'usesSharedAccessCode': false,
+            'isActive': false,
+            'status': automated ? 'expired' : 'archived',
+            'accountStatus': 'archived',
+            'archiveReason': archiveReason,
+            'archivedAt': FieldValue.serverTimestamp(),
+            if (automated) 'expiredAt': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+        continue;
+      }
+
+      DateTime? earliestStart;
+      DateTime? latestEnd;
+      final siblingIds = <String>[];
+      final siblingNames = <String>[];
+      final siblingTypes = <String>{};
+      final groupIds = <String>{};
+      final groupNames = <String>{};
+
+      for (final siblingDoc in siblingDocs) {
+        final siblingData = siblingDoc.data() ?? <String, dynamic>{};
+        final start = _toDateTime(siblingData['temporaryAccessStartAt']);
+        final end = _toDateTime(siblingData['temporaryAccessEndAt']) ??
+            _toDateTime(siblingData['temporaryEndDate']) ??
+            _toDateTime(siblingData['trialEndAt']);
+
+        if (start != null &&
+            (earliestStart == null || start.isBefore(earliestStart))) {
+          earliestStart = start;
+        }
+
+        if (end != null && (latestEnd == null || end.isAfter(latestEnd))) {
+          latestEnd = end;
+        }
+
+        siblingIds.add(siblingDoc.id);
+        siblingNames.add(_childNameFromData(siblingData));
+
+        final type = _cleanText(siblingData['childType']);
+        if (type.isNotEmpty) siblingTypes.add(type);
+
+        final groupId = _cleanText(siblingData['groupId']);
+        if (groupId.isNotEmpty) groupIds.add(groupId);
+
+        final groupName = _cleanText(siblingData['groupName']);
+        if (groupName.isNotEmpty) groupNames.add(groupName);
+      }
+
+      final primarySibling = siblingDocs.first;
+      final primaryData = primarySibling.data() ?? <String, dynamic>{};
+
+      batch.set(
+        codeRef,
+        {
+          'childId': primarySibling.id,
+          'childName': _childNameFromData(primaryData),
+          'childIds': siblingIds,
+          'childNames': siblingNames.toSet().toList(),
+          'childTypes': siblingTypes.toList(),
+          'groupId': _cleanText(primaryData['groupId']),
+          'groupName': _cleanText(primaryData['groupName']),
+          'groupIds': groupIds.toList(),
+          'groupNames': groupNames.toList(),
+          'hasMultipleChildren': siblingIds.length > 1,
+          'usesSharedAccessCode': siblingIds.length > 1,
+          'isActive': true,
+          'status': 'active',
+          'accountStatus': 'active',
+          if (earliestStart != null)
+            'accessStartAt': Timestamp.fromDate(earliestStart),
+          if (latestEnd != null) 'accessEndAt': Timestamp.fromDate(latestEnd),
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+
+      for (final siblingDoc in siblingDocs) {
+        batch.set(
+          siblingDoc.reference,
+          {
+            'sharedAccessCodeId': codeId,
+            'usesSharedAccessCode': siblingIds.length > 1,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      }
+    }
+  }
+
+  Future<bool> _archiveExpiredChildrenIfNeeded(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) async {
+    bool archivedAnyChild = false;
+    final affectedGroupIds = <String>{};
+
+    for (final doc in docs) {
+      final data = doc.data();
+
+      if (_isArchivedChildData(data)) continue;
+
+      final isTemporary = _isTemporaryChildData(data);
+      final isTrial = _isTrialChildData(data);
+
+      if (!isTemporary && !isTrial) continue;
+
+      final expiryDate = _expiryDateForChild(data);
+      if (expiryDate == null || expiryDate.isAfter(DateTime.now())) continue;
+
+      final archiveReason = isTrial ? 'trial_expired' : 'temporary_expired';
+      final archivedChildStatus = isTrial ? 'rejected_after_trial' : 'archived';
+
+      final devicesSnapshot = await _firestore
+          .collection('temporary_parent_devices')
+          .where('childId', isEqualTo: doc.id)
+          .get();
+
+      final batch = _firestore.batch();
+
+      batch.set(
+        doc.reference,
+        {
+          'isActive': false,
+          'status': 'archived',
+          'childStatus': archivedChildStatus,
+          'accountStatus': 'archived',
+          'isBillable': false,
+          'excludeFromMonthlyInvoice': true,
+          'canReactivate': true,
+          'permanentDeleted': false,
+          'archiveReason': archiveReason,
+          'archivedAutomatically': true,
+          'archivedAt': FieldValue.serverTimestamp(),
+          'expiredAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+
+      await _updateAccessCodesAfterChildRemoval(
+        batch: batch,
+        childId: doc.id,
+        childData: data,
+        archiveReason: archiveReason,
+        automated: true,
+      );
+
+      for (final deviceDoc in devicesSnapshot.docs) {
+        batch.set(
+          deviceDoc.reference,
+          {
+            'isActive': false,
+            'accountStatus': 'archived',
+            'archiveReason': archiveReason,
+            'archivedAt': FieldValue.serverTimestamp(),
+            'expiredAt': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      }
+
+      await batch.commit();
+
+      final groupId = _cleanText(data['groupId']);
+      if (groupId.isNotEmpty) affectedGroupIds.add(groupId);
+
+      archivedAnyChild = true;
+    }
+
+    for (final groupId in affectedGroupIds) {
+      try {
+        await _refreshGroupChildrenCount(groupId);
+      } catch (_) {
+        // لا نوقف عرض الأطفال إذا كانت المجموعة القديمة غير موجودة.
+      }
+    }
+
+    return archivedAnyChild;
+  }
+
   Future<List<Map<String, dynamic>>> fetchChildren() async {
-    final snapshot = await _firestore.collection('children').get();
+    var snapshot = await _firestore.collection('children').get();
+
+    final archivedExpiredChildren =
+        await _archiveExpiredChildrenIfNeeded(snapshot.docs);
+
+    if (archivedExpiredChildren) {
+      snapshot = await _firestore.collection('children').get();
+    }
 
     final items = snapshot.docs.map((doc) {
       final data = doc.data();
@@ -405,23 +783,27 @@ String formatOptionalDate(dynamic raw) {
                             },
                           ),
                           const SizedBox(height: 12),
-                          TextFormField(
-                            controller: identityNumberCtrl,
-                            keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              labelText: 'رقم هوية الطفل',
-                              prefixIcon: Icon(Icons.badge_outlined),
+                          if (currentChildType == 'permanent') ...[
+                            TextFormField(
+                              controller: identityNumberCtrl,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                labelText: 'رقم هوية الطفل',
+                                prefixIcon: Icon(Icons.badge_outlined),
+                              ),
+                              validator: (value) {
+                                final text = (value ?? '').trim();
+                                if (text.isEmpty) {
+                                  return 'أدخل رقم هوية الطفل';
+                                }
+                                if (!RegExp(r'^\d{9}$').hasMatch(text)) {
+                                  return 'رقم الهوية يجب أن يتكون من 9 أرقام';
+                                }
+                                return null;
+                              },
                             ),
-                            validator: (value) {
-                              final text = (value ?? '').trim();
-                              if (text.isEmpty) return 'أدخل رقم هوية الطفل';
-                              if (!RegExp(r'^\d{9}$').hasMatch(text)) {
-                                return 'رقم الهوية يجب أن يتكون من 9 أرقام';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 12),
+                            const SizedBox(height: 12),
+                          ],
                           DropdownButtonFormField<String>(
                             value: selectedGender,
                             decoration: const InputDecoration(
@@ -888,7 +1270,8 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
                           .doc(child['id'])
                           .update({
                         'name': nameCtrl.text.trim(),
-                        'identityNumber': identityNumberCtrl.text.trim(),
+                        if (currentChildType == 'permanent')
+                          'identityNumber': identityNumberCtrl.text.trim(),
                         'gender': selectedGender,
                         'birthDate': Timestamp.fromDate(selectedBirthDate),
                         'section': resolvedSection,
@@ -955,119 +1338,12 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
     }
   }
 
-  Future<void> convertChildToPermanent(Map<String, dynamic> child) async {
-  final childId = (child['id'] ?? '').toString().trim();
-  final childName = (child['name'] ?? '').toString().trim();
-  final parentUid = (child['parentUid'] ?? '').toString().trim();
-  final parentUsername = (child['parentUsername'] ?? '').toString().trim();
-
-  if (childId.isEmpty) return;
-
-  final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (context) => Directionality(
-          textDirection: TextDirection.rtl,
-          child: AlertDialog(
-            title: const Text('تحويل الطفل إلى دائم'),
-            content: Text(
-              'سيتم تحويل الطفل "$childName" إلى طفل دائم، وسيتم تفعيل الفوترة الشهرية له. لن يتم إنشاء طفل جديد أو ولي أمر جديد.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('إلغاء'),
-              ),
-              ElevatedButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('تحويل'),
-              ),
-            ],
-          ),
-        ),
-      ) ??
-      false;
-
-  if (!confirmed) return;
-
-  try {
-    final batch = _firestore.batch();
-
-    final childRef = _firestore.collection('children').doc(childId);
-
-    batch.update(childRef, {
-      'childType': 'permanent',
-      'enrollmentType': 'permanent',
-      'childStatus': 'active',
-      'status': 'active',
-      'isActive': true,
-      'accountStatus': 'active',
-      'isTemporaryChild': false,
-      'isTrialChild': false,
-      'isTemporary': false,
-      'isBillable': true,
-      'excludeFromMonthlyInvoice': false,
-      'temporaryAccess': false,
-      'convertedToPermanentAt': FieldValue.serverTimestamp(),
-      'approvedAt': FieldValue.serverTimestamp(),
-      'canReactivate': true,
-      'permanentDeleted': false,
-      'archiveReason': FieldValue.delete(),
-      'archivedAt': FieldValue.delete(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-
-    if (parentUid.isNotEmpty) {
-      batch.set(_firestore.collection('users').doc(parentUid), {
-        'accountType': 'parent',
-        'accountStatus': 'active',
-        'isTemporaryAccount': false,
-        'isTrialAccount': false,
-        'temporaryAccess': false,
-        'isActive': true,
-        'canReactivate': true,
-        'permanentDeleted': false,
-        'convertedToPermanentAt': FieldValue.serverTimestamp(),
-        'archiveReason': FieldValue.delete(),
-        'archivedAt': FieldValue.delete(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-    }
-
-    if (parentUsername.isNotEmpty) {
-      batch.update(_firestore.collection('login_usernames').doc(parentUsername), {
-        'accountType': 'parent',
-        'accountStatus': 'active',
-        'isTemporaryAccount': false,
-        'isTrialAccount': false,
-        'temporaryAccess': false,
-        'isActive': true,
-        'canReactivate': true,
-        'permanentDeleted': false,
-        'convertedToPermanentAt': FieldValue.serverTimestamp(),
-        'archiveReason': FieldValue.delete(),
-        'archivedAt': FieldValue.delete(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    }
-
-    await batch.commit();
-
-    if (!mounted) return;
-    setState(() {});
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('تم تحويل الطفل إلى دائم بنجاح')),
-    );
-  } catch (e) {
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('تعذر تحويل الطفل إلى دائم: $e')),
-    );
-  }
-}
-
   Future<void> archiveChild(Map<String, dynamic> child) async {
+    final childId = (child['id'] ?? '').toString().trim();
+    final childName = (child['name'] ?? '').toString().trim();
+
+    if (childId.isEmpty) return;
+
     final confirmed = await showDialog<bool>(
           context: context,
           builder: (context) => Directionality(
@@ -1075,7 +1351,7 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
             child: AlertDialog(
               title: const Text('أرشفة الطفل'),
               content: Text(
-                'هل تريد أرشفة الطفل "${child['name']}"؟\n\nلن يتم حذفه من قاعدة البيانات، لكنه سيختفي من الأطفال النشطين.',
+                'هل تريد أرشفة الطفل "$childName"؟\n\nلن يتم حذف بياناته من النظام.',
               ),
               actions: [
                 TextButton(
@@ -1094,43 +1370,110 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
 
     if (!confirmed) return;
 
-    await _firestore.collection('children').doc(child['id']).update({
-  'isActive': false,
-  'status': 'archived',
-  'accountStatus': 'archived',
-  'canReactivate': true,
-  'permanentDeleted': false,
-  'archivedAt': FieldValue.serverTimestamp(),
-  'archiveReason': 'archived_from_manage_children',
-  'updatedAt': FieldValue.serverTimestamp(),
-});
+    final childRef = _firestore.collection('children').doc(childId);
+    final childDoc = await childRef.get();
+    final childData = childDoc.data() ?? Map<String, dynamic>.from(child);
+
+    final batch = _firestore.batch();
+
+    batch.set(
+      childRef,
+      {
+        'isActive': false,
+        'status': 'archived',
+        'childStatus': 'archived',
+        'accountStatus': 'archived',
+        'canReactivate': true,
+        'permanentDeleted': false,
+        'archivedAt': FieldValue.serverTimestamp(),
+        'archiveReason': 'archived_from_manage_children',
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+
+    if (_isTemporaryChildData(childData) || _isTrialChildData(childData)) {
+      await _updateAccessCodesAfterChildRemoval(
+        batch: batch,
+        childId: childId,
+        childData: childData,
+        archiveReason: 'archived_from_manage_children',
+        automated: false,
+      );
+    }
+
+    final devicesSnapshot = await _firestore
+        .collection('temporary_parent_devices')
+        .where('childId', isEqualTo: childId)
+        .get();
+
+    for (final doc in devicesSnapshot.docs) {
+      batch.set(
+        doc.reference,
+        {
+          'isActive': false,
+          'accountStatus': 'archived',
+          'archivedAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+    }
+
+    await batch.commit();
 
     if (!mounted) return;
+
     setState(() {});
+
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('تمت أرشفة الطفل')),
+      const SnackBar(
+        content: Text('تمت أرشفة الطفل بنجاح'),
+      ),
     );
   }
 
   Future<void> restoreChild(Map<String, dynamic> child) async {
-   await _firestore.collection('children').doc(child['id']).update({
-  'isActive': true,
-  'status': 'active',
-  'accountStatus': 'active',
-  'canReactivate': true,
-  'permanentDeleted': false,
-  'restoredAt': FieldValue.serverTimestamp(),
-  'archiveReason': FieldValue.delete(),
-  'archivedAt': FieldValue.delete(),
-  'updatedAt': FieldValue.serverTimestamp(),
-});
+  final childId = (child['id'] ?? '').toString().trim();
 
-    if (!mounted) return;
-    setState(() {});
+  if (childId.isEmpty) return;
+
+  final childType = resolveChildType(child);
+
+  if (childType == 'temporary' || childType == 'trial') {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('تمت استعادة الطفل إلى القائمة النشطة')),
+      const SnackBar(
+        content: Text(
+          'يتم إعادة تفعيل الطفل المؤقت أو طفل التجربة من إدارة المجموعات.',
+        ),
+      ),
     );
+    return;
   }
+
+  await _firestore.collection('children').doc(childId).update({
+    'isActive': true,
+    'status': 'active',
+    'childStatus': 'active',
+    'accountStatus': 'active',
+    'canReactivate': true,
+    'permanentDeleted': false,
+    'restoredAt': FieldValue.serverTimestamp(),
+    'archiveReason': FieldValue.delete(),
+    'archivedAt': FieldValue.delete(),
+    'updatedAt': FieldValue.serverTimestamp(),
+  });
+
+  if (!mounted) return;
+
+  setState(() {});
+
+  ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(
+      content: Text('تمت استعادة الطفل إلى القائمة النشطة'),
+    ),
+  );
+}
 
   Widget buildFilterChip({
     required String label,
@@ -1528,26 +1871,6 @@ String temporaryChildSummary(Map<String, dynamic> child) {
           ),
          ),
           const SizedBox(height: 10),
-
-          if (resolveChildType(child) == 'temporary' ||
-    resolveChildType(child) == 'trial') ...[
-  const SizedBox(height: 10),
-  SizedBox(
-    width: double.infinity,
-    child: ElevatedButton.icon(
-      onPressed: () => convertChildToPermanent(child),
-      icon: const Icon(Icons.verified_rounded),
-      label: const Text('تحويل إلى طفل دائم'),
-      style: ElevatedButton.styleFrom(
-        minimumSize: const Size(double.infinity, 50),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-        ),
-      ),
-    ),
-  ),
-  const SizedBox(height: 10),
-],
           Row(
             children: [
               Expanded(
@@ -1767,6 +2090,636 @@ Wrap(
     );
   }
 
+
+  String _cleanText(dynamic value) {
+    if (value == null) return '';
+    return value.toString().trim();
+  }
+
+
+  String _parentDisplayName(Map<String, dynamic> data) {
+    final values = [
+      data['displayName'],
+      data['name'],
+      data['fullName'],
+      data['username'],
+    ];
+
+    for (final value in values) {
+      final text = _cleanText(value);
+      if (text.isNotEmpty) return text;
+    }
+
+    return 'ولي أمر بدون اسم';
+  }
+
+  String _parentPhone(Map<String, dynamic> data) {
+    final values = [
+      data['phone'],
+      data['phoneNumber'],
+      data['mobile'],
+      data['parentPhone'],
+    ];
+
+    for (final value in values) {
+      final text = _cleanText(value);
+      if (text.isNotEmpty) return text;
+    }
+
+    return '';
+  }
+
+  Future<void> _openAddChildOptions() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      builder: (sheetContext) {
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Wrap(
+              children: [
+                ListTile(
+                  leading: const CircleAvatar(
+                    child: Icon(Icons.person_add_alt_1_rounded),
+                  ),
+                  title: const Text(
+                    'إضافة طفل دائم',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  subtitle: const Text('ربطه بحساب ولي أمر رسمي موجود'),
+                  onTap: () async {
+                    Navigator.pop(sheetContext);
+                    await _openAddPermanentChildSheet();
+                  },
+                ),
+                ListTile(
+                  leading: const CircleAvatar(
+                    child: Icon(Icons.schedule_rounded),
+                  ),
+                  title: const Text(
+                    'إضافة طفل مؤقت أو تجربة',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  subtitle: const Text('اختيار المجموعة ثم نوع الإضافة'),
+                  onTap: () async {
+                    Navigator.pop(sheetContext);
+
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const AdminGroupsPage(
+                          openAddChildFlow: true,
+                        ),
+                      ),
+                    );
+
+                    if (!mounted) return;
+                    setState(() {});
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      _loadOfficialParents() async {
+    final snapshot = await _firestore
+        .collection('users')
+        .where('role', isEqualTo: 'parent')
+        .get();
+
+    final parents = snapshot.docs.where((doc) {
+      final data = doc.data();
+
+      final isTemporaryOrTrial = data['isTemporaryAccount'] == true ||
+          data['isTrialAccount'] == true ||
+          _cleanText(data['accountType']) == 'temporary_parent' ||
+          _cleanText(data['accountType']) == 'trial_parent';
+
+      return data['isActive'] != false && !isTemporaryOrTrial;
+    }).toList();
+
+    parents.sort((a, b) {
+      return _parentDisplayName(a.data()).compareTo(
+        _parentDisplayName(b.data()),
+      );
+    });
+
+    return parents;
+  }
+
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      _loadActiveGroups() async {
+    final snapshot = await _firestore
+        .collection('groups')
+        .where('isActive', isEqualTo: true)
+        .get();
+
+    final groups = snapshot.docs.toList();
+
+    groups.sort((a, b) {
+      final aName = _cleanText(a.data()['groupName']);
+      final bName = _cleanText(b.data()['groupName']);
+      return aName.compareTo(bName);
+    });
+
+    return groups;
+  }
+
+  Future<void> _openAddPermanentChildSheet() async {
+    final parents = await _loadOfficialParents();
+    final groups = await _loadActiveGroups();
+
+    if (!mounted) return;
+
+    if (parents.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('لا يوجد حساب ولي أمر رسمي مفعّل'),
+        ),
+      );
+      return;
+    }
+
+    if (groups.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('أنشئي مجموعة مفعّلة أولًا'),
+        ),
+      );
+      return;
+    }
+
+    final childNameCtrl = TextEditingController();
+    final identityNumberCtrl = TextEditingController();
+
+    String selectedParentUid = '';
+    String selectedGroupId = '';
+    String selectedGender = 'female';
+    DateTime selectedBirthDate = DateTime(2023, 1, 1);
+    bool isSaving = false;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (sheetContext) {
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: StatefulBuilder(
+            builder: (context, setSheetState) {
+              return Padding(
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 16,
+                  bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+                ),
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 45,
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: Colors.black12,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      Text(
+                        'إضافة طفل دائم',
+                        style: Theme.of(sheetContext)
+                            .textTheme
+                            .titleLarge
+                            ?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 18),
+                      DropdownButtonFormField<String>(
+                        initialValue:
+                            selectedParentUid.isEmpty ? null : selectedParentUid,
+                        decoration: const InputDecoration(
+                          labelText: 'ولي الأمر',
+                          prefixIcon: Icon(Icons.person_outline_rounded),
+                        ),
+                        items: parents.map((doc) {
+                          final data = doc.data();
+                          final username = _cleanText(data['username']);
+                          final name = _parentDisplayName(data);
+
+                          return DropdownMenuItem<String>(
+                            value: doc.id,
+                            child: Text(
+                              username.isEmpty ? name : '$name • @$username',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          );
+                        }).toList(),
+                        onChanged: (value) {
+                          setSheetState(() {
+                            selectedParentUid = value ?? '';
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        initialValue:
+                            selectedGroupId.isEmpty ? null : selectedGroupId,
+                        decoration: const InputDecoration(
+                          labelText: 'المجموعة',
+                          prefixIcon: Icon(Icons.groups_2_outlined),
+                        ),
+                        items: groups.map((doc) {
+                          final data = doc.data();
+                          final groupName = _cleanText(data['groupName']);
+                          final currentChildren =
+                              (data['currentChildrenCount'] as num?)?.toInt() ??
+                                  0;
+                          final maxChildren =
+                              (data['maxChildren'] as num?)?.toInt() ?? 12;
+
+                          return DropdownMenuItem<String>(
+                            value: doc.id,
+                            child: Text(
+                              '$groupName • $currentChildren/$maxChildren',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          );
+                        }).toList(),
+                        onChanged: (value) {
+                          setSheetState(() {
+                            selectedGroupId = value ?? '';
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: childNameCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'اسم الطفل',
+                          prefixIcon: Icon(Icons.child_care_outlined),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: identityNumberCtrl,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: 'رقم هوية الطفل',
+                          prefixIcon: Icon(Icons.badge_outlined),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        initialValue: selectedGender,
+                        decoration: const InputDecoration(
+                          labelText: 'الجنس',
+                          prefixIcon: Icon(Icons.wc_outlined),
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'female',
+                            child: Text('أنثى'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'male',
+                            child: Text('ذكر'),
+                          ),
+                        ],
+                        onChanged: (value) {
+                          setSheetState(() {
+                            selectedGender = value ?? 'female';
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      InkWell(
+                        onTap: () async {
+                          final picked = await showDatePicker(
+                            context: sheetContext,
+                            initialDate: selectedBirthDate,
+                            firstDate: DateTime(2015),
+                            lastDate: DateTime.now(),
+                          );
+
+                          if (picked == null) return;
+
+                          setSheetState(() {
+                            selectedBirthDate = picked;
+                          });
+                        },
+                        child: InputDecorator(
+                          decoration: const InputDecoration(
+                            labelText: 'تاريخ الميلاد',
+                            prefixIcon: Icon(Icons.calendar_today_outlined),
+                          ),
+                          child: Text(
+                            '${selectedBirthDate.year}/${selectedBirthDate.month}/${selectedBirthDate.day}',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: isSaving
+                              ? null
+                              : () async {
+                                  final childName = childNameCtrl.text.trim();
+                                  final identityNumber =
+                                      identityNumberCtrl.text.trim();
+
+                                  if (selectedParentUid.isEmpty) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('اختاري ولي الأمر'),
+                                      ),
+                                    );
+                                    return;
+                                  }
+
+                                  if (selectedGroupId.isEmpty) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('اختاري المجموعة'),
+                                      ),
+                                    );
+                                    return;
+                                  }
+
+                                  if (childName.isEmpty) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('اكتبي اسم الطفل'),
+                                      ),
+                                    );
+                                    return;
+                                  }
+
+                                  if (!RegExp(r'^\d{9}$')
+                                      .hasMatch(identityNumber)) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'رقم الهوية يجب أن يتكون من 9 أرقام',
+                                        ),
+                                      ),
+                                    );
+                                    return;
+                                  }
+
+                                  setSheetState(() {
+                                    isSaving = true;
+                                  });
+
+                                  final saved = await _savePermanentChild(
+                                    childName: childName,
+                                    identityNumber: identityNumber,
+                                    gender: selectedGender,
+                                    birthDate: selectedBirthDate,
+                                    parentDoc: parents.firstWhere(
+                                      (doc) => doc.id == selectedParentUid,
+                                    ),
+                                    groupDoc: groups.firstWhere(
+                                      (doc) => doc.id == selectedGroupId,
+                                    ),
+                                  );
+
+                                  if (!sheetContext.mounted) return;
+
+                                  if (saved) {
+                                    Navigator.pop(sheetContext);
+                                  } else {
+                                    setSheetState(() {
+                                      isSaving = false;
+                                    });
+                                  }
+                                },
+                          icon: isSaving
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.save_rounded),
+                          label: Text(
+                            isSaving ? 'جاري الحفظ...' : 'حفظ',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
+
+    childNameCtrl.dispose();
+    identityNumberCtrl.dispose();
+  }
+
+  Future<bool> _savePermanentChild({
+    required String childName,
+    required String identityNumber,
+    required String gender,
+    required DateTime birthDate,
+    required QueryDocumentSnapshot<Map<String, dynamic>> parentDoc,
+    required QueryDocumentSnapshot<Map<String, dynamic>> groupDoc,
+  }) async {
+    try {
+      final identitySnapshot = await _firestore
+          .collection('children')
+          .where('identityNumber', isEqualTo: identityNumber)
+          .get();
+
+      QueryDocumentSnapshot<Map<String, dynamic>>? existingChildDoc;
+
+      if (identitySnapshot.docs.isNotEmpty) {
+        existingChildDoc = identitySnapshot.docs.first;
+      }
+
+      final existingData = existingChildDoc?.data() ?? <String, dynamic>{};
+
+      final existingType = _cleanText(existingData['childType']).toLowerCase();
+      final existingEnrollmentType =
+          _cleanText(existingData['enrollmentType']).toLowerCase();
+      final isExistingPermanent = existingType == 'permanent' ||
+          existingEnrollmentType == 'permanent';
+
+      if (isExistingPermanent) {
+        if (!mounted) return false;
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('هذا الطفل مسجل كطفل دائم بالفعل'),
+          ),
+        );
+        return false;
+      }
+
+      final groupData = groupDoc.data();
+      final currentChildren =
+          (groupData['currentChildrenCount'] as num?)?.toInt() ?? 0;
+      final maxChildren =
+          (groupData['maxChildren'] as num?)?.toInt() ?? 12;
+
+      final oldGroupId = _cleanText(existingData['groupId']);
+      final wasActive = existingData['isActive'] == true;
+
+      if (maxChildren > 0 &&
+          currentChildren >= maxChildren &&
+          (!wasActive || oldGroupId != groupDoc.id)) {
+        if (!mounted) return false;
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('المجموعة ممتلئة، اختاري مجموعة أخرى'),
+          ),
+        );
+        return false;
+      }
+
+      final parentData = parentDoc.data();
+      final parentUsername = _cleanText(parentData['username']).toLowerCase();
+      final parentName = _parentDisplayName(parentData);
+      final parentPhone = _parentPhone(parentData);
+      final childRef = existingChildDoc?.reference ??
+          _firestore.collection('children').doc();
+
+      final batch = _firestore.batch();
+
+      batch.set(
+        childRef,
+        {
+          'id': childRef.id,
+          'childId': childRef.id,
+          'name': childName,
+          'childName': childName,
+          'identityNumber': identityNumber,
+          'gender': gender,
+          'birthDate': Timestamp.fromDate(birthDate),
+          'section': 'Nursery',
+          'childType': 'permanent',
+          'enrollmentType': 'permanent',
+          'childStatus': 'active',
+          'status': 'active',
+          'accountStatus': 'active',
+          'isActive': true,
+          'isTemporaryChild': false,
+          'isTrialChild': false,
+          'isTemporary': false,
+          'isBillable': true,
+          'excludeFromMonthlyInvoice': false,
+          'parentUid': parentDoc.id,
+          'parentUsername': parentUsername,
+          'parentName': parentName,
+          'parentPhone': parentPhone,
+          'groupId': groupDoc.id,
+          'groupName': _cleanText(groupData['groupName']),
+          'assignedStaffUid': _cleanText(groupData['assignedStaffUid']),
+          'assignedStaffName': _cleanText(groupData['assignedStaffName']),
+          'assignedStaffUsername':
+              _cleanText(groupData['assignedStaffUsername']),
+          'canReactivate': true,
+          'permanentDeleted': false,
+          'convertedFromTemporary':
+              existingChildDoc != null && !isExistingPermanent,
+          'convertedToPermanentAt': existingChildDoc == null
+              ? null
+              : FieldValue.serverTimestamp(),
+          'temporaryAccess': false,
+          'temporaryAccessCodeId': FieldValue.delete(),
+          'sharedAccessCodeId': FieldValue.delete(),
+          'usesSharedAccessCode': FieldValue.delete(),
+          'temporaryAccessCode': FieldValue.delete(),
+          'temporaryAccessStartAt': FieldValue.delete(),
+          'temporaryAccessEndAt': FieldValue.delete(),
+          'archiveReason': FieldValue.delete(),
+          'archivedAt': FieldValue.delete(),
+          'updatedAt': FieldValue.serverTimestamp(),
+          if (existingChildDoc == null) ...{
+            'createdAt': FieldValue.serverTimestamp(),
+          },
+        },
+        SetOptions(merge: true),
+      );
+
+      if (existingChildDoc != null && !isExistingPermanent) {
+        await _updateAccessCodesAfterChildRemoval(
+          batch: batch,
+          childId: childRef.id,
+          childData: existingData,
+          archiveReason: 'converted_to_permanent',
+          automated: false,
+        );
+
+        final devicesSnapshot = await _firestore
+            .collection('temporary_parent_devices')
+            .where('childId', isEqualTo: childRef.id)
+            .get();
+
+        for (final deviceDoc in devicesSnapshot.docs) {
+          batch.set(
+            deviceDoc.reference,
+            {
+              'isActive': false,
+              'accountStatus': 'archived',
+              'archiveReason': 'converted_to_permanent',
+              'archivedAt': FieldValue.serverTimestamp(),
+              'updatedAt': FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true),
+          );
+        }
+      }
+
+      await batch.commit();
+
+      await _refreshGroupChildrenCount(groupDoc.id);
+
+      if (oldGroupId.isNotEmpty && oldGroupId != groupDoc.id) {
+        await _refreshGroupChildrenCount(oldGroupId);
+      }
+
+      if (!mounted) return true;
+
+      setState(() {});
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('تمت إضافة الطفل الدائم بنجاح'),
+        ),
+      );
+
+      return true;
+    } catch (e) {
+      if (!mounted) return false;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('تعذر حفظ الطفل الدائم: $e'),
+        ),
+      );
+
+      return false;
+    }
+  }
+
+
  String buildEmptyStateText() {
   final hasCustomStatusFilter = selectedViews.length != 1 ||
       !selectedViews.contains('active');
@@ -1785,6 +2738,13 @@ Wrap(
   Widget build(BuildContext context) {
     return AppPageScaffold(
       title: 'إدارة الأطفال',
+      actions: [
+        IconButton(
+          tooltip: 'إضافة طفل',
+          onPressed: _openAddChildOptions,
+          icon: const Icon(Icons.add_rounded),
+        ),
+      ],
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
       child: Column(
         children: [
@@ -1801,12 +2761,22 @@ Wrap(
                 }
 
                 if (snapshot.hasError) {
+                  debugPrint('MANAGE CHILDREN LOAD ERROR: ${snapshot.error}');
+                  debugPrintStack(
+                    label: 'MANAGE CHILDREN LOAD STACK',
+                    stackTrace: snapshot.stackTrace,
+                  );
+
                   return Center(
-                    child: Text(
-                      'حدث خطأ أثناء تحميل الأطفال',
-                      style: TextStyle(
-                        color: Colors.red.shade700,
-                        fontWeight: FontWeight.w700,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(
+                        'حدث خطأ أثناء تحميل الأطفال\n\n${snapshot.error}',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Colors.red.shade700,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                   );

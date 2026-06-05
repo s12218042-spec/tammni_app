@@ -669,22 +669,6 @@ class _AdminHomePageState extends State<AdminHomePage> {
                     'معلقة ${data.pendingAddChildRequests} • مقبولة ${data.approvedAddChildRequests}',
                 icon: Icons.person_add_alt_1_rounded,
               ),
-              _AdminActionCard(
-                icon: Icons.child_care_rounded,
-                title: 'إدارة الأطفال',
-                subtitle: ' ',
-                onTap: () async {
-                await Navigator.push(
-                context,
-                MaterialPageRoute(
-                builder: (_) => const ManageChildrenPage(),
-                ),
-                 );
-
-                if (!mounted) return;
-                setState(() {});
-                },
-              ),
               _DashboardStatCard(
                 title: 'طلبات حذف الحسابات',
                 value: '${data.pendingDeletionRequests}',
@@ -821,6 +805,23 @@ class _AdminHomePageState extends State<AdminHomePage> {
               context,
               MaterialPageRoute(
                 builder: (_) => const ManageUsersPage(),
+              ),
+            );
+
+            if (!mounted) return;
+            setState(() {});
+          },
+        ),
+
+        _AdminActionCard(
+          icon: Icons.child_care_rounded,
+          title: 'إدارة الأطفال',
+          subtitle: ' ',
+          onTap: () async {
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const ManageChildrenPage(),
               ),
             );
 

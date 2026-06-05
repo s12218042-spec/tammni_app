@@ -132,12 +132,12 @@ exports.sendParentVerificationCode = onCall(
       await resend.emails.send({
         from: RESEND_SENDER_EMAIL.value(),
         to: email,
-        subject: "رمز التحقق - طمّني",
+        subject: "رمز التحقق - حضانتي",
         html: `
           <div dir="rtl" style="font-family: Arial, sans-serif; line-height: 1.8; color: #222;">
             <h2 style="margin-bottom: 8px;">التحقق من البريد الإلكتروني</h2>
             <p>مرحبًا،</p>
-            <p>رمز التحقق الخاص بك في تطبيق <strong>طمّني</strong> هو:</p>
+            <p>رمز التحقق الخاص بك في تطبيق <strong>حضانتي</strong> هو:</p>
             <div style="font-size: 32px; font-weight: bold; letter-spacing: 4px; color: #2D6CDF; margin: 16px 0;">
               ${code}
             </div>

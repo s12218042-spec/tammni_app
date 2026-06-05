@@ -44,6 +44,16 @@ class _TemporaryAccessLoginPageState extends State<TemporaryAccessLoginPage> {
     return value.trim().toUpperCase();
   }
 
+  List<String> _stringList(dynamic value) {
+    if (value is! List) return <String>[];
+
+    return value
+        .map(_cleanText)
+        .where((item) => item.isNotEmpty)
+        .toSet()
+        .toList();
+  }
+
   DateTime? _dateFromDynamic(dynamic value) {
     if (value is Timestamp) return value.toDate();
     if (value is DateTime) return value;
@@ -54,7 +64,7 @@ class _TemporaryAccessLoginPageState extends State<TemporaryAccessLoginPage> {
   bool _isExpired(dynamic value) {
     final date = _dateFromDynamic(value);
     if (date == null) return false;
-    return DateTime.now().isAfter(date);
+    return !date.isAfter(DateTime.now());
   }
 
   bool _isBlockedStatus(String status) {
@@ -66,7 +76,8 @@ class _TemporaryAccessLoginPageState extends State<TemporaryAccessLoginPage> {
         cleanStatus == 'archived' ||
         cleanStatus == 'rejected_after_trial' ||
         cleanStatus == 'withdrawn' ||
-        cleanStatus == 'inactive';
+        cleanStatus == 'inactive' ||
+        cleanStatus == 'logged_out';
   }
 
   bool _isAllowedChildType(Map<String, dynamic> childData) {
@@ -85,6 +96,55 @@ class _TemporaryAccessLoginPageState extends State<TemporaryAccessLoginPage> {
         enrollmentType == 'trial' ||
         childStatus == 'temporary' ||
         childStatus == 'trial';
+  }
+
+  bool _isChildAvailable(Map<String, dynamic> childData) {
+    final childStatus = _cleanText(
+      childData['childStatus'] ?? childData['status'],
+    ).toLowerCase();
+
+    final accountStatus =
+        _cleanText(childData['accountStatus']).toLowerCase();
+
+    final childIsActive = childData['isActive'] != false;
+
+    if (!childIsActive ||
+        _isBlockedStatus(childStatus) ||
+        _isBlockedStatus(accountStatus)) {
+      return false;
+    }
+
+    if (!_isAllowedChildType(childData)) {
+      return false;
+    }
+
+    return !_isExpired(
+      childData['temporaryAccessEndAt'] ??
+          childData['temporaryEndAt'] ??
+          childData['temporaryEndDate'] ??
+          childData['trialEndAt'],
+    );
+  }
+
+  String _childDisplayName(Map<String, dynamic> childData) {
+    final name = _cleanText(childData['childName'] ?? childData['name']);
+    return name.isEmpty ? 'طفل بدون اسم' : name;
+  }
+
+  String _childTypeLabel(Map<String, dynamic> childData) {
+    final childType = _cleanText(childData['childType']).toLowerCase();
+    final enrollmentType =
+        _cleanText(childData['enrollmentType']).toLowerCase();
+    final childStatus = _cleanText(childData['childStatus']).toLowerCase();
+
+    if (childData['isTrialChild'] == true ||
+        childType == 'trial' ||
+        enrollmentType == 'trial' ||
+        childStatus == 'trial') {
+      return 'طفل تجربة';
+    }
+
+    return 'طفل مؤقت';
   }
 
   Future<User> _ensureAnonymousSession() async {
@@ -118,10 +178,10 @@ class _TemporaryAccessLoginPageState extends State<TemporaryAccessLoginPage> {
     return clean.replaceAll(RegExp(r'[^a-zA-Z0-9_\-]'), '_');
   }
 
-  Future<String?> _getFcmToken() async {
+  Future<String> _getFcmTokenOrEmpty() async {
     if (kIsWeb) {
       debugPrint('TEMP FCM skipped on Web');
-      return null;
+      return '';
     }
 
     try {
@@ -136,21 +196,22 @@ class _TemporaryAccessLoginPageState extends State<TemporaryAccessLoginPage> {
 
     try {
       final token = await _messaging.getToken();
-      final cleanToken = token?.trim();
+      final cleanToken = token?.trim() ?? '';
 
-      if (cleanToken == null || cleanToken.isEmpty) {
+      if (cleanToken.isEmpty) {
         debugPrint('TEMP FCM token is empty');
-        return null;
       }
 
       return cleanToken;
     } catch (e) {
       debugPrint('TEMP FCM getToken failed: $e');
-      return null;
+      return '';
     }
   }
 
-  Future<void> _saveTemporaryDeviceToken({
+  Future<void> _saveTemporaryDeviceSession({
+    required User authUser,
+    required String token,
     required String accessCodeId,
     required String code,
     required String childId,
@@ -158,24 +219,22 @@ class _TemporaryAccessLoginPageState extends State<TemporaryAccessLoginPage> {
     required Map<String, dynamic> childData,
   }) async {
     try {
-      final authUser = await _ensureAnonymousSession();
-      final token = await _getFcmToken();
-
-      if (token == null || token.isEmpty) {
-        debugPrint('TEMP FCM token is empty, login will continue');
-        return;
-      }
-
       final childName = _cleanText(
         childData['childName'] ?? childData['name'] ?? accessData['childName'],
       );
 
       final parentName = _cleanText(
-        childData['parentName'] ?? accessData['parentName'],
+        childData['parentName'] ??
+            childData['temporaryParentName'] ??
+            accessData['parentName'] ??
+            accessData['temporaryParentName'],
       );
 
       final parentPhone = _cleanText(
-        childData['parentPhone'] ?? accessData['parentPhone'],
+        childData['parentPhone'] ??
+            childData['temporaryParentPhone'] ??
+            accessData['parentPhone'] ??
+            accessData['temporaryParentPhone'],
       );
 
       final parentUid = _cleanText(
@@ -214,19 +273,21 @@ class _TemporaryAccessLoginPageState extends State<TemporaryAccessLoginPage> {
           childData['isTrialChild'] == true ||
           accessData['isTrialChild'] == true;
 
-      final accessEndAt = accessData['accessEndAt'] ??
+      final accessEndAt = childData['temporaryAccessEndAt'] ??
+          childData['temporaryEndAt'] ??
+          childData['temporaryEndDate'] ??
+          childData['trialEndAt'] ??
+          accessData['accessEndAt'] ??
           accessData['temporaryAccessEndAt'] ??
           accessData['temporaryEndAt'] ??
           accessData['temporaryEndDate'] ??
-          accessData['trialEndAt'] ??
-          childData['temporaryAccessEndAt'] ??
-          childData['temporaryEndAt'] ??
-          childData['temporaryEndDate'] ??
-          childData['trialEndAt'];
+          accessData['trialEndAt'];
 
-      final deviceDocId = _safeDocId(
-        '${authUser.uid}_${accessCodeId.isNotEmpty ? accessCodeId : childId}',
-      );
+      final resolvedAccessCodeId = accessCodeId.isNotEmpty
+          ? accessCodeId
+          : _cleanText(childData['temporaryAccessCodeId']);
+
+      final deviceDocId = _safeDocId('${authUser.uid}_$childId');
 
       final deviceRef =
           _firestore.collection('temporary_parent_devices').doc(deviceDocId);
@@ -236,11 +297,13 @@ class _TemporaryAccessLoginPageState extends State<TemporaryAccessLoginPage> {
 
       final deviceData = <String, dynamic>{
         'id': deviceDocId,
+        'deviceId': deviceDocId,
         'authUid': authUser.uid,
         'isAnonymousAuth': authUser.isAnonymous,
         'fcmToken': token,
+        'supportsPush': token.isNotEmpty,
         'platform': kIsWeb ? 'web' : 'mobile',
-        'accessCodeId': accessCodeId,
+        'accessCodeId': resolvedAccessCodeId,
         'code': code,
         'childId': childId,
         'childName': childName,
@@ -253,6 +316,8 @@ class _TemporaryAccessLoginPageState extends State<TemporaryAccessLoginPage> {
         'parentUsername': parentUsername,
         'parentName': parentName,
         'parentPhone': parentPhone,
+        'temporaryParentName': parentName,
+        'temporaryParentPhone': parentPhone,
         'groupId': groupId,
         'groupName': groupName,
         'isActive': true,
@@ -268,24 +333,35 @@ class _TemporaryAccessLoginPageState extends State<TemporaryAccessLoginPage> {
 
       await deviceRef.set(deviceData, SetOptions(merge: true));
 
-      if (accessCodeId.isNotEmpty) {
-        await _firestore
-            .collection('temporary_access_codes')
-            .doc(accessCodeId)
-            .set({
-          'lastAnonymousAuthUid': authUser.uid,
-          'lastFcmToken': token,
-          'lastDeviceDocId': deviceDocId,
-          'lastLoginAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-      }
-
       debugPrint(
-        'TEMP FCM token saved successfully childId=$childId deviceDocId=$deviceDocId',
+        'TEMP DEVICE SESSION SAVED childId=$childId '
+        'deviceDocId=$deviceDocId supportsPush=${token.isNotEmpty}',
       );
     } catch (e, st) {
-      debugPrint('TEMP FCM save failed but login will continue: $e');
+      debugPrint('TEMP DEVICE SESSION SAVE FAILED BUT LOGIN WILL CONTINUE: $e');
+      debugPrint('$st');
+    }
+  }
+
+  Future<void> _saveAccessLoginMetadata({
+    required User authUser,
+    required String token,
+    required String accessCodeId,
+    required List<String> deviceDocIds,
+  }) async {
+    if (accessCodeId.isEmpty) return;
+
+    try {
+      await _firestore.collection('temporary_access_codes').doc(accessCodeId).set({
+        'lastAnonymousAuthUid': authUser.uid,
+        'lastFcmToken': token,
+        'lastDeviceDocIds': deviceDocIds,
+        if (deviceDocIds.isNotEmpty) 'lastDeviceDocId': deviceDocIds.first,
+        'lastLoginAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (e, st) {
+      debugPrint('TEMP ACCESS METADATA UPDATE FAILED BUT LOGIN WILL CONTINUE: $e');
       debugPrint('$st');
     }
   }
@@ -311,81 +387,196 @@ class _TemporaryAccessLoginPageState extends State<TemporaryAccessLoginPage> {
     final childSnapshot = await _firestore
         .collection('children')
         .where('temporaryAccessCode', isEqualTo: normalized)
-        .limit(1)
         .get();
 
-    if (childSnapshot.docs.isNotEmpty) {
-      final childDoc = childSnapshot.docs.first;
-      final childData = childDoc.data();
+    final allowedChildren = childSnapshot.docs.where((doc) {
+      return _isAllowedChildType(doc.data());
+    }).toList();
 
-      if (!_isAllowedChildType(childData)) {
-        return null;
-      }
+    if (allowedChildren.isEmpty) return null;
 
-      return {
-        'accessCodeId': '',
-        'accessData': {
-          'code': normalized,
-          'childId': childDoc.id,
-          'childName': childData['childName'] ?? childData['name'],
-          'parentName': childData['parentName'],
-          'parentPhone': childData['parentPhone'],
-          'parentUid': childData['parentUid'],
-          'parentUsername': childData['parentUsername'],
-          'groupId': childData['groupId'],
-          'groupName': childData['groupName'] ?? childData['group'],
-          'childType': childData['childType'],
-          'enrollmentType': childData['enrollmentType'],
-          'childStatus': childData['childStatus'],
-          'isTemporaryChild': childData['isTemporaryChild'],
-          'isTrialChild': childData['isTrialChild'],
-          'accessStartAt': childData['temporaryAccessStartAt'] ??
-              childData['temporaryStartAt'] ??
-              childData['temporaryStartDate'] ??
-              childData['trialStartAt'],
-          'accessEndAt': childData['temporaryAccessEndAt'] ??
-              childData['temporaryEndAt'] ??
-              childData['temporaryEndDate'] ??
-              childData['trialEndAt'],
-          'status': childData['temporaryAccessStatus'] ??
-              childData['childStatus'] ??
-              'active',
-        },
-      };
-    }
+    final firstChild = allowedChildren.first;
+    final childData = firstChild.data();
 
-    return null;
+    return {
+      'accessCodeId': _cleanText(childData['temporaryAccessCodeId']),
+      'accessData': {
+        'code': normalized,
+        'childId': firstChild.id,
+        'childIds': allowedChildren.map((doc) => doc.id).toList(),
+        'childName': childData['childName'] ?? childData['name'],
+        'childNames': allowedChildren
+            .map((doc) => _childDisplayName(doc.data()))
+            .toList(),
+        'parentName':
+            childData['parentName'] ?? childData['temporaryParentName'],
+        'parentPhone':
+            childData['parentPhone'] ?? childData['temporaryParentPhone'],
+        'parentUid': childData['parentUid'],
+        'parentUsername': childData['parentUsername'],
+        'groupId': childData['groupId'],
+        'groupName': childData['groupName'] ?? childData['group'],
+        'childType': childData['childType'],
+        'enrollmentType': childData['enrollmentType'],
+        'childStatus': childData['childStatus'],
+        'isTemporaryChild': childData['isTemporaryChild'],
+        'isTrialChild': childData['isTrialChild'],
+        'accessStartAt': childData['temporaryAccessStartAt'] ??
+            childData['temporaryStartAt'] ??
+            childData['temporaryStartDate'] ??
+            childData['trialStartAt'],
+        'accessEndAt': childData['temporaryAccessEndAt'] ??
+            childData['temporaryEndAt'] ??
+            childData['temporaryEndDate'] ??
+            childData['trialEndAt'],
+        'status': childData['temporaryAccessStatus'] ??
+            childData['childStatus'] ??
+            'active',
+        'isActive': true,
+      },
+    };
   }
 
-  Future<DocumentSnapshot<Map<String, dynamic>>?> _loadChildDoc(
-    Map<String, dynamic> accessData,
-  ) async {
-    final childId = _cleanText(accessData['childId']);
+  Future<List<DocumentSnapshot<Map<String, dynamic>>>> _loadChildDocs({
+    required String accessCodeId,
+    required String code,
+    required Map<String, dynamic> accessData,
+  }) async {
+    final docsById = <String, DocumentSnapshot<Map<String, dynamic>>>{};
 
-    if (childId.isNotEmpty) {
+    final childIds = <String>{
+      ..._stringList(accessData['childIds']),
+      if (_cleanText(accessData['childId']).isNotEmpty)
+        _cleanText(accessData['childId']),
+    };
+
+    for (final childId in childIds) {
       final doc = await _firestore.collection('children').doc(childId).get();
-      if (doc.exists) return doc;
+      if (doc.exists) docsById[doc.id] = doc;
     }
 
-    final code = _cleanText(accessData['code']);
-    if (code.isEmpty) return null;
+    // لا ننفذ استعلامات إضافية عند توفر childIds داخل سجل الكود المشترك.
+    // هذا يحافظ على التوافق مع Firestore Rules ويقلل القراءة غير الضرورية.
+    if (docsById.isEmpty && accessCodeId.isNotEmpty) {
+      final snapshot = await _firestore
+          .collection('children')
+          .where('temporaryAccessCodeId', isEqualTo: accessCodeId)
+          .get();
 
-    final snapshot = await _firestore
-        .collection('children')
-        .where('temporaryAccessCode', isEqualTo: code)
-        .limit(1)
-        .get();
+      for (final doc in snapshot.docs) {
+        docsById[doc.id] = doc;
+      }
+    }
 
-    if (snapshot.docs.isEmpty) return null;
-    return snapshot.docs.first;
+    if (docsById.isEmpty && code.isNotEmpty) {
+      final snapshot = await _firestore
+          .collection('children')
+          .where('temporaryAccessCode', isEqualTo: code)
+          .get();
+
+      for (final doc in snapshot.docs) {
+        docsById[doc.id] = doc;
+      }
+    }
+
+    return docsById.values.toList();
+  }
+
+  Map<String, dynamic> _accessDataForChild({
+    required Map<String, dynamic> accessData,
+    required DocumentSnapshot<Map<String, dynamic>> childDoc,
+  }) {
+    final childData = childDoc.data() ?? <String, dynamic>{};
+
+    return {
+      ...accessData,
+      'childId': childDoc.id,
+      'childName': childData['childName'] ?? childData['name'],
+      'childType': childData['childType'],
+      'enrollmentType': childData['enrollmentType'],
+      'childStatus': childData['childStatus'],
+      'isTemporaryChild': childData['isTemporaryChild'],
+      'isTrialChild': childData['isTrialChild'],
+      'groupId': childData['groupId'] ?? accessData['groupId'],
+      'groupName': childData['groupName'] ??
+          childData['group'] ??
+          accessData['groupName'],
+      'accessStartAt': childData['temporaryAccessStartAt'] ??
+          childData['temporaryStartAt'] ??
+          childData['temporaryStartDate'] ??
+          childData['trialStartAt'] ??
+          accessData['accessStartAt'],
+      'accessEndAt': childData['temporaryAccessEndAt'] ??
+          childData['temporaryEndAt'] ??
+          childData['temporaryEndDate'] ??
+          childData['trialEndAt'] ??
+          accessData['accessEndAt'],
+    };
+  }
+
+  Future<DocumentSnapshot<Map<String, dynamic>>?> _chooseChild(
+    List<DocumentSnapshot<Map<String, dynamic>>> childDocs,
+  ) async {
+    if (childDocs.isEmpty) return null;
+    if (childDocs.length == 1) return childDocs.first;
+
+    return showDialog<DocumentSnapshot<Map<String, dynamic>>>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: const Text('اختاري الطفل'),
+            content: SizedBox(
+              width: 420,
+              child: ListView.separated(
+                shrinkWrap: true,
+                itemCount: childDocs.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 8),
+                itemBuilder: (context, index) {
+                  final childDoc = childDocs[index];
+                  final childData = childDoc.data() ?? <String, dynamic>{};
+
+                  return Card(
+                    margin: EdgeInsets.zero,
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor:
+                            AppColors.primary.withOpacity(0.10),
+                        child: const Icon(
+                          Icons.child_care_rounded,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                      title: Text(
+                        _childDisplayName(childData),
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: Text(_childTypeLabel(childData)),
+                      trailing: const Icon(Icons.arrow_forward_ios_rounded),
+                      onTap: () => Navigator.pop(dialogContext, childDoc),
+                    ),
+                  );
+                },
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('إلغاء'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _login() async {
     final code = _normalizeCode(codeCtrl.text);
 
-    if (code.isEmpty || isLoading) {
-      return;
-    }
+    if (code.isEmpty || isLoading) return;
 
     FocusScope.of(context).unfocus();
 
@@ -394,8 +585,7 @@ class _TemporaryAccessLoginPageState extends State<TemporaryAccessLoginPage> {
     });
 
     try {
-      await _ensureAnonymousSession();
-
+      final authUser = await _ensureAnonymousSession();
       final accessResult = await _findAccessByCode(code);
 
       if (accessResult == null) {
@@ -407,76 +597,85 @@ class _TemporaryAccessLoginPageState extends State<TemporaryAccessLoginPage> {
       final accessData =
           Map<String, dynamic>.from(accessResult['accessData'] as Map);
 
-      final status = _cleanText(accessData['status']).toLowerCase();
-      final isActive = accessData['isActive'] != false;
+      final accessStatus = _cleanText(
+        accessData['status'] ?? accessData['accountStatus'],
+      ).toLowerCase();
 
-      if (!isActive || _isBlockedStatus(status)) {
+      final accessIsActive = accessData['isActive'] != false;
+
+      if (!accessIsActive || _isBlockedStatus(accessStatus)) {
         _showMessage('كود الدخول غير فعّال');
         return;
       }
 
-      if (_isExpired(
-        accessData['accessEndAt'] ??
-            accessData['temporaryAccessEndAt'] ??
-            accessData['temporaryEndAt'] ??
-            accessData['temporaryEndDate'] ??
-            accessData['trialEndAt'] ??
-            accessData['expiresAt'],
-      )) {
-        _showMessage('انتهت صلاحية كود الدخول');
-        return;
-      }
-
-      final childDoc = await _loadChildDoc(accessData);
-
-      if (childDoc == null || !childDoc.exists) {
-        _showMessage('بيانات الطفل غير موجودة');
-        return;
-      }
-
-      final childData = childDoc.data() ?? <String, dynamic>{};
-
-      final childStatus = _cleanText(childData['childStatus']).toLowerCase();
-      final childIsActive = childData['isActive'] != false;
-
-      if (!childIsActive || _isBlockedStatus(childStatus)) {
-        _showMessage('حساب الطفل غير فعّال');
-        return;
-      }
-
-      if (!_isAllowedChildType(childData)) {
-        _showMessage('هذا الكود مخصص للأطفال المؤقتين أو أطفال التجربة فقط');
-        return;
-      }
-
-      if (_isExpired(
-        childData['temporaryAccessEndAt'] ??
-            childData['temporaryEndAt'] ??
-            childData['temporaryEndDate'] ??
-            childData['trialEndAt'],
-      )) {
-        _showMessage('انتهت صلاحية الدخول لهذا الطفل');
-        return;
-      }
-
-      await _saveTemporaryDeviceToken(
+      final allChildDocs = await _loadChildDocs(
         accessCodeId: accessCodeId,
         code: code,
-        childId: childDoc.id,
         accessData: accessData,
-        childData: childData,
+      );
+
+      if (allChildDocs.isEmpty) {
+        _showMessage('بيانات الأطفال غير موجودة');
+        return;
+      }
+
+      final availableChildDocs = allChildDocs.where((doc) {
+        return _isChildAvailable(doc.data() ?? <String, dynamic>{});
+      }).toList();
+
+      if (availableChildDocs.isEmpty) {
+        _showMessage('لا يوجد طفل فعّال مرتبط بهذا الكود');
+        return;
+      }
+
+      final token = await _getFcmTokenOrEmpty();
+      final deviceDocIds = <String>[];
+
+      for (final childDoc in availableChildDocs) {
+        final childData = childDoc.data() ?? <String, dynamic>{};
+
+        await _saveTemporaryDeviceSession(
+          authUser: authUser,
+          token: token,
+          accessCodeId: accessCodeId,
+          code: code,
+          childId: childDoc.id,
+          accessData: accessData,
+          childData: childData,
+        );
+
+        deviceDocIds.add(_safeDocId('${authUser.uid}_${childDoc.id}'));
+      }
+
+      await _saveAccessLoginMetadata(
+        authUser: authUser,
+        token: token,
+        accessCodeId: accessCodeId,
+        deviceDocIds: deviceDocIds,
       );
 
       if (!mounted) return;
+
+      final selectedChildDoc = await _chooseChild(availableChildDocs);
+
+      if (!mounted || selectedChildDoc == null) return;
+
+      final selectedChildData =
+          selectedChildDoc.data() ?? <String, dynamic>{};
+
+      final selectedAccessData = _accessDataForChild(
+        accessData: accessData,
+        childDoc: selectedChildDoc,
+      );
 
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
           builder: (_) => TemporaryChildViewPage(
             accessCodeId: accessCodeId,
-            accessData: accessData,
-            childId: childDoc.id,
-            childData: childData,
+            accessData: selectedAccessData,
+            childId: selectedChildDoc.id,
+            childData: selectedChildData,
           ),
         ),
       );
@@ -499,6 +698,7 @@ class _TemporaryAccessLoginPageState extends State<TemporaryAccessLoginPage> {
     } catch (e, st) {
       debugPrint('TEMP ACCESS LOGIN ERROR: $e');
       debugPrint('$st');
+
       _showMessage('تعذر الدخول، حاولي مرة أخرى');
     } finally {
       if (mounted) {

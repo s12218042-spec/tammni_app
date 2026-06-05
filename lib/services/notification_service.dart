@@ -27,9 +27,9 @@ class NotificationService {
   StreamSubscription<RemoteMessage>? _messageOpenedSubscription;
 
   static const String _channelId = 'tammni_high_importance_channel';
-  static const String _channelName = 'إشعارات طمّني';
+  static const String _channelName = 'إشعارات حضانتي';
   static const String _channelDescription =
-      'إشعارات مهمة من تطبيق طمّني مثل تحديثات الأطفال والرسائل';
+      'إشعارات مهمة من تطبيق حضانتي مثل تحديثات الأطفال والرسائل';
 
   Future<void> init() async {
     if (_initialized) return;
@@ -157,7 +157,7 @@ class NotificationService {
       final notification = message.notification;
 
       final title =
-          notification?.title ?? message.data['title']?.toString() ?? 'طمّني';
+          notification?.title ?? message.data['title']?.toString() ?? 'حضانتي';
 
       final body =
           notification?.body ?? message.data['body']?.toString() ?? '';
@@ -194,7 +194,7 @@ class NotificationService {
     try {
       await _localNotifications.show(
         DateTime.now().millisecondsSinceEpoch ~/ 1000,
-        title.trim().isEmpty ? 'طمّني' : title.trim(),
+        title.trim().isEmpty ? 'حضانتي' : title.trim(),
         body.trim(),
         const NotificationDetails(
           android: AndroidNotificationDetails(

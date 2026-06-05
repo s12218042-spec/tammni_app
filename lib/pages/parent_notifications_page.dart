@@ -204,6 +204,14 @@ class _ParentNotificationsPageState extends State<ParentNotificationsPage> {
           data['streamTitle'],
           data['title'],
         ]),
+        'requestId': _firstNonEmpty([
+          data['requestId'],
+          data['liveStreamRequestId'],
+        ]),
+        'liveStreamRequestId': _firstNonEmpty([
+          data['liveStreamRequestId'],
+          data['requestId'],
+        ]),
         'isGroupUpdate': _firstBool([
   data['isGroupUpdate'],
 ], fallback: false),
@@ -317,10 +325,20 @@ class _ParentNotificationsPageState extends State<ParentNotificationsPage> {
     final title = (data['streamTitle'] ?? data['title'] ?? 'بث مباشر من الحضانة')
         .toString();
     final startedByName = (data['createdByName'] ?? '').toString();
+    final liveStreamRequestId =
+    (data['liveStreamRequestId'] ?? data['requestId'] ?? '').toString();
 
     if (roomId.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('بيانات البث غير مكتملة')),
+      );
+      return;
+    }
+    if (liveStreamRequestId.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('بيانات طلب البث غير مكتملة'),
+        ),
       );
       return;
     }
@@ -358,6 +376,7 @@ class _ParentNotificationsPageState extends State<ParentNotificationsPage> {
             title: (streamData['title'] ?? title).toString(),
             startedByName:
                 (streamData['startedByName'] ?? startedByName).toString(),
+            liveStreamRequestId: liveStreamRequestId,
           ),
         ),
       );

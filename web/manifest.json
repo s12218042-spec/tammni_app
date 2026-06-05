@@ -1,11 +1,11 @@
 {
-    "name": "tammni_app",
-    "short_name": "tammni_app",
+    "name": "حضانتي",
+    "short_name": "حضانتي",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#F8FBFF",
+    "theme_color": "#7C83FD",
+    "description": "حضانتي - نظام لإدارة الحضانة ومتابعة الأطفال والتواصل مع أولياء الأمور.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

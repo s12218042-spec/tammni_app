@@ -20,6 +20,7 @@ UserRole roleFromString(String value) {
     case 'nursery staff':
     case 'staff':
     case 'employee':
+    case 'teacher':
     case 'موظفة':
     case 'موظفة حضانة':
     case 'حضانة':

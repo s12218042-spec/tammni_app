@@ -8,6 +8,12 @@ class UpdateModel {
 
   final String parentUid;
   final String parentUsername;
+  final String parentName;
+  final String parentPhone;
+  final String temporaryParentName;
+  final String temporaryParentPhone;
+
+  final String section;
 
   final String type;
   final String updateType;
@@ -25,24 +31,20 @@ class UpdateModel {
   final String createdByName;
   final String createdByRole;
 
-  // نوع الطفل: دائم / مؤقت / تجربة
   final String childType;
   final String childStatus;
   final bool isTemporaryChild;
   final bool isTrialChild;
 
-  // بيانات المجموعة
   final String groupId;
   final String groupName;
   final String group;
 
-  // التحديث الجماعي
   final bool isGroupUpdate;
   final String groupUpdateId;
   final String targetScope;
   final String targetScopeLabel;
 
-  // الوسائط
   final String mediaUrl;
   final String mediaPath;
   final String mediaType;
@@ -51,7 +53,6 @@ class UpdateModel {
   final String storageProvider;
   final int sizeBytes;
 
-  // حقول إضافية مستخدمة ببعض الصفحات
   final String importance;
   final String mood;
   final String energy;
@@ -68,6 +69,11 @@ class UpdateModel {
     required this.byRole,
     this.parentUid = '',
     this.parentUsername = '',
+    this.parentName = '',
+    this.parentPhone = '',
+    this.temporaryParentName = '',
+    this.temporaryParentPhone = '',
+    this.section = 'Nursery',
     this.updateType = '',
     this.category = '',
     this.description = '',
@@ -112,12 +118,12 @@ class UpdateModel {
       final text = _string(value);
       if (text.isNotEmpty) return text;
     }
+
     return '';
   }
 
   static DateTime? _dateOrNull(dynamic value) {
     if (value == null) return null;
-
     if (value is Timestamp) return value.toDate();
     if (value is DateTime) return value;
 
@@ -135,6 +141,7 @@ class UpdateModel {
     if (value == null) return 0;
     if (value is int) return value;
     if (value is num) return value.toInt();
+
     return int.tryParse(value.toString().trim()) ?? 0;
   }
 
@@ -169,16 +176,46 @@ class UpdateModel {
   static String normalizeRole(dynamic value) {
     final role = _string(value).toLowerCase();
 
-    if (role == 'nursery' ||
-        role == 'nursery staff' ||
-        role == 'nursery_staff') {
-      return 'nursery_staff';
+    switch (role) {
+      case 'nursery':
+      case 'nursery staff':
+      case 'nursery_staff':
+      case 'staff':
+      case 'employee':
+      case 'teacher':
+      case 'موظفة':
+      case 'موظفة حضانة':
+      case 'حضانة':
+        return 'nursery_staff';
+
+      case 'admin':
+      case 'manager':
+      case 'مدير':
+      case 'مدير النظام':
+      case 'ادمن':
+      case 'أدمن':
+        return 'admin';
+
+      case 'parent':
+      case 'ولي امر':
+      case 'ولي أمر':
+      case 'ولي الامر':
+      case 'ولي الأمر':
+        return 'parent';
+
+      default:
+        return role;
+    }
+  }
+
+  static String normalizeSection(dynamic value) {
+    final section = _string(value);
+
+    if (section.toLowerCase() == 'nursery' || section == 'حضانة') {
+      return 'Nursery';
     }
 
-    if (role == 'admin') return 'admin';
-    if (role == 'parent') return 'parent';
-
-    return role;
+    return section.isEmpty ? 'Nursery' : section;
   }
 
   static String normalizeChildType(dynamic value) {
@@ -200,6 +237,8 @@ class UpdateModel {
       case 'regular':
       case 'active':
       case 'دائم':
+        return 'permanent';
+
       default:
         return type.isEmpty ? 'permanent' : type;
     }
@@ -355,6 +394,17 @@ class UpdateModel {
       ]),
       parentUid: _string(map['parentUid']),
       parentUsername: _string(map['parentUsername']).toLowerCase(),
+      parentName: _firstNonEmpty([
+        map['parentName'],
+        map['temporaryParentName'],
+      ]),
+      parentPhone: _firstNonEmpty([
+        map['parentPhone'],
+        map['temporaryParentPhone'],
+      ]),
+      temporaryParentName: _string(map['temporaryParentName']),
+      temporaryParentPhone: _string(map['temporaryParentPhone']),
+      section: normalizeSection(map['section']),
       type: resolvedType,
       updateType: _string(map['updateType']),
       category: _string(map['category']),
@@ -375,7 +425,12 @@ class UpdateModel {
       ),
       createdByUid: _string(map['createdByUid']),
       createdByName: _string(map['createdByName']),
-      createdByRole: normalizeRole(map['createdByRole']),
+      createdByRole: normalizeRole(
+        _firstNonEmpty([
+          map['createdByRole'],
+          map['byRole'],
+        ]),
+      ),
       childType: resolvedChildType,
       childStatus: resolvedChildStatus,
       isTemporaryChild: temporaryChild,
@@ -405,6 +460,7 @@ class UpdateModel {
         map['mediaPath'],
         map['path'],
         map['storagePath'],
+        map['objectPath'],
       ]),
       mediaType: _firstNonEmpty([
         map['mediaType'],
@@ -433,6 +489,7 @@ class UpdateModel {
 
   Map<String, dynamic> toMap() {
     final resolvedChildType = normalizeChildType(childType);
+
     final resolvedChildStatus = normalizeChildStatus(
       childStatus.trim().isNotEmpty
           ? childStatus
@@ -443,7 +500,19 @@ class UpdateModel {
                   : 'active',
     );
 
-    final resolvedGroup = group.isNotEmpty ? group : groupName;
+    final resolvedGroupName =
+        groupName.trim().isNotEmpty ? groupName.trim() : group.trim();
+
+    final resolvedGroup =
+        group.trim().isNotEmpty ? group.trim() : resolvedGroupName;
+
+    final resolvedByRole = normalizeRole(
+      byRole.trim().isNotEmpty ? byRole : createdByRole,
+    );
+
+    final resolvedCreatedByRole = normalizeRole(
+      createdByRole.trim().isNotEmpty ? createdByRole : byRole,
+    );
 
     return {
       'id': id,
@@ -452,6 +521,11 @@ class UpdateModel {
       'childName': childName,
       'parentUid': parentUid,
       'parentUsername': parentUsername.trim().toLowerCase(),
+      'parentName': parentName,
+      'parentPhone': parentPhone,
+      'temporaryParentName': temporaryParentName,
+      'temporaryParentPhone': temporaryParentPhone,
+      'section': normalizeSection(section),
       'type': type,
       'updateType': updateType,
       'category': category,
@@ -465,17 +539,17 @@ class UpdateModel {
           ? FieldValue.serverTimestamp()
           : Timestamp.fromDate(createdAt!),
       'updatedAt': FieldValue.serverTimestamp(),
-      'byRole': normalizeRole(byRole),
+      'byRole': resolvedByRole,
       'createdByUid': createdByUid,
       'createdByName': createdByName,
-      'createdByRole': normalizeRole(createdByRole),
+      'createdByRole': resolvedCreatedByRole,
       'childType': resolvedChildType,
       'enrollmentType': resolvedChildType,
       'childStatus': resolvedChildStatus,
       'isTemporaryChild': isTemporaryChild || resolvedChildType == 'temporary',
       'isTrialChild': isTrialChild || resolvedChildType == 'trial',
       'groupId': groupId,
-      'groupName': groupName,
+      'groupName': resolvedGroupName,
       'group': resolvedGroup,
       'isGroupUpdate': isGroupUpdate,
       'groupUpdateId': groupUpdateId,
@@ -533,11 +607,13 @@ class UpdateModel {
   String get displayChildType {
     if (isTemporary) return 'طفل مؤقت';
     if (isTrial) return 'فترة تجربة';
+
     return 'طفل دائم';
   }
 
   String get displayType {
     if (isGroupUpdate) return 'تحديث جماعي';
+
     return type.trim().isEmpty ? 'ملاحظة' : type;
   }
 
@@ -551,6 +627,11 @@ class UpdateModel {
     String? childName,
     String? parentUid,
     String? parentUsername,
+    String? parentName,
+    String? parentPhone,
+    String? temporaryParentName,
+    String? temporaryParentPhone,
+    String? section,
     String? type,
     String? updateType,
     String? category,
@@ -594,6 +675,11 @@ class UpdateModel {
       childName: childName ?? this.childName,
       parentUid: parentUid ?? this.parentUid,
       parentUsername: parentUsername ?? this.parentUsername,
+      parentName: parentName ?? this.parentName,
+      parentPhone: parentPhone ?? this.parentPhone,
+      temporaryParentName: temporaryParentName ?? this.temporaryParentName,
+      temporaryParentPhone: temporaryParentPhone ?? this.temporaryParentPhone,
+      section: section ?? this.section,
       type: type ?? this.type,
       updateType: updateType ?? this.updateType,
       category: category ?? this.category,
