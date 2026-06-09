@@ -1412,7 +1412,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                       ),
                       const SizedBox(height: 18),
                       Text(
-                        'تحويل الطفل المؤقت إلى دائم',
+                        'تحويل الطفل الزائر إلى دائم',
                         style: Theme.of(sheetContext)
                             .textTheme
                             .titleLarge
@@ -1596,14 +1596,14 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
 
       if (!mounted) return true;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم تحويل الطفل المؤقت إلى طفل دائم')),
+        const SnackBar(content: Text('تم تحويل الطفل الزائر إلى طفل دائم')),
       );
 
       return true;
     } catch (e) {
       if (!mounted) return false;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذر تحويل الطفل المؤقت: $e')),
+        SnackBar(content: Text('تعذر تحويل الطفل الزائر: $e')),
       );
       return false;
     }
@@ -2045,7 +2045,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
 
     switch (childType.isNotEmpty ? childType : childStatus) {
       case 'temporary':
-        return 'مؤقت';
+        return 'زائر';
       case 'trial':
         return 'تجربة';
       case 'permanent':
@@ -2616,7 +2616,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                       ),
                       const SizedBox(height: 18),
                       Text(
-                        'طفل مؤقت',
+                        'طفل زائر',
                         style: Theme.of(sheetContext)
                             .textTheme
                             .titleLarge
@@ -2923,7 +2923,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text(
-                'هذا الطفل مسجل كطفل دائم بالفعل، لا يمكن إضافته كمؤقت.',
+                'هذا الطفل مسجل كطفل دائم بالفعل، لا يمكن إضافته كزائر.',
               ),
             ),
           );
@@ -3038,7 +3038,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
       batch.set(invoiceRef, {
         'id': invoiceRef.id,
         'invoiceId': invoiceRef.id,
-        'title': 'فاتورة الطفل المؤقت',
+        'title': 'فاتورة الطفل الزائر',
         'childId': childRef.id,
         'childName': childName,
         'childType': 'temporary',
@@ -3088,7 +3088,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
       if (!mounted) return null;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذر حفظ الطفل المؤقت: $e')),
+        SnackBar(content: Text('تعذر حفظ الطفل الزائر: $e')),
       );
       return null;
     }
@@ -3516,7 +3516,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
             title: Text(
               usesSharedAccessCode
                   ? 'تم ربط الطفل بكود الإخوة'
-                  : 'تم إنشاء الوصول المؤقت',
+                  : 'تم إنشاء الوصول كزائر',
             ),
             content: SelectableText(
               'الطفل: $childName\nالكود: $code\nالصلاحية: ${_formatDate(accessEnd)}',
@@ -3866,7 +3866,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                       ),
                       const SizedBox(height: 18),
                       Text(
-                        'إعادة تفعيل الطفل المؤقت',
+                        'إعادة تفعيل الطفل الزائر',
                         style: Theme.of(sheetContext)
                             .textTheme
                             .titleLarge
@@ -4201,7 +4201,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
       batch.set(invoiceRef, {
         'id': invoiceRef.id,
         'invoiceId': invoiceRef.id,
-        'title': 'فاتورة الطفل المؤقت',
+        'title': 'فاتورة الطفل الزائر',
         'childId': childDoc.id,
         'childName': childName,
         'childType': 'temporary',
@@ -4249,7 +4249,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
       if (!mounted) return null;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذر إعادة تفعيل الطفل المؤقت: $e')),
+        SnackBar(content: Text('تعذر إعادة تفعيل الطفل الزائر: $e')),
       );
 
       return null;
@@ -4278,7 +4278,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
 
       if (childType == 'temporary' ||
           billingType == 'hourly' ||
-          title.contains('المؤقت')) {
+          title.contains('الزائر')) {
         invoiceDoc = doc;
         break;
       }
@@ -4384,7 +4384,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
           {
             'id': invoiceRef.id,
             'invoiceId': invoiceRef.id,
-            'title': 'فاتورة الطفل المؤقت',
+            'title': 'فاتورة الطفل الزائر',
             'childId': childDoc.id,
             'childName': childName,
             'childType': 'temporary',
@@ -4525,7 +4525,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                       ),
                       const SizedBox(height: 18),
                       Text(
-                        'تعديل فاتورة الطفل المؤقت',
+                        'تعديل فاتورة الطفل الزائر',
                         style: Theme.of(sheetContext)
                             .textTheme
                             .titleLarge
@@ -4737,7 +4737,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                     ),
                   ),
                   title: const Text(
-                    'إضافة طفل مؤقت',
+                    'إضافة طفل زائر',
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
                   onTap: () {

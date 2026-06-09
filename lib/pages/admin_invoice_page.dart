@@ -600,7 +600,7 @@ class _AdminInvoicesPageState extends State<AdminInvoicesPage> {
       );
     } catch (e) {
       debugPrint(
-        'AdminInvoicesPage: فشل تحديث استشارات الفواتير المؤقتة: $e',
+        'AdminInvoicesPage: فشل تحديث استشارات الفواتير للطفل الزائر ',
       );
 
       if (!mounted || !showMessage) return;

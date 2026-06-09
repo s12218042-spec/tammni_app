@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../theme/app_theme.dart';
 
 class AppLogoHeader extends StatelessWidget {
@@ -11,8 +12,8 @@ class AppLogoHeader extends StatelessWidget {
     super.key,
     required this.title,
     required this.subtitle,
-    this.iconSize = 64,
-    this.circleSize = 118,
+    this.iconSize = 112,
+    this.circleSize = 142,
   });
 
   @override
@@ -22,72 +23,43 @@ class AppLogoHeader extends StatelessWidget {
         Container(
           width: circleSize,
           height: circleSize,
+          padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            gradient: LinearGradient(
+            gradient: const LinearGradient(
               colors: [
-                const Color(0xFFE9EAFF),
-                const Color(0xFFD8DBFF),
-                const Color(0xFFC9CDFF),
+                Color(0xFFF4F4FF),
+                Color(0xFFE5E6FF),
+                Color(0xFFD4D7FF),
               ],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
+            border: Border.all(
+              color: Colors.white.withOpacity(0.75),
+              width: 1.5,
+            ),
             boxShadow: [
               BoxShadow(
-                color: AppColors.primary.withOpacity(0.18),
-                blurRadius: 24,
+                color: AppColors.primary.withOpacity(0.16),
+                blurRadius: 25,
                 offset: const Offset(0, 10),
               ),
               BoxShadow(
-                color: Colors.white.withOpacity(0.65),
+                color: Colors.white.withOpacity(0.7),
                 blurRadius: 12,
                 offset: const Offset(-4, -4),
               ),
             ],
           ),
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              Container(
-                width: circleSize - 6,
-                height: circleSize - 6,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    colors: [
-                      Colors.white.withOpacity(0.35),
-                      Colors.white.withOpacity(0.05),
-                    ],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                ),
-              ),
-              Positioned(
-                top: 16,
-                left: 18,
-                child: Transform.rotate(
-                  angle: -0.5,
-                  child: Container(
-                    width: 34,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.45),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                  ),
-                ),
-              ),
-              Icon(
-                Icons.child_friendly_rounded,
-                size: iconSize,
-                color: AppColors.primary,
-              ),
-            ],
+          child: Image.asset(
+            'assets/icons/login_logo.png',
+            width: iconSize,
+            height: iconSize,
+            fit: BoxFit.contain,
           ),
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 22),
         Text(
           title,
           textAlign: TextAlign.center,

@@ -605,7 +605,7 @@ class UpdateModel {
   }
 
   String get displayChildType {
-    if (isTemporary) return 'طفل مؤقت';
+    if (isTemporary) return 'طفل زائر';
     if (isTrial) return 'فترة تجربة';
 
     return 'طفل دائم';

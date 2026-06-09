@@ -227,7 +227,7 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
   }
 
   String _timerLabel() {
-    if (selectedTimer == 0) return 'بدون مؤقت';
+    if (selectedTimer == 0) return 'بدون زائر';
     return '$selectedTimer ثواني';
   }
 
@@ -359,7 +359,7 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
             runSpacing: 10,
             children: [
               _OptionChip(
-                label: 'المؤقت: ${_timerLabel()}',
+                label: 'الزائر: ${_timerLabel()}',
                 icon: Icons.timer_outlined,
                 isSelected: selectedTimer > 0,
               ),
@@ -379,7 +379,7 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
           ),
           const SizedBox(height: 14),
           const Text(
-            'المؤقت',
+            'الزائر',
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w700,

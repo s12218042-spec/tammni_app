@@ -591,54 +591,18 @@ class _WelcomePageState extends State<WelcomePage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          const SizedBox(height: 78),
+                          const SizedBox(height: 54),
                           Center(
-                            child: Container(
-                              width: 112,
-                              height: 112,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                gradient: LinearGradient(
-                                  colors: [
-                                    const Color(0xFFA7AAFF).withOpacity(0.42),
-                                    Colors.white.withOpacity(0.82),
-                                  ],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: AppColors.primary.withOpacity(0.20),
-                                    blurRadius: 30,
-                                    offset: const Offset(0, 12),
-                                  ),
-                                ],
-                                border: Border.all(
-                                  color: Colors.white.withOpacity(0.55),
-                                  width: 1.4,
-                                ),
-                              ),
-                              child: Stack(
-                                alignment: Alignment.center,
-                                children: [
-                                  Container(
-                                    width: 88,
-                                    height: 88,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: Colors.white.withOpacity(0.08),
-                                    ),
-                                  ),
-                                  const Icon(
-                                    Icons.child_friendly_rounded,
-                                    size: 58,
-                                    color: AppColors.primary,
-                                  ),
-                                ],
+                            child: SizedBox(
+                              width: 150,
+                              height: 150,
+                              child: Image.asset(
+                                'assets/icons/login_logo.png',
+                                fit: BoxFit.contain,
                               ),
                             ),
                           ),
-                          const SizedBox(height: 28),
+                          const SizedBox(height: 20),
                           const Text(
                             'أهلاً بك في حضانتي',
                             textAlign: TextAlign.center,
@@ -782,7 +746,7 @@ class _WelcomePageState extends State<WelcomePage> {
                               onPressed: _openTemporaryAccessLogin,
                               icon: const Icon(Icons.lock_clock_rounded),
                               label: const Text(
-                                'دخول مؤقت',
+                                'تسجيل دخول ولي أمر زائر',
                                 style: TextStyle(
                                   fontWeight: FontWeight.w800,
                                 ),

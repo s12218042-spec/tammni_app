@@ -50,7 +50,7 @@ String childTypeLabel(Map<String, dynamic> child) {
 
   switch (value) {
     case 'temporary':
-      return 'طفل مؤقت';
+      return 'طفل زائر';
     case 'trial':
       return 'فترة تجربة';
     case 'permanent':
@@ -925,7 +925,7 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
     controller: temporaryNotesCtrl,
     maxLines: 2,
     decoration: const InputDecoration(
-      labelText: 'ملاحظات الطفل المؤقت / التجربة',
+      labelText: 'ملاحظات الطفل الزائر / التجربة',
       prefixIcon: Icon(Icons.notes_outlined),
     ),
   ),
@@ -1790,7 +1790,7 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
                       ),
                       const SizedBox(height: 18),
                       Text(
-                        'استعادة الطفل المؤقت',
+                        'استعادة الطفل الزائر',
                         style: Theme.of(sheetContext)
                             .textTheme
                             .titleLarge
@@ -2279,7 +2279,7 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
       batch.set(invoiceRef, {
         'id': invoiceRef.id,
         'invoiceId': invoiceRef.id,
-        'title': 'فاتورة الطفل المؤقت',
+        'title': 'فاتورة الطفل الزائر',
         'childId': childRef.id,
         'childName': childName,
         'childType': 'temporary',
@@ -2325,7 +2325,7 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
       setState(() {});
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تمت استعادة الطفل المؤقت')),
+        const SnackBar(content: Text('تمت استعادة الطفل الزائر')),
       );
 
       return true;
@@ -2333,7 +2333,7 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
       if (!mounted) return false;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذر استعادة الطفل المؤقت: $e')),
+        SnackBar(content: Text('تعذر استعادة الطفل الزائر: $e')),
       );
 
       return false;
@@ -2566,7 +2566,7 @@ String temporaryChildSummary(Map<String, dynamic> child) {
             child: AlertDialog(
               title: const Text('تحويل الطفل إلى دائم'),
               content: const Text(
-                'سيتم تعطيل كود الدخول المؤقت وربط الطفل بحساب ولي أمر رسمي مع الاحتفاظ بسجلاته السابقة.',
+                'سيتم تعطيل كود الدخول الزائر وربط الطفل بحساب ولي أمر رسمي مع الاحتفاظ بسجلاته السابقة.',
               ),
               actions: [
                 TextButton(
@@ -2846,7 +2846,7 @@ String temporaryChildSummary(Map<String, dynamic> child) {
       setState(() {});
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم تحويل الطفل المؤقت إلى طفل دائم')),
+        const SnackBar(content: Text('تم تحويل الطفل الزائر إلى طفل دائم')),
       );
 
       return true;
@@ -2854,7 +2854,7 @@ String temporaryChildSummary(Map<String, dynamic> child) {
       if (!mounted) return false;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذر تحويل الطفل المؤقت: $e')),
+        const SnackBar(content: Text('تعذر تحويل الطفل الزائر: ')),
       );
 
       return false;
@@ -3407,7 +3407,7 @@ String temporaryChildSummary(Map<String, dynamic> child) {
            const SizedBox(height: 8),
           _infoRow(
            Icons.event_available_outlined,
-           'تفاصيل المؤقت',
+           'تفاصيل الزائر',
            tempSummary,
            ),
           ],
@@ -3680,7 +3680,7 @@ Wrap(
       selectedColor: Colors.green,
     ),
     buildFilterChip(
-      label: 'مؤقت',
+      label: 'زائر',
       selected: selectedChildTypeFilter == 'temporary',
       onTap: () {
         setState(() {
@@ -3853,7 +3853,7 @@ Wrap(
       builder: (dialogContext) => Directionality(
         textDirection: TextDirection.rtl,
         child: AlertDialog(
-          title: const Text('تم إنشاء الوصول المؤقت'),
+          title: const Text('تم إنشاء الوصول الزائر'),
           content: Text(
             'الطفل: $childName\n'
             'الكود: $accessCode\n'
@@ -4367,7 +4367,7 @@ Wrap(
                       ),
                       const SizedBox(height: 18),
                       Text(
-                        isTrial ? 'إضافة طفل تجربة' : 'إضافة طفل مؤقت',
+                        isTrial ? 'إضافة طفل لفترة تجربة' : 'إضافة طفل زائر',
                         style: Theme.of(sheetContext)
                             .textTheme
                             .titleLarge
@@ -4929,7 +4929,7 @@ Wrap(
         batch.set(invoiceRef, {
           'id': invoiceRef.id,
           'invoiceId': invoiceRef.id,
-          'title': 'فاتورة الطفل المؤقت',
+          'title': 'فاتورة الطفل الزائر',
           'childId': childRef.id,
           'childName': childName,
           'childType': 'temporary',
@@ -5018,7 +5018,7 @@ Wrap(
                     child: Icon(Icons.schedule_rounded),
                   ),
                   title: const Text(
-                    'إضافة طفل مؤقت',
+                    'إضافة طفل زائر',
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
                   subtitle: const Text('تحديد المجموعة والفترة والفاتورة'),

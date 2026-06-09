@@ -200,7 +200,7 @@ class _TemporaryParentChatPageState extends State<TemporaryParentChatPage> {
         'groupId': widget.groupId,
         'groupName': widget.groupName,
         'fromRole': 'temporary_parent',
-        'fromName': _safeName(widget.parentName, 'ولي أمر مؤقت'),
+        'fromName': _safeName(widget.parentName, 'ولي أمر زائر'),
         'targetRole': widget.targetRole,
         'targetUid': widget.targetUid,
         'targetName': _targetDisplayName,

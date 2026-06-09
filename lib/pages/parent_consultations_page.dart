@@ -169,7 +169,7 @@ class _ParentConsultationsPageState extends State<ParentConsultationsPage> {
         childType == 'temporary' ||
         childType == 'temp' ||
         childType == 'temporary_child' ||
-        childType == 'مؤقت' ||
+        childType == 'زائر' ||
         childStatus == 'temporary';
   }
 
@@ -179,7 +179,7 @@ class _ParentConsultationsPageState extends State<ParentConsultationsPage> {
     }
 
     if (isTemporaryConsultation(data)) {
-      return 'طفل مؤقت';
+      return 'طفل زائر';
     }
 
     return 'طفل دائم';
@@ -339,7 +339,7 @@ class _ParentConsultationsPageState extends State<ParentConsultationsPage> {
     if (user == null) {
       return {
         'uid': '',
-        'name': widget.isTemporaryParent ? 'ولي الأمر المؤقت' : 'ولي الأمر',
+        'name': widget.isTemporaryParent ? 'ولي الأمر الزائر' : 'ولي الأمر',
         'username': cleanUsername,
       };
     }
@@ -349,7 +349,7 @@ class _ParentConsultationsPageState extends State<ParentConsultationsPage> {
 
       return {
         'uid': user.uid,
-        'name': (deviceData?['parentName'] ?? 'ولي الأمر المؤقت')
+        'name': (deviceData?['parentName'] ?? 'ولي الأمر الزائر')
             .toString()
             .trim(),
         'username': (deviceData?['parentUsername'] ?? '')

@@ -3,7 +3,7 @@
     "short_name": "حضانتي",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#F8FBFF",
+    "background_color": "#F1EEFF",
     "theme_color": "#7C83FD",
     "description": "حضانتي - نظام لإدارة الحضانة ومتابعة الأطفال والتواصل مع أولياء الأمور.",
     "orientation": "portrait-primary",

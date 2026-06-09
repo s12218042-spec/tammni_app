@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../theme/app_theme.dart';
 import 'app_bar_widget.dart';
 
@@ -9,6 +10,7 @@ class AppPageScaffold extends StatelessWidget {
   final EdgeInsetsGeometry padding;
   final Widget? floatingActionButton;
   final bool resizeToAvoidBottomInset;
+  final bool showBackButton;
 
   const AppPageScaffold({
     super.key,
@@ -18,6 +20,7 @@ class AppPageScaffold extends StatelessWidget {
     this.padding = const EdgeInsets.fromLTRB(16, 18, 16, 16),
     this.floatingActionButton,
     this.resizeToAvoidBottomInset = true,
+    this.showBackButton = true,
   });
 
   EdgeInsets _resolvePadding(BuildContext context) {
@@ -39,6 +42,7 @@ class AppPageScaffold extends StatelessWidget {
         appBar: AppBarWidget(
           title: title,
           actions: actions,
+          showBackButton: showBackButton,
         ),
         floatingActionButton: floatingActionButton,
         body: SafeArea(

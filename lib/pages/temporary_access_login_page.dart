@@ -144,7 +144,7 @@ class _TemporaryAccessLoginPageState extends State<TemporaryAccessLoginPage> {
       return 'طفل تجربة';
     }
 
-    return 'طفل مؤقت';
+    return 'طفل زائر';
   }
 
   Future<User> _ensureAnonymousSession() async {
@@ -162,7 +162,7 @@ class _TemporaryAccessLoginPageState extends State<TemporaryAccessLoginPage> {
     final user = credential.user;
 
     if (user == null) {
-      throw Exception('تعذر إنشاء جلسة مؤقتة');
+      throw Exception('تعذر إنشاء جلسة الزائر');
     }
 
     return user;
@@ -695,7 +695,7 @@ class _TemporaryAccessLoginPageState extends State<TemporaryAccessLoginPage> {
       debugPrint('$st');
 
       if (e.code == 'admin-restricted-operation') {
-        _showMessage('الدخول المؤقت غير مفعّل حاليًا من إعدادات Firebase');
+        _showMessage('دخول ولي الأمر الزائر غير مفعّل حاليًا من إعدادات Firebase');
       } else {
         _showMessage('تعذر الدخول: ${e.code}');
       }
@@ -745,7 +745,7 @@ class _TemporaryAccessLoginPageState extends State<TemporaryAccessLoginPage> {
             ),
             const SizedBox(height: 18),
             Text(
-              'الدخول المؤقت',
+              'دخول ولي الأمر الزائر',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.bold,
@@ -799,7 +799,7 @@ class _TemporaryAccessLoginPageState extends State<TemporaryAccessLoginPage> {
   @override
   Widget build(BuildContext context) {
     return AppPageScaffold(
-      title: 'الدخول المؤقت',
+      title: 'دخول ولي الأمر الزائر',
       child: ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: [

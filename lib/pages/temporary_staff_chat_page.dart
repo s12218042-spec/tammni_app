@@ -206,7 +206,7 @@ class _TemporaryStaffChatPageState extends State<TemporaryStaffChatPage> {
         'fromName': staffInfo['name'] ?? 'موظف الحضانة',
         'targetRole': 'temporary_parent',
         'targetUid': '',
-        'targetName': _safeName(widget.parentName, 'ولي أمر مؤقت'),
+        'targetName': _safeName(widget.parentName, 'ولي أمر زائر'),
         'message': text,
         'isRead': false,
         'isDelivered': true,
@@ -233,7 +233,7 @@ class _TemporaryStaffChatPageState extends State<TemporaryStaffChatPage> {
   }
 
   Widget _buildHeaderCard() {
-    final parentName = _safeName(widget.parentName, 'ولي أمر مؤقت');
+    final parentName = _safeName(widget.parentName, 'ولي أمر زائر');
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -277,7 +277,7 @@ class _TemporaryStaffChatPageState extends State<TemporaryStaffChatPage> {
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  'ولي أمر مؤقت',
+                  'ولي أمر زائر',
                   style: TextStyle(
                     fontSize: 13,
                     color: AppColors.textLight,

@@ -102,7 +102,7 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
         return 'ولي الأمر';
 
       case 'temporary_parent':
-        return 'ولي أمر مؤقت';
+        return 'ولي أمر زائر';
 
       default:
         return role.trim().isEmpty ? 'مستخدم' : role.trim();
@@ -185,7 +185,7 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
         if (!temporaryKeys.add(key)) continue;
 
         final parentName = child.parentName.trim().isEmpty
-            ? 'ولي أمر مؤقت'
+            ? 'ولي أمر زائر'
             : child.parentName.trim();
 
         contacts.add({
@@ -194,7 +194,7 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
           'id': child.id,
           'name': parentName,
           'role': 'temporary_parent',
-          'subtitle': child.isTrialChild ? 'ولي أمر طفل تجربة' : 'ولي أمر مؤقت',
+          'subtitle': child.isTrialChild ? 'ولي أمر طفل تجربة' : 'ولي أمر زائر',
           'child': child,
         });
 
@@ -783,7 +783,7 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
                 if (temporarySnapshot.hasError) {
                   return Center(
                     child: Text(
-                      'حدث خطأ أثناء تحميل المحادثات المؤقتة: ${temporarySnapshot.error}',
+                      'حدث خطأ أثناء تحميل محادثات ولي الأمر الزائر: ${temporarySnapshot.error}',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         color: Colors.red.shade700,

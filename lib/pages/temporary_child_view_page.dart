@@ -147,7 +147,7 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
     if (childName.isNotEmpty) return childName;
     if (name.isNotEmpty) return name;
 
-    return _isTrialChild ? 'طفل تجربة' : 'طفل مؤقت';
+    return _isTrialChild ? 'طفل تجربة' : 'طفل زائر';
   }
 
   String _parentName() {
@@ -225,7 +225,7 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
 
   String get _childTypeLabel {
     if (_isTrialChild) return 'طفل تجربة';
-    if (_isTemporaryChild) return 'طفل مؤقت';
+    if (_isTemporaryChild) return 'طفل زائر';
     return 'طفل';
   }
 
@@ -648,7 +648,7 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
               textAlign: TextAlign.center,
             ),
             content: const Text(
-              'هل تريد تسجيل الخروج من الدخول المؤقت؟',
+              'هل تريد تسجيل الخروج من صفحةالزائر؟',
               textAlign: TextAlign.center,
               style: TextStyle(height: 1.5),
             ),
@@ -2391,7 +2391,7 @@ Widget _buildConsultationsCard() {
                           borderRadius: BorderRadius.circular(14),
                         ),
                         child: Text(
-                          _isTrialChild ? 'تجربة' : 'مؤقت',
+                          _isTrialChild ? 'تجربة' : 'زائر',
                           style: const TextStyle(
                             color: AppColors.primary,
                             fontWeight: FontWeight.bold,
@@ -2962,7 +2962,7 @@ Widget _buildConsultationsCard() {
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
               subtitle:
-                  Text(_isTrialChild ? 'ولي أمر طفل تجربة' : 'ولي أمر مؤقت'),
+                  Text(_isTrialChild ? 'ولي أمر طفل تجربة' : 'ولي أمر زائر'),
             ),
           ),
           const SizedBox(height: 16),
@@ -3040,8 +3040,20 @@ Widget _buildConsultationsCard() {
         : _currentTab();
 
     return Scaffold(
-      body: AppPageScaffold(
-        title: _pageTitle,
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        centerTitle: true,
+        automaticallyImplyLeading: false,
+        toolbarHeight: 72,
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.white,
+        title: Text(
+          _pageTitle,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
         actions: [
           if (_availableSiblings.length > 1)
             IconButton(
@@ -3057,7 +3069,24 @@ Widget _buildConsultationsCard() {
               onPressed: _refreshPage,
             ),
         ],
-        child: content,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(
+            bottom: Radius.circular(24),
+          ),
+        ),
+      ),
+      body: SafeArea(
+        top: false,
+        bottom: true,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            16,
+            18,
+            16,
+            16 + MediaQuery.of(context).padding.bottom + 20,
+          ),
+          child: content,
+        ),
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: selectedIndex,
@@ -3121,10 +3150,10 @@ class _TemporarySiblingOption {
         type == 'trial' ||
         enrollmentType == 'trial' ||
         status == 'trial') {
-      return 'طفل تجربة';
+      return 'طفل فترة تجربة';
     }
 
-    return 'طفل مؤقت';
+    return 'طفل زائر';
   }
 }
 

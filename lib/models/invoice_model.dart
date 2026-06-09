@@ -1149,7 +1149,7 @@ class InvoiceModel {
         return 'رسوم تأخير';
       case 'temporary_child':
       case 'temporary_fee':
-        return 'فاتورة طفل مؤقت';
+        return 'فاتورة طفل زائر';
       case 'extra_hours':
         return 'ساعات إضافية';
       case 'consultation':

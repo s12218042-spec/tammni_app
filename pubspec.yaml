@@ -56,20 +56,24 @@ dev_dependencies:
 flutter:
   uses-material-design: true
 
+  assets:
+    - assets/icons/app_icon.png
+    - assets/icons/login_logo.png
+
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/icons/hadanati_icon.png"
+  image_path: "assets/icons/app_icon.png"
   min_sdk_android: 21
   remove_alpha_ios: true
 
   web:
     generate: true
-    image_path: "assets/icons/hadanati_icon.png"
-    background_color: "#F8FBFF"
+    image_path: "assets/icons/app_icon.png"
+    background_color: "#F1EEFF"
     theme_color: "#7C83FD"
 
   windows:
     generate: true
-    image_path: "assets/icons/hadanati_icon.png"
+    image_path: "assets/icons/app_icon.png"
     icon_size: 256

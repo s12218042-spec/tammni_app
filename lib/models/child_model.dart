@@ -809,7 +809,7 @@ class ChildModel {
   }
 
   String get displayChildType {
-    if (isTemporaryChild) return 'طفل مؤقت';
+    if (isTemporaryChild) return 'طفل زائر';
     if (isTrial) return 'فترة تجربة';
     return 'طفل دائم';
   }
@@ -827,7 +827,7 @@ class ChildModel {
       case 'trial_pending_decision':
         return 'بانتظار قرار التجربة';
       case 'temporary':
-        return 'طفل مؤقت';
+        return 'طفل زائر';
       case 'active':
         return 'نشط';
       case 'rejected_after_trial':

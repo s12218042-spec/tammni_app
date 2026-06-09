@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
+
 import '../theme/app_theme.dart';
 
 class AppBarWidget extends StatelessWidget implements PreferredSizeWidget {
   final String title;
   final List<Widget>? actions;
+  final bool showBackButton;
 
   const AppBarWidget({
     super.key,
     required this.title,
     this.actions,
+    this.showBackButton = true,
   });
 
   @override
@@ -17,6 +20,7 @@ class AppBarWidget extends StatelessWidget implements PreferredSizeWidget {
       elevation: 0,
       scrolledUnderElevation: 0,
       centerTitle: true,
+      automaticallyImplyLeading: showBackButton,
       backgroundColor: AppColors.primary,
       foregroundColor: Colors.white,
       title: Text(
