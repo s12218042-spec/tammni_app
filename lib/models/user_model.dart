@@ -9,6 +9,10 @@ class UserModel {
   final bool isActive;
   final String accountStatus;
 
+  final String archiveReason;
+  final DateTime? archivedAt;
+  final DateTime? reactivatedAt;
+
   final String phone;
   final String alternatePhone;
   final String nationalId;
@@ -64,6 +68,9 @@ class UserModel {
     this.username = '',
     this.isActive = true,
     this.accountStatus = 'active',
+    this.archiveReason = '',
+    this.archivedAt,
+    this.reactivatedAt,
     this.phone = '',
     this.alternatePhone = '',
     this.nationalId = '',
@@ -134,6 +141,31 @@ class UserModel {
 
       default:
         return role.isEmpty ? 'parent' : role;
+    }
+  }
+
+  static String normalizeAccountStatus(
+    dynamic value, {
+    required bool isActive,
+  }) {
+    final status = _string(value).toLowerCase();
+
+    if (!isActive) return 'archived';
+
+    switch (status) {
+      case 'archived':
+      case 'inactive':
+      case 'deactivated':
+      case 'disabled':
+      case 'suspended':
+      case 'pending_deletion':
+      case 'deleted':
+        return 'archived';
+
+      case 'active':
+      case '':
+      default:
+        return 'active';
     }
   }
 
@@ -279,6 +311,15 @@ class UserModel {
   bool get isEmployee => isNurseryStaff || isAdmin;
   bool get isStreamStation => isLiveStreamStation;
 
+  bool get isArchived {
+    return normalizeAccountStatus(accountStatus, isActive: isActive) ==
+        'archived';
+  }
+
+  bool get canLogin {
+    return !isArchived && username.trim().isNotEmpty && email.trim().isNotEmpty;
+  }
+
   bool get hasGroup {
     return groupId.trim().isNotEmpty ||
         groupName.trim().isNotEmpty ||
@@ -311,6 +352,10 @@ class UserModel {
       default:
         return role;
     }
+  }
+
+  String get accountStatusLabel {
+    return isArchived ? 'مؤرشف' : 'نشط';
   }
 
   String get salaryCalculationTypeLabel {
@@ -425,16 +470,20 @@ class UserModel {
       ]),
     );
 
-    final isActive = _boolValue(
+    final rawIsActive = _boolValue(
       map['isActive'],
       defaultValue: true,
     );
 
-    final accountStatus = _firstNonEmpty([
-      map['accountStatus'],
-      map['status'],
-      isActive ? 'active' : 'inactive',
-    ]);
+    final normalizedAccountStatus = normalizeAccountStatus(
+      _firstNonEmpty([
+        map['accountStatus'],
+        map['status'],
+      ]),
+      isActive: rawIsActive,
+    );
+
+    final normalizedIsActive = normalizedAccountStatus == 'active';
 
     return UserModel(
       id: _firstNonEmpty([
@@ -446,8 +495,11 @@ class UserModel {
       email: email,
       role: normalizedRole,
       username: username,
-      isActive: isActive,
-      accountStatus: accountStatus,
+      isActive: normalizedIsActive,
+      accountStatus: normalizedAccountStatus,
+      archiveReason: _string(map['archiveReason']),
+      archivedAt: _date(map['archivedAt']),
+      reactivatedAt: _date(map['reactivatedAt']),
       phone: phone,
       alternatePhone: alternatePhone,
       nationalId: nationalId,
@@ -565,8 +617,13 @@ class UserModel {
 
     final cleanUsername = username.trim().toLowerCase();
     final cleanEmail = email.trim().toLowerCase();
-    final cleanAccountStatus =
-        accountStatus.trim().isEmpty ? 'active' : accountStatus.trim();
+
+    final cleanAccountStatus = normalizeAccountStatus(
+      accountStatus,
+      isActive: isActive,
+    );
+
+    final normalizedIsActive = cleanAccountStatus == 'active';
 
     final resolvedGroupName = groupName.trim().isNotEmpty ? groupName : group;
     final resolvedGroup = group.trim().isNotEmpty ? group : resolvedGroupName;
@@ -585,8 +642,9 @@ class UserModel {
       'email': cleanEmail,
       'role': normalizedRole,
       'username': cleanUsername,
-      'isActive': isActive,
+      'isActive': normalizedIsActive,
       'accountStatus': cleanAccountStatus,
+      'archiveReason': archiveReason,
       'phone': phone,
       'alternatePhone': alternatePhone,
       'alternativePhone': alternatePhone,
@@ -609,6 +667,14 @@ class UserModel {
 
     if (lastLoginAt != null) {
       data['lastLoginAt'] = Timestamp.fromDate(lastLoginAt!);
+    }
+
+    if (archivedAt != null) {
+      data['archivedAt'] = Timestamp.fromDate(archivedAt!);
+    }
+
+    if (reactivatedAt != null) {
+      data['reactivatedAt'] = Timestamp.fromDate(reactivatedAt!);
     }
 
     if (normalizedRole == 'parent') {
@@ -692,6 +758,23 @@ class UserModel {
     return data;
   }
 
+  Map<String, dynamic> toLoginUsernameMap() {
+    final cleanAccountStatus = normalizeAccountStatus(
+      accountStatus,
+      isActive: isActive,
+    );
+
+    return {
+      'uid': id,
+      'username': username.trim().toLowerCase(),
+      'email': email.trim().toLowerCase(),
+      'role': normalizeRole(role),
+      'isActive': cleanAccountStatus == 'active',
+      'accountStatus': cleanAccountStatus,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+  }
+
   UserModel copyWith({
     String? id,
     String? name,
@@ -700,6 +783,9 @@ class UserModel {
     String? username,
     bool? isActive,
     String? accountStatus,
+    String? archiveReason,
+    DateTime? archivedAt,
+    DateTime? reactivatedAt,
     String? phone,
     String? alternatePhone,
     String? nationalId,
@@ -745,6 +831,9 @@ class UserModel {
       username: username ?? this.username,
       isActive: isActive ?? this.isActive,
       accountStatus: accountStatus ?? this.accountStatus,
+      archiveReason: archiveReason ?? this.archiveReason,
+      archivedAt: archivedAt ?? this.archivedAt,
+      reactivatedAt: reactivatedAt ?? this.reactivatedAt,
       phone: phone ?? this.phone,
       alternatePhone: alternatePhone ?? this.alternatePhone,
       nationalId: nationalId ?? this.nationalId,

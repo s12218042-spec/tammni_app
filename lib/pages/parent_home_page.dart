@@ -426,7 +426,7 @@ Future<void> _requestLiveStreamForChildren(
         textDirection: TextDirection.rtl,
         child: AlertDialog(
           title: const Text('تسجيل الخروج'),
-          content: const Text('هل أنتِ متأكدة أنكِ تريدين تسجيل الخروج؟'),
+          content: const Text('هل أنت متأكد أنك تريد تسجيل الخروج؟'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -524,7 +524,7 @@ Future<void> _requestLiveStreamForChildren(
           ],
           const SizedBox(height: 20),
           const _SectionTitle(
-            title: 'إجراءات سريعة',
+            title: 'إجراءات',
             icon: Icons.flash_on_rounded,
           ),
           const SizedBox(height: 12),

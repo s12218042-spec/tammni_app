@@ -220,9 +220,13 @@ Future<List<Map<String, dynamic>>> fetchChildren() async {
       'excludeFromMonthlyInvoice': data['excludeFromMonthlyInvoice'] == true,
       'isActive': isActive,
     };
-  }).where((child) {
+    }).where((child) {
     final name = (child['name'] ?? '').toString().trim();
-    return name.isNotEmpty && child['isActive'] == true;
+    final isTrialChild = child['isTrialChild'] == true;
+
+    return name.isNotEmpty &&
+        child['isActive'] == true &&
+        !isTrialChild;
   }).toList();
 
   children.sort(
@@ -251,6 +255,17 @@ Future<List<Map<String, dynamic>>> fetchChildren() async {
 
     if (selectedChild == null) {
       _showSnack('اختاري الطفل أولًا');
+      return;
+    }
+        final selectedChildType =
+        (selectedChild!['childType'] ?? '').toString().trim().toLowerCase();
+
+    final selectedChildIsTrial =
+        selectedChild!['isTrialChild'] == true ||
+        selectedChildType == 'trial';
+
+    if (selectedChildIsTrial) {
+      _showSnack('لا يمكن إضافة استشارة لطفل التجربة');
       return;
     }
 
@@ -309,8 +324,8 @@ Future<List<Map<String, dynamic>>> fetchChildren() async {
       final excludeFromMonthlyInvoice =
          selectedChild!['excludeFromMonthlyInvoice'] == true || isTrialChild;
 
-      final effectiveHourlyPrice = isTrialChild ? 0.0 : hourlyPrice;
-      final effectiveTotalAmount = isTrialChild ? 0.0 : totalAmount;
+      final effectiveHourlyPrice = hourlyPrice;
+      final effectiveTotalAmount = totalAmount;
 
       await docRef.set({
         'id': docRef.id,
@@ -370,10 +385,8 @@ Future<List<Map<String, dynamic>>> fetchChildren() async {
           parentUsername: parentUsername,
           parentName: parentName,
           title: 'استشارة جديدة بانتظار الموافقة',
-          body:
-              isTrialChild
-            ? 'تم اقتراح ${consultationTypeLabel(selectedConsultationType)} للطفل $childName مجانًا خلال فترة التجربة.'
-            : 'تم اقتراح ${consultationTypeLabel(selectedConsultationType)} للطفل $childName بقيمة ${formatMoney(effectiveTotalAmount)} شيكل.',
+                    body:
+              'تم اقتراح ${consultationTypeLabel(selectedConsultationType)} للطفل $childName بقيمة ${formatMoney(effectiveTotalAmount)} شيكل.',
           type: 'consultation',
           childId: childId,
           childName: childName,
@@ -452,9 +465,17 @@ Future<List<Map<String, dynamic>>> fetchChildren() async {
     final data = doc.data() ?? <String, dynamic>{};
 
     final isTrialChild = data['isTrialChild'] == true;
-    final isBillableChild = data['isBillableChild'] == true;
+    final isBillableChild = data['isBillableChild'] != false;
 
-    final shouldBill = !isTrialChild && isBillableChild;
+    final approvalStatus =
+        (data['parentApprovalStatus'] ?? '').toString().trim().toLowerCase();
+
+    final isApproved = approvalStatus == 'approved';
+
+    final shouldBill =
+        !isTrialChild &&
+        isBillableChild &&
+        isApproved;
 
     await ref.update({
       'consultationStatus': 'completed',

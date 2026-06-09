@@ -8,10 +8,14 @@ import '../widgets/app_page_scaffold.dart';
 
 class ParentConsultationsPage extends StatefulWidget {
   final String parentUsername;
+  final String childId;
+  final bool isTemporaryParent;
 
   const ParentConsultationsPage({
     super.key,
-    required this.parentUsername,
+    this.parentUsername = '',
+    this.childId = '',
+    this.isTemporaryParent = false,
   });
 
   @override
@@ -26,6 +30,8 @@ class _ParentConsultationsPageState extends State<ParentConsultationsPage> {
   bool isUpdating = false;
 
   String get cleanUsername => widget.parentUsername.trim().toLowerCase();
+
+  String get cleanChildId => widget.childId.trim();
 
   String formatMoney(dynamic value) {
     if (value == null) return '0';
@@ -44,21 +50,29 @@ class _ParentConsultationsPageState extends State<ParentConsultationsPage> {
     }
 
     final parsed = double.tryParse(value.toString());
+
     if (parsed == null) return value.toString();
     if (parsed == parsed.roundToDouble()) return parsed.toInt().toString();
+
     return parsed.toStringAsFixed(2);
   }
 
-  double numberFromDynamic(dynamic value, {double defaultValue = 0}) {
+  double numberFromDynamic(
+    dynamic value, {
+    double defaultValue = 0,
+  }) {
     if (value == null) return defaultValue;
     if (value is num) return value.toDouble();
+
     final parsed = double.tryParse(value.toString());
+
     return parsed ?? defaultValue;
   }
 
   String formatDate(dynamic value) {
     if (value is Timestamp) {
       final d = value.toDate();
+
       return '${d.year}/${d.month.toString().padLeft(2, '0')}/${d.day.toString().padLeft(2, '0')}';
     }
 
@@ -68,6 +82,7 @@ class _ParentConsultationsPageState extends State<ParentConsultationsPage> {
 
     if (value is String) {
       final parsed = DateTime.tryParse(value);
+
       if (parsed != null) {
         return '${parsed.year}/${parsed.month.toString().padLeft(2, '0')}/${parsed.day.toString().padLeft(2, '0')}';
       }
@@ -105,47 +120,70 @@ class _ParentConsultationsPageState extends State<ParentConsultationsPage> {
       case 'completed':
         return 'مكتملة';
       case 'scheduled':
-        return 'مجدولة';
+        return 'تمت الموافقة';
       case 'cancelled':
         return 'ملغاة';
       case 'proposed':
       default:
-        return 'مقترحة';
+          return 'غير محددة';
     }
   }
 
-String childTypeLabel(Map<String, dynamic> data) {
-  final raw = (data['childType'] ??
-          data['enrollmentType'] ??
-          data['childStatus'] ??
-          data['type'] ??
-          '')
-      .toString()
-      .trim()
-      .toLowerCase();
+  bool isTrialConsultation(Map<String, dynamic> data) {
+    final childType = (data['childType'] ??
+            data['enrollmentType'] ??
+            data['childStatus'] ??
+            data['type'] ??
+            '')
+        .toString()
+        .trim()
+        .toLowerCase();
 
-  final status = (data['childStatus'] ?? data['status'] ?? '')
-      .toString()
-      .trim()
-      .toLowerCase();
+    final childStatus = (data['childStatus'] ?? data['status'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
 
-  final isTrial = data['isTrialChild'] == true ||
-      raw == 'trial' ||
-      raw == 'تجربة' ||
-      status == 'trial';
+    return data['isTrialChild'] == true ||
+        childType == 'trial' ||
+        childType == 'تجربة' ||
+        childStatus == 'trial';
+  }
 
-  final isTemporary = data['isTemporaryChild'] == true ||
-      raw == 'temporary' ||
-      raw == 'temp' ||
-      raw == 'temporary_child' ||
-      raw == 'مؤقت' ||
-      status == 'temporary';
+  bool isTemporaryConsultation(Map<String, dynamic> data) {
+    final childType = (data['childType'] ??
+            data['enrollmentType'] ??
+            data['childStatus'] ??
+            data['type'] ??
+            '')
+        .toString()
+        .trim()
+        .toLowerCase();
 
-  if (isTrial) return 'طفل تجربة';
-  if (isTemporary) return 'طفل مؤقت';
+    final childStatus = (data['childStatus'] ?? data['status'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
 
-  return 'طفل دائم';
-}
+    return data['isTemporaryChild'] == true ||
+        childType == 'temporary' ||
+        childType == 'temp' ||
+        childType == 'temporary_child' ||
+        childType == 'مؤقت' ||
+        childStatus == 'temporary';
+  }
+
+  String childTypeLabel(Map<String, dynamic> data) {
+    if (isTrialConsultation(data)) {
+      return 'طفل تجربة';
+    }
+
+    if (isTemporaryConsultation(data)) {
+      return 'طفل مؤقت';
+    }
+
+    return 'طفل دائم';
+  }
 
   String invoiceLabel(Map<String, dynamic> data) {
     final invoiceStatus =
@@ -155,39 +193,131 @@ String childTypeLabel(Map<String, dynamic> data) {
       case 'added_to_invoice':
       case 'invoiced':
         return 'مضافة للفاتورة';
+
       case 'paid':
         return 'مدفوعة';
-      case 'not_billed':
+
+      case 'pending_approval':
+        return 'بانتظار الموافقة';
+
       case 'pending_invoice':
-        return 'بانتظار الفاتورة';
+        return 'بانتظار الإضافة للفاتورة';
+
+      case 'ready_for_invoice':
+        return 'جاهزة للإضافة للفاتورة';
+
+      case 'not_billed':
+        return 'غير مفوترة';
+
       default:
         return '';
     }
   }
 
+  bool isTemporaryDeviceSessionActive(Map<String, dynamic> data) {
+    if (data.isEmpty) return false;
+
+    if (data['isActive'] != true) return false;
+
+    final accountStatus =
+        (data['accountStatus'] ?? 'active').toString().trim().toLowerCase();
+
+    if (accountStatus == 'archived' ||
+        accountStatus == 'inactive' ||
+        accountStatus == 'expired' ||
+        accountStatus == 'disabled') {
+      return false;
+    }
+
+    final accessEndAt = data['accessEndAt'];
+
+    if (accessEndAt is Timestamp) {
+      if (accessEndAt.toDate().isBefore(DateTime.now())) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  Future<Map<String, dynamic>?> fetchTemporaryDeviceSession() async {
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user == null || cleanChildId.isEmpty) return null;
+
+    try {
+      final deviceId = '${user.uid}_$cleanChildId';
+
+      final doc = await _firestore
+          .collection('temporary_parent_devices')
+          .doc(deviceId)
+          .get();
+
+      if (!doc.exists) return null;
+
+      final data = doc.data() ?? <String, dynamic>{};
+
+      if (!isTemporaryDeviceSessionActive(data)) {
+        return null;
+      }
+
+      return data;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
       fetchConsultations() async {
-    final currentUid = FirebaseAuth.instance.currentUser?.uid;
+    final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
 
-    if (currentUid != null && currentUid.trim().isNotEmpty) {
+    if (widget.isTemporaryParent) {
+      if (cleanChildId.isEmpty) return [];
+
+      final deviceSession = await fetchTemporaryDeviceSession();
+
+      if (deviceSession == null) return [];
+
+      final byChild = await _firestore
+          .collection('child_consultations')
+          .where('childId', isEqualTo: cleanChildId)
+          .get();
+
+      return byChild.docs.where((doc) {
+        return !isTrialConsultation(doc.data());
+      }).toList();
+    }
+
+    final docsById =
+        <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+
+    if (currentUid.isNotEmpty) {
       final byUid = await _firestore
           .collection('child_consultations')
           .where('parentUid', isEqualTo: currentUid)
           .get();
 
-      if (byUid.docs.isNotEmpty) {
-        return byUid.docs;
+      for (final doc in byUid.docs) {
+        if (!isTrialConsultation(doc.data())) {
+          docsById[doc.id] = doc;
+        }
       }
     }
 
-    if (cleanUsername.isEmpty) return [];
+    if (cleanUsername.isNotEmpty) {
+      final byUsername = await _firestore
+          .collection('child_consultations')
+          .where('parentUsername', isEqualTo: cleanUsername)
+          .get();
 
-    final byUsername = await _firestore
-        .collection('child_consultations')
-        .where('parentUsername', isEqualTo: cleanUsername)
-        .get();
+      for (final doc in byUsername.docs) {
+        if (!isTrialConsultation(doc.data())) {
+          docsById[doc.id] = doc;
+        }
+      }
+    }
 
-    return byUsername.docs;
+    return docsById.values.toList();
   }
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> applyFilter(
@@ -209,13 +339,29 @@ String childTypeLabel(Map<String, dynamic> data) {
     if (user == null) {
       return {
         'uid': '',
-        'name': 'ولي الأمر',
+        'name': widget.isTemporaryParent ? 'ولي الأمر المؤقت' : 'ولي الأمر',
         'username': cleanUsername,
+      };
+    }
+
+    if (widget.isTemporaryParent) {
+      final deviceData = await fetchTemporaryDeviceSession();
+
+      return {
+        'uid': user.uid,
+        'name': (deviceData?['parentName'] ?? 'ولي الأمر المؤقت')
+            .toString()
+            .trim(),
+        'username': (deviceData?['parentUsername'] ?? '')
+            .toString()
+            .trim()
+            .toLowerCase(),
       };
     }
 
     try {
       final doc = await _firestore.collection('users').doc(user.uid).get();
+
       final data = doc.data() ?? {};
 
       return {
@@ -252,40 +398,43 @@ String childTypeLabel(Map<String, dynamic> data) {
     final parentInfo = await fetchCurrentParentInfo();
 
     final parentUid = (parentInfo['uid'] ?? '').trim();
-    final parentUsername = (parentInfo['username'] ?? '').trim().toLowerCase();
+
+    final parentUsername =
+        (parentInfo['username'] ?? '').trim().toLowerCase();
+
     final parentName = (parentInfo['name'] ?? 'ولي الأمر').trim();
 
-    final childName = (consultationData['childName'] ?? '').toString().trim();
-    final title = (consultationData['title'] ?? 'استشارة').toString().trim();
+    final childName =
+        (consultationData['childName'] ?? '').toString().trim();
+
+    final title =
+        (consultationData['title'] ?? 'استشارة').toString().trim();
+
     final responseText = approved ? 'وافق' : 'رفض';
 
     final childType = (consultationData['childType'] ??
-        consultationData['enrollmentType'] ??
-        consultationData['childStatus'] ??
-        '')
-    .toString()
-    .trim()
-    .toLowerCase();
+            consultationData['enrollmentType'] ??
+            consultationData['childStatus'] ??
+            '')
+        .toString()
+        .trim()
+        .toLowerCase();
 
-final childStatus = (consultationData['childStatus'] ??
-        consultationData['status'] ??
-        '')
-    .toString()
-    .trim()
-    .toLowerCase();
+    final childStatus =
+        (consultationData['childStatus'] ?? consultationData['status'] ?? '')
+            .toString()
+            .trim()
+            .toLowerCase();
 
-final isTrialChild = consultationData['isTrialChild'] == true ||
-    childType == 'trial' ||
-    childStatus == 'trial';
+    final isTrialChild = isTrialConsultation(consultationData);
 
-final isTemporaryChild = consultationData['isTemporaryChild'] == true ||
-    childType == 'temporary' ||
-    childType == 'temp' ||
-    childType == 'temporary_child' ||
-    childStatus == 'temporary';
+    final isTemporaryChild = isTemporaryConsultation(consultationData);
 
-final excludeFromMonthlyInvoice =
-    consultationData['excludeFromMonthlyInvoice'] == true || isTrialChild;
+    final excludeFromMonthlyInvoice =
+        consultationData['excludeFromMonthlyInvoice'] == true || isTrialChild;
+
+    final createdByRole =
+        widget.isTemporaryParent ? 'temporary_parent' : 'parent';
 
     await AppNotificationService.instance.notifyAdmin(
       title: approved ? 'تمت الموافقة على استشارة' : 'تم رفض استشارة',
@@ -302,7 +451,7 @@ final excludeFromMonthlyInvoice =
       group: (consultationData['group'] ?? '').toString(),
       createdByUid: parentUid,
       createdByName: parentName,
-      createdByRole: 'parent',
+      createdByRole: createdByRole,
       extraData: {
         'consultationId': consultationId,
         'consultationStatus': approved ? 'scheduled' : 'cancelled',
@@ -318,13 +467,13 @@ final excludeFromMonthlyInvoice =
         'hourlyPrice': hourlyPrice,
         'hours': hours,
         'billable': approved && !isTrialChild,
-        'invoiceStatus': approved && !isTrialChild
-            ? 'pending_invoice'
-            : 'not_billed',
+        'invoiceStatus':
+            approved && !isTrialChild ? 'pending_invoice' : 'not_billed',
         'childType': childType,
         'childStatus': childStatus,
         'isTemporaryChild': isTemporaryChild,
         'isTrialChild': isTrialChild,
+        'isTemporaryParent': widget.isTemporaryParent,
         'excludeFromMonthlyInvoice': excludeFromMonthlyInvoice,
       },
     );
@@ -342,6 +491,7 @@ final excludeFromMonthlyInvoice =
 
     try {
       final now = DateTime.now();
+
       final consultationRef =
           _firestore.collection('child_consultations').doc(consultationId);
 
@@ -351,7 +501,27 @@ final excludeFromMonthlyInvoice =
         throw Exception('الاستشارة غير موجودة');
       }
 
-      final consultationData = consultationDoc.data() ?? <String, dynamic>{};
+      final consultationData =
+          consultationDoc.data() ?? <String, dynamic>{};
+
+      if (isTrialConsultation(consultationData)) {
+        throw Exception('لا يمكن تنفيذ استشارة لطفل التجربة');
+      }
+
+      if (widget.isTemporaryParent) {
+        final consultationChildId =
+            (consultationData['childId'] ?? '').toString().trim();
+
+        if (cleanChildId.isEmpty || consultationChildId != cleanChildId) {
+          throw Exception('لا يمكنك تعديل هذه الاستشارة');
+        }
+
+        final deviceSession = await fetchTemporaryDeviceSession();
+
+        if (deviceSession == null) {
+          throw Exception('انتهت جلسة الدخول، يرجى تسجيل الدخول من جديد');
+        }
+      }
 
       final hours = numberFromDynamic(
         consultationData['hours'],
@@ -373,74 +543,73 @@ final excludeFromMonthlyInvoice =
 
       final parentInfo = await fetchCurrentParentInfo();
 
-      final parentUid = (parentInfo['uid'] ?? '').trim();
+      final respondingAuthUid = (parentInfo['uid'] ?? '').trim();
+
       final parentUsername =
           (parentInfo['username'] ?? cleanUsername).trim().toLowerCase();
+
       final parentName = (parentInfo['name'] ?? 'ولي الأمر').trim();
 
-    final childType = (consultationData['childType'] ??
-        consultationData['enrollmentType'] ??
-        consultationData['childStatus'] ??
-        '')
-    .toString()
-    .trim()
-    .toLowerCase();
+      final childType = (consultationData['childType'] ??
+              consultationData['enrollmentType'] ??
+              consultationData['childStatus'] ??
+              '')
+          .toString()
+          .trim()
+          .toLowerCase();
 
-final childStatus = (consultationData['childStatus'] ??
-        consultationData['status'] ??
-        '')
-    .toString()
-    .trim()
-    .toLowerCase();
+      final childStatus =
+          (consultationData['childStatus'] ?? consultationData['status'] ?? '')
+              .toString()
+              .trim()
+              .toLowerCase();
 
-final isTrialChild = consultationData['isTrialChild'] == true ||
-    childType == 'trial' ||
-    childStatus == 'trial';
+      final isTemporaryChild = isTemporaryConsultation(consultationData);
 
-final isTemporaryChild = consultationData['isTemporaryChild'] == true ||
-    childType == 'temporary' ||
-    childType == 'temp' ||
-    childType == 'temporary_child' ||
-    childStatus == 'temporary';
+      final shouldBillConsultation = approved;
 
-final excludeFromMonthlyInvoice =
-    consultationData['excludeFromMonthlyInvoice'] == true || isTrialChild;
-    final shouldBillConsultation = approved && !isTrialChild;
-    final nextInvoiceStatus = shouldBillConsultation
-        ? 'pending_invoice'
-        : 'not_billed';
-      await consultationRef.update({
+      final nextInvoiceStatus =
+          shouldBillConsultation ? 'pending_invoice' : 'not_billed';
+
+      final updatedData = <String, dynamic>{
         'parentApprovalStatus': approved ? 'approved' : 'rejected',
         'parentRespondedAt': Timestamp.fromDate(now),
         'consultationStatus': approved ? 'scheduled' : 'cancelled',
         'updatedAt': Timestamp.fromDate(now),
-
-        'parentUid': parentUid.isNotEmpty
-            ? parentUid
-            : (consultationData['parentUid'] ?? '').toString(),
-        'parentUsername': parentUsername.isNotEmpty
-            ? parentUsername
-            : (consultationData['parentUsername'] ?? '').toString(),
         'parentName': parentName,
-
         'hours': hours,
         'hourlyPrice': hourlyPrice,
         'totalAmount': calculatedTotal,
-
-      
         'billable': shouldBillConsultation,
         'invoiceStatus': nextInvoiceStatus,
         'billingStatus': nextInvoiceStatus,
         'addedToInvoice': false,
         'invoiceId': consultationData['invoiceId'] ?? '',
         'invoiceMonth': consultationData['invoiceMonth'] ?? '',
+        'childType': childType,
+        'childStatus': childStatus,
+        'isTemporaryChild': isTemporaryChild,
+        'isTrialChild': false,
+        'excludeFromMonthlyInvoice':
+            consultationData['excludeFromMonthlyInvoice'] == true,
+        'respondedByAuthUid': respondingAuthUid,
+        'respondedByRole':
+            widget.isTemporaryParent ? 'temporary_parent' : 'parent',
+      };
 
-       'childType': childType,
-       'childStatus': childStatus,
-       'isTemporaryChild': isTemporaryChild,
-       'isTrialChild': isTrialChild,
-       'excludeFromMonthlyInvoice': excludeFromMonthlyInvoice,
-      });
+      if (widget.isTemporaryParent) {
+        updatedData['temporaryParentAuthUid'] = respondingAuthUid;
+      } else {
+        updatedData['parentUid'] = respondingAuthUid.isNotEmpty
+            ? respondingAuthUid
+            : (consultationData['parentUid'] ?? '').toString();
+
+        updatedData['parentUsername'] = parentUsername.isNotEmpty
+            ? parentUsername
+            : (consultationData['parentUsername'] ?? '').toString();
+      }
+
+      await consultationRef.update(updatedData);
 
       try {
         await notifyAdminConsultationResponse(
@@ -452,7 +621,9 @@ final excludeFromMonthlyInvoice =
           hours: hours,
         );
       } catch (e) {
-        debugPrint('ParentConsultationsPage: فشل إرسال إشعار رد الاستشارة للإدارة: $e');
+        debugPrint(
+          'ParentConsultationsPage: فشل إرسال إشعار رد الاستشارة للإدارة: $e',
+        );
       }
 
       if (!mounted) return;
@@ -470,7 +641,9 @@ final excludeFromMonthlyInvoice =
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('حدث خطأ أثناء تحديث الاستشارة: $e')),
+        SnackBar(
+          content: Text('حدث خطأ أثناء تحديث الاستشارة: $e'),
+        ),
       );
     } finally {
       if (mounted) {
@@ -490,7 +663,9 @@ final excludeFromMonthlyInvoice =
       builder: (_) => Directionality(
         textDirection: TextDirection.rtl,
         child: AlertDialog(
-          title: Text(approved ? 'الموافقة على الاستشارة' : 'رفض الاستشارة'),
+          title: Text(
+            approved ? 'الموافقة على الاستشارة' : 'رفض الاستشارة',
+          ),
           content: Text(
             approved
                 ? 'هل تريدين الموافقة على هذه الاستشارة؟'
@@ -587,11 +762,15 @@ final excludeFromMonthlyInvoice =
     );
   }
 
-  Widget consultationCard(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+  Widget consultationCard(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
     final data = doc.data();
 
     final title = (data['title'] ?? 'استشارة').toString();
+
     final childName = (data['childName'] ?? '').toString();
+
     final description = (data['description'] ?? '').toString();
 
     final typeLabel = (data['consultationTypeLabel'] ??
@@ -599,22 +778,35 @@ final excludeFromMonthlyInvoice =
             'استشارة')
         .toString();
 
-    final approval = (data['parentApprovalStatus'] ?? 'pending').toString();
+    final approval =
+        (data['parentApprovalStatus'] ?? 'pending').toString();
 
     final consultationStatus =
         (data['consultationStatus'] ?? 'proposed').toString();
 
     final hours = numberFromDynamic(data['hours']);
-    final hourlyPrice = numberFromDynamic(data['hourlyPrice'], defaultValue: 50);
-    final totalAmountFromData = numberFromDynamic(data['totalAmount']);
-    final totalAmount =
-        totalAmountFromData > 0 ? totalAmountFromData : (hours * hourlyPrice);
+
+    final hourlyPrice = numberFromDynamic(
+      data['hourlyPrice'],
+      defaultValue: 50,
+    );
+
+    final totalAmountFromData =
+        numberFromDynamic(data['totalAmount']);
+
+    final totalAmount = totalAmountFromData > 0
+        ? totalAmountFromData
+        : (hours * hourlyPrice);
 
     final suggestedDate = data['suggestedDate'];
 
     final color = approvalColor(approval);
-    final isPending = approval.trim().toLowerCase() == 'pending';
+
+    final isPending =
+        approval.trim().toLowerCase() == 'pending';
+
     final childType = childTypeLabel(data);
+
     final invoiceStatus = invoiceLabel(data);
 
     return Card(
@@ -792,10 +984,12 @@ final excludeFromMonthlyInvoice =
   Widget build(BuildContext context) {
     return AppPageScaffold(
       title: 'الاستشارات',
-      child: FutureBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+      child: FutureBuilder<
+          List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
         future: fetchConsultations(),
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
+          if (snapshot.connectionState ==
+              ConnectionState.waiting) {
             return const Center(
               child: CircularProgressIndicator(),
             );
@@ -808,14 +1002,19 @@ final excludeFromMonthlyInvoice =
           }
 
           final docs = snapshot.data ?? [];
+
           final filteredDocs = applyFilter(docs);
 
           filteredDocs.sort((a, b) {
             final aCreated = a.data()['createdAt'];
+
             final bCreated = b.data()['createdAt'];
 
-            final aTs = aCreated is Timestamp ? aCreated : null;
-            final bTs = bCreated is Timestamp ? bCreated : null;
+            final aTs =
+                aCreated is Timestamp ? aCreated : null;
+
+            final bTs =
+                bCreated is Timestamp ? bCreated : null;
 
             if (aTs == null && bTs == null) return 0;
             if (aTs == null) return 1;
@@ -829,12 +1028,16 @@ final excludeFromMonthlyInvoice =
               setState(() {});
             },
             child: ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
+              physics:
+                  const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.only(bottom: 24),
               children: [
                 Text(
                   'استشارات الأطفال',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  style: Theme.of(context)
+                      .textTheme
+                      .headlineSmall
+                      ?.copyWith(
                         fontWeight: FontWeight.bold,
                         color: AppColors.textDark,
                       ),
@@ -870,11 +1073,15 @@ class _ConsultationInfoRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = strong ? AppColors.primary : AppColors.textDark;
+    final color =
+        strong ? AppColors.primary : AppColors.textDark;
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 10,
+        vertical: 9,
+      ),
       decoration: BoxDecoration(
         color: AppColors.background,
         borderRadius: BorderRadius.circular(13),
@@ -884,7 +1091,8 @@ class _ConsultationInfoRow extends StatelessWidget {
           Icon(
             icon,
             size: 18,
-            color: strong ? AppColors.primary : AppColors.textLight,
+            color:
+                strong ? AppColors.primary : AppColors.textLight,
           ),
           const SizedBox(width: 8),
           Text(
@@ -900,7 +1108,8 @@ class _ConsultationInfoRow extends StatelessWidget {
               value.trim().isEmpty ? '-' : value,
               style: TextStyle(
                 color: color,
-                fontWeight: strong ? FontWeight.w900 : FontWeight.w700,
+                fontWeight:
+                    strong ? FontWeight.w900 : FontWeight.w700,
                 fontSize: 13,
               ),
             ),

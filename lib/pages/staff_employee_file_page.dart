@@ -297,15 +297,6 @@ class _StaffEmployeeFilePageState extends State<StaffEmployeeFilePage> {
                       fontSize: 18,
                     ),
                   ),
-                  SizedBox(height: 4),
-                  Text(
-                    'ملخص مهامكِ الوظيفية: التقييم، الدوام، الراتب، والمناوبة',
-                    style: TextStyle(
-                      color: Colors.grey,
-                      fontWeight: FontWeight.w600,
-                      height: 1.4,
-                    ),
-                  ),
                 ],
               ),
             ),

@@ -55,6 +55,15 @@ class _AdminChatsPageState extends State<AdminChatsPage> {
     return value.toString().trim();
   }
 
+  bool isLiveStreamStationAccount(Map<String, dynamic> data) {
+  final username = cleanText(data['username']).toLowerCase();
+  final email = cleanText(data['email']).toLowerCase();
+
+  return data['isLiveStreamStation'] == true ||
+      username == 'stream_station' ||
+      email == 'stream.station@tammni.com';
+}
+
   String firstNonEmpty(List<dynamic> values) {
     for (final value in values) {
       final text = cleanText(value);
@@ -94,6 +103,8 @@ class _AdminChatsPageState extends State<AdminChatsPage> {
         'role': role,
         'section': cleanText(data['section']),
         'isActive': (data['isActive'] ?? true) == true,
+        'accountStatus': cleanText(data['accountStatus']).toLowerCase(),
+        'isLiveStreamStation': isLiveStreamStationAccount(data),
       };
     }).where((user) {
       final uid = cleanText(user['uid']);
@@ -102,8 +113,12 @@ class _AdminChatsPageState extends State<AdminChatsPage> {
       final username = cleanText(user['username']).toLowerCase();
       final email = cleanText(user['email']).toLowerCase();
       final isActive = user['isActive'] == true;
+      final accountStatus = cleanText(user['accountStatus']).toLowerCase();
+      final isLiveStreamStation = user['isLiveStreamStation'] == true;
 
       if (!isActive) return false;
+      if (accountStatus == 'archived') return false;
+      if (isLiveStreamStation) return false;
       if (uid == currentUser.uid) return false;
 
     

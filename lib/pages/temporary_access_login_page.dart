@@ -597,6 +597,16 @@ class _TemporaryAccessLoginPageState extends State<TemporaryAccessLoginPage> {
       final accessData =
           Map<String, dynamic>.from(accessResult['accessData'] as Map);
 
+      // نسجل أن جلسة Anonymous الحالية هي التي أدخلت الكود بنجاح.
+      // تستخدم Firestore Rules هذه البصمة للسماح بقراءة الأطفال المرتبطين
+      // بالكود فقط أثناء مرحلة الدخول الأولى قبل إنشاء device sessions.
+      await _saveAccessLoginMetadata(
+        authUser: authUser,
+        token: '',
+        accessCodeId: accessCodeId,
+        deviceDocIds: const <String>[],
+      );
+
       final accessStatus = _cleanText(
         accessData['status'] ?? accessData['accountStatus'],
       ).toLowerCase();

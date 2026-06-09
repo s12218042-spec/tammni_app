@@ -33,6 +33,11 @@ class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
     return DateTime(now.year, now.month, now.day);
   }
 
+  bool _isFutureDate(DateTime date) {
+  final normalizedDate = DateTime(date.year, date.month, date.day);
+  return normalizedDate.isAfter(today);
+}
+
   bool get isSelectedDateToday {
     return selectedDate.year == today.year &&
         selectedDate.month == today.month &&
@@ -254,7 +259,7 @@ class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
       context: context,
       initialDate: selectedDate,
       firstDate: DateTime(2025),
-      lastDate: DateTime(2035),
+      lastDate: today,
     );
 
     if (picked == null) return;
@@ -377,13 +382,22 @@ class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
   }
 
   Future<void> _saveManyAttendance(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> staffDocs,
-  ) async {
-    if (isSaving) return;
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> staffDocs,
+) async {
+  if (isSaving) return;
 
-    setState(() {
-      isSaving = true;
-    });
+  if (_isFutureDate(selectedDate)) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('لا يمكن تسجيل دوام بتاريخ مستقبلي'),
+      ),
+    );
+    return;
+  }
+
+  setState(() {
+    isSaving = true;
+  });
 
     try {
       final adminInfo = await _currentAdminInfo();

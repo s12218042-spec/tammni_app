@@ -10,6 +10,7 @@ import '../services/live_stream_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 import 'live_stream_viewer_page.dart';
+import 'parent_consultations_page.dart';
 import 'temporary_parent_chat_page.dart';
 import 'welcome_page.dart';
 
@@ -40,6 +41,10 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
 
   late Map<String, dynamic> _childData;
   late Map<String, dynamic> _accessData;
+  late String _currentChildId;
+
+  List<_TemporarySiblingOption> _availableSiblings = <_TemporarySiblingOption>[];
+  bool _isLoadingSiblings = false;
 
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
       _notificationsSubscription;
@@ -58,7 +63,12 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
     super.initState();
     _childData = Map<String, dynamic>.from(widget.childData);
     _accessData = Map<String, dynamic>.from(widget.accessData);
+    _currentChildId = widget.childId;
     _listenForNewNotifications();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadAvailableSiblings();
+    });
   }
 
   @override
@@ -71,6 +81,24 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
   String _cleanText(dynamic value) {
     if (value == null) return '';
     return value.toString().trim();
+  }
+
+  bool _isVisibleTemporaryParentNotification(Map<String, dynamic> data) {
+    final targetRole = _cleanText(data['targetRole']).toLowerCase();
+    final notificationFor =
+        _cleanText(data['notificationFor']).toLowerCase();
+
+    const blockedRoles = <String>{
+      'admin',
+      'nursery',
+      'nursery_staff',
+      'nursery staff',
+      'staff',
+      'employee',
+    };
+
+    return !blockedRoles.contains(targetRole) &&
+        !blockedRoles.contains(notificationFor);
   }
 
   num _toNum(dynamic value) {
@@ -169,26 +197,6 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
     return name.isEmpty ? 'موظفة الحضانة' : name;
   }
 
-  String _consultationText() {
-    final hasConsultation = _childData['hasConsultation'] == true;
-    if (!hasConsultation) return 'لا';
-
-    final status = _cleanText(_childData['consultationStatus']);
-
-    switch (status) {
-      case 'pending':
-        return 'قيد المتابعة';
-      case 'approved':
-        return 'مقبولة';
-      case 'rejected':
-        return 'مرفوضة';
-      case 'completed':
-        return 'مكتملة';
-      default:
-        return 'نعم';
-    }
-  }
-
   bool get _isTrialChild {
     final childType = _cleanText(_childData['childType']).toLowerCase();
     final enrollmentType =
@@ -260,10 +268,211 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
     }
   }
 
+  List<String> _readStringList(dynamic value) {
+    if (value is! Iterable) return <String>[];
+
+    return value
+        .map(_cleanText)
+        .where((item) => item.isNotEmpty)
+        .toSet()
+        .toList();
+  }
+
+  bool _isBlockedTemporaryStatus(dynamic value) {
+    final status = _cleanText(value).toLowerCase();
+
+    return status == 'cancelled' ||
+        status == 'disabled' ||
+        status == 'expired' ||
+        status == 'archived' ||
+        status == 'rejected_after_trial' ||
+        status == 'withdrawn' ||
+        status == 'inactive' ||
+        status == 'logged_out';
+  }
+
+  bool _isAvailableSibling(Map<String, dynamic> data) {
+    if (data['isActive'] == false) return false;
+
+    if (_isBlockedTemporaryStatus(data['childStatus'] ?? data['status']) ||
+        _isBlockedTemporaryStatus(data['accountStatus'])) {
+      return false;
+    }
+
+    final endAt = data['temporaryAccessEndAt'] ??
+        data['temporaryEndAt'] ??
+        data['temporaryEndDate'] ??
+        data['trialEndAt'];
+
+    final endDate = _dateFromDynamic(endAt);
+
+    return endDate == null || endDate.isAfter(DateTime.now());
+  }
+
+  Future<void> _loadAvailableSiblings() async {
+    if (_isLoadingSiblings) return;
+
+    _isLoadingSiblings = true;
+
+    try {
+      Map<String, dynamic> latestAccessData = _accessData;
+
+      if (widget.accessCodeId.trim().isNotEmpty) {
+        final accessDoc = await _firestore
+            .collection('temporary_access_codes')
+            .doc(widget.accessCodeId)
+            .get();
+
+        if (accessDoc.exists) {
+          latestAccessData = accessDoc.data() ?? latestAccessData;
+        }
+      }
+
+      final childIds = <String>{
+        ..._readStringList(latestAccessData['childIds']),
+        _cleanText(latestAccessData['childId']),
+        _currentChildId,
+      }..removeWhere((value) => value.isEmpty);
+
+      final siblings = <_TemporarySiblingOption>[];
+
+      for (final childId in childIds) {
+        final doc = await _firestore.collection('children').doc(childId).get();
+        final data = doc.data();
+
+        if (!doc.exists || data == null || !_isAvailableSibling(data)) {
+          continue;
+        }
+
+        siblings.add(
+          _TemporarySiblingOption(
+            childId: doc.id,
+            childData: Map<String, dynamic>.from(data),
+          ),
+        );
+      }
+
+      siblings.sort((a, b) => a.childName.compareTo(b.childName));
+
+      if (!mounted) return;
+
+      setState(() {
+        _accessData = Map<String, dynamic>.from(latestAccessData);
+        _availableSiblings = siblings;
+      });
+    } catch (e) {
+      debugPrint('TEMP LOAD SIBLINGS ERROR: $e');
+    } finally {
+      _isLoadingSiblings = false;
+    }
+  }
+
+  Future<void> _switchToSibling(_TemporarySiblingOption sibling) async {
+    if (sibling.childId == _currentChildId) return;
+
+    await _notificationsSubscription?.cancel();
+
+    if (!mounted) return;
+
+    setState(() {
+      _currentChildId = sibling.childId;
+      _childData = Map<String, dynamic>.from(sibling.childData);
+      _popupQueue.clear();
+      _handledPopupNotificationIds.clear();
+      _receivedInitialNotificationsSnapshot = false;
+      _isShowingNotificationPopup = false;
+      chatSearchCtrl.clear();
+    });
+
+    _listenForNewNotifications();
+    await _refreshPage();
+  }
+
+  Future<void> _openSiblingPicker() async {
+    await _loadAvailableSiblings();
+
+    if (!mounted || _availableSiblings.length <= 1) return;
+
+    final selected = await showModalBottomSheet<_TemporarySiblingOption>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (sheetContext) {
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 45,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: Colors.black12,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Align(
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      'اختيار الطفل',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  ..._availableSiblings.map((sibling) {
+                    final isSelected = sibling.childId == _currentChildId;
+
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      child: ListTile(
+                        onTap: () => Navigator.pop(sheetContext, sibling),
+                        leading: CircleAvatar(
+                          backgroundColor:
+                              AppColors.primary.withValues(alpha: 0.10),
+                          child: const Icon(
+                            Icons.child_care_rounded,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                        title: Text(
+                          sibling.childName,
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        subtitle: Text(sibling.childTypeLabel),
+                        trailing: isSelected
+                            ? const Icon(
+                                Icons.check_circle_rounded,
+                                color: AppColors.primary,
+                              )
+                            : const Icon(Icons.chevron_left_rounded),
+                      ),
+                    );
+                  }),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    if (selected != null) {
+      await _switchToSibling(selected);
+    }
+  }
+
   Future<void> _refreshPage() async {
     try {
       final childDoc =
-          await _firestore.collection('children').doc(widget.childId).get();
+          await _firestore.collection('children').doc(_currentChildId).get();
 
       Map<String, dynamic>? accessData;
 
@@ -289,6 +498,8 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
           _accessData = accessData;
         }
       });
+
+      await _loadAvailableSiblings();
     } catch (e) {
       debugPrint('TEMP CHILD VIEW REFRESH ERROR: $e');
     }
@@ -313,7 +524,8 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
           final doc = change.doc;
           final data = doc.data();
 
-          if (data == null) {
+          if (data == null ||
+              !_isVisibleTemporaryParentNotification(data)) {
             continue;
           }
 
@@ -483,7 +695,6 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
         final query = await _firestore
             .collection('temporary_parent_devices')
             .where('authUid', isEqualTo: currentUser.uid)
-            .where('childId', isEqualTo: widget.childId)
             .get();
 
         final batch = _firestore.batch();
@@ -571,6 +782,48 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
       ),
     );
   }
+
+  Future<void> _openConsultationsPage() async {
+  await Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => ParentConsultationsPage(
+        childId: _currentChildId,
+        isTemporaryParent: true,
+      ),
+    ),
+  );
+
+  if (!mounted) return;
+
+  setState(() {});
+}
+
+Widget _buildConsultationsCard() {
+  return Card(
+    margin: const EdgeInsets.only(bottom: 10),
+    child: ListTile(
+      onTap: _openConsultationsPage,
+      leading: CircleAvatar(
+        backgroundColor: AppColors.primary.withValues(alpha: 0.10),
+        child: const Icon(
+          Icons.psychology_alt_outlined,
+          color: AppColors.primary,
+        ),
+      ),
+      title: const Text(
+        'الاستشارات',
+        style: TextStyle(
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      trailing: const Icon(
+        Icons.chevron_left_rounded,
+        color: AppColors.textLight,
+      ),
+    ),
+  );
+}
 
   Widget _buildChildHeader() {
     return Container(
@@ -697,18 +950,7 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
             title: _isTrialChild ? 'نهاية التجربة' : 'نهاية الوصول',
             value: _formatDate(_accessEnd),
           ),
-          if (_isTrialChild)
-            _infoCard(
-              icon: Icons.volunteer_activism_outlined,
-              title: 'الفاتورة',
-              value:
-                  'طفل التجربة مجاني لمدة 3 أيام ولا يدخل ضمن الاشتراك الشهري.',
-            ),
-          _infoCard(
-            icon: Icons.psychology_alt_outlined,
-            title: 'الاستشارة',
-            value: _consultationText(),
-          ),
+          if (!_isTrialChild) _buildConsultationsCard(),
           if (notes.isNotEmpty)
             _infoCard(
               icon: Icons.note_alt_outlined,
@@ -724,8 +966,8 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
   Stream<QuerySnapshot<Map<String, dynamic>>> _temporaryInvoicesStream() {
     return _firestore
         .collection('invoices')
-        .where('childId', isEqualTo: widget.childId)
-        .limit(20)
+        .where('childId', isEqualTo: _currentChildId)
+        .limit(30)
         .snapshots();
   }
 
@@ -740,19 +982,84 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
               style: const TextStyle(color: AppColors.textLight),
             ),
           ),
-          Text(
-            value,
-            style: const TextStyle(fontWeight: FontWeight.bold),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
           ),
         ],
       ),
     );
   }
 
-  void _openInvoiceDetails(Map<String, dynamic> data) {
+  bool _isHiddenTemporaryInvoice(Map<String, dynamic> data) {
+    final statuses = [
+      data['status'],
+      data['paymentStatus'],
+      data['invoiceStatus'],
+    ].map((value) => _cleanText(value).toLowerCase());
+
+    const hiddenStatuses = <String>{
+      'superseded',
+      'deleted',
+      'void',
+      'archived',
+    };
+
+    return statuses.any(hiddenStatuses.contains);
+  }
+
+  String _invoiceStatusLabel(dynamic value) {
+    switch (_cleanText(value).toLowerCase()) {
+      case 'paid':
+      case 'مدفوعة':
+        return 'مدفوعة';
+      case 'partial':
+      case 'partially_paid':
+      case 'مدفوعة جزئيًا':
+      case 'مدفوعة جزئياً':
+        return 'مدفوعة جزئيًا';
+      case 'overdue':
+      case 'متأخرة':
+        return 'متأخرة';
+      case 'cancelled':
+      case 'canceled':
+      case 'ملغاة':
+        return 'ملغاة';
+      case 'unpaid':
+      case 'pending':
+      case 'not_paid':
+      case 'غير مدفوعة':
+      case '':
+        return 'غير مدفوعة';
+      default:
+        return _cleanText(value);
+    }
+  }
+
+  String _invoicePaymentMethodLabel(dynamic value) {
+    switch (_cleanText(value).toLowerCase()) {
+      case 'cash':
+        return 'كاش';
+      case 'visa':
+      case 'card':
+        return 'بطاقة / فيزا';
+      case 'bank_transfer':
+        return 'تحويل بنكي';
+      case 'other':
+        return 'أخرى';
+      default:
+        return '';
+    }
+  }
+
+  Map<String, num> _temporaryInvoiceAmounts(Map<String, dynamic> data) {
     final total = _toNum(
-      data['finalAmount'] ??
-          data['totalAmount'] ??
+      data['totalAmount'] ??
+          data['finalAmount'] ??
           data['amount'] ??
           data['total'],
     );
@@ -762,6 +1069,53 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
     final remaining = _toNum(
       data['remainingAmount'] ?? data['remaining'] ?? (total - paid),
     );
+
+    final extraHoursAmount = _toNum(
+      data['extraHoursAmount'] ?? data['extraHoursTotal'],
+    );
+
+    final consultationsAmount = _toNum(
+      data['consultationsAmount'] ??
+          data['consultationAmount'] ??
+          data['consultationsTotal'],
+    );
+
+    final totalDiscount = _toNum(
+      data['totalDiscount'] ??
+          data['manualDiscount'] ??
+          data['discountAmount'] ??
+          data['discount'],
+    );
+
+    num nurseryCost = _toNum(
+      data['subtotalAmount'] ??
+          data['temporaryFee'] ??
+          data['baseAmount'] ??
+          data['childrenBaseAmount'],
+    );
+
+    if (nurseryCost <= 0 && total > 0) {
+      nurseryCost =
+          total - extraHoursAmount - consultationsAmount + totalDiscount;
+
+      if (nurseryCost < 0) {
+        nurseryCost = 0;
+      }
+    }
+
+    return {
+      'nurseryCost': nurseryCost,
+      'extraHoursAmount': extraHoursAmount,
+      'consultationsAmount': consultationsAmount,
+      'totalDiscount': totalDiscount,
+      'total': total,
+      'paid': paid,
+      'remaining': remaining < 0 ? 0 : remaining,
+    };
+  }
+
+  void _openInvoiceDetails(Map<String, dynamic> data) {
+    final amounts = _temporaryInvoiceAmounts(data);
 
     final hours = _toNum(
       data['hoursCount'] ??
@@ -775,57 +1129,100 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
           data['unitPrice'],
     );
 
-    final status = _cleanText(data['status']).isEmpty
-        ? 'غير محددة'
-        : _cleanText(data['status']);
+    final status = _invoiceStatusLabel(
+      data['paymentStatus'] ?? data['status'] ?? data['invoiceStatus'],
+    );
+
+    final paymentMethod =
+        _invoicePaymentMethodLabel(data['paymentMethod']);
 
     final notes = _cleanText(data['notes']);
 
+    final startAt = data['accessStartAt'] ??
+        data['startDate'] ??
+        data['temporaryAccessStartAt'];
+
+    final endAt = data['accessEndAt'] ??
+        data['endDate'] ??
+        data['temporaryAccessEndAt'];
+
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
       ),
       builder: (_) {
         return Directionality(
           textDirection: TextDirection.rtl,
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 46,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: AppColors.border,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                ),
-                const SizedBox(height: 18),
-                const Row(
-                  children: [
-                    Icon(Icons.receipt_long_rounded, color: AppColors.primary),
-                    SizedBox(width: 8),
-                    Text(
-                      'تفاصيل الفاتورة',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 18,
-                      ),
+          child: SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 46,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppColors.border,
+                      borderRadius: BorderRadius.circular(999),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                if (hours > 0) _invoiceLine('عدد الساعات', '$hours'),
-                if (hourlyRate > 0) _invoiceLine('سعر الساعة', _money(hourlyRate)),
-                _invoiceLine('الإجمالي', _money(total)),
-                _invoiceLine('المدفوع', _money(paid)),
-                _invoiceLine('المتبقي', _money(remaining)),
-                _invoiceLine('الحالة', status),
-                if (notes.isNotEmpty) _invoiceLine('ملاحظات', notes),
-                const SizedBox(height: 10),
-              ],
+                  ),
+                  const SizedBox(height: 18),
+                  const Row(
+                    children: [
+                      Icon(
+                        Icons.receipt_long_rounded,
+                        color: AppColors.primary,
+                      ),
+                      SizedBox(width: 8),
+                      Text(
+                        'تفاصيل الفاتورة',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 18,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  if (hours > 0) _invoiceLine('عدد الساعات', '$hours'),
+                  if (hourlyRate > 0)
+                    _invoiceLine('سعر الساعة', _money(hourlyRate)),
+                  if (_dateFromDynamic(startAt) != null ||
+                      _dateFromDynamic(endAt) != null)
+                    _invoiceLine(
+                      'الفترة',
+                      '${_formatDate(startAt)} إلى ${_formatDate(endAt)}',
+                    ),
+                  _invoiceLine(
+                    'تكلفة الحضانة',
+                    _money(amounts['nurseryCost']),
+                  ),
+                  _invoiceLine(
+                    'الساعات الإضافية',
+                    _money(amounts['extraHoursAmount']),
+                  ),
+                  _invoiceLine(
+                    'الاستشارات',
+                    _money(amounts['consultationsAmount']),
+                  ),
+                  if ((amounts['totalDiscount'] ?? 0) > 0)
+                    _invoiceLine(
+                      'الخصم',
+                      _money(amounts['totalDiscount']),
+                    ),
+                  _invoiceLine('الإجمالي', _money(amounts['total'])),
+                  _invoiceLine('المدفوع', _money(amounts['paid'])),
+                  _invoiceLine('المتبقي', _money(amounts['remaining'])),
+                  _invoiceLine('الحالة', status),
+                  if (paymentMethod.isNotEmpty)
+                    _invoiceLine('طريقة الدفع', paymentMethod),
+                  if (notes.isNotEmpty) _invoiceLine('ملاحظات', notes),
+                  const SizedBox(height: 10),
+                ],
+              ),
             ),
           ),
         );
@@ -834,27 +1231,6 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
   }
 
   Widget _buildTemporaryInvoiceCard() {
-    if (_isTrialChild) {
-      return Card(
-        child: ListTile(
-          leading: CircleAvatar(
-            backgroundColor: Colors.teal.withValues(alpha: 0.10),
-            child: const Icon(
-              Icons.volunteer_activism_outlined,
-              color: Colors.teal,
-            ),
-          ),
-          title: const Text(
-            'لا توجد فاتورة',
-            style: TextStyle(fontWeight: FontWeight.bold),
-          ),
-          subtitle: const Text(
-            'طفل التجربة مجاني لمدة 3 أيام ولا يدخل ضمن الاشتراك الشهري إلا بعد اعتماد الإدارة.',
-          ),
-        ),
-      );
-    }
-
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: _temporaryInvoicesStream(),
       builder: (context, snapshot) {
@@ -886,7 +1262,9 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
           );
         }
 
-        final docs = [...(snapshot.data?.docs ?? [])];
+        final docs = [...(snapshot.data?.docs ?? [])]
+            .where((doc) => !_isHiddenTemporaryInvoice(doc.data()))
+            .toList();
 
         docs.sort((a, b) {
           final aDate = _dateFromDynamic(
@@ -926,17 +1304,7 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
         }
 
         final data = docs.first.data();
-
-        final total = _toNum(
-          data['finalAmount'] ??
-              data['totalAmount'] ??
-              data['amount'] ??
-              data['total'],
-        );
-        final paid = _toNum(data['paidAmount'] ?? data['paid']);
-        final remaining = _toNum(
-          data['remainingAmount'] ?? data['remaining'] ?? (total - paid),
-        );
+        final amounts = _temporaryInvoiceAmounts(data);
 
         final hours = _toNum(
           data['hoursCount'] ??
@@ -950,9 +1318,9 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
               data['unitPrice'],
         );
 
-        final status = _cleanText(data['status']).isEmpty
-            ? 'غير محددة'
-            : _cleanText(data['status']);
+        final status = _invoiceStatusLabel(
+          data['paymentStatus'] ?? data['status'] ?? data['invoiceStatus'],
+        );
 
         return Card(
           child: InkWell(
@@ -966,7 +1334,8 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
                   Row(
                     children: [
                       CircleAvatar(
-                        backgroundColor: AppColors.primary.withValues(alpha: 0.10),
+                        backgroundColor:
+                            AppColors.primary.withValues(alpha: 0.10),
                         child: const Icon(
                           Icons.receipt_long_rounded,
                           color: AppColors.primary,
@@ -1003,12 +1372,30 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
                     ],
                   ),
                   const SizedBox(height: 14),
+                  _invoiceLine(
+                    'تكلفة الحضانة',
+                    _money(amounts['nurseryCost']),
+                  ),
+                  _invoiceLine(
+                    'الاستشارات',
+                    _money(amounts['consultationsAmount']),
+                  ),
+                  _invoiceLine(
+                    'الساعات الإضافية',
+                    _money(amounts['extraHoursAmount']),
+                  ),
+                  if ((amounts['totalDiscount'] ?? 0) > 0)
+                    _invoiceLine(
+                      'الخصم',
+                      _money(amounts['totalDiscount']),
+                    ),
+                  const Divider(height: 18),
                   Row(
                     children: [
                       Expanded(
                         child: _invoiceMiniBox(
                           title: 'الإجمالي',
-                          value: _money(total),
+                          value: _money(amounts['total']),
                           icon: Icons.payments_outlined,
                         ),
                       ),
@@ -1016,7 +1403,7 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
                       Expanded(
                         child: _invoiceMiniBox(
                           title: 'المتبقي',
-                          value: _money(remaining),
+                          value: _money(amounts['remaining']),
                           icon: Icons.pending_actions_outlined,
                         ),
                       ),
@@ -1028,7 +1415,7 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
                       Expanded(
                         child: _invoiceMiniBox(
                           title: 'المدفوع',
-                          value: _money(paid),
+                          value: _money(amounts['paid']),
                           icon: Icons.done_rounded,
                         ),
                       ),
@@ -1099,7 +1486,7 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
         .doc(LiveStreamService.nurseryMainStreamId)
         .collection('queue')
         .where('requesterAuthUid', isEqualTo: authUid)
-        .where('childId', isEqualTo: widget.childId)
+        .where('childId', isEqualTo: _currentChildId)
         .snapshots();
   }
 
@@ -1230,7 +1617,7 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
 
     try {
       final result = await _liveStreamService.requestLiveStreamForChild(
-        childId: widget.childId,
+        childId: _currentChildId,
         childName: _childName(),
         parentUid: '',
         parentUsername: '',
@@ -1529,7 +1916,7 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
   Stream<QuerySnapshot<Map<String, dynamic>>> _updatesStream() {
     return _firestore
         .collection('updates')
-        .where('childId', isEqualTo: widget.childId)
+        .where('childId', isEqualTo: _currentChildId)
         .limit(80)
         .snapshots();
   }
@@ -2047,13 +2434,15 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
                 category: 'media',
                 data: latestByCategory['media'],
               ),
-              const SizedBox(height: 16),
-              _sectionTitle(
-                title: 'الفاتورة',
-                icon: Icons.receipt_long_rounded,
-              ),
-              const SizedBox(height: 12),
-              _buildTemporaryInvoiceCard(),
+              if (!_isTrialChild) ...[
+                const SizedBox(height: 16),
+                _sectionTitle(
+                  title: 'الفاتورة',
+                  icon: Icons.receipt_long_rounded,
+                ),
+                const SizedBox(height: 12),
+                _buildTemporaryInvoiceCard(),
+              ],
               const SizedBox(height: 16),
               _sectionTitle(
                 title: 'كل التحديثات',
@@ -2086,7 +2475,7 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
         builder: (_) => TemporaryParentChatPage(
           accessCodeId: widget.accessCodeId,
           accessCode: _accessCode,
-          childId: widget.childId,
+          childId: _currentChildId,
           childName: _childName(),
           parentName: _parentName(),
           parentPhone: _parentPhone(),
@@ -2176,7 +2565,7 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
   Stream<QuerySnapshot<Map<String, dynamic>>> _temporaryMessagesStream() {
     return _firestore
         .collection('temporary_messages')
-        .where('childId', isEqualTo: widget.childId)
+        .where('childId', isEqualTo: _currentChildId)
         .limit(200)
         .snapshots();
   }
@@ -2453,7 +2842,7 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
   Stream<QuerySnapshot<Map<String, dynamic>>> _temporaryNotificationsStream() {
     return _firestore
         .collection('notifications')
-        .where('childId', isEqualTo: widget.childId)
+        .where('childId', isEqualTo: _currentChildId)
         .limit(100)
         .snapshots();
   }
@@ -2481,6 +2870,7 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
           formatDate: _formatDate,
           formatTime: _formatTime,
           cleanText: _cleanText,
+          isVisibleNotification: _isVisibleTemporaryParentNotification,
         ),
       ),
     );
@@ -2496,7 +2886,8 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
         final count = (snapshot.data?.docs ?? []).where((doc) {
           final data = doc.data();
 
-          return data['isRead'] != true &&
+          return _isVisibleTemporaryParentNotification(data) &&
+              data['isRead'] != true &&
               data['read'] != true &&
               data['seen'] != true;
         }).length;
@@ -2652,6 +3043,12 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
       body: AppPageScaffold(
         title: _pageTitle,
         actions: [
+          if (_availableSiblings.length > 1)
+            IconButton(
+              icon: const Icon(Icons.family_restroom_rounded),
+              tooltip: 'تبديل الطفل',
+              onPressed: _openSiblingPicker,
+            ),
           _buildTemporaryNotificationActionButton(),
           if (selectedIndex == 1)
             IconButton(
@@ -2696,6 +3093,41 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
   }
 }
 
+class _TemporarySiblingOption {
+  final String childId;
+  final Map<String, dynamic> childData;
+
+  const _TemporarySiblingOption({
+    required this.childId,
+    required this.childData,
+  });
+
+  String _clean(dynamic value) {
+    if (value == null) return '';
+    return value.toString().trim();
+  }
+
+  String get childName {
+    final value = _clean(childData['childName'] ?? childData['name']);
+    return value.isEmpty ? 'طفل بدون اسم' : value;
+  }
+
+  String get childTypeLabel {
+    final type = _clean(childData['childType']).toLowerCase();
+    final enrollmentType = _clean(childData['enrollmentType']).toLowerCase();
+    final status = _clean(childData['childStatus']).toLowerCase();
+
+    if (childData['isTrialChild'] == true ||
+        type == 'trial' ||
+        enrollmentType == 'trial' ||
+        status == 'trial') {
+      return 'طفل تجربة';
+    }
+
+    return 'طفل مؤقت';
+  }
+}
+
 class _TemporaryNotificationsPage extends StatelessWidget {
   final Stream<QuerySnapshot<Map<String, dynamic>>> Function()
       notificationsStream;
@@ -2703,6 +3135,7 @@ class _TemporaryNotificationsPage extends StatelessWidget {
   final String Function(dynamic value) formatDate;
   final String Function(dynamic value) formatTime;
   final String Function(dynamic value) cleanText;
+  final bool Function(Map<String, dynamic> data) isVisibleNotification;
 
   const _TemporaryNotificationsPage({
     required this.notificationsStream,
@@ -2710,6 +3143,7 @@ class _TemporaryNotificationsPage extends StatelessWidget {
     required this.formatDate,
     required this.formatTime,
     required this.cleanText,
+    required this.isVisibleNotification,
   });
 
   IconData _iconForType(String type) {
@@ -2744,7 +3178,9 @@ class _TemporaryNotificationsPage extends StatelessWidget {
               );
             }
 
-            final docs = [...(snapshot.data?.docs ?? [])];
+            final docs = [...(snapshot.data?.docs ?? [])]
+                .where((doc) => isVisibleNotification(doc.data()))
+                .toList();
 
             docs.sort((a, b) {
               DateTime? dateOf(Map<String, dynamic> data) {

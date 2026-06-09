@@ -21,6 +21,7 @@ import 'admin_daily_tasks_table_page.dart';
 import 'admin_weekly_duty__page.dart';
 import 'admin_staff_tasks_review_page.dart';
 import 'profile_details_page.dart';
+import 'account_history_page.dart';
 import 'admin_staff_evaluations_page.dart';
 import 'admin_staff_attendance_page.dart';
 import 'admin_staff_payroll_page.dart';
@@ -49,7 +50,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
         textDirection: TextDirection.rtl,
         child: AlertDialog(
           title: const Text('تسجيل الخروج'),
-          content: const Text('هل أنتِ متأكدة أنكِ تريدين تسجيل الخروج؟'),
+          content: const Text('هل أنت متأكد أنك تريد تسجيل الخروج؟'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -96,11 +97,6 @@ class _AdminHomePageState extends State<AdminHomePage> {
         .limit(100)
         .get();
 
-    final deletionRequestsSnapshot = await _firestore
-        .collection('account_deletion_requests')
-        .limit(100)
-        .get();
-
     final complaintsSnapshot = await _firestore
         .collection('complaints')
         .limit(200)
@@ -125,8 +121,6 @@ class _AdminHomePageState extends State<AdminHomePage> {
     final requests = requestsSnapshot.docs.map((e) => e.data()).toList();
     final addChildRequests =
         addChildRequestsSnapshot.docs.map((e) => e.data()).toList();
-    final deletionRequests =
-        deletionRequestsSnapshot.docs.map((e) => e.data()).toList();
     final complaints = complaintsSnapshot.docs.map((e) => e.data()).toList();
 
     int unreadMessagesCount = 0;
@@ -220,18 +214,6 @@ class _AdminHomePageState extends State<AdminHomePage> {
       if (status == 'rejected') rejectedAddChildRequests++;
     }
 
-    int pendingDeletionRequests = 0;
-    int approvedDeletionRequests = 0;
-    int rejectedDeletionRequests = 0;
-
-    for (final request in deletionRequests) {
-      final status = (request['status'] ?? 'pending').toString().trim();
-
-      if (status == 'pending') pendingDeletionRequests++;
-      if (status == 'approved') approvedDeletionRequests++;
-      if (status == 'rejected') rejectedDeletionRequests++;
-    }
-
     int totalComplaints = 0;
     int pendingComplaints = 0;
     int inReviewComplaints = 0;
@@ -282,18 +264,6 @@ class _AdminHomePageState extends State<AdminHomePage> {
           subtitle: ' ',
           icon: Icons.person_add_alt_1_rounded,
           color: Colors.indigo,
-        ),
-      );
-    }
-
-    if (pendingDeletionRequests > 0) {
-      alerts.add(
-        _AdminAlertItem(
-          title:
-              'يوجد $pendingDeletionRequests طلب/طلبات حذف حساب بانتظار المراجعة',
-          subtitle: ' ',
-          icon: Icons.delete_forever_outlined,
-          color: Colors.redAccent,
         ),
       );
     }
@@ -360,9 +330,6 @@ class _AdminHomePageState extends State<AdminHomePage> {
       pendingAddChildRequests: pendingAddChildRequests,
       approvedAddChildRequests: approvedAddChildRequests,
       rejectedAddChildRequests: rejectedAddChildRequests,
-      pendingDeletionRequests: pendingDeletionRequests,
-      approvedDeletionRequests: approvedDeletionRequests,
-      rejectedDeletionRequests: rejectedDeletionRequests,
       totalComplaints: totalComplaints,
       pendingComplaints: pendingComplaints,
       inReviewComplaints: inReviewComplaints,
@@ -618,12 +585,6 @@ class _AdminHomePageState extends State<AdminHomePage> {
       },
       child: ListView(
           children: [
-          Text(
-            'أهلاً بكِ في لوحة الإدارة 👋',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-          ),
           const SizedBox(height: 8),
           Text(
             '',
@@ -670,13 +631,6 @@ class _AdminHomePageState extends State<AdminHomePage> {
                 icon: Icons.person_add_alt_1_rounded,
               ),
               _DashboardStatCard(
-                title: 'طلبات حذف الحسابات',
-                value: '${data.pendingDeletionRequests}',
-                subtitle:
-                    'معلقة ${data.pendingDeletionRequests} • مقبولة ${data.approvedDeletionRequests}',
-                icon: Icons.delete_forever_outlined,
-              ),
-              _DashboardStatCard(
                 title: 'شكاوى أولياء الأمور',
                 value: '${data.totalComplaints}',
                 subtitle:
@@ -695,14 +649,14 @@ class _AdminHomePageState extends State<AdminHomePage> {
           ),
           const SizedBox(height: 24),
           const _SectionTitle(
-            title: 'التنبيهات',
+            title: 'الإشعارات',
             icon: Icons.notifications_active_rounded,
           ),
           const SizedBox(height: 12),
           if (data.alerts.isEmpty)
             const _EmptyDashboardBox(
               icon: Icons.verified_rounded,
-              title: 'لا توجد تنبيهات',
+              title: 'لا توجد إشعارات',
               subtitle: ' ',
             )
           else
@@ -1136,7 +1090,7 @@ _AdminActionCard(
         const SizedBox(height: 8),
         Card(
           child: Column(
-              children: [
+            children: [
               ListTile(
                 leading: CircleAvatar(
                   backgroundColor: Colors.green.withOpacity(0.12),
@@ -1145,7 +1099,7 @@ _AdminActionCard(
                     color: Colors.green,
                   ),
                 ),
-                title: const Text('التنبيهات'),
+                title: const Text('الإشعارات'),
                 subtitle: const Text(''),
                 onTap: () async {
                   final data = await _loadDashboardData();
@@ -1157,6 +1111,25 @@ _AdminActionCard(
                     MaterialPageRoute(
                       builder: (_) =>
                           _AdminNotificationsPage(alerts: data.alerts),
+                    ),
+                  );
+                },
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Colors.teal.withOpacity(0.12),
+                  child: const Icon(
+                    Icons.history_rounded,
+                    color: Colors.teal,
+                  ),
+                ),
+                title: const Text('سجل نشاط الحساب'),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const AccountHistoryPage(),
                     ),
                   );
                 },
@@ -1537,7 +1510,7 @@ class _AdminNotificationsPage extends StatelessWidget {
           ? const _EmptyDashboardBox(
               icon: Icons.notifications_off_rounded,
               title: 'لا توجد إشعارات حالياً',
-              subtitle: 'لا توجد تنبيهات.',
+              subtitle: ' ',
             )
           : ListView(
               children: alerts.map((alert) => _AlertCard(item: alert)).toList(),
@@ -1597,10 +1570,6 @@ class _AdminDashboardData {
   final int approvedAddChildRequests;
   final int rejectedAddChildRequests;
 
-  final int pendingDeletionRequests;
-  final int approvedDeletionRequests;
-  final int rejectedDeletionRequests;
-
   final int totalComplaints;
   final int pendingComplaints;
   final int inReviewComplaints;
@@ -1626,9 +1595,6 @@ class _AdminDashboardData {
     required this.pendingAddChildRequests,
     required this.approvedAddChildRequests,
     required this.rejectedAddChildRequests,
-    required this.pendingDeletionRequests,
-    required this.approvedDeletionRequests,
-    required this.rejectedDeletionRequests,
     required this.totalComplaints,
     required this.pendingComplaints,
     required this.inReviewComplaints,

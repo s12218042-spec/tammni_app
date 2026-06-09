@@ -64,8 +64,6 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
       case 'cancelled':
       case 'canceled':
         return 'ملغاة';
-      case 'draft':
-        return 'مسودة';
       default:
         return status.trim().isEmpty ? 'غير محددة' : status;
     }
@@ -84,8 +82,6 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
       case 'cancelled':
       case 'canceled':
         return Colors.grey;
-      case 'draft':
-        return Colors.blueGrey;
       default:
         return AppColors.primary;
     }
@@ -102,53 +98,14 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
       case 'cancelled':
       case 'canceled':
         return Icons.cancel_rounded;
-      case 'draft':
-        return Icons.edit_document;
       case 'unpaid':
       default:
         return Icons.schedule_rounded;
     }
   }
 
-  String billingTypeLabel(String type) {
-    switch (type.trim().toLowerCase()) {
-      case 'daily':
-        return 'يومي';
-      case 'weekly':
-        return 'أسبوعي';
-      case 'monthly':
-        return 'شهري';
-      case 'registration':
-        return 'رسوم تسجيل';
-      case 'late_fee':
-        return 'رسوم تأخير';
-      case 'transport':
-        return 'رسوم مواصلات';
-      case 'activity':
-        return 'رسوم نشاط';
-      case 'other':
-        return 'رسوم أخرى';
-      default:
-        return type.trim().isEmpty ? 'غير محدد' : type;
-    }
-  }
-
-  String paymentMethodLabel(dynamic method) {
-    switch ((method ?? '').toString().trim().toLowerCase()) {
-      case 'cash':
-        return 'كاش';
-      case 'card':
-        return 'بطاقة / فيزا';
-      case 'bank_transfer':
-        return 'تحويل بنكي';
-      case 'other':
-        return 'أخرى';
-      case 'none':
-      case '':
-        return 'غير محدد';
-      default:
-        return method.toString();
-    }
+  String paymentMethodLabel() {
+    return 'كاش';
   }
 
   String formatDate(dynamic raw) {
@@ -268,10 +225,6 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
     return remaining < 0 ? 0 : remaining;
   }
 
-  dynamic resolveDueDate(Map<String, dynamic> data) {
-    return data['dueDate'] ?? data['paymentDueDate'];
-  }
-
   dynamic resolveCreatedAt(Map<String, dynamic> data) {
     return data['createdAt'] ?? data['time'] ?? data['updatedAt'];
   }
@@ -290,8 +243,7 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
         stored == 'unpaid' ||
         stored == 'overdue' ||
         stored == 'cancelled' ||
-        stored == 'canceled' ||
-        stored == 'draft') {
+        stored == 'canceled') {
       return stored;
     }
 
@@ -352,6 +304,29 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
     );
   }
 
+  double resolveHoursCount(Map<String, dynamic> data) {
+    return _numValue(
+      data['hoursCount'] ??
+          data['temporaryHoursCount'] ??
+          data['serviceUnits'] ??
+          0,
+    );
+  }
+
+  double resolveHourlyRate(Map<String, dynamic> data) {
+    return _numValue(
+      data['hourlyRate'] ??
+          data['temporaryHourlyRate'] ??
+          data['unitPrice'] ??
+          0,
+    );
+  }
+
+
+  bool isHourlyInvoice(Map<String, dynamic> data) {
+    return resolveBillingType(data).trim().toLowerCase() == 'hourly';
+  }
+
   int resolveListCount(dynamic value) {
     if (value is List) return value.length;
     return 0;
@@ -379,12 +354,13 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
   final paymentStatus =
       (data['paymentStatus'] ?? '').toString().trim().toLowerCase();
 
-  const hiddenStatuses = {
-    'superseded',
-    'deleted',
-    'void',
-    'archived',
-  };
+    const hiddenStatuses = {
+      'draft',
+      'superseded',
+      'deleted',
+      'void',
+      'archived',
+    };
 
   return hiddenStatuses.contains(status) ||
       hiddenStatuses.contains(invoiceStatus) ||
@@ -393,28 +369,39 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
 
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
       _fetchInvoices() async {
-    final currentUid = FirebaseAuth.instance.currentUser?.uid;
+    final currentUid = FirebaseAuth.instance.currentUser?.uid ?? '';
     final cleanUsername = _cleanUsername();
 
-    if (currentUid != null && currentUid.trim().isNotEmpty) {
+    final docsById =
+        <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+
+    if (currentUid.trim().isNotEmpty) {
       final byUid = await _firestore
           .collection('invoices')
-          .where('parentUid', isEqualTo: currentUid)
+          .where('parentUid', isEqualTo: currentUid.trim())
           .get();
 
-      if (byUid.docs.isNotEmpty) {
-        return byUid.docs.where((doc) => !isHiddenInvoice(doc.data())).toList();
+      for (final doc in byUid.docs) {
+        if (!isHiddenInvoice(doc.data())) {
+          docsById[doc.id] = doc;
+        }
       }
     }
 
-    if (cleanUsername.isEmpty) return [];
+    if (cleanUsername.isNotEmpty) {
+      final byUsername = await _firestore
+          .collection('invoices')
+          .where('parentUsername', isEqualTo: cleanUsername)
+          .get();
 
-    final byUsername = await _firestore
-        .collection('invoices')
-        .where('parentUsername', isEqualTo: cleanUsername)
-        .get();
+      for (final doc in byUsername.docs) {
+        if (!isHiddenInvoice(doc.data())) {
+          docsById[doc.id] = doc;
+        }
+      }
+    }
 
-    return byUsername.docs.where((doc) => !isHiddenInvoice(doc.data())).toList();
+    return docsById.values.toList();
   }
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> applyFilter(
@@ -554,10 +541,6 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
               value: 'cancelled',
               child: Text('ملغاة'),
             ),
-            DropdownMenuItem(
-              value: 'draft',
-              child: Text('مسودة'),
-            ),
           ],
           onChanged: (value) {
             setState(() {
@@ -603,7 +586,6 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
     final status = resolveStatus(data);
     final title = resolveTitle(data);
     final childName = resolveChildName(data);
-    final billingType = resolveBillingType(data);
     final description = resolveDescription(data);
 
     final subtotalAmount = resolveSubtotalAmount(data);
@@ -611,7 +593,6 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
     final paidAmount = resolvePaidAmount(data);
     final remainingAmount = resolveRemainingAmount(data);
 
-    final dueDate = resolveDueDate(data);
     final createdAt = resolveCreatedAt(data);
 
     final offerTitle = resolveOfferTitle(data);
@@ -629,7 +610,11 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
     final extraHoursCount = resolveListCount(data['extraHoursIds']);
     final consultationsCount = resolveListCount(data['consultationIds']);
 
-    final paymentMethod = paymentMethodLabel(data['paymentMethod']);
+    final paymentMethod = paymentMethodLabel();
+
+    final hourlyInvoice = isHourlyInvoice(data);
+    final hoursCount = resolveHoursCount(data);
+    final hourlyRate = resolveHourlyRate(data);
 
     final color = statusColor(status);
 
@@ -699,16 +684,26 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
             ),
             const SizedBox(height: 12),
             _InvoiceInfoRow(
-              icon: Icons.category_outlined,
-              label: 'نوع الفاتورة',
-              value: billingTypeLabel(billingType),
-            ),
-            const SizedBox(height: 6),
-            _InvoiceInfoRow(
               icon: Icons.payments_outlined,
-              label: 'المبلغ قبل الخصم',
+              label: 'تكلفة الحضانة',
               value: '${formatMoney(subtotalAmount)} شيكل',
             ),
+            if (hourlyInvoice && hoursCount > 0) ...[
+              const SizedBox(height: 6),
+              _InvoiceInfoRow(
+                icon: Icons.schedule_outlined,
+                label: 'عدد الساعات',
+                value: formatMoney(hoursCount),
+              ),
+            ],
+            if (hourlyInvoice && hourlyRate > 0) ...[
+              const SizedBox(height: 6),
+              _InvoiceInfoRow(
+                icon: Icons.price_change_outlined,
+                label: 'سعر الساعة',
+                value: '${formatMoney(hourlyRate)} شيكل',
+              ),
+            ],
             if (offerTitle.trim().isNotEmpty) ...[
               const SizedBox(height: 6),
               _InvoiceInfoRow(
@@ -798,12 +793,6 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
             ),
             const SizedBox(height: 6),
             _InvoiceInfoRow(
-              icon: Icons.event_available_outlined,
-              label: 'تاريخ الاستحقاق',
-              value: formatDate(dueDate),
-            ),
-            const SizedBox(height: 6),
-            _InvoiceInfoRow(
               icon: Icons.access_time_rounded,
               label: 'تاريخ الإنشاء',
               value: formatDate(createdAt),
@@ -858,14 +847,23 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
             final aDate = resolveCreatedAt(a.data());
             final bDate = resolveCreatedAt(b.data());
 
-            final aTs = aDate is Timestamp ? aDate : null;
-            final bTs = bDate is Timestamp ? bDate : null;
+            final aResolved = aDate is Timestamp
+                ? aDate.toDate()
+                : aDate is DateTime
+                    ? aDate
+                    : null;
 
-            if (aTs == null && bTs == null) return 0;
-            if (aTs == null) return 1;
-            if (bTs == null) return -1;
+            final bResolved = bDate is Timestamp
+                ? bDate.toDate()
+                : bDate is DateTime
+                    ? bDate
+                    : null;
 
-            return bTs.compareTo(aTs);
+            if (aResolved == null && bResolved == null) return 0;
+            if (aResolved == null) return 1;
+            if (bResolved == null) return -1;
+
+            return bResolved.compareTo(aResolved);
           });
 
           return RefreshIndicator(

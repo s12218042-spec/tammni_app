@@ -568,10 +568,35 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
         }
 
         final staffDocs = snapshot.data!.docs.where((doc) {
-        final data = doc.data();
-        final isActive = data['isActive'] != false;
-        return isActive && _isNurseryStaff(data);
-      }).toList();
+          final data = doc.data();
+
+          final isActive = data['isActive'] != false;
+          final accountStatus = _clean(data['accountStatus']).toLowerCase();
+          final isLiveStreamStation = data['isLiveStreamStation'] == true;
+
+          return isActive &&
+              accountStatus != 'archived' &&
+              !isLiveStreamStation &&
+              _isNurseryStaff(data);
+        }).toList();
+
+        final selectedStaffStillExists = staffDocs.any(
+          (doc) => doc.id == selectedStaffUid,
+        );
+
+        if (!selectedStaffStillExists &&
+            (selectedStaffUid != null || selectedStaffData != null)) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+
+            setState(() {
+              selectedStaffUid = null;
+              selectedStaffData = null;
+              _resetSummary();
+              hasLoadedPayrollSummary = false;
+            });
+          });
+        }
 
         staffDocs.sort((a, b) {
           return _staffName(a.data()).compareTo(_staffName(b.data()));
@@ -596,7 +621,7 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
           child: Padding(
             padding: const EdgeInsets.all(14),
             child: DropdownButtonFormField<String>(
-              value: selectedStaffUid,
+              value: selectedStaffStillExists ? selectedStaffUid : null,
               decoration: const InputDecoration(
                 labelText: 'الموظفة',
                 border: OutlineInputBorder(),

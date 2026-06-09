@@ -61,6 +61,7 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
     'حفاض',
     'صحة',
     'نشاط',
+    'مستلزمات',
     'ملاحظة',
   ];
 
@@ -128,6 +129,8 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
         return 'health';
       case 'نشاط':
         return 'activity';
+      case 'مستلزمات':
+        return 'supplies';
       default:
         return 'note';
     }
@@ -153,6 +156,8 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
         return Icons.health_and_safety_outlined;
       case 'نشاط':
         return Icons.palette_outlined;
+      case 'مستلزمات':
+        return Icons.inventory_2_outlined;
       default:
         return Icons.edit_note_outlined;
     }
@@ -170,6 +175,8 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
         return AppColors.success;
       case 'نشاط':
         return AppColors.primary;
+      case 'مستلزمات':
+        return const Color(0xFF26A69A);
       default:
         return AppColors.textLight;
     }
@@ -558,6 +565,8 @@ Future<void> pickFromGallery(String mediaType) async {
         return importance == 'عاجل' ? 'تنبيه صحي' : 'تحديث صحي';
       case 'نشاط':
         return 'تحديث نشاط';
+      case 'مستلزمات':
+        return importance == 'عاجل' ? 'مستلزمات مطلوبة بشكل عاجل' : 'مستلزمات مطلوبة';
       default:
         return importance == 'عاجل' ? 'ملاحظة عاجلة' : 'ملاحظة';
     }
@@ -600,6 +609,18 @@ Future<void> pickFromGallery(String mediaType) async {
     return parts.join(' | ');
   }
 
+  String buildNotificationBody() {
+    final finalNote = buildFinalNote().trim();
+
+    if (type == 'مستلزمات') {
+      return finalNote.isEmpty
+          ? 'يرجى تزويد ${widget.child.name} بالمستلزمات المطلوبة.'
+          : 'يرجى تزويد ${widget.child.name} بـ: $finalNote';
+    }
+
+    return finalNote;
+  }
+
   bool _validateBeforeSave() {
     final note = noteCtrl.text.trim();
     final extra = extraCtrl.text.trim();
@@ -607,6 +628,11 @@ Future<void> pickFromGallery(String mediaType) async {
 
     if (!hasStructuredType && note.isEmpty && extra.isEmpty) {
       _showSnack('يرجى كتابة وصف للتحديث');
+      return false;
+    }
+
+    if (type == 'مستلزمات' && note.isEmpty && extra.isEmpty) {
+      _showSnack('يرجى كتابة المستلزمات المطلوبة');
       return false;
     }
 
@@ -668,6 +694,7 @@ Future<void> pickFromGallery(String mediaType) async {
       final now = Timestamp.fromDate(nowDate);
       final priority = _priorityValue(importance);
       final finalNote = buildFinalNote();
+      final notificationBody = buildNotificationBody();
       final updateTypeKey = _typeKey(type);
 
       final userInfo = await fetchCurrentUserInfo();
@@ -753,45 +780,50 @@ batch.set(updateRef, updateData);
 await batch.commit();
 
 if (canNotifyParent) {
-  await AppNotificationService.instance.notifyChildParent(
-    parentUid: parentUid,
-    parentUsername: parentUsername,
-    parentName: parentName,
-    title: autoTitle(),
-    body: finalNote,
-    type: 'update_notification',
-    childId: widget.child.id,
-    childName: widget.child.name,
-    section: 'Nursery',
-    group: groupName,
-    priority: priority,
-    createdByUid: userInfo['uid'] ?? '',
-    createdByName: userInfo['name'] ?? 'مستخدم',
-    createdByRole: userInfo['role'] ?? 'nursery_staff',
-    extraData: {
-      'category': updateTypeKey,
-      'templateType': type,
-      'updateId': updateRef.id,
-      'notificationType': 'update_notification',
-      'importance': priority,
-      'importanceLabel': importance,
-      'eventAt': now,
-      'time': now,
-      'message': finalNote,
-      'description': finalNote,
-      'senderUid': userInfo['uid'] ?? '',
-      'senderName': userInfo['name'] ?? 'مستخدم',
-      'senderRole': userInfo['role'] ?? 'nursery_staff',
-      'screen': 'notifications',
-      'route': 'parent_notifications',
-      'relatedCollection': 'updates',
-      'childType': childType,
-      'parentPhone': parentPhone,
-      'groupId': groupId,
-      'groupName': groupName,
-      ...mediaData,
-    },
-  );
+  try {
+    await AppNotificationService.instance.notifyChildParent(
+      parentUid: parentUid,
+      parentUsername: parentUsername,
+      parentName: parentName,
+      title: autoTitle(),
+      body: notificationBody,
+      type: type == 'مستلزمات' ? 'supplies' : 'update_notification',
+      childId: widget.child.id,
+      childName: widget.child.name,
+      section: 'Nursery',
+      group: groupName,
+      priority: priority,
+      createdByUid: userInfo['uid'] ?? '',
+      createdByName: userInfo['name'] ?? 'مستخدم',
+      createdByRole: userInfo['role'] ?? 'nursery_staff',
+      extraData: {
+        'category': updateTypeKey,
+        'templateType': updateTypeKey,
+        'updateId': updateRef.id,
+        'notificationType':
+            type == 'مستلزمات' ? 'supplies' : 'update_notification',
+        'importance': priority,
+        'importanceLabel': importance,
+        'eventAt': now,
+        'time': now,
+        'message': notificationBody,
+        'description': notificationBody,
+        'senderUid': userInfo['uid'] ?? '',
+        'senderName': userInfo['name'] ?? 'مستخدم',
+        'senderRole': userInfo['role'] ?? 'nursery_staff',
+        'screen': 'notifications',
+        'route': 'parent_notifications',
+        'relatedCollection': 'updates',
+        'childType': childType,
+        'parentPhone': parentPhone,
+        'groupId': groupId,
+        'groupName': groupName,
+        ...mediaData,
+      },
+    );
+  } catch (e) {
+    debugPrint('AddUpdatePage: فشل إرسال إشعار التحديث: $e');
+  }
 }
 
       if (!mounted) return;
@@ -972,8 +1004,6 @@ Widget build(BuildContext context) {
       title: 'إضافة تحديث',
       child: ListView(
         children: [
-          _buildHeader(context),
-          const SizedBox(height: 18),
           _buildChildInfoCard(),
           const SizedBox(height: 18),
           _buildImportanceSection(),
@@ -1013,53 +1043,6 @@ Widget build(BuildContext context) {
             ),
           ),
           const SizedBox(height: 8),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHeader(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            AppColors.primary.withOpacity(0.12),
-            AppColors.secondary.withOpacity(0.10),
-          ],
-          begin: Alignment.topRight,
-          end: Alignment.bottomLeft,
-        ),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: AppColors.primary.withOpacity(0.10),
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 56,
-            height: 56,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(18),
-            ),
-            child: Icon(
-              typeIcon(type),
-              color: typeColor(type),
-              size: 28,
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Text(
-              'إضافة تحديث',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.textDark,
-                  ),
-            ),
-          ),
         ],
       ),
     );
@@ -1119,13 +1102,6 @@ Widget build(BuildContext context) {
               ),
             ],
           ),
-          const SizedBox(height: 14),
-          _infoRow(
-            icon: Icons.apartment_outlined,
-            label: 'القسم',
-            value: sectionLabel(widget.child.section),
-          ),
-
         ],
       ),
     );
@@ -1390,24 +1366,9 @@ Widget build(BuildContext context) {
             controller: noteCtrl,
             maxLines: 4,
             textAlign: TextAlign.right,
-            decoration: const InputDecoration(
-              hintText: 'اكتبي تفاصيل التحديث',
+            decoration: InputDecoration(
               alignLabelWithHint: true,
-              prefixIcon: Icon(Icons.edit_note_outlined),
-            ),
-            onChanged: (_) {
-              setState(() {});
-            },
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: extraCtrl,
-            maxLines: 3,
-            textAlign: TextAlign.right,
-            decoration: const InputDecoration(
-              hintText: 'تفاصيل إضافية اختيارية',
-              alignLabelWithHint: true,
-              prefixIcon: Icon(Icons.notes_outlined),
+              prefixIcon: const Icon(Icons.edit_note_outlined),
             ),
             onChanged: (_) {
               setState(() {});
@@ -1596,39 +1557,6 @@ Widget build(BuildContext context) {
           child,
         ],
       ),
-    );
-  }
-
-  Widget _infoRow({
-    required IconData icon,
-    required String label,
-    required String value,
-  }) {
-    return Row(
-      children: [
-        Icon(
-          icon,
-          size: 18,
-          color: AppColors.textLight,
-        ),
-        const SizedBox(width: 8),
-        Text(
-          '$label: ',
-          style: const TextStyle(
-            color: AppColors.textLight,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        Expanded(
-          child: Text(
-            value,
-            style: const TextStyle(
-              color: AppColors.textDark,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-      ],
     );
   }
 

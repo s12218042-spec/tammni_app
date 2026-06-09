@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/material.dart';
 
 import '../services/app_notification_service.dart';
@@ -128,39 +129,18 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
   String accountStatusLabel(Map<String, dynamic> data) {
     final raw = (data['accountStatus'] ?? '').toString().trim().toLowerCase();
     final isActive = (data['isActive'] ?? true) == true;
-    final deletionRequested = (data['deletionRequested'] ?? false) == true;
-    final deletionApproved = (data['deletionApproved'] ?? false) == true;
 
-    if (raw == 'pending_deletion' || deletionApproved) return 'حذف مقبول';
-    if (deletionRequested && raw != 'pending_deletion') {
-      return 'طلب حذف قيد المراجعة';
+    if (!isActive || (raw.isNotEmpty && raw != 'active')) {
+      return 'مؤرشف';
     }
-    if (raw == 'deactivated') return 'معطّل مؤقتًا';
-    if (raw == 'inactive' || !isActive) return 'غير نشط';
-    if (raw == 'suspended') return 'موقوف';
-    if (raw == 'archived') return 'مؤرشف';
-    if (raw == 'pending') return 'قيد المراجعة';
 
     return 'نشط';
   }
 
   Color accountStatusColor(Map<String, dynamic> data) {
-    final raw = (data['accountStatus'] ?? '').toString().trim().toLowerCase();
-    final isActive = (data['isActive'] ?? true) == true;
-    final deletionRequested = (data['deletionRequested'] ?? false) == true;
-    final deletionApproved = (data['deletionApproved'] ?? false) == true;
-
-    if (raw == 'pending_deletion' || deletionApproved) return Colors.redAccent;
-    if (deletionRequested && raw != 'pending_deletion') {
-      return Colors.amber.shade800;
-    }
-    if (raw == 'deactivated') return Colors.orange;
-    if (raw == 'inactive' || !isActive) return Colors.grey;
-    if (raw == 'suspended') return Colors.deepOrange;
-    if (raw == 'archived') return Colors.blueGrey;
-    if (raw == 'pending') return Colors.amber.shade700;
-
-    return Colors.green;
+    return accountStatusLabel(data) == 'نشط'
+        ? Colors.green
+        : Colors.blueGrey;
   }
 
   Map<String, dynamic> _mapField(Map<String, dynamic> data, String key) {
@@ -688,41 +668,109 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
     required String roleValue,
   }) async {
     final normalizedRole = normalizeRole(roleValue);
+    final cleanUsername = username.trim().toLowerCase();
+    final currentAdminUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+
+    if (currentValue && uid == currentAdminUid) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('لا يمكن أرشفة الحساب المستخدم حاليًا'),
+        ),
+      );
+      return;
+    }
 
     if (!currentValue) {
-      await _firestore.collection('users').doc(uid).update({
-        'isActive': true,
-        'accountStatus': 'active',
-        'updatedAt': FieldValue.serverTimestamp(),
-        'deletionRequested': false,
-        'deletionRequestType': '',
-        'deletionApproved': false,
-        'deactivationReason': '',
-      });
+      final linkedChildren = normalizedRole == 'parent'
+          ? await _findChildrenLinkedToParent(
+              username: cleanUsername,
+              uid: uid,
+            )
+          : <QueryDocumentSnapshot<Map<String, dynamic>>>[];
 
-      if (username.trim().isNotEmpty) {
-        await _firestore.collection('login_usernames').doc(username).set({
-          'uid': uid,
-          'username': username.trim().toLowerCase(),
-          'role': normalizedRole,
+      final batch = _firestore.batch();
+
+      batch.set(
+        _firestore.collection('users').doc(uid),
+        {
           'isActive': true,
           'accountStatus': 'active',
+          'reactivatedAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
+          'deletionRequested': false,
+          'deletionRequestType': '',
+          'deletionApproved': false,
+          'archiveReason': FieldValue.delete(),
+          'archivedAt': FieldValue.delete(),
+          'deactivationReason': FieldValue.delete(),
+        },
+        SetOptions(merge: true),
+      );
+
+      if (cleanUsername.isNotEmpty) {
+        batch.set(
+          _firestore.collection('login_usernames').doc(cleanUsername),
+          {
+            'uid': uid,
+            'username': cleanUsername,
+            'role': normalizedRole,
+            'isActive': true,
+            'accountStatus': 'active',
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
       }
+
+      final affectedGroupIds = <String>{};
+
+      if (normalizedRole == 'parent') {
+        for (final childDoc in linkedChildren) {
+          final childData = childDoc.data();
+          final archiveReason =
+              _fieldAsString(childData['archiveReason']).toLowerCase();
+
+          if (childData['isActive'] == false &&
+              archiveReason == 'parent_account_archived') {
+            batch.set(
+              childDoc.reference,
+              {
+                'isActive': true,
+                'status': 'active',
+                'childStatus': 'active',
+                'accountStatus': 'active',
+                'canReactivate': true,
+                'restoredAt': FieldValue.serverTimestamp(),
+                'updatedAt': FieldValue.serverTimestamp(),
+                'archiveReason': FieldValue.delete(),
+                'archivedAt': FieldValue.delete(),
+              },
+              SetOptions(merge: true),
+            );
+
+            final groupId = _fieldAsString(childData['groupId']);
+            if (groupId.isNotEmpty) affectedGroupIds.add(groupId);
+          }
+        }
+      }
+
+      await batch.commit();
+      await _refreshGroupCounts(affectedGroupIds);
 
       await _logAccountAction(
         targetUid: uid,
         action: 'account_reactivated_by_admin',
-        title: 'تمت إعادة تفعيل الحساب',
-        message: 'قامت الإدارة بإعادة تفعيل الحساب',
+        title: 'تمت استعادة الحساب',
+        message: normalizedRole == 'parent'
+            ? 'قامت الإدارة باستعادة حساب ولي الأمر والأطفال المؤرشفين معه'
+            : 'قامت الإدارة باستعادة الحساب',
         status: 'success',
       );
 
       await _notifyParentAccountChange(
         roleValue: roleValue,
         parentUid: uid,
-        parentUsername: username,
+        parentUsername: cleanUsername,
         parentName: userName,
         title: 'تم تفعيل الحساب',
         body: 'تم تفعيل حسابك ويمكنك استخدام التطبيق الآن.',
@@ -735,10 +783,23 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم تفعيل الحساب بنجاح ✅')),
+        SnackBar(
+          content: Text(
+            normalizedRole == 'parent'
+                ? 'تمت استعادة حساب ولي الأمر والأطفال المؤرشفين معه'
+                : 'تمت استعادة الحساب بنجاح',
+          ),
+        ),
       );
       return;
     }
+
+    final linkedChildren = normalizedRole == 'parent'
+        ? await _findChildrenLinkedToParent(
+            username: cleanUsername,
+            uid: uid,
+          )
+        : <QueryDocumentSnapshot<Map<String, dynamic>>>[];
 
     final reasonController = TextEditingController();
 
@@ -748,15 +809,23 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
         builder: (_) => Directionality(
           textDirection: TextDirection.rtl,
           child: AlertDialog(
-            title: const Text('تعطيل الحساب'),
+            title: const Text('أرشفة الحساب'),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                if (normalizedRole == 'parent' && linkedChildren.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Text(
+                      'سيتم أرشفة حساب ولي الأمر والأطفال المرتبطين به (${linkedChildren.length}).',
+                      style: const TextStyle(height: 1.5),
+                    ),
+                  ),
                 TextField(
                   controller: reasonController,
                   maxLines: 3,
                   decoration: InputDecoration(
-                    hintText: 'سبب التعطيل (اختياري)',
+                    hintText: 'سبب الأرشفة (اختياري)',
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(16),
                     ),
@@ -772,7 +841,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
               ElevatedButton(
                 onPressed: () =>
                     Navigator.pop(context, reasonController.text.trim()),
-                child: const Text('تعطيل'),
+                child: const Text('أرشفة'),
               ),
             ],
           ),
@@ -781,55 +850,103 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
 
       if (reason == null) return;
 
-      await _firestore.collection('users').doc(uid).update({
-        'isActive': false,
-        'accountStatus': 'deactivated',
-        'deactivationReason': reason,
-        'deactivatedBy': 'admin',
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      final batch = _firestore.batch();
 
-      if (username.trim().isNotEmpty) {
-        await _firestore.collection('login_usernames').doc(username).set({
-          'uid': uid,
-          'username': username.trim().toLowerCase(),
-          'role': normalizedRole,
+      batch.set(
+        _firestore.collection('users').doc(uid),
+        {
           'isActive': false,
-          'accountStatus': 'deactivated',
+          'accountStatus': 'archived',
+          'archiveReason': reason,
+          'archivedBy': 'admin',
+          'archivedAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
+        },
+        SetOptions(merge: true),
+      );
+
+      if (cleanUsername.isNotEmpty) {
+        batch.set(
+          _firestore.collection('login_usernames').doc(cleanUsername),
+          {
+            'uid': uid,
+            'username': cleanUsername,
+            'role': normalizedRole,
+            'isActive': false,
+            'accountStatus': 'archived',
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
       }
+
+      final affectedGroupIds = <String>{};
+
+      if (normalizedRole == 'parent') {
+        for (final childDoc in linkedChildren) {
+          final childData = childDoc.data();
+
+          if (childData['isActive'] == false) continue;
+
+          batch.set(
+            childDoc.reference,
+            {
+              'isActive': false,
+              'status': 'archived',
+              'childStatus': 'archived',
+              'accountStatus': 'archived',
+              'canReactivate': true,
+              'archiveReason': 'parent_account_archived',
+              'archivedAt': FieldValue.serverTimestamp(),
+              'updatedAt': FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true),
+          );
+
+          final groupId = _fieldAsString(childData['groupId']);
+          if (groupId.isNotEmpty) affectedGroupIds.add(groupId);
+        }
+      }
+
+      await batch.commit();
+      await _refreshGroupCounts(affectedGroupIds);
 
       await _logAccountAction(
         targetUid: uid,
-        action: 'account_deactivated_by_admin',
-        title: 'تم تعطيل الحساب من الإدارة',
-        message: reason.isNotEmpty
-            ? 'قامت الإدارة بتعطيل الحساب. السبب: $reason'
-            : 'قامت الإدارة بتعطيل الحساب مؤقتًا',
+        action: 'account_archived_by_admin',
+        title: 'تمت أرشفة الحساب',
+        message: normalizedRole == 'parent'
+            ? 'قامت الإدارة بأرشفة حساب ولي الأمر والأطفال المرتبطين به'
+            : 'قامت الإدارة بأرشفة الحساب',
         status: 'warning',
       );
 
       await _notifyParentAccountChange(
         roleValue: roleValue,
         parentUid: uid,
-        parentUsername: username,
+        parentUsername: cleanUsername,
         parentName: userName,
-        title: 'تم تعطيل الحساب',
+        title: 'تمت أرشفة الحساب',
         body: reason.isNotEmpty
-            ? 'تم تعطيل حسابك مؤقتًا من قبل الإدارة. السبب: $reason'
-            : 'تم تعطيل حسابك مؤقتًا من قبل الإدارة. يمكنك التواصل مع الحضانة لمعرفة التفاصيل.',
+            ? 'تمت أرشفة حسابك من قبل الإدارة. السبب: $reason'
+            : 'تمت أرشفة حسابك من قبل الإدارة.',
         type: 'account_disabled',
         priority: 'important',
         extraData: {
-          'accountAction': 'deactivated',
+          'accountAction': 'archived',
           'reason': reason,
         },
       );
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم تعطيل الحساب بنجاح ✅')),
+        SnackBar(
+          content: Text(
+            normalizedRole == 'parent'
+                ? 'تمت أرشفة حساب ولي الأمر والأطفال المرتبطين به'
+                : 'تمت أرشفة الحساب بنجاح',
+          ),
+        ),
       );
     } finally {
       reasonController.dispose();
@@ -862,6 +979,30 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
     }
 
     return map.values.toList();
+  }
+
+  Future<void> _refreshGroupCounts(Set<String> groupIds) async {
+    for (final groupId in groupIds) {
+      if (groupId.trim().isEmpty) continue;
+
+      try {
+        final snapshot = await _firestore
+            .collection('children')
+            .where('groupId', isEqualTo: groupId)
+            .where('isActive', isEqualTo: true)
+            .get();
+
+        await _firestore.collection('groups').doc(groupId).set(
+          {
+            'currentChildrenCount': snapshot.docs.length,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      } catch (_) {
+        // لا نوقف العملية إذا كانت المجموعة قديمة أو غير موجودة.
+      }
+    }
   }
 
   Future<void> openUserDetailsDialog({
@@ -927,8 +1068,11 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                         value: accountStatusLabel(userData),
                       ),
                       _DetailItem(
-                        label: 'سبب التعطيل',
-                        value: _fieldAsString(userData['deactivationReason']),
+                        label: 'سبب الأرشفة',
+                        value: _firstNonEmpty([
+                          _fieldAsString(userData['archiveReason']),
+                          _fieldAsString(userData['deactivationReason']),
+                        ]),
                       ),
                     ],
                   ),
@@ -1722,223 +1866,6 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
     );
   }
 
-  Future<void> _unlinkChildrenFromParent(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> childDocs,
-  ) async {
-    final batch = _firestore.batch();
-
-    for (final doc in childDocs) {
-      batch.update(doc.reference, {
-        'parentUsername': FieldValue.delete(),
-        'parentUid': FieldValue.delete(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    }
-
-    await batch.commit();
-  }
-
-  Future<void> _archiveAndUnlinkChildren(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> childDocs,
-  ) async {
-    final batch = _firestore.batch();
-
-    for (final doc in childDocs) {
-      batch.update(doc.reference, {
-        'parentUsername': FieldValue.delete(),
-        'parentUid': FieldValue.delete(),
-        'isActive': false,
-        'status': 'archived',
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    }
-
-    await batch.commit();
-  }
-
-  Future<String?> _showParentDeleteOptionsDialog({
-    required String parentName,
-    required int childrenCount,
-  }) async {
-    return showDialog<String>(
-      context: context,
-      builder: (_) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(22),
-          ),
-          title: const Text('حذف ولي الأمر'),
-          content: Text(
-            'الحساب "$parentName" مرتبط بـ $childrenCount طفل/أطفال.',
-            style: const TextStyle(height: 1.6),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, 'cancel'),
-              child: const Text('إلغاء'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, 'delete_only'),
-              child: const Text('حذف الحساب فقط'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context, 'archive_children'),
-              child: const Text('حذف الحساب وأرشفة الأطفال'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<bool> _showNormalDeleteConfirmDialog(String name) async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (_) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(22),
-          ),
-          title: const Text('تأكيد الحذف'),
-          content: Text('هل أنتِ متأكدة من حذف المستخدم "$name"؟'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('إلغاء'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('حذف'),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    return result == true;
-  }
-
-  Future<void> _deleteUsernameLoginMapping(String username) async {
-    final cleanUsername = username.trim().toLowerCase();
-    if (cleanUsername.isEmpty) return;
-
-    await _firestore.collection('login_usernames').doc(cleanUsername).delete();
-  }
-
-  Future<void> handleDeleteUser({
-    required String uid,
-    required String roleValue,
-    required String name,
-    required String username,
-  }) async {
-    final normalizedRole = normalizeRole(roleValue);
-
-    if (normalizedRole != 'parent') {
-      final confirmed = await _showNormalDeleteConfirmDialog(name);
-      if (!confirmed) return;
-
-      await _firestore.collection('users').doc(uid).delete();
-      await _deleteUsernameLoginMapping(username);
-
-      await _logAccountAction(
-        targetUid: uid,
-        action: 'account_deleted_by_admin',
-        title: 'تم حذف الحساب',
-        message: 'قامت الإدارة بحذف الحساب من النظام',
-        status: 'danger',
-      );
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('تم حذف المستخدم من النظام ✅'),
-        ),
-      );
-      return;
-    }
-
-    final linkedChildren = await _findChildrenLinkedToParent(
-      username: username,
-      uid: uid,
-    );
-
-    if (linkedChildren.isEmpty) {
-      final confirmed = await _showNormalDeleteConfirmDialog(name);
-      if (!confirmed) return;
-
-      await _firestore.collection('users').doc(uid).delete();
-      await _deleteUsernameLoginMapping(username);
-
-      await _logAccountAction(
-        targetUid: uid,
-        action: 'parent_account_deleted_by_admin',
-        title: 'تم حذف حساب ولي الأمر',
-        message: 'قامت الإدارة بحذف حساب ولي الأمر من النظام',
-        status: 'danger',
-      );
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('تم حذف ولي الأمر من النظام ✅'),
-        ),
-      );
-      return;
-    }
-
-    final action = await _showParentDeleteOptionsDialog(
-      parentName: name,
-      childrenCount: linkedChildren.length,
-    );
-
-    if (action == null || action == 'cancel') return;
-
-    if (action == 'delete_only') {
-      await _unlinkChildrenFromParent(linkedChildren);
-      await _firestore.collection('users').doc(uid).delete();
-      await _deleteUsernameLoginMapping(username);
-
-      await _logAccountAction(
-        targetUid: uid,
-        action: 'parent_deleted_children_unlinked',
-        title: 'تم حذف ولي الأمر وفك ربط الأطفال',
-        message: 'قامت الإدارة بحذف ولي الأمر وفك ربط الأطفال المرتبطين به',
-        status: 'danger',
-      );
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('تم حذف ولي الأمر وفك ربط الأطفال المرتبطين به ✅'),
-        ),
-      );
-      return;
-    }
-
-    if (action == 'archive_children') {
-      await _archiveAndUnlinkChildren(linkedChildren);
-      await _firestore.collection('users').doc(uid).delete();
-      await _deleteUsernameLoginMapping(username);
-
-      await _logAccountAction(
-        targetUid: uid,
-        action: 'parent_deleted_children_archived',
-        title: 'تم حذف ولي الأمر وأرشفة الأطفال',
-        message: 'قامت الإدارة بحذف ولي الأمر وأرشفة الأطفال المرتبطين به',
-        status: 'danger',
-      );
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('تم حذف ولي الأمر وأرشفة الأطفال المرتبطين به ✅'),
-        ),
-      );
-    }
-  }
-
   Widget buildFiltersCard() {
     final hasCustomFilters = selectedRoleFilters.isNotEmpty ||
         selectedStatusFilters.isNotEmpty ||
@@ -2027,59 +1954,15 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
               children: [
                 buildFilterChip(
                   label: 'نشط',
-                  selected: selectedStatusFilters.contains('نشط'.toLowerCase()),
-                  onTap: () => toggleStatusFilter('نشط'.toLowerCase()),
+                  selected: selectedStatusFilters.contains('نشط'),
+                  onTap: () => toggleStatusFilter('نشط'),
                   selectedColor: Colors.green,
                 ),
                 buildFilterChip(
-                  label: 'غير نشط',
-                  selected:
-                      selectedStatusFilters.contains('غير نشط'.toLowerCase()),
-                  onTap: () => toggleStatusFilter('غير نشط'.toLowerCase()),
-                  selectedColor: Colors.grey,
-                ),
-                buildFilterChip(
-                  label: 'معطّل مؤقتًا',
-                  selected: selectedStatusFilters
-                      .contains('معطّل مؤقتًا'.toLowerCase()),
-                  onTap: () => toggleStatusFilter('معطّل مؤقتًا'.toLowerCase()),
-                  selectedColor: Colors.orange,
-                ),
-                buildFilterChip(
-                  label: 'طلب حذف قيد المراجعة',
-                  selected: selectedStatusFilters
-                      .contains('طلب حذف قيد المراجعة'.toLowerCase()),
-                  onTap: () =>
-                      toggleStatusFilter('طلب حذف قيد المراجعة'.toLowerCase()),
-                  selectedColor: Colors.amber.shade800,
-                ),
-                buildFilterChip(
-                  label: 'حذف مقبول',
-                  selected:
-                      selectedStatusFilters.contains('حذف مقبول'.toLowerCase()),
-                  onTap: () => toggleStatusFilter('حذف مقبول'.toLowerCase()),
-                  selectedColor: Colors.redAccent,
-                ),
-                buildFilterChip(
-                  label: 'موقوف',
-                  selected:
-                      selectedStatusFilters.contains('موقوف'.toLowerCase()),
-                  onTap: () => toggleStatusFilter('موقوف'.toLowerCase()),
-                  selectedColor: Colors.deepOrange,
-                ),
-                buildFilterChip(
                   label: 'مؤرشف',
-                  selected:
-                      selectedStatusFilters.contains('مؤرشف'.toLowerCase()),
-                  onTap: () => toggleStatusFilter('مؤرشف'.toLowerCase()),
+                  selected: selectedStatusFilters.contains('مؤرشف'),
+                  onTap: () => toggleStatusFilter('مؤرشف'),
                   selectedColor: Colors.blueGrey,
-                ),
-                buildFilterChip(
-                  label: 'قيد المراجعة',
-                  selected: selectedStatusFilters
-                      .contains('قيد المراجعة'.toLowerCase()),
-                  onTap: () => toggleStatusFilter('قيد المراجعة'.toLowerCase()),
-                  selectedColor: Colors.amber.shade700,
                 ),
               ],
             ),
@@ -2147,8 +2030,6 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                   final phone = extractPhone(u);
                   final statusText = accountStatusLabel(u);
                   final isActive = (u['isActive'] ?? true) == true;
-                  final rawStatus =
-                      (u['accountStatus'] ?? '').toString().trim().toLowerCase();
 
                   return _UserCard(
                     name: name,
@@ -2161,7 +2042,6 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                     statusText: statusText,
                     statusColor: accountStatusColor(u),
                     isActive: isActive,
-                    rawStatus: rawStatus,
                     onViewDetails: () async {
                       await openUserDetailsDialog(
                         docId: doc.id,
@@ -2175,14 +2055,6 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                         userName: name,
                         username: username,
                         roleValue: userRole,
-                      );
-                    },
-                    onDelete: () async {
-                      await handleDeleteUser(
-                        uid: doc.id,
-                        roleValue: userRole,
-                        name: name,
-                        username: username,
                       );
                     },
                     onEdit: () async {
@@ -2212,8 +2084,6 @@ class _UserCard extends StatelessWidget {
   final String statusText;
   final Color statusColor;
   final bool isActive;
-  final String rawStatus;
-  final VoidCallback onDelete;
   final VoidCallback onEdit;
   final VoidCallback onToggleActive;
   final VoidCallback onViewDetails;
@@ -2229,8 +2099,6 @@ class _UserCard extends StatelessWidget {
     required this.statusText,
     required this.statusColor,
     required this.isActive,
-    required this.rawStatus,
-    required this.onDelete,
     required this.onEdit,
     required this.onToggleActive,
     required this.onViewDetails,
@@ -2359,15 +2227,7 @@ class _UserCard extends StatelessWidget {
                           ? Icons.block_outlined
                           : Icons.check_circle_outline,
                     ),
-                    label: Text(
-                      isActive
-                          ? 'تعطيل'
-                          : rawStatus == 'deactivated'
-                              ? 'إعادة تفعيل'
-                              : rawStatus == 'pending_deletion'
-                                  ? 'إعادة تفعيل'
-                                  : 'تفعيل',
-                    ),
+                    label: Text(isActive ? 'أرشفة' : 'استعادة'),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -2378,20 +2238,7 @@ class _UserCard extends StatelessWidget {
                     label: const Text('تعديل'),
                   ),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: onDelete,
-                    icon: const Icon(
-                      Icons.delete_outline,
-                      color: Colors.redAccent,
-                    ),
-                    label: const Text(
-                      'حذف',
-                      style: TextStyle(color: Colors.redAccent),
-                    ),
-                  ),
-                ),
+
               ],
             ),
           ],

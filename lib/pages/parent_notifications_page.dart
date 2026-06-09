@@ -944,13 +944,14 @@ setState(() {});
       case 'custom':
         return Icons.mark_email_unread_outlined;
       case 'account_enabled':
-        return Icons.verified_user_outlined;
+      case 'account_reactivated':
+        return Icons.unarchive_outlined;
       case 'account_disabled':
-        return Icons.block_outlined;
+      case 'account_archived':
+      case 'account_deleted':
+        return Icons.archive_outlined;
       case 'account_updated':
         return Icons.manage_accounts_outlined;
-      case 'account_deleted':
-        return Icons.delete_outline;
       case 'incident_report':
         return Icons.report_problem_outlined;
       case 'child_handoff':
@@ -1002,13 +1003,14 @@ setState(() {});
       case 'custom':
         return Colors.teal;
       case 'account_enabled':
+      case 'account_reactivated':
         return Colors.green;
       case 'account_disabled':
-        return Colors.redAccent;
+      case 'account_archived':
+      case 'account_deleted':
+        return Colors.blueGrey;
       case 'account_updated':
         return Colors.blueGrey;
-      case 'account_deleted':
-        return Colors.red;
       case 'incident_report':
         return Colors.redAccent;
       case 'child_handoff':
@@ -1060,13 +1062,14 @@ setState(() {});
       case 'group_update_notification':
         return 'تحديث جماعي';
       case 'account_enabled':
-        return 'تفعيل الحساب';
+      case 'account_reactivated':
+        return 'استعادة الحساب';
       case 'account_disabled':
-        return 'تعطيل الحساب';
+      case 'account_archived':
+      case 'account_deleted':
+        return 'أرشفة الحساب';
       case 'account_updated':
         return 'تحديث الحساب';
-      case 'account_deleted':
-        return 'حذف الحساب';
       case 'incident_report':
         return 'تقرير حادث';
       case 'child_handoff':
@@ -1122,13 +1125,14 @@ setState(() {});
       case 'custom':
         return 'إشعار خاص';
       case 'account_enabled':
-        return 'تم تفعيل الحساب';
+      case 'account_reactivated':
+        return 'تمت استعادة الحساب';
       case 'account_disabled':
-        return 'تم تعطيل الحساب';
+      case 'account_archived':
+      case 'account_deleted':
+        return 'تمت أرشفة الحساب';
       case 'account_updated':
         return 'تم تحديث بيانات الحساب';
-      case 'account_deleted':
-        return 'تم حذف الحساب';
       case 'incident_report':
         return 'تقرير حادث جديد';
       case 'child_handoff':

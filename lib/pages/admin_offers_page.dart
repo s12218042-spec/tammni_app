@@ -16,8 +16,6 @@ class _AdminOffersPageState extends State<AdminOffersPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  bool _isSavingDefaults = false;
-
   CollectionReference<Map<String, dynamic>> get _offersRef =>
       _firestore.collection('subscription_offers');
 
@@ -61,107 +59,6 @@ class _AdminOffersPageState extends State<AdminOffersPage> {
       return false;
     } catch (_) {
       return false;
-    }
-  }
-
-  Future<void> _ensureDefaultOffers() async {
-    if (_isSavingDefaults) return;
-
-    setState(() {
-      _isSavingDefaults = true;
-    });
-
-    try {
-      final now = FieldValue.serverTimestamp();
-      final currentUser = _auth.currentUser;
-
-      final defaults = [
-        {
-          'id': 'base_700',
-          'title': 'الاشتراك الأساسي',
-          'description': 'اشتراك شهري شامل الغداء ويوم السبت',
-          'price': 700.0,
-          'discountAmount': 0.0,
-          'childrenCount': 1,
-          'isActive': true,
-          'isDefault': true,
-          'includesLunch': true,
-          'includesSaturday': true,
-          'disableWhenGroupsFull': false,
-          'blockedBecauseGroupsFull': false,
-          'type': 'base_subscription',
-          'createdByUid': currentUser?.uid ?? '',
-          'createdAt': now,
-          'updatedAt': now,
-        },
-        {
-          'id': 'offer_600',
-          'title': 'عرض 600 شيكل',
-          'description': 'عرض خاص لطفل واحد حسب قرار الإدارة',
-          'price': 600.0,
-          'discountAmount': 100.0,
-          'childrenCount': 1,
-          'isActive': true,
-          'isDefault': true,
-          'includesLunch': true,
-          'includesSaturday': true,
-          'disableWhenGroupsFull': true,
-          'blockedBecauseGroupsFull': false,
-          'type': 'special_offer',
-          'createdByUid': currentUser?.uid ?? '',
-          'createdAt': now,
-          'updatedAt': now,
-        },
-        {
-          'id': 'two_children_1100',
-          'title': 'عرض طفلين',
-          'description': 'اشتراك شهري لطفلين من نفس ولي الأمر',
-          'price': 1100.0,
-          'discountAmount': 300.0,
-          'childrenCount': 2,
-          'isActive': true,
-          'isDefault': true,
-          'includesLunch': true,
-          'includesSaturday': true,
-          'disableWhenGroupsFull': true,
-          'blockedBecauseGroupsFull': false,
-          'type': 'two_children_offer',
-          'createdByUid': currentUser?.uid ?? '',
-          'createdAt': now,
-          'updatedAt': now,
-        },
-      ];
-
-      final batch = _firestore.batch();
-
-      for (final offer in defaults) {
-        final docRef = _offersRef.doc(offer['id'].toString());
-        final doc = await docRef.get();
-
-        if (!doc.exists) {
-          batch.set(docRef, offer);
-        }
-      }
-
-      await batch.commit();
-
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم تجهيز العروض الأساسية بنجاح')),
-      );
-    } catch (e) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('حدث خطأ أثناء تجهيز العروض: $e')),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isSavingDefaults = false;
-        });
-      }
     }
   }
 
@@ -495,7 +392,7 @@ class _AdminOffersPageState extends State<AdminOffersPage> {
         textDirection: TextDirection.rtl,
         child: AlertDialog(
           title: const Text('حذف العرض'),
-          content: const Text('هل أنتِ متأكدة من حذف هذا العرض؟'),
+          content: const Text('هل أنت متأكد من حذف هذا العرض؟'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -566,23 +463,9 @@ class _AdminOffersPageState extends State<AdminOffersPage> {
   Widget build(BuildContext context) {
     return AppPageScaffold(
       title: 'العروض والاشتراكات',
-      actions: [
-        IconButton(
-          tooltip: 'تجهيز العروض الأساسية',
-          onPressed: _isSavingDefaults ? null : _ensureDefaultOffers,
-          icon: _isSavingDefaults
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.auto_fix_high_rounded),
-        ),
-      ],
       child: Column(
         children: [
           _HeaderCard(
-            onCreateDefaults: _isSavingDefaults ? null : _ensureDefaultOffers,
             onAddOffer: () => _openOfferForm(),
           ),
           const SizedBox(height: 12),
@@ -613,7 +496,6 @@ class _AdminOffersPageState extends State<AdminOffersPage> {
 
                 if (docs.isEmpty) {
                   return _EmptyOffersBox(
-                    onCreateDefaults: _ensureDefaultOffers,
                     onAddOffer: () => _openOfferForm(),
                   );
                 }
@@ -850,11 +732,9 @@ class _AdminOffersPageState extends State<AdminOffersPage> {
 }
 
 class _HeaderCard extends StatelessWidget {
-  final VoidCallback? onCreateDefaults;
   final VoidCallback onAddOffer;
 
   const _HeaderCard({
-    required this.onCreateDefaults,
     required this.onAddOffer,
   });
 
@@ -888,24 +768,13 @@ class _HeaderCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 14),
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: onAddOffer,
-                    icon: const Icon(Icons.add_rounded),
-                    label: const Text('إضافة عرض'),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: onCreateDefaults,
-                    icon: const Icon(Icons.auto_fix_high_rounded),
-                    label: const Text('العروض الأساسية'),
-                  ),
-                ),
-              ],
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: onAddOffer,
+                icon: const Icon(Icons.add_rounded),
+                label: const Text('إضافة عرض'),
+              ),
             ),
           ],
         ),
@@ -935,11 +804,9 @@ class _InfoChip extends StatelessWidget {
 }
 
 class _EmptyOffersBox extends StatelessWidget {
-  final VoidCallback onCreateDefaults;
   final VoidCallback onAddOffer;
 
   const _EmptyOffersBox({
-    required this.onCreateDefaults,
     required this.onAddOffer,
   });
 
@@ -971,18 +838,12 @@ class _EmptyOffersBox extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               const Text(
-                'يمكنك تجهيز العروض الأساسية أو إضافة عرض جديد يدويًا.',
+                'أضيفي عرضًا جديدًا للبدء.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.black54, height: 1.45),
               ),
               const SizedBox(height: 16),
               ElevatedButton.icon(
-                onPressed: onCreateDefaults,
-                icon: const Icon(Icons.auto_fix_high_rounded),
-                label: const Text('تجهيز العروض الأساسية'),
-              ),
-              const SizedBox(height: 8),
-              OutlinedButton.icon(
                 onPressed: onAddOffer,
                 icon: const Icon(Icons.add_rounded),
                 label: const Text('إضافة عرض جديد'),

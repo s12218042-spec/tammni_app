@@ -1,10 +1,12 @@
+import 'dart:math';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../models/child_model.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
-import 'admin_groups_page.dart';
 import 'entry_exit_log_page.dart';
 
 class ManageChildrenPage extends StatefulWidget {
@@ -41,6 +43,10 @@ String childTypeLabel(Map<String, dynamic> child) {
   final childStatus = (child['childStatus'] ?? '').toString().trim();
 
   final value = childType.isNotEmpty ? childType : childStatus;
+
+  if (childStatus == 'trial_pending_decision') {
+    return 'بانتظار قرار التجربة';
+  }
 
   switch (value) {
     case 'temporary':
@@ -403,7 +409,8 @@ String resolveChildType(Map<String, dynamic> child) {
       if (expiryDate == null || expiryDate.isAfter(DateTime.now())) continue;
 
       final archiveReason = isTrial ? 'trial_expired' : 'temporary_expired';
-      final archivedChildStatus = isTrial ? 'rejected_after_trial' : 'archived';
+      final archivedChildStatus =
+          isTrial ? 'trial_pending_decision' : 'archived';
 
       final devicesSnapshot = await _firestore
           .collection('temporary_parent_devices')
@@ -421,9 +428,11 @@ String resolveChildType(Map<String, dynamic> child) {
           'accountStatus': 'archived',
           'isBillable': false,
           'excludeFromMonthlyInvoice': true,
-          'canReactivate': true,
+          'canReactivate': !isTrial,
           'permanentDeleted': false,
-          'archiveReason': archiveReason,
+          'archiveReason': isTrial
+              ? 'trial_expired_pending_decision'
+              : archiveReason,
           'archivedAutomatically': true,
           'archivedAt': FieldValue.serverTimestamp(),
           'expiredAt': FieldValue.serverTimestamp(),
@@ -509,14 +518,17 @@ String resolveChildType(Map<String, dynamic> child) {
         'assignedStaffUsername': data['assignedStaffUsername'] ?? '',
         'childStatus': data['childStatus'] ?? data['status'] ?? 'active',
         'childType': data['childType'] ?? '',
+        'enrollmentType': data['enrollmentType'] ?? '',
+        'accountStatus': data['accountStatus'] ?? '',
+        'isTemporaryChild': data['isTemporaryChild'] ?? false,
+        'isTrialChild': data['isTrialChild'] ?? false,
+        'trialDecision': data['trialDecision'] ?? '',
         'isTemporary': data['isTemporary'] ?? false,
         'temporaryStartDate': data['temporaryStartDate'],
         'temporaryEndDate': data['temporaryEndDate'],
         'temporaryFee': data['temporaryFee'] ?? 0,
         'temporaryBillingType': data['temporaryBillingType'] ?? '',
         'temporaryBillingTypeLabel': data['temporaryBillingTypeLabel'] ?? '',
-        'hasConsultation': data['hasConsultation'] ?? false,
-        'consultationStatus': data['consultationStatus'] ?? '',
         'temporaryAccessCode': data['temporaryAccessCode'] ?? '',
         'hasChronicDiseases': data['hasChronicDiseases'] ?? false,
         'chronicDiseases': data['chronicDiseases'] ?? '',
@@ -729,8 +741,6 @@ String formatOptionalDate(dynamic raw) {
     text: (child['temporaryNotes'] ?? '').toString(),
    );
 
-    bool hasConsultation = child['hasConsultation'] == true;
-
     bool hasChronicDiseases = child['hasChronicDiseases'] == true;
     bool hasAllergies = child['hasAllergies'] == true;
     bool takesMedications = child['takesMedications'] == true;
@@ -909,17 +919,6 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
         ),
       ),
     ],
-  ),
-  const SizedBox(height: 12),
-  SwitchListTile(
-    value: hasConsultation,
-    onChanged: (value) {
-      setLocalState(() {
-        hasConsultation = value;
-      });
-    },
-    contentPadding: EdgeInsets.zero,
-    title: const Text('مرتبط باستشارة'),
   ),
   const SizedBox(height: 12),
   TextFormField(
@@ -1297,8 +1296,6 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
                             pickupContacts.map((e) => e.toMap()).toList(),
                          'updatedAt': FieldValue.serverTimestamp(),
                          'history': newHistory,
-                         'hasConsultation': hasConsultation,
-                         'consultationStatus': hasConsultation ? 'pending' : 'none',
                          'temporaryNotes': temporaryNotesCtrl.text.trim(),
 
                       });
@@ -1376,17 +1373,21 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
 
     final batch = _firestore.batch();
 
+    final isTrial = _isTrialChildData(childData);
+
     batch.set(
       childRef,
       {
         'isActive': false,
         'status': 'archived',
-        'childStatus': 'archived',
+        'childStatus': isTrial ? 'rejected_after_trial' : 'archived',
         'accountStatus': 'archived',
-        'canReactivate': true,
+        'canReactivate': !isTrial,
         'permanentDeleted': false,
         'archivedAt': FieldValue.serverTimestamp(),
-        'archiveReason': 'archived_from_manage_children',
+        'archiveReason': isTrial
+            ? 'trial_rejected_from_manage_children'
+            : 'archived_from_manage_children',
         'updatedAt': FieldValue.serverTimestamp(),
       },
       SetOptions(merge: true),
@@ -1433,47 +1434,911 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
     );
   }
 
+
   Future<void> restoreChild(Map<String, dynamic> child) async {
-  final childId = (child['id'] ?? '').toString().trim();
+    final childId = _cleanText(child['id']);
+    if (childId.isEmpty) return;
 
-  if (childId.isEmpty) return;
+    final childType = resolveChildType(child);
 
-  final childType = resolveChildType(child);
+    if (childType == 'trial') {
+      final childStatus = _cleanText(child['childStatus']).toLowerCase();
 
-  if (childType == 'temporary' || childType == 'trial') {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'يتم إعادة تفعيل الطفل المؤقت أو طفل التجربة من إدارة المجموعات.',
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            childStatus == 'trial_pending_decision'
+                ? 'طفل التجربة بانتظار قرار الاعتماد أو الرفض.'
+                : 'لا يمكن استعادة طفل التجربة بعد أرشفته.',
+          ),
         ),
-      ),
-    );
-    return;
+      );
+      return;
+    }
+
+    if (childType == 'temporary') {
+      await _openRestoreTemporaryChildSheet(child);
+      return;
+    }
+
+    await _restorePermanentChild(child);
   }
 
-  await _firestore.collection('children').doc(childId).update({
-    'isActive': true,
-    'status': 'active',
-    'childStatus': 'active',
-    'accountStatus': 'active',
-    'canReactivate': true,
-    'permanentDeleted': false,
-    'restoredAt': FieldValue.serverTimestamp(),
-    'archiveReason': FieldValue.delete(),
-    'archivedAt': FieldValue.delete(),
-    'updatedAt': FieldValue.serverTimestamp(),
-  });
+  Future<void> _restorePermanentChild(Map<String, dynamic> child) async {
+    final childId = _cleanText(child['id']);
+    if (childId.isEmpty) return;
 
-  if (!mounted) return;
+    try {
+      final childRef = _firestore.collection('children').doc(childId);
+      final freshChildDoc = await childRef.get();
+      final childData = freshChildDoc.data() ?? Map<String, dynamic>.from(child);
 
-  setState(() {});
+      String parentUid = _cleanText(childData['parentUid']);
+      String parentUsername =
+          _cleanText(childData['parentUsername']).toLowerCase();
+      DocumentSnapshot<Map<String, dynamic>>? parentDoc;
 
-  ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(
-      content: Text('تمت استعادة الطفل إلى القائمة النشطة'),
-    ),
-  );
-}
+      if (parentUid.isNotEmpty) {
+        final loadedParentDoc =
+            await _firestore.collection('users').doc(parentUid).get();
+
+        if (loadedParentDoc.exists) {
+          parentDoc = loadedParentDoc;
+        }
+      }
+
+      if (parentDoc == null) {
+        final selectedParent = await _pickOfficialParentForRestore();
+
+        if (selectedParent == null) return;
+
+        parentDoc = selectedParent;
+        parentUid = selectedParent.id;
+        parentUsername =
+            _cleanText(selectedParent.data()['username']).toLowerCase();
+      }
+
+      final parentData = parentDoc.data() ?? <String, dynamic>{};
+      final parentIsArchived = parentData['isActive'] == false ||
+          _cleanText(parentData['accountStatus']).toLowerCase() == 'archived';
+
+      if (parentIsArchived) {
+        final confirmed = await showDialog<bool>(
+              context: context,
+              builder: (dialogContext) => Directionality(
+                textDirection: TextDirection.rtl,
+                child: AlertDialog(
+                  title: const Text('استعادة الطفل وولي الأمر'),
+                  content: const Text(
+                    'حساب ولي الأمر مرتبط بهذا الطفل وهو مؤرشف. سيتم إعادة تفعيل حساب ولي الأمر مع الطفل.',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(dialogContext, false),
+                      child: const Text('إلغاء'),
+                    ),
+                    ElevatedButton(
+                      onPressed: () => Navigator.pop(dialogContext, true),
+                      child: const Text('استعادة'),
+                    ),
+                  ],
+                ),
+              ),
+            ) ??
+            false;
+
+        if (!confirmed) return;
+      }
+
+      final resolvedParentName = _parentDisplayName(parentData);
+      final resolvedParentPhone = _parentPhone(parentData);
+      final batch = _firestore.batch();
+
+      batch.set(
+        childRef,
+        {
+          'isActive': true,
+          'status': 'active',
+          'childStatus': 'active',
+          'accountStatus': 'active',
+          'canReactivate': true,
+          'permanentDeleted': false,
+          'parentUid': parentUid,
+          'parentUsername': parentUsername,
+          'parentName': resolvedParentName,
+          if (resolvedParentPhone.isNotEmpty) 'parentPhone': resolvedParentPhone,
+          'restoredAt': FieldValue.serverTimestamp(),
+          'reactivatedAt': FieldValue.serverTimestamp(),
+          'archiveReason': FieldValue.delete(),
+          'archivedAt': FieldValue.delete(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+
+      if (parentIsArchived) {
+        batch.set(
+          parentDoc.reference,
+          {
+            'isActive': true,
+            'accountStatus': 'active',
+            'reactivatedAt': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+
+        if (parentUsername.isNotEmpty) {
+          batch.set(
+            _firestore.collection('login_usernames').doc(parentUsername),
+            {
+              'isActive': true,
+              'accountStatus': 'active',
+              'updatedAt': FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true),
+          );
+        }
+      }
+
+      await batch.commit();
+
+      final groupId = _cleanText(childData['groupId']);
+      if (groupId.isNotEmpty) {
+        await _refreshGroupChildrenCount(groupId);
+      }
+
+      if (!mounted) return;
+
+      setState(() {});
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            parentIsArchived
+                ? 'تمت استعادة الطفل وتفعيل حساب ولي الأمر'
+                : 'تمت استعادة الطفل إلى القائمة النشطة',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذر استعادة الطفل: $e')),
+      );
+    }
+  }
+
+  Future<QueryDocumentSnapshot<Map<String, dynamic>>?>
+      _pickOfficialParentForRestore() async {
+    final parents = await _loadOfficialParents();
+
+    if (!mounted) return null;
+
+    if (parents.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('لا يوجد حساب ولي أمر رسمي مفعّل')),
+      );
+      return null;
+    }
+
+    String selectedParentUid = '';
+
+    return showDialog<QueryDocumentSnapshot<Map<String, dynamic>>>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setLocalState) {
+            return Directionality(
+              textDirection: TextDirection.rtl,
+              child: AlertDialog(
+                title: const Text('ربط الطفل بولي أمر'),
+                content: SizedBox(
+                  width: 430,
+                  child: DropdownButtonFormField<String>(
+                    initialValue:
+                        selectedParentUid.isEmpty ? null : selectedParentUid,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'ولي الأمر',
+                      prefixIcon: Icon(Icons.person_outline_rounded),
+                    ),
+                    items: parents.map((doc) {
+                      final data = doc.data();
+                      final username = _cleanText(data['username']);
+                      final name = _parentDisplayName(data);
+
+                      return DropdownMenuItem<String>(
+                        value: doc.id,
+                        child: Text(
+                          username.isEmpty ? name : '$name • @$username',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: (value) {
+                      setLocalState(() {
+                        selectedParentUid = value ?? '';
+                      });
+                    },
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    child: const Text('إلغاء'),
+                  ),
+                  ElevatedButton(
+                    onPressed: selectedParentUid.isEmpty
+                        ? null
+                        : () {
+                            Navigator.pop(
+                              dialogContext,
+                              parents.firstWhere(
+                                (doc) => doc.id == selectedParentUid,
+                              ),
+                            );
+                          },
+                    child: const Text('ربط واستعادة'),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _openRestoreTemporaryChildSheet(
+    Map<String, dynamic> child,
+  ) async {
+    final groups = await _loadActiveGroups();
+    final accessCodes = await _loadActiveTemporaryAccessCodes();
+
+    if (!mounted) return;
+
+    if (groups.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('أنشئي مجموعة مفعلة أولًا')),
+      );
+      return;
+    }
+
+    final childId = _cleanText(child['id']);
+    final childName = _cleanText(child['name']).isNotEmpty
+        ? _cleanText(child['name'])
+        : _cleanText(child['childName']);
+
+    final parentNameCtrl = TextEditingController(
+      text: _cleanText(child['temporaryParentName']).isNotEmpty
+          ? _cleanText(child['temporaryParentName'])
+          : _cleanText(child['parentName']),
+    );
+
+    final parentPhoneCtrl = TextEditingController(
+      text: _cleanText(child['temporaryParentPhone']).isNotEmpty
+          ? _cleanText(child['temporaryParentPhone'])
+          : _cleanText(child['parentPhone']),
+    );
+
+    final hoursCtrl = TextEditingController(text: '1');
+    final hourlyRateCtrl = TextEditingController(text: '10');
+    final paidCtrl = TextEditingController(text: '0');
+
+    DateTime start = DateTime.now();
+    DateTime end = DateTime.now().add(const Duration(days: 1));
+
+    String selectedGroupId = _cleanText(child['groupId']);
+    if (!groups.any((doc) => doc.id == selectedGroupId)) {
+      selectedGroupId = '';
+    }
+
+    final previousSharedAccessCodeId =
+        _cleanText(child['sharedAccessCodeId']).isNotEmpty
+            ? _cleanText(child['sharedAccessCodeId'])
+            : _cleanText(child['temporaryAccessCodeId']);
+
+    bool linkWithSiblings = accessCodes.any(
+      (doc) => doc.id == previousSharedAccessCodeId,
+    );
+
+    String selectedSharedAccessCodeId =
+        linkWithSiblings ? previousSharedAccessCodeId : '';
+
+    bool isSaving = false;
+
+    num parseMoney(String value) {
+      return num.tryParse(value.trim().replaceAll(',', '.')) ?? 0;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (sheetContext) {
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: StatefulBuilder(
+            builder: (context, setSheetState) {
+              final total =
+                  parseMoney(hoursCtrl.text) * parseMoney(hourlyRateCtrl.text);
+              final paid = parseMoney(paidCtrl.text);
+              final remaining = total - paid < 0 ? 0 : total - paid;
+
+              return Padding(
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 16,
+                  bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+                ),
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 45,
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: Colors.black12,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      Text(
+                        'استعادة الطفل المؤقت',
+                        style: Theme.of(sheetContext)
+                            .textTheme
+                            .titleLarge
+                            ?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 18),
+                      InputDecorator(
+                        decoration: const InputDecoration(
+                          labelText: 'اسم الطفل',
+                          prefixIcon: Icon(Icons.child_care_outlined),
+                        ),
+                        child: Text(childName),
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        initialValue:
+                            selectedGroupId.isEmpty ? null : selectedGroupId,
+                        decoration: const InputDecoration(
+                          labelText: 'المجموعة',
+                          prefixIcon: Icon(Icons.groups_2_outlined),
+                        ),
+                        items: groups.map((doc) {
+                          final data = doc.data();
+                          return DropdownMenuItem<String>(
+                            value: doc.id,
+                            child: Text(
+                              _cleanText(data['groupName']),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          );
+                        }).toList(),
+                        onChanged: (value) {
+                          setSheetState(() {
+                            selectedGroupId = value ?? '';
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: parentNameCtrl,
+                        enabled: !linkWithSiblings,
+                        decoration: const InputDecoration(
+                          labelText: 'اسم ولي الأمر',
+                          prefixIcon: Icon(Icons.person_outline_rounded),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: parentPhoneCtrl,
+                        enabled: !linkWithSiblings,
+                        keyboardType: TextInputType.phone,
+                        decoration: const InputDecoration(
+                          labelText: 'رقم ولي الأمر',
+                          prefixIcon: Icon(Icons.phone_outlined),
+                        ),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        value: linkWithSiblings,
+                        title: const Text('ربط بإخوة مسجلين بنفس الكود'),
+                        onChanged: (value) {
+                          setSheetState(() {
+                            linkWithSiblings = value;
+                            selectedSharedAccessCodeId = '';
+
+                            if (!value) return;
+
+                            parentNameCtrl.clear();
+                            parentPhoneCtrl.clear();
+                          });
+                        },
+                      ),
+                      if (linkWithSiblings) ...[
+                        DropdownButtonFormField<String>(
+                          initialValue: selectedSharedAccessCodeId.isEmpty
+                              ? null
+                              : selectedSharedAccessCodeId,
+                          isExpanded: true,
+                          decoration: const InputDecoration(
+                            labelText: 'كود الإخوة',
+                            prefixIcon: Icon(Icons.family_restroom_rounded),
+                          ),
+                          items: accessCodes.map((doc) {
+                            final data = doc.data();
+                            final code = _cleanText(data['code']);
+                            final parentName = _cleanText(
+                              data['parentName'] ??
+                                  data['temporaryParentName'],
+                            );
+
+                            return DropdownMenuItem<String>(
+                              value: doc.id,
+                              child: Text(
+                                '$code • $parentName',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            );
+                          }).toList(),
+                          onChanged: (value) {
+                            final selectedId = value ?? '';
+                            final selectedDoc = accessCodes.where(
+                              (doc) => doc.id == selectedId,
+                            );
+
+                            setSheetState(() {
+                              selectedSharedAccessCodeId = selectedId;
+
+                              if (selectedDoc.isEmpty) return;
+
+                              final data = selectedDoc.first.data();
+                              parentNameCtrl.text = _cleanText(
+                                data['parentName'] ??
+                                    data['temporaryParentName'],
+                              );
+                              parentPhoneCtrl.text = _cleanText(
+                                data['parentPhone'] ??
+                                    data['temporaryParentPhone'],
+                              );
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () async {
+                                final picked = await showDatePicker(
+                                  context: sheetContext,
+                                  initialDate: start,
+                                  firstDate: DateTime(2020),
+                                  lastDate: DateTime(2035),
+                                );
+
+                                if (picked == null) return;
+
+                                setSheetState(() {
+                                  start = picked;
+                                  if (end.isBefore(start)) end = start;
+                                });
+                              },
+                              icon: const Icon(Icons.event_outlined),
+                              label: Text(formatOptionalDate(start)),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () async {
+                                final picked = await showDatePicker(
+                                  context: sheetContext,
+                                  initialDate: end,
+                                  firstDate: start,
+                                  lastDate: DateTime(2035),
+                                );
+
+                                if (picked == null) return;
+
+                                setSheetState(() {
+                                  end = picked;
+                                });
+                              },
+                              icon:
+                                  const Icon(Icons.event_available_outlined),
+                              label: Text(formatOptionalDate(end)),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: hoursCtrl,
+                        keyboardType: TextInputType.number,
+                        onChanged: (_) => setSheetState(() {}),
+                        decoration: const InputDecoration(
+                          labelText: 'عدد الساعات',
+                          prefixIcon: Icon(Icons.access_time_rounded),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: hourlyRateCtrl,
+                        keyboardType: TextInputType.number,
+                        onChanged: (_) => setSheetState(() {}),
+                        decoration: const InputDecoration(
+                          labelText: 'سعر الساعة',
+                          prefixIcon: Icon(Icons.payments_outlined),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: paidCtrl,
+                        keyboardType: TextInputType.number,
+                        onChanged: (_) => setSheetState(() {}),
+                        decoration: const InputDecoration(
+                          labelText: 'المدفوع',
+                          prefixIcon: Icon(Icons.done_all_rounded),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withOpacity(0.07),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: AppColors.primary.withOpacity(0.14),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('الإجمالي: $total شيكل'),
+                            Text('المدفوع: $paid شيكل'),
+                            Text('المتبقي: $remaining شيكل'),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: isSaving
+                              ? null
+                              : () async {
+                                  final parentName =
+                                      parentNameCtrl.text.trim();
+                                  final parentPhone = _normalizePhone(
+                                    parentPhoneCtrl.text,
+                                  );
+
+                                  if (selectedGroupId.isEmpty) {
+                                    await _showValidationError(
+                                      'اختاري المجموعة',
+                                    );
+                                    return;
+                                  }
+
+                                  if (parentName.isEmpty ||
+                                      !_isValidPalestinianMobile(parentPhone)) {
+                                    await _showValidationError(
+                                      'تأكدي من اسم ولي الأمر ورقم الجوال',
+                                    );
+                                    return;
+                                  }
+
+                                  if (linkWithSiblings &&
+                                      selectedSharedAccessCodeId.isEmpty) {
+                                    await _showValidationError(
+                                      'اختاري كود الإخوة',
+                                    );
+                                    return;
+                                  }
+
+                                  if (end.isBefore(start)) {
+                                    await _showValidationError(
+                                      'تاريخ النهاية يجب ألا يسبق تاريخ البداية',
+                                    );
+                                    return;
+                                  }
+
+                                  if (parseMoney(hoursCtrl.text) <= 0) {
+                                    await _showValidationError(
+                                      'أدخلي عدد ساعات صحيح',
+                                    );
+                                    return;
+                                  }
+
+                                  if (parseMoney(hourlyRateCtrl.text) <= 0) {
+                                    await _showValidationError(
+                                      'أدخلي سعر ساعة صحيح',
+                                    );
+                                    return;
+                                  }
+
+                                  if (paid < 0) {
+                                    await _showValidationError(
+                                      'قيمة المدفوع غير صحيحة',
+                                    );
+                                    return;
+                                  }
+
+                                  if (paid > total) {
+                                    await _showValidationError(
+                                      'قيمة المدفوع لا يمكن أن تتجاوز الإجمالي',
+                                    );
+                                    return;
+                                  }
+
+                                  if (total <= 0) {
+                                    await _showValidationError(
+                                      'أدخلي فاتورة صحيحة',
+                                    );
+                                    return;
+                                  }
+
+                                  setSheetState(() {
+                                    isSaving = true;
+                                  });
+
+                                  final saved =
+                                      await _restoreTemporaryChildDirect(
+                                    child: child,
+                                    childId: childId,
+                                    childName: childName,
+                                    parentName: parentName,
+                                    parentPhone: parentPhone,
+                                    groupDoc: groups.firstWhere(
+                                      (doc) => doc.id == selectedGroupId,
+                                    ),
+                                    start: DateTime(
+                                      start.year,
+                                      start.month,
+                                      start.day,
+                                    ),
+                                    end: DateTime(
+                                      end.year,
+                                      end.month,
+                                      end.day,
+                                      23,
+                                      59,
+                                      59,
+                                    ),
+                                    hours: parseMoney(hoursCtrl.text),
+                                    hourlyRate:
+                                        parseMoney(hourlyRateCtrl.text),
+                                    paid: paid,
+                                    total: total,
+                                    remaining: remaining,
+                                    sharedAccessCodeId:
+                                        selectedSharedAccessCodeId,
+                                  );
+
+                                  if (!sheetContext.mounted) return;
+
+                                  if (saved) {
+                                    Navigator.pop(sheetContext);
+                                  } else {
+                                    setSheetState(() {
+                                      isSaving = false;
+                                    });
+                                  }
+                                },
+                          icon: isSaving
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.restore_rounded),
+                          label: Text(
+                            isSaving ? 'جاري الاستعادة...' : 'استعادة',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
+
+    parentNameCtrl.dispose();
+    parentPhoneCtrl.dispose();
+    hoursCtrl.dispose();
+    hourlyRateCtrl.dispose();
+    paidCtrl.dispose();
+  }
+
+  Future<bool> _restoreTemporaryChildDirect({
+    required Map<String, dynamic> child,
+    required String childId,
+    required String childName,
+    required String parentName,
+    required String parentPhone,
+    required QueryDocumentSnapshot<Map<String, dynamic>> groupDoc,
+    required DateTime start,
+    required DateTime end,
+    required num hours,
+    required num hourlyRate,
+    required num paid,
+    required num total,
+    required num remaining,
+    required String sharedAccessCodeId,
+  }) async {
+    try {
+      if (!_groupHasCapacity(groupDoc)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('المجموعة ممتلئة')),
+          );
+        }
+        return false;
+      }
+
+      final childRef = _firestore.collection('children').doc(childId);
+      final invoiceRef = _firestore.collection('invoices').doc();
+      final batch = _firestore.batch();
+      final adminUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+      final groupData = groupDoc.data();
+
+      final preparedCode = await _prepareDirectTemporaryAccessCode(
+        batch: batch,
+        childRef: childRef,
+        childName: childName,
+        childType: 'temporary',
+        parentName: parentName,
+        parentPhone: parentPhone,
+        groupDoc: groupDoc,
+        start: start,
+        end: end,
+        sharedAccessCodeId: sharedAccessCodeId,
+        adminUid: adminUid,
+      );
+
+      if (preparedCode == null) return false;
+
+      batch.set(
+        childRef,
+        {
+          'childType': 'temporary',
+          'enrollmentType': 'temporary',
+          'childStatus': 'temporary',
+          'status': 'active',
+          'accountStatus': 'active',
+          'isActive': true,
+          'isTemporaryChild': true,
+          'isTrialChild': false,
+          'isTemporary': true,
+          'isBillable': true,
+          'excludeFromMonthlyInvoice': true,
+          'canReactivate': true,
+          'permanentDeleted': false,
+          'parentUid': '',
+          'parentUsername': '',
+          'parentName': preparedCode.parentName,
+          'parentPhone': preparedCode.parentPhone,
+          'temporaryParentName': preparedCode.parentName,
+          'temporaryParentPhone': preparedCode.parentPhone,
+          'groupId': groupDoc.id,
+          'groupName': _cleanText(groupData['groupName']),
+          'assignedStaffUid': _cleanText(groupData['assignedStaffUid']),
+          'assignedStaffName': _cleanText(groupData['assignedStaffName']),
+          'assignedStaffUsername':
+              _cleanText(groupData['assignedStaffUsername']),
+          'temporaryAccessCodeId': preparedCode.id,
+          'sharedAccessCodeId': preparedCode.id,
+          'usesSharedAccessCode': preparedCode.usesSharedAccessCode,
+          'temporaryAccessCode': preparedCode.code,
+          'temporaryAccessStartAt': Timestamp.fromDate(start),
+          'temporaryAccessEndAt': Timestamp.fromDate(end),
+          'temporaryStartDate': Timestamp.fromDate(start),
+          'temporaryEndDate': Timestamp.fromDate(end),
+          'temporaryFee': total,
+          'temporaryBillingType': 'hourly',
+          'temporaryBillingTypeLabel': 'حسب الساعات',
+          'temporaryHoursCount': hours,
+          'temporaryHourlyRate': hourlyRate,
+          'temporaryPaidAmount': paid,
+          'temporaryRemainingAmount': remaining,
+          'restoredAt': FieldValue.serverTimestamp(),
+          'reactivatedAt': FieldValue.serverTimestamp(),
+          'archiveReason': FieldValue.delete(),
+          'archivedAt': FieldValue.delete(),
+          'expiredAt': FieldValue.delete(),
+          'updatedByUid': adminUid,
+          'updatedByRole': 'admin',
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+
+      final status = paid <= 0
+          ? 'غير مدفوعة'
+          : paid >= total
+              ? 'مدفوعة'
+              : 'مدفوعة جزئياً';
+
+      batch.set(invoiceRef, {
+        'id': invoiceRef.id,
+        'invoiceId': invoiceRef.id,
+        'title': 'فاتورة الطفل المؤقت',
+        'childId': childRef.id,
+        'childName': childName,
+        'childType': 'temporary',
+        'parentUid': '',
+        'parentUsername': '',
+        'parentName': preparedCode.parentName,
+        'parentPhone': preparedCode.parentPhone,
+        'temporaryParentName': preparedCode.parentName,
+        'temporaryParentPhone': preparedCode.parentPhone,
+        'groupId': groupDoc.id,
+        'groupName': _cleanText(groupData['groupName']),
+        'temporaryAccessCodeId': preparedCode.id,
+        'sharedAccessCodeId': preparedCode.id,
+        'billingType': 'hourly',
+        'billingTypeLabel': 'حسب الساعات',
+        'hoursCount': hours,
+        'hourlyRate': hourlyRate,
+        'baseAmount': total,
+        'finalAmount': total,
+        'totalAmount': total,
+        'paidAmount': paid,
+        'remainingAmount': remaining,
+        'status': status,
+        'invoiceDate': FieldValue.serverTimestamp(),
+        'accessStartAt': Timestamp.fromDate(start),
+        'accessEndAt': Timestamp.fromDate(end),
+        'createdByUid': adminUid,
+        'createdByRole': 'admin',
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      await batch.commit();
+
+      final groupId = _cleanText(groupData['groupId']).isNotEmpty
+          ? _cleanText(groupData['groupId'])
+          : groupDoc.id;
+
+      await _refreshGroupChildrenCount(groupId);
+
+      if (!mounted) return true;
+
+      setState(() {});
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تمت استعادة الطفل المؤقت')),
+      );
+
+      return true;
+    } catch (e) {
+      if (!mounted) return false;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذر استعادة الطفل المؤقت: $e')),
+      );
+
+      return false;
+    }
+  }
 
   Widget buildFilterChip({
     required String label,
@@ -1665,7 +2530,6 @@ String temporaryChildSummary(Map<String, dynamic> child) {
   final fee = child['temporaryFee'] ?? 0;
   final billingLabel =
       (child['temporaryBillingTypeLabel'] ?? '').toString().trim();
-  final hasConsultation = child['hasConsultation'] == true;
   final accessCode = (child['temporaryAccessCode'] ?? '').toString().trim();
 
   final parts = <String>[
@@ -1673,12 +2537,729 @@ String temporaryChildSummary(Map<String, dynamic> child) {
       'الفترة: ${start.isEmpty ? '-' : start} إلى ${end.isEmpty ? '-' : end}',
     if (fee != 0)
       'الرسوم: $fee شيكل${billingLabel.isNotEmpty ? ' - $billingLabel' : ''}',
-    'استشارة: ${hasConsultation ? 'نعم' : 'لا'}',
     if (accessCode.isNotEmpty) 'كود الدخول: $accessCode',
   ];
 
   return parts.join(' | ');
 }
+
+
+  Future<DocumentSnapshot<Map<String, dynamic>>?> _loadFreshChildDoc(
+    Map<String, dynamic> child,
+  ) async {
+    final childId = _cleanText(child['id']);
+    if (childId.isEmpty) return null;
+
+    final doc = await _firestore.collection('children').doc(childId).get();
+    if (!doc.exists) return null;
+
+    return doc;
+  }
+
+  Future<void> _openConvertTemporaryChildSheet(
+    Map<String, dynamic> child,
+  ) async {
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => Directionality(
+            textDirection: TextDirection.rtl,
+            child: AlertDialog(
+              title: const Text('تحويل الطفل إلى دائم'),
+              content: const Text(
+                'سيتم تعطيل كود الدخول المؤقت وربط الطفل بحساب ولي أمر رسمي مع الاحتفاظ بسجلاته السابقة.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('إلغاء'),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: const Text('متابعة'),
+                ),
+              ],
+            ),
+          ),
+        ) ??
+        false;
+
+    if (!confirmed) return;
+
+    final childDoc = await _loadFreshChildDoc(child);
+    if (!mounted || childDoc == null) return;
+
+    final childData = childDoc.data() ?? <String, dynamic>{};
+
+    if (!_isTemporaryChildData(childData) || _isTrialChildData(childData)) {
+      return;
+    }
+
+    final parents = await _loadOfficialParents();
+
+    if (!mounted) return;
+
+    if (parents.isEmpty) {
+      await _showValidationError('لا يوجد حساب ولي أمر رسمي مفعّل');
+      return;
+    }
+
+    String selectedParentUid = '';
+    bool isSaving = false;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (sheetContext) {
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: StatefulBuilder(
+            builder: (context, setSheetState) {
+              return Padding(
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 16,
+                  bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+                ),
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 45,
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: Colors.black12,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      Text(
+                        'ربط الطفل بولي أمر رسمي',
+                        style: Theme.of(sheetContext)
+                            .textTheme
+                            .titleLarge
+                            ?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 18),
+                      DropdownButtonFormField<String>(
+                        initialValue:
+                            selectedParentUid.isEmpty ? null : selectedParentUid,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: 'ولي الأمر',
+                          prefixIcon: Icon(Icons.person_outline_rounded),
+                        ),
+                        items: parents.map((doc) {
+                          final data = doc.data();
+                          final username = _cleanText(data['username']);
+                          final name = _parentDisplayName(data);
+
+                          return DropdownMenuItem<String>(
+                            value: doc.id,
+                            child: Text(
+                              username.isEmpty ? name : '$name • @$username',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          );
+                        }).toList(),
+                        onChanged: (value) {
+                          setSheetState(() {
+                            selectedParentUid = value ?? '';
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 18),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: isSaving
+                              ? null
+                              : () async {
+                                  if (selectedParentUid.isEmpty) {
+                                    await _showValidationError(
+                                      'اختاري حساب ولي الأمر الرسمي',
+                                    );
+                                    return;
+                                  }
+
+                                  setSheetState(() {
+                                    isSaving = true;
+                                  });
+
+                                  final saved =
+                                      await _convertTemporaryChildToPermanent(
+                                    childDoc: childDoc,
+                                    parentDoc: parents.firstWhere(
+                                      (doc) => doc.id == selectedParentUid,
+                                    ),
+                                  );
+
+                                  if (!sheetContext.mounted) return;
+
+                                  if (saved) {
+                                    Navigator.pop(sheetContext);
+                                  } else {
+                                    setSheetState(() {
+                                      isSaving = false;
+                                    });
+                                  }
+                                },
+                          icon: isSaving
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.sync_alt_rounded),
+                          label: Text(
+                            isSaving
+                                ? 'جاري التحويل...'
+                                : 'تحويل إلى طفل دائم',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  Future<bool> _convertTemporaryChildToPermanent({
+    required DocumentSnapshot<Map<String, dynamic>> childDoc,
+    required QueryDocumentSnapshot<Map<String, dynamic>> parentDoc,
+  }) async {
+    final childData = childDoc.data() ?? <String, dynamic>{};
+
+    if (!_isTemporaryChildData(childData) || _isTrialChildData(childData)) {
+      return false;
+    }
+
+    try {
+      final batch = _firestore.batch();
+      final parentData = parentDoc.data();
+      final childId = childDoc.id;
+      final adminUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+      final previousAccessCodeId =
+          _cleanText(childData['sharedAccessCodeId']).isNotEmpty
+              ? _cleanText(childData['sharedAccessCodeId'])
+              : _cleanText(childData['temporaryAccessCodeId']);
+      final previousTemporaryParentName = _cleanText(
+        childData['temporaryParentName'] ?? childData['parentName'],
+      );
+      final previousTemporaryParentPhone = _cleanText(
+        childData['temporaryParentPhone'] ?? childData['parentPhone'],
+      );
+
+      await _updateAccessCodesAfterChildRemoval(
+        batch: batch,
+        childId: childId,
+        childData: childData,
+        archiveReason: 'temporary_converted_to_permanent',
+        automated: false,
+      );
+
+      final devices = await _firestore
+          .collection('temporary_parent_devices')
+          .where('childId', isEqualTo: childId)
+          .get();
+
+      for (final deviceDoc in devices.docs) {
+        batch.set(
+          deviceDoc.reference,
+          {
+            'isActive': false,
+            'accountStatus': 'archived',
+            'archiveReason': 'temporary_converted_to_permanent',
+            'archivedAt': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      }
+
+      batch.set(
+        childDoc.reference,
+        {
+          'childType': 'permanent',
+          'enrollmentType': 'permanent',
+          'childStatus': 'active',
+          'status': 'active',
+          'accountStatus': 'active',
+          'isTemporaryChild': false,
+          'isTrialChild': false,
+          'isTemporary': false,
+          'isActive': true,
+          'isBillable': true,
+          'excludeFromMonthlyInvoice': false,
+          'canReactivate': true,
+          'permanentDeleted': false,
+          'convertedFromChildType': 'temporary',
+          'convertedToPermanentAt': FieldValue.serverTimestamp(),
+          'parentUid': parentDoc.id,
+          'parentUsername': _cleanText(parentData['username']).toLowerCase(),
+          'parentName': _parentDisplayName(parentData),
+          'parentPhone': _parentPhone(parentData),
+          if (previousTemporaryParentName.isNotEmpty)
+            'previousTemporaryParentName': previousTemporaryParentName,
+          if (previousTemporaryParentPhone.isNotEmpty)
+            'previousTemporaryParentPhone': previousTemporaryParentPhone,
+          if (previousAccessCodeId.isNotEmpty)
+            'previousTemporaryAccessCodeId': previousAccessCodeId,
+          'temporaryParentName': FieldValue.delete(),
+          'temporaryParentPhone': FieldValue.delete(),
+          'temporaryAccessCodeId': FieldValue.delete(),
+          'sharedAccessCodeId': FieldValue.delete(),
+          'temporaryAccessCode': FieldValue.delete(),
+          'temporaryAccessStartAt': FieldValue.delete(),
+          'temporaryAccessEndAt': FieldValue.delete(),
+          'usesSharedAccessCode': false,
+          'archiveReason': FieldValue.delete(),
+          'archivedAt': FieldValue.delete(),
+          'expiredAt': FieldValue.delete(),
+          'updatedByUid': adminUid,
+          'updatedByRole': 'admin',
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+
+      await batch.commit();
+
+      final groupId = _cleanText(childData['groupId']);
+      if (groupId.isNotEmpty) {
+        await _refreshGroupChildrenCount(groupId);
+      }
+
+      if (!mounted) return true;
+
+      setState(() {});
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم تحويل الطفل المؤقت إلى طفل دائم')),
+      );
+
+      return true;
+    } catch (e) {
+      if (!mounted) return false;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذر تحويل الطفل المؤقت: $e')),
+      );
+
+      return false;
+    }
+  }
+
+  Future<void> _openApproveTrialChildSheet(
+    Map<String, dynamic> child,
+  ) async {
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => Directionality(
+            textDirection: TextDirection.rtl,
+            child: AlertDialog(
+              title: const Text('اعتماد طفل التجربة'),
+              content: const Text(
+                'سيتم تحويل طفل التجربة إلى طفل دائم وربطه بحساب ولي أمر رسمي مع الاحتفاظ بسجلاته السابقة.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('إلغاء'),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: const Text('متابعة'),
+                ),
+              ],
+            ),
+          ),
+        ) ??
+        false;
+
+    if (!confirmed) return;
+
+    final childDoc = await _loadFreshChildDoc(child);
+    if (!mounted || childDoc == null) return;
+
+    final childData = childDoc.data() ?? <String, dynamic>{};
+
+    if (!_isTrialChildData(childData) ||
+        _cleanText(childData['childStatus']).toLowerCase() !=
+            'trial_pending_decision') {
+      return;
+    }
+
+    final parents = await _loadOfficialParents();
+
+    if (!mounted) return;
+
+    if (parents.isEmpty) {
+      await _showValidationError('لا يوجد حساب ولي أمر رسمي مفعّل');
+      return;
+    }
+
+    String selectedParentUid = '';
+    bool isSaving = false;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (sheetContext) {
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: StatefulBuilder(
+            builder: (context, setSheetState) {
+              return Padding(
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 16,
+                  bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+                ),
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 45,
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: Colors.black12,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      Text(
+                        'اعتماد طفل التجربة',
+                        style: Theme.of(sheetContext)
+                            .textTheme
+                            .titleLarge
+                            ?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 18),
+                      DropdownButtonFormField<String>(
+                        initialValue:
+                            selectedParentUid.isEmpty ? null : selectedParentUid,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: 'حساب ولي الأمر الرسمي',
+                          prefixIcon: Icon(Icons.person_outline_rounded),
+                        ),
+                        items: parents.map((doc) {
+                          final data = doc.data();
+                          final username = _cleanText(data['username']);
+                          final name = _parentDisplayName(data);
+
+                          return DropdownMenuItem<String>(
+                            value: doc.id,
+                            child: Text(
+                              username.isEmpty ? name : '$name • @$username',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          );
+                        }).toList(),
+                        onChanged: (value) {
+                          setSheetState(() {
+                            selectedParentUid = value ?? '';
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 18),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: isSaving
+                              ? null
+                              : () async {
+                                  if (selectedParentUid.isEmpty) {
+                                    await _showValidationError(
+                                      'اختاري حساب ولي الأمر الرسمي',
+                                    );
+                                    return;
+                                  }
+
+                                  setSheetState(() {
+                                    isSaving = true;
+                                  });
+
+                                  final saved = await _approveTrialChild(
+                                    childDoc: childDoc,
+                                    parentDoc: parents.firstWhere(
+                                      (doc) => doc.id == selectedParentUid,
+                                    ),
+                                  );
+
+                                  if (!sheetContext.mounted) return;
+
+                                  if (saved) {
+                                    Navigator.pop(sheetContext);
+                                  } else {
+                                    setSheetState(() {
+                                      isSaving = false;
+                                    });
+                                  }
+                                },
+                          icon: isSaving
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.verified_rounded),
+                          label: Text(
+                            isSaving ? 'جاري الاعتماد...' : 'اعتماد كطفل دائم',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  Future<bool> _approveTrialChild({
+    required DocumentSnapshot<Map<String, dynamic>> childDoc,
+    required QueryDocumentSnapshot<Map<String, dynamic>> parentDoc,
+  }) async {
+    final childData = childDoc.data() ?? <String, dynamic>{};
+
+    if (!_isTrialChildData(childData)) return false;
+
+    try {
+      final batch = _firestore.batch();
+      final childId = childDoc.id;
+      final parentData = parentDoc.data();
+      final adminUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+      final previousAccessCodeId =
+          _cleanText(childData['sharedAccessCodeId']).isNotEmpty
+              ? _cleanText(childData['sharedAccessCodeId'])
+              : _cleanText(childData['temporaryAccessCodeId']);
+
+      await _updateAccessCodesAfterChildRemoval(
+        batch: batch,
+        childId: childId,
+        childData: childData,
+        archiveReason: 'trial_approved',
+        automated: false,
+      );
+
+      final devices = await _firestore
+          .collection('temporary_parent_devices')
+          .where('childId', isEqualTo: childId)
+          .get();
+
+      for (final deviceDoc in devices.docs) {
+        batch.set(
+          deviceDoc.reference,
+          {
+            'isActive': false,
+            'accountStatus': 'archived',
+            'archiveReason': 'trial_approved',
+            'archivedAt': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      }
+
+      batch.set(
+        childDoc.reference,
+        {
+          'childType': 'permanent',
+          'enrollmentType': 'permanent',
+          'childStatus': 'active',
+          'status': 'active',
+          'accountStatus': 'active',
+          'isTemporaryChild': false,
+          'isTrialChild': false,
+          'isTemporary': false,
+          'isActive': true,
+          'isBillable': true,
+          'excludeFromMonthlyInvoice': false,
+          'canReactivate': true,
+          'permanentDeleted': false,
+          'trialDecision': 'approved',
+          'trialDecisionAt': FieldValue.serverTimestamp(),
+          'trialApprovedAt': FieldValue.serverTimestamp(),
+          'parentUid': parentDoc.id,
+          'parentUsername': _cleanText(parentData['username']).toLowerCase(),
+          'parentName': _parentDisplayName(parentData),
+          'parentPhone': _parentPhone(parentData),
+          if (previousAccessCodeId.isNotEmpty)
+            'previousTemporaryAccessCodeId': previousAccessCodeId,
+          'temporaryParentName': FieldValue.delete(),
+          'temporaryParentPhone': FieldValue.delete(),
+          'temporaryAccessCodeId': FieldValue.delete(),
+          'sharedAccessCodeId': FieldValue.delete(),
+          'temporaryAccessCode': FieldValue.delete(),
+          'temporaryAccessStartAt': FieldValue.delete(),
+          'temporaryAccessEndAt': FieldValue.delete(),
+          'usesSharedAccessCode': false,
+          'archiveReason': FieldValue.delete(),
+          'archivedAt': FieldValue.delete(),
+          'expiredAt': FieldValue.delete(),
+          'updatedByUid': adminUid,
+          'updatedByRole': 'admin',
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+
+      await batch.commit();
+
+      final groupId = _cleanText(childData['groupId']);
+      if (groupId.isNotEmpty) {
+        await _refreshGroupChildrenCount(groupId);
+      }
+
+      if (!mounted) return true;
+
+      setState(() {});
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم اعتماد الطفل كطفل دائم')),
+      );
+
+      return true;
+    } catch (e) {
+      if (!mounted) return false;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذر اعتماد طفل التجربة: $e')),
+      );
+
+      return false;
+    }
+  }
+
+  Future<void> _rejectTrialChild(
+    Map<String, dynamic> child,
+  ) async {
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => Directionality(
+            textDirection: TextDirection.rtl,
+            child: AlertDialog(
+              title: const Text('رفض طفل التجربة'),
+              content: const Text('رفض طفل التجربة وأرشفته نهائيًا؟'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('إلغاء'),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: const Text('رفض وأرشفة'),
+                ),
+              ],
+            ),
+          ),
+        ) ??
+        false;
+
+    if (!confirmed) return;
+
+    final childDoc = await _loadFreshChildDoc(child);
+    if (!mounted || childDoc == null) return;
+
+    final childData = childDoc.data() ?? <String, dynamic>{};
+
+    if (!_isTrialChildData(childData)) return;
+
+    try {
+      final batch = _firestore.batch();
+      final childId = childDoc.id;
+
+      await _updateAccessCodesAfterChildRemoval(
+        batch: batch,
+        childId: childId,
+        childData: childData,
+        archiveReason: 'trial_not_approved',
+        automated: false,
+      );
+
+      final devices = await _firestore
+          .collection('temporary_parent_devices')
+          .where('childId', isEqualTo: childId)
+          .get();
+
+      for (final deviceDoc in devices.docs) {
+        batch.set(
+          deviceDoc.reference,
+          {
+            'isActive': false,
+            'accountStatus': 'archived',
+            'archiveReason': 'trial_not_approved',
+            'archivedAt': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      }
+
+      batch.set(
+        childDoc.reference,
+        {
+          'childStatus': 'rejected_after_trial',
+          'status': 'archived',
+          'accountStatus': 'archived',
+          'isActive': false,
+          'isBillable': false,
+          'excludeFromMonthlyInvoice': true,
+          'canReactivate': false,
+          'trialDecision': 'rejected',
+          'trialDecisionAt': FieldValue.serverTimestamp(),
+          'archiveReason': 'trial_not_approved',
+          'archivedAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+
+      await batch.commit();
+
+      final groupId = _cleanText(childData['groupId']);
+      if (groupId.isNotEmpty) {
+        await _refreshGroupChildrenCount(groupId);
+      }
+
+      if (!mounted) return;
+
+      setState(() {});
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم رفض طفل التجربة وأرشفته')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذر رفض طفل التجربة: $e')),
+      );
+    }
+  }
 
   Widget buildChildCard(Map<String, dynamic> child) {
     final name = (child['name'] ?? '').toString();
@@ -1693,6 +3274,11 @@ String temporaryChildSummary(Map<String, dynamic> child) {
     final typeLabel = childTypeLabel(child);
     final typeColor = childTypeColor(child);
     final tempSummary = temporaryChildSummary(child);
+    final resolvedChildType = resolveChildType(child);
+    final isArchivedTrial = !isActive && resolvedChildType == 'trial';
+    final isTrialPendingDecision =
+        _cleanText(child['childStatus']).toLowerCase() ==
+            'trial_pending_decision';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -1870,6 +3456,41 @@ String temporaryChildSummary(Map<String, dynamic> child) {
            ),
           ),
          ),
+          if (isActive &&
+              resolvedChildType == 'temporary' &&
+              !_isTrialChildData(child)) ...[
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => _openConvertTemporaryChildSheet(child),
+                icon: const Icon(Icons.sync_alt_rounded),
+                label: const Text('تحويل إلى طفل دائم'),
+              ),
+            ),
+          ],
+          if (isTrialPendingDecision) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () => _openApproveTrialChildSheet(child),
+                    icon: const Icon(Icons.verified_rounded),
+                    label: const Text('اعتماد كطفل دائم'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _rejectTrialChild(child),
+                    icon: const Icon(Icons.block_outlined),
+                    label: const Text('رفض وأرشفة'),
+                  ),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 10),
           Row(
             children: [
@@ -1880,28 +3501,34 @@ String temporaryChildSummary(Map<String, dynamic> child) {
                   label: const Text('تعديل'),
                 ),
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () {
-                    if (isActive) {
-                      archiveChild(child);
-                    } else {
-                      restoreChild(child);
-                    }
-                  },
-                  icon: Icon(
-                    isActive ? Icons.archive_outlined : Icons.restore_outlined,
-                  ),
-                  label: Text(isActive ? 'أرشفة' : 'استعادة'),
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(double.infinity, 50),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
+              if (!isArchivedTrial) ...[
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      if (isActive) {
+                        archiveChild(child);
+                      } else {
+                        restoreChild(child);
+                      }
+                    },
+                    icon: Icon(
+                      isActive
+                          ? Icons.archive_outlined
+                          : Icons.restore_outlined,
+                    ),
+                    label: Text(
+                      isActive ? 'أرشفة' : 'استعادة',
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(double.infinity, 50),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
                     ),
                   ),
                 ),
-              ),
+              ],
             ],
           ),
         ],
@@ -2129,6 +3756,1238 @@ Wrap(
     return '';
   }
 
+
+  String _normalizePhone(String value) {
+    return value.replaceAll(RegExp(r'[^0-9]'), '').trim();
+  }
+
+  bool _isValidPalestinianMobile(String phone) {
+    final clean = _normalizePhone(phone);
+    return RegExp(r'^(059|056|052)\d{7}$').hasMatch(clean) &&
+        !RegExp(r'^(\d)\1+$').hasMatch(clean);
+  }
+
+  String _generateTemporaryAccessCode() {
+    final random = Random.secure();
+    return 'TMP-${100000 + random.nextInt(900000)}';
+  }
+
+  String? _newChildProfileValidationError(_NewChildProfileDraft profile) {
+    if (profile.hasChronicDiseases &&
+        profile.chronicDiseasesCtrl.text.trim().isEmpty) {
+      return 'أدخلي تفاصيل الأمراض المزمنة';
+    }
+
+    if (profile.hasAllergies && profile.allergiesCtrl.text.trim().isEmpty) {
+      return 'أدخلي تفاصيل الحساسية';
+    }
+
+    if (profile.takesMedications &&
+        profile.medicationsCtrl.text.trim().isEmpty) {
+      return 'أدخلي تفاصيل الأدوية';
+    }
+
+    if (profile.hasDietaryRestrictions &&
+        profile.dietaryRestrictionsCtrl.text.trim().isEmpty) {
+      return 'أدخلي تفاصيل القيود الغذائية';
+    }
+
+    if (profile.hasSpecialNeeds &&
+        profile.specialNeedsCtrl.text.trim().isEmpty) {
+      return 'أدخلي تفاصيل الاحتياجات الخاصة';
+    }
+
+    if (profile.pickupContacts.isEmpty) {
+      return 'أضيفي شخصًا مخولًا بالاستلام';
+    }
+
+    for (final pickup in profile.pickupContacts) {
+      if (pickup.nameCtrl.text.trim().isEmpty ||
+          pickup.relationCtrl.text.trim().isEmpty ||
+          pickup.phoneCtrl.text.trim().isEmpty) {
+        return 'تأكدي من تعبئة بيانات الأشخاص المخولين بالاستلام';
+      }
+
+      if (!_isValidPalestinianMobile(pickup.phoneCtrl.text)) {
+        return 'رقم المخول بالاستلام غير صالح';
+      }
+    }
+
+    return null;
+  }
+
+  Future<void> _showValidationError(String message) async {
+    if (!mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('راجعي البيانات'),
+          content: Text(message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('تم'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showTemporaryAccessCreatedDialog({
+    required String childName,
+    required String accessCode,
+    required DateTime accessEndAt,
+  }) async {
+    if (!mounted) return;
+
+    final day = accessEndAt.day.toString().padLeft(2, '0');
+    final month = accessEndAt.month.toString().padLeft(2, '0');
+    final year = accessEndAt.year.toString();
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('تم إنشاء الوصول المؤقت'),
+          content: Text(
+            'الطفل: $childName\n'
+            'الكود: $accessCode\n'
+            'الصلاحية: $day-$month-$year',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('تم'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNewChildProfileFields({
+    required _NewChildProfileDraft profile,
+    required StateSetter setSheetState,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 18),
+        const Text(
+          'البيانات الصحية',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          value: profile.hasChronicDiseases,
+          title: const Text('هل لدى الطفل أمراض مزمنة؟'),
+          onChanged: (value) {
+            setSheetState(() {
+              profile.hasChronicDiseases = value;
+              if (!value) profile.chronicDiseasesCtrl.clear();
+            });
+          },
+        ),
+        if (profile.hasChronicDiseases) ...[
+          TextField(
+            controller: profile.chronicDiseasesCtrl,
+            maxLines: 2,
+            decoration: const InputDecoration(
+              labelText: 'تفاصيل الأمراض المزمنة',
+              prefixIcon: Icon(Icons.monitor_heart_outlined),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          value: profile.hasAllergies,
+          title: const Text('هل لدى الطفل حساسية؟'),
+          onChanged: (value) {
+            setSheetState(() {
+              profile.hasAllergies = value;
+              if (!value) profile.allergiesCtrl.clear();
+            });
+          },
+        ),
+        if (profile.hasAllergies) ...[
+          TextField(
+            controller: profile.allergiesCtrl,
+            maxLines: 2,
+            decoration: const InputDecoration(
+              labelText: 'تفاصيل الحساسية',
+              prefixIcon: Icon(Icons.warning_amber_rounded),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          value: profile.takesMedications,
+          title: const Text('هل يتناول الطفل أدوية بشكل مستمر؟'),
+          onChanged: (value) {
+            setSheetState(() {
+              profile.takesMedications = value;
+              if (!value) profile.medicationsCtrl.clear();
+            });
+          },
+        ),
+        if (profile.takesMedications) ...[
+          TextField(
+            controller: profile.medicationsCtrl,
+            maxLines: 2,
+            decoration: const InputDecoration(
+              labelText: 'تفاصيل الأدوية',
+              prefixIcon: Icon(Icons.medication_outlined),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          value: profile.hasDietaryRestrictions,
+          title: const Text('هل لدى الطفل قيود غذائية؟'),
+          onChanged: (value) {
+            setSheetState(() {
+              profile.hasDietaryRestrictions = value;
+              if (!value) profile.dietaryRestrictionsCtrl.clear();
+            });
+          },
+        ),
+        if (profile.hasDietaryRestrictions) ...[
+          TextField(
+            controller: profile.dietaryRestrictionsCtrl,
+            maxLines: 2,
+            decoration: const InputDecoration(
+              labelText: 'تفاصيل القيود الغذائية',
+              prefixIcon: Icon(Icons.restaurant_menu_rounded),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          value: profile.hasSpecialNeeds,
+          title: const Text('هل لدى الطفل احتياجات خاصة؟'),
+          onChanged: (value) {
+            setSheetState(() {
+              profile.hasSpecialNeeds = value;
+              if (!value) profile.specialNeedsCtrl.clear();
+            });
+          },
+        ),
+        if (profile.hasSpecialNeeds) ...[
+          TextField(
+            controller: profile.specialNeedsCtrl,
+            maxLines: 2,
+            decoration: const InputDecoration(
+              labelText: 'تفاصيل الاحتياجات الخاصة',
+              prefixIcon: Icon(Icons.accessible_rounded),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+        TextField(
+          controller: profile.healthNotesCtrl,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            labelText: 'ملاحظات صحية عامة',
+            prefixIcon: Icon(Icons.health_and_safety_rounded),
+          ),
+        ),
+        const SizedBox(height: 18),
+        const Text(
+          'المخولون بالاستلام',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+        ),
+        const SizedBox(height: 10),
+        ...List.generate(profile.pickupContacts.length, (index) {
+          final pickup = profile.pickupContacts[index];
+
+          return Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'الشخص ${index + 1}',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    if (profile.pickupContacts.length > 1)
+                      IconButton(
+                        onPressed: () {
+                          setSheetState(() {
+                            pickup.dispose();
+                            profile.pickupContacts.removeAt(index);
+                          });
+                        },
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                  ],
+                ),
+                TextField(
+                  controller: pickup.nameCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'الاسم',
+                    prefixIcon: Icon(Icons.person_outline_rounded),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: pickup.relationCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'صلة القرابة',
+                    prefixIcon: Icon(Icons.family_restroom_rounded),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: pickup.phoneCtrl,
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(
+                    labelText: 'رقم الجوال',
+                    prefixIcon: Icon(Icons.phone_rounded),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }),
+        OutlinedButton.icon(
+          onPressed: () {
+            setSheetState(() {
+              profile.pickupContacts.add(_PickupContactEditor());
+            });
+          },
+          icon: const Icon(Icons.add_rounded),
+          label: const Text('إضافة شخص مخول آخر'),
+        ),
+      ],
+    );
+  }
+
+  bool _groupHasCapacity(
+    QueryDocumentSnapshot<Map<String, dynamic>> groupDoc,
+  ) {
+    final data = groupDoc.data();
+    final currentChildren =
+        (data['currentChildrenCount'] as num?)?.toInt() ?? 0;
+    final maxChildren = (data['maxChildren'] as num?)?.toInt() ?? 12;
+
+    return maxChildren <= 0 || currentChildren < maxChildren;
+  }
+
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      _loadActiveTemporaryAccessCodes() async {
+    final snapshot = await _firestore
+        .collection('temporary_access_codes')
+        .where('isActive', isEqualTo: true)
+        .get();
+
+    final now = DateTime.now();
+
+    final docs = snapshot.docs.where((doc) {
+      final data = doc.data();
+      final end = _toDateTime(data['accessEndAt']);
+      return end == null || end.isAfter(now);
+    }).toList();
+
+    docs.sort((a, b) {
+      final aName = _cleanText(
+        a.data()['parentName'] ?? a.data()['temporaryParentName'],
+      );
+      final bName = _cleanText(
+        b.data()['parentName'] ?? b.data()['temporaryParentName'],
+      );
+      return aName.compareTo(bName);
+    });
+
+    return docs;
+  }
+
+  Future<_PreparedTemporaryAccessCode?> _prepareDirectTemporaryAccessCode({
+    required WriteBatch batch,
+    required DocumentReference<Map<String, dynamic>> childRef,
+    required String childName,
+    required String childType,
+    required String parentName,
+    required String parentPhone,
+    required QueryDocumentSnapshot<Map<String, dynamic>> groupDoc,
+    required DateTime start,
+    required DateTime end,
+    required String sharedAccessCodeId,
+    required String adminUid,
+  }) async {
+    final groupData = groupDoc.data();
+
+    if (sharedAccessCodeId.trim().isEmpty) {
+      final codeRef = _firestore.collection('temporary_access_codes').doc();
+      final code = _generateTemporaryAccessCode();
+
+      batch.set(codeRef, {
+        'id': codeRef.id,
+        'code': code,
+        'childId': childRef.id,
+        'childName': childName,
+        'childIds': [childRef.id],
+        'childNames': [childName],
+        'childTypes': [childType],
+        'groupId': groupDoc.id,
+        'groupName': _cleanText(groupData['groupName']),
+        'groupIds': [groupDoc.id],
+        'groupNames': [_cleanText(groupData['groupName'])],
+        'parentUid': '',
+        'parentUsername': '',
+        'parentName': parentName,
+        'parentPhone': parentPhone,
+        'temporaryParentName': parentName,
+        'temporaryParentPhone': parentPhone,
+        'childType': childType,
+        'childStatus': childType,
+        'accessStartAt': Timestamp.fromDate(start),
+        'accessEndAt': Timestamp.fromDate(end),
+        if (childType == 'trial') 'trialStartAt': Timestamp.fromDate(start),
+        if (childType == 'trial') 'trialEndAt': Timestamp.fromDate(end),
+        'hasMultipleChildren': false,
+        'usesSharedAccessCode': false,
+        'isActive': true,
+        'status': 'active',
+        'accountStatus': 'active',
+        'canReactivate': childType != 'trial',
+        'permanentDeleted': false,
+        'createdByUid': adminUid,
+        'createdByRole': 'admin',
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      return _PreparedTemporaryAccessCode(
+        id: codeRef.id,
+        code: code,
+        parentName: parentName,
+        parentPhone: parentPhone,
+        usesSharedAccessCode: false,
+      );
+    }
+
+    final codeRef = _firestore
+        .collection('temporary_access_codes')
+        .doc(sharedAccessCodeId);
+    final codeDoc = await codeRef.get();
+    final codeData = codeDoc.data();
+
+    if (!codeDoc.exists || codeData == null || codeData['isActive'] != true) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('كود الإخوة غير متاح')),
+        );
+      }
+      return null;
+    }
+
+    final code = _cleanText(codeData['code']);
+    if (code.isEmpty) return null;
+
+    final linkedChildIds = <String>{
+      ..._readStringList(codeData['childIds']),
+      _cleanText(codeData['childId']),
+      childRef.id,
+    }..removeWhere((value) => value.isEmpty);
+
+    final linkedChildNames = <String>{
+      ..._readStringList(codeData['childNames']),
+      _cleanText(codeData['childName']),
+      childName,
+    }..removeWhere((value) => value.isEmpty);
+
+    final linkedChildTypes = <String>{
+      ..._readStringList(codeData['childTypes']),
+      _cleanText(codeData['childType']),
+      childType,
+    }..removeWhere((value) => value.isEmpty);
+
+    final groupIds = <String>{
+      ..._readStringList(codeData['groupIds']),
+      _cleanText(codeData['groupId']),
+      groupDoc.id,
+    }..removeWhere((value) => value.isEmpty);
+
+    final groupNames = <String>{
+      ..._readStringList(codeData['groupNames']),
+      _cleanText(codeData['groupName']),
+      _cleanText(groupData['groupName']),
+    }..removeWhere((value) => value.isEmpty);
+
+    final oldStart = _toDateTime(codeData['accessStartAt']);
+    final oldEnd = _toDateTime(codeData['accessEndAt']);
+    final mergedStart =
+        oldStart != null && oldStart.isBefore(start) ? oldStart : start;
+    final mergedEnd = oldEnd != null && oldEnd.isAfter(end) ? oldEnd : end;
+
+    batch.set(
+      codeRef,
+      {
+        'childIds': linkedChildIds.toList(),
+        'childNames': linkedChildNames.toList(),
+        'childTypes': linkedChildTypes.toList(),
+        'groupIds': groupIds.toList(),
+        'groupNames': groupNames.toList(),
+        'accessStartAt': Timestamp.fromDate(mergedStart),
+        'accessEndAt': Timestamp.fromDate(mergedEnd),
+        'hasMultipleChildren': linkedChildIds.length > 1,
+        'usesSharedAccessCode': linkedChildIds.length > 1,
+        'isActive': true,
+        'status': 'active',
+        'accountStatus': 'active',
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+
+    for (final siblingId in linkedChildIds) {
+      batch.set(
+        _firestore.collection('children').doc(siblingId),
+        {
+          'sharedAccessCodeId': codeRef.id,
+          'usesSharedAccessCode': linkedChildIds.length > 1,
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+    }
+
+    final savedParentName = _cleanText(
+      codeData['parentName'] ?? codeData['temporaryParentName'],
+    );
+    final savedParentPhone = _cleanText(
+      codeData['parentPhone'] ?? codeData['temporaryParentPhone'],
+    );
+
+    return _PreparedTemporaryAccessCode(
+      id: codeRef.id,
+      code: code,
+      parentName: savedParentName.isEmpty ? parentName : savedParentName,
+      parentPhone: savedParentPhone.isEmpty ? parentPhone : savedParentPhone,
+      usesSharedAccessCode: linkedChildIds.length > 1,
+    );
+  }
+
+  Future<void> _openAddTemporaryOrTrialChildSheet({
+    required String childType,
+  }) async {
+    final groups = await _loadActiveGroups();
+    final accessCodes = await _loadActiveTemporaryAccessCodes();
+
+    if (!mounted) return;
+
+    if (groups.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('أنشئي مجموعة مفعلة أولًا')),
+      );
+      return;
+    }
+
+    final isTrial = childType == 'trial';
+    final childNameCtrl = TextEditingController();
+    final parentNameCtrl = TextEditingController();
+    final parentPhoneCtrl = TextEditingController();
+    final noteCtrl = TextEditingController();
+    final hoursCtrl = TextEditingController(text: '1');
+    final hourlyRateCtrl = TextEditingController(text: '10');
+    final paidCtrl = TextEditingController(text: '0');
+    final profile = _NewChildProfileDraft();
+
+    String selectedGroupId = '';
+    String selectedGender = 'female';
+    String selectedSharedAccessCodeId = '';
+    bool linkWithSiblings = false;
+    bool isSaving = false;
+    DateTime start = DateTime.now();
+    DateTime end = DateTime.now().add(const Duration(days: 1));
+
+    num parseMoney(String value) {
+      return num.tryParse(value.trim().replaceAll(',', '.')) ?? 0;
+    }
+
+    DateTime trialEnd() {
+      return DateTime(start.year, start.month, start.day + 2, 23, 59, 59);
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (sheetContext) {
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: StatefulBuilder(
+            builder: (context, setSheetState) {
+              final effectiveEnd = isTrial
+                  ? trialEnd()
+                  : DateTime(end.year, end.month, end.day, 23, 59, 59);
+              final total = isTrial
+                  ? 0
+                  : parseMoney(hoursCtrl.text) * parseMoney(hourlyRateCtrl.text);
+              final paid = isTrial ? 0 : parseMoney(paidCtrl.text);
+              final remaining = total - paid < 0 ? 0 : total - paid;
+
+              return Padding(
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 16,
+                  bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+                ),
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 45,
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: Colors.black12,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      Text(
+                        isTrial ? 'إضافة طفل تجربة' : 'إضافة طفل مؤقت',
+                        style: Theme.of(sheetContext)
+                            .textTheme
+                            .titleLarge
+                            ?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 18),
+                      DropdownButtonFormField<String>(
+                        initialValue:
+                            selectedGroupId.isEmpty ? null : selectedGroupId,
+                        decoration: const InputDecoration(
+                          labelText: 'المجموعة',
+                          prefixIcon: Icon(Icons.groups_2_outlined),
+                        ),
+                        items: groups.map((doc) {
+                          final data = doc.data();
+                          return DropdownMenuItem<String>(
+                            value: doc.id,
+                            child: Text(
+                              '${_cleanText(data['groupName'])} • ${_cleanText(data['assignedStaffName'])}',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          );
+                        }).toList(),
+                        onChanged: (value) {
+                          setSheetState(() {
+                            selectedGroupId = value ?? '';
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: childNameCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'اسم الطفل',
+                          prefixIcon: Icon(Icons.child_care_outlined),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        value: linkWithSiblings,
+                        title: const Text('ربط بإخوة مسجلين بنفس الكود'),
+                        onChanged: (value) {
+                          setSheetState(() {
+                            linkWithSiblings = value;
+                            selectedSharedAccessCodeId = '';
+                            if (value) {
+                              parentNameCtrl.clear();
+                              parentPhoneCtrl.clear();
+                            }
+                          });
+                        },
+                      ),
+                      if (linkWithSiblings) ...[
+                        DropdownButtonFormField<String>(
+                          initialValue: selectedSharedAccessCodeId.isEmpty
+                              ? null
+                              : selectedSharedAccessCodeId,
+                          isExpanded: true,
+                          decoration: const InputDecoration(
+                            labelText: 'كود الإخوة',
+                            prefixIcon: Icon(Icons.family_restroom_rounded),
+                          ),
+                          items: accessCodes.map((doc) {
+                            final data = doc.data();
+                            final parent = _cleanText(
+                              data['parentName'] ??
+                                  data['temporaryParentName'],
+                            );
+                            final names = _readStringList(data['childNames']);
+                            return DropdownMenuItem<String>(
+                              value: doc.id,
+                              child: Text(
+                                '$parent • ${names.join('، ')}',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            );
+                          }).toList(),
+                          onChanged: (value) {
+                            setSheetState(() {
+                              selectedSharedAccessCodeId = value ?? '';
+                              if (selectedSharedAccessCodeId.isNotEmpty) {
+                                final data = accessCodes
+                                    .firstWhere(
+                                      (doc) =>
+                                          doc.id == selectedSharedAccessCodeId,
+                                    )
+                                    .data();
+                                parentNameCtrl.text = _cleanText(
+                                  data['parentName'] ??
+                                      data['temporaryParentName'],
+                                );
+                                parentPhoneCtrl.text = _cleanText(
+                                  data['parentPhone'] ??
+                                      data['temporaryParentPhone'],
+                                );
+                              }
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      TextField(
+                        controller: parentNameCtrl,
+                        enabled: !linkWithSiblings,
+                        decoration: const InputDecoration(
+                          labelText: 'اسم ولي الأمر',
+                          prefixIcon: Icon(Icons.person_outline_rounded),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: parentPhoneCtrl,
+                        enabled: !linkWithSiblings,
+                        keyboardType: TextInputType.phone,
+                        decoration: const InputDecoration(
+                          labelText: 'رقم ولي الأمر',
+                          prefixIcon: Icon(Icons.phone_outlined),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        initialValue: selectedGender,
+                        decoration: const InputDecoration(
+                          labelText: 'الجنس',
+                          prefixIcon: Icon(Icons.wc_outlined),
+                        ),
+                        items: const [
+                          DropdownMenuItem(value: 'female', child: Text('أنثى')),
+                          DropdownMenuItem(value: 'male', child: Text('ذكر')),
+                        ],
+                        onChanged: (value) {
+                          setSheetState(() {
+                            selectedGender = value ?? 'female';
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      InkWell(
+                        onTap: () async {
+                          final picked = await showDatePicker(
+                            context: sheetContext,
+                            initialDate: profile.birthDate,
+                            firstDate: DateTime(2015),
+                            lastDate: DateTime.now(),
+                          );
+                          if (picked == null) return;
+                          setSheetState(() {
+                            profile.birthDate = picked;
+                          });
+                        },
+                        child: InputDecorator(
+                          decoration: const InputDecoration(
+                            labelText: 'تاريخ الميلاد',
+                            prefixIcon: Icon(Icons.calendar_today_outlined),
+                          ),
+                          child: Text(
+                            '${profile.birthDate.year}/${profile.birthDate.month}/${profile.birthDate.day}',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () async {
+                                final picked = await showDatePicker(
+                                  context: sheetContext,
+                                  initialDate: start,
+                                  firstDate: DateTime(2020),
+                                  lastDate: DateTime(2035),
+                                );
+                                if (picked == null) return;
+                                setSheetState(() {
+                                  start = picked;
+                                  if (!isTrial && end.isBefore(start)) {
+                                    end = start;
+                                  }
+                                });
+                              },
+                              icon: const Icon(Icons.event_outlined),
+                              label: Text(
+                                '${start.year}/${start.month}/${start.day}',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: isTrial
+                                  ? null
+                                  : () async {
+                                      final picked = await showDatePicker(
+                                        context: sheetContext,
+                                        initialDate: end,
+                                        firstDate: start,
+                                        lastDate: DateTime(2035),
+                                      );
+                                      if (picked == null) return;
+                                      setSheetState(() {
+                                        end = picked;
+                                      });
+                                    },
+                              icon: const Icon(Icons.event_available_outlined),
+                              label: Text(
+                                '${effectiveEnd.year}/${effectiveEnd.month}/${effectiveEnd.day}',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (!isTrial) ...[
+                        const SizedBox(height: 18),
+                        const Text(
+                          'الفاتورة',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: hoursCtrl,
+                          keyboardType: TextInputType.number,
+                          onChanged: (_) => setSheetState(() {}),
+                          decoration: const InputDecoration(
+                            labelText: 'عدد الساعات',
+                            prefixIcon: Icon(Icons.access_time_rounded),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: hourlyRateCtrl,
+                          keyboardType: TextInputType.number,
+                          onChanged: (_) => setSheetState(() {}),
+                          decoration: const InputDecoration(
+                            labelText: 'سعر الساعة',
+                            prefixIcon: Icon(Icons.payments_outlined),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: paidCtrl,
+                          keyboardType: TextInputType.number,
+                          onChanged: (_) => setSheetState(() {}),
+                          decoration: const InputDecoration(
+                            labelText: 'المدفوع',
+                            prefixIcon: Icon(Icons.done_all_rounded),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Text('الإجمالي: $total شيكل'),
+                        Text('المتبقي: $remaining شيكل'),
+                      ],
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: noteCtrl,
+                        maxLines: 2,
+                        decoration: const InputDecoration(
+                          labelText: 'ملاحظات',
+                          prefixIcon: Icon(Icons.notes_outlined),
+                        ),
+                      ),
+                      _buildNewChildProfileFields(
+                        profile: profile,
+                        setSheetState: setSheetState,
+                      ),
+                      const SizedBox(height: 18),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: isSaving
+                              ? null
+                              : () async {
+                                  final childName = childNameCtrl.text.trim();
+                                  final parentName = parentNameCtrl.text.trim();
+                                  final parentPhone =
+                                      _normalizePhone(parentPhoneCtrl.text);
+
+                                  if (selectedGroupId.isEmpty) {
+                                    await _showValidationError(
+                                      'اختاري المجموعة',
+                                    );
+                                    return;
+                                  }
+
+                                  if (childName.isEmpty) {
+                                    await _showValidationError(
+                                      'اكتبي اسم الطفل',
+                                    );
+                                    return;
+                                  }
+
+                                  if (parentName.isEmpty ||
+                                      !_isValidPalestinianMobile(parentPhone)) {
+                                    await _showValidationError(
+                                      'تأكدي من اسم ولي الأمر ورقم الجوال',
+                                    );
+                                    return;
+                                  }
+
+                                  if (linkWithSiblings &&
+                                      selectedSharedAccessCodeId.isEmpty) {
+                                    await _showValidationError(
+                                      'اختاري كود الإخوة',
+                                    );
+                                    return;
+                                  }
+
+                                  if (!isTrial && effectiveEnd.isBefore(start)) {
+                                    await _showValidationError(
+                                      'تاريخ النهاية يجب ألا يسبق تاريخ البداية',
+                                    );
+                                    return;
+                                  }
+
+                                  if (!isTrial && parseMoney(hoursCtrl.text) <= 0) {
+                                    await _showValidationError(
+                                      'أدخلي عدد ساعات صحيح',
+                                    );
+                                    return;
+                                  }
+
+                                  if (!isTrial &&
+                                      parseMoney(hourlyRateCtrl.text) <= 0) {
+                                    await _showValidationError(
+                                      'أدخلي سعر ساعة صحيح',
+                                    );
+                                    return;
+                                  }
+
+                                  if (!isTrial && paid < 0) {
+                                    await _showValidationError(
+                                      'قيمة المدفوع غير صحيحة',
+                                    );
+                                    return;
+                                  }
+
+                                  if (!isTrial && paid > total) {
+                                    await _showValidationError(
+                                      'قيمة المدفوع لا يمكن أن تتجاوز الإجمالي',
+                                    );
+                                    return;
+                                  }
+
+                                  if (!isTrial && total <= 0) {
+                                    await _showValidationError(
+                                      'أدخلي فاتورة صحيحة',
+                                    );
+                                    return;
+                                  }
+
+                                  final profileError =
+                                      _newChildProfileValidationError(profile);
+
+                                  if (profileError != null) {
+                                    await _showValidationError(profileError);
+                                    return;
+                                  }
+
+                                  setSheetState(() {
+                                    isSaving = true;
+                                  });
+
+                                  final saved =
+                                      await _saveTemporaryOrTrialChildDirect(
+                                    childType: childType,
+                                    childName: childName,
+                                    parentName: parentName,
+                                    parentPhone: parentPhone,
+                                    gender: selectedGender,
+                                    profile: profile,
+                                    note: noteCtrl.text.trim(),
+                                    start: DateTime(
+                                      start.year,
+                                      start.month,
+                                      start.day,
+                                    ),
+                                    end: effectiveEnd,
+                                    hours: parseMoney(hoursCtrl.text),
+                                    hourlyRate:
+                                        parseMoney(hourlyRateCtrl.text),
+                                    paid: paid,
+                                    total: total,
+                                    remaining: remaining,
+                                    sharedAccessCodeId:
+                                        selectedSharedAccessCodeId,
+                                    groupDoc: groups.firstWhere(
+                                      (doc) => doc.id == selectedGroupId,
+                                    ),
+                                  );
+
+                                  if (!sheetContext.mounted) return;
+
+                                  if (saved) {
+                                    Navigator.pop(sheetContext);
+                                  } else {
+                                    setSheetState(() {
+                                      isSaving = false;
+                                    });
+                                  }
+                                },
+                          icon: isSaving
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.save_rounded),
+                          label: Text(isSaving ? 'جاري الحفظ...' : 'حفظ'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
+
+    childNameCtrl.dispose();
+    parentNameCtrl.dispose();
+    parentPhoneCtrl.dispose();
+    noteCtrl.dispose();
+    hoursCtrl.dispose();
+    hourlyRateCtrl.dispose();
+    paidCtrl.dispose();
+    profile.dispose();
+  }
+
+  Future<bool> _saveTemporaryOrTrialChildDirect({
+    required String childType,
+    required String childName,
+    required String parentName,
+    required String parentPhone,
+    required String gender,
+    required _NewChildProfileDraft profile,
+    required String note,
+    required DateTime start,
+    required DateTime end,
+    required num hours,
+    required num hourlyRate,
+    required num paid,
+    required num total,
+    required num remaining,
+    required String sharedAccessCodeId,
+    required QueryDocumentSnapshot<Map<String, dynamic>> groupDoc,
+  }) async {
+    try {
+      if (!_groupHasCapacity(groupDoc)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('المجموعة ممتلئة')),
+          );
+        }
+        return false;
+      }
+
+      final isTrial = childType == 'trial';
+      final childRef = _firestore.collection('children').doc();
+      final invoiceRef = _firestore.collection('invoices').doc();
+      final batch = _firestore.batch();
+      final adminUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+      final groupData = groupDoc.data();
+
+      final preparedCode = await _prepareDirectTemporaryAccessCode(
+        batch: batch,
+        childRef: childRef,
+        childName: childName,
+        childType: childType,
+        parentName: parentName,
+        parentPhone: parentPhone,
+        groupDoc: groupDoc,
+        start: start,
+        end: end,
+        sharedAccessCodeId: sharedAccessCodeId,
+        adminUid: adminUid,
+      );
+
+      if (preparedCode == null) return false;
+
+      batch.set(childRef, {
+        'id': childRef.id,
+        'childId': childRef.id,
+        'name': childName,
+        'childName': childName,
+        'gender': gender,
+        'birthDate': Timestamp.fromDate(profile.birthDate),
+        ...profile.toMap(),
+        'section': 'Nursery',
+        'childType': childType,
+        'enrollmentType': childType,
+        'childStatus': childType,
+        'status': 'active',
+        'accountStatus': 'active',
+        'isActive': true,
+        'isTemporaryChild': childType == 'temporary',
+        'isTrialChild': isTrial,
+        'isTemporary': childType == 'temporary',
+        'isBillable': !isTrial,
+        'excludeFromMonthlyInvoice': true,
+        'canReactivate': !isTrial,
+        'permanentDeleted': false,
+        'parentUid': '',
+        'parentUsername': '',
+        'parentName': preparedCode.parentName,
+        'parentPhone': preparedCode.parentPhone,
+        'temporaryParentName': preparedCode.parentName,
+        'temporaryParentPhone': preparedCode.parentPhone,
+        'groupId': groupDoc.id,
+        'groupName': _cleanText(groupData['groupName']),
+        'assignedStaffUid': _cleanText(groupData['assignedStaffUid']),
+        'assignedStaffName': _cleanText(groupData['assignedStaffName']),
+        'assignedStaffUsername':
+            _cleanText(groupData['assignedStaffUsername']),
+        'temporaryAccessCodeId': preparedCode.id,
+        'sharedAccessCodeId': preparedCode.id,
+        'usesSharedAccessCode': preparedCode.usesSharedAccessCode,
+        'temporaryAccessCode': preparedCode.code,
+        'temporaryAccessStartAt': Timestamp.fromDate(start),
+        'temporaryAccessEndAt': Timestamp.fromDate(end),
+        if (isTrial) ...{
+          'trialStartAt': Timestamp.fromDate(start),
+          'trialEndAt': Timestamp.fromDate(end),
+          'trialDays': 3,
+          'trialIsFree': true,
+        } else ...{
+          'temporaryStartDate': Timestamp.fromDate(start),
+          'temporaryEndDate': Timestamp.fromDate(end),
+          'temporaryFee': total,
+          'temporaryBillingType': 'hourly',
+          'temporaryBillingTypeLabel': 'حسب الساعات',
+          'temporaryHoursCount': hours,
+          'temporaryHourlyRate': hourlyRate,
+          'temporaryPaidAmount': paid,
+          'temporaryRemainingAmount': remaining,
+        },
+        'temporaryNotes': note,
+        'hasConsultation': false,
+        'consultationStatus': 'none',
+        'createdByUid': adminUid,
+        'createdByRole': 'admin',
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      if (!isTrial) {
+        final status = paid <= 0
+            ? 'غير مدفوعة'
+            : paid >= total
+                ? 'مدفوعة'
+                : 'مدفوعة جزئياً';
+
+        batch.set(invoiceRef, {
+          'id': invoiceRef.id,
+          'invoiceId': invoiceRef.id,
+          'title': 'فاتورة الطفل المؤقت',
+          'childId': childRef.id,
+          'childName': childName,
+          'childType': 'temporary',
+          'parentUid': '',
+          'parentUsername': '',
+          'parentName': preparedCode.parentName,
+          'parentPhone': preparedCode.parentPhone,
+          'temporaryParentName': preparedCode.parentName,
+          'temporaryParentPhone': preparedCode.parentPhone,
+          'groupId': groupDoc.id,
+          'groupName': _cleanText(groupData['groupName']),
+          'temporaryAccessCodeId': preparedCode.id,
+          'sharedAccessCodeId': preparedCode.id,
+          'billingType': 'hourly',
+          'billingTypeLabel': 'حسب الساعات',
+          'hoursCount': hours,
+          'hourlyRate': hourlyRate,
+          'baseAmount': total,
+          'finalAmount': total,
+          'totalAmount': total,
+          'paidAmount': paid,
+          'remainingAmount': remaining,
+          'status': status,
+          'invoiceDate': FieldValue.serverTimestamp(),
+          'accessStartAt': Timestamp.fromDate(start),
+          'accessEndAt': Timestamp.fromDate(end),
+          'createdByUid': adminUid,
+          'createdByRole': 'admin',
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+
+      await batch.commit();
+      await _refreshGroupChildrenCount(groupDoc.id);
+
+      if (!mounted) return true;
+
+      setState(() {});
+
+      await _showTemporaryAccessCreatedDialog(
+        childName: childName,
+        accessCode: preparedCode.code,
+        accessEndAt: end,
+      );
+
+      return true;
+    } catch (e) {
+      if (!mounted) return false;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذر حفظ الطفل: $e')),
+      );
+
+      return false;
+    }
+  }
+
   Future<void> _openAddChildOptions() async {
     await showModalBottomSheet<void>(
       context: context,
@@ -2159,24 +5018,31 @@ Wrap(
                     child: Icon(Icons.schedule_rounded),
                   ),
                   title: const Text(
-                    'إضافة طفل مؤقت أو تجربة',
+                    'إضافة طفل مؤقت',
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
-                  subtitle: const Text('اختيار المجموعة ثم نوع الإضافة'),
+                  subtitle: const Text('تحديد المجموعة والفترة والفاتورة'),
                   onTap: () async {
                     Navigator.pop(sheetContext);
-
-                    await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const AdminGroupsPage(
-                          openAddChildFlow: true,
-                        ),
-                      ),
+                    await _openAddTemporaryOrTrialChildSheet(
+                      childType: 'temporary',
                     );
-
-                    if (!mounted) return;
-                    setState(() {});
+                  },
+                ),
+                ListTile(
+                  leading: const CircleAvatar(
+                    child: Icon(Icons.volunteer_activism_outlined),
+                  ),
+                  title: const Text(
+                    'إضافة طفل تجربة',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  subtitle: const Text('تحديد المجموعة وفترة التجربة'),
+                  onTap: () async {
+                    Navigator.pop(sheetContext);
+                    await _openAddTemporaryOrTrialChildSheet(
+                      childType: 'trial',
+                    );
                   },
                 ),
               ],
@@ -2186,6 +5052,7 @@ Wrap(
       },
     );
   }
+
 
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
       _loadOfficialParents() async {
@@ -2240,29 +5107,25 @@ Wrap(
 
     if (parents.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('لا يوجد حساب ولي أمر رسمي مفعّل'),
-        ),
+        const SnackBar(content: Text('لا يوجد حساب ولي أمر رسمي مفعّل')),
       );
       return;
     }
 
     if (groups.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('أنشئي مجموعة مفعّلة أولًا'),
-        ),
+        const SnackBar(content: Text('أنشئي مجموعة مفعلة أولًا')),
       );
       return;
     }
 
     final childNameCtrl = TextEditingController();
     final identityNumberCtrl = TextEditingController();
+    final profile = _NewChildProfileDraft();
 
     String selectedParentUid = '';
     String selectedGroupId = '';
     String selectedGender = 'female';
-    DateTime selectedBirthDate = DateTime(2023, 1, 1);
     bool isSaving = false;
 
     await showModalBottomSheet<void>(
@@ -2386,14 +5249,8 @@ Wrap(
                           prefixIcon: Icon(Icons.wc_outlined),
                         ),
                         items: const [
-                          DropdownMenuItem(
-                            value: 'female',
-                            child: Text('أنثى'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'male',
-                            child: Text('ذكر'),
-                          ),
+                          DropdownMenuItem(value: 'female', child: Text('أنثى')),
+                          DropdownMenuItem(value: 'male', child: Text('ذكر')),
                         ],
                         onChanged: (value) {
                           setSheetState(() {
@@ -2406,15 +5263,13 @@ Wrap(
                         onTap: () async {
                           final picked = await showDatePicker(
                             context: sheetContext,
-                            initialDate: selectedBirthDate,
+                            initialDate: profile.birthDate,
                             firstDate: DateTime(2015),
                             lastDate: DateTime.now(),
                           );
-
                           if (picked == null) return;
-
                           setSheetState(() {
-                            selectedBirthDate = picked;
+                            profile.birthDate = picked;
                           });
                         },
                         child: InputDecorator(
@@ -2423,9 +5278,13 @@ Wrap(
                             prefixIcon: Icon(Icons.calendar_today_outlined),
                           ),
                           child: Text(
-                            '${selectedBirthDate.year}/${selectedBirthDate.month}/${selectedBirthDate.day}',
+                            '${profile.birthDate.year}/${profile.birthDate.month}/${profile.birthDate.day}',
                           ),
                         ),
+                      ),
+                      _buildNewChildProfileFields(
+                        profile: profile,
+                        setSheetState: setSheetState,
                       ),
                       const SizedBox(height: 18),
                       SizedBox(
@@ -2439,41 +5298,39 @@ Wrap(
                                       identityNumberCtrl.text.trim();
 
                                   if (selectedParentUid.isEmpty) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text('اختاري ولي الأمر'),
-                                      ),
+                                    await _showValidationError(
+                                      'اختاري ولي الأمر',
                                     );
                                     return;
                                   }
 
                                   if (selectedGroupId.isEmpty) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text('اختاري المجموعة'),
-                                      ),
+                                    await _showValidationError(
+                                      'اختاري المجموعة',
                                     );
                                     return;
                                   }
 
                                   if (childName.isEmpty) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text('اكتبي اسم الطفل'),
-                                      ),
+                                    await _showValidationError(
+                                      'اكتبي اسم الطفل',
                                     );
                                     return;
                                   }
 
                                   if (!RegExp(r'^\d{9}$')
                                       .hasMatch(identityNumber)) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text(
-                                          'رقم الهوية يجب أن يتكون من 9 أرقام',
-                                        ),
-                                      ),
+                                    await _showValidationError(
+                                      'رقم الهوية يجب أن يتكون من 9 أرقام',
                                     );
+                                    return;
+                                  }
+
+                                  final profileError =
+                                      _newChildProfileValidationError(profile);
+
+                                  if (profileError != null) {
+                                    await _showValidationError(profileError);
                                     return;
                                   }
 
@@ -2485,7 +5342,8 @@ Wrap(
                                     childName: childName,
                                     identityNumber: identityNumber,
                                     gender: selectedGender,
-                                    birthDate: selectedBirthDate,
+                                    birthDate: profile.birthDate,
+                                    profileFields: profile.toMap(),
                                     parentDoc: parents.firstWhere(
                                       (doc) => doc.id == selectedParentUid,
                                     ),
@@ -2513,9 +5371,7 @@ Wrap(
                                   ),
                                 )
                               : const Icon(Icons.save_rounded),
-                          label: Text(
-                            isSaving ? 'جاري الحفظ...' : 'حفظ',
-                          ),
+                          label: Text(isSaving ? 'جاري الحفظ...' : 'حفظ'),
                         ),
                       ),
                     ],
@@ -2530,13 +5386,16 @@ Wrap(
 
     childNameCtrl.dispose();
     identityNumberCtrl.dispose();
+    profile.dispose();
   }
+
 
   Future<bool> _savePermanentChild({
     required String childName,
     required String identityNumber,
     required String gender,
     required DateTime birthDate,
+    required Map<String, dynamic> profileFields,
     required QueryDocumentSnapshot<Map<String, dynamic>> parentDoc,
     required QueryDocumentSnapshot<Map<String, dynamic>> groupDoc,
   }) async {
@@ -2553,7 +5412,6 @@ Wrap(
       }
 
       final existingData = existingChildDoc?.data() ?? <String, dynamic>{};
-
       final existingType = _cleanText(existingData['childType']).toLowerCase();
       final existingEnrollmentType =
           _cleanText(existingData['enrollmentType']).toLowerCase();
@@ -2564,31 +5422,21 @@ Wrap(
         if (!mounted) return false;
 
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('هذا الطفل مسجل كطفل دائم بالفعل'),
-          ),
+          const SnackBar(content: Text('هذا الطفل مسجل كطفل دائم بالفعل')),
         );
         return false;
       }
 
       final groupData = groupDoc.data();
-      final currentChildren =
-          (groupData['currentChildrenCount'] as num?)?.toInt() ?? 0;
-      final maxChildren =
-          (groupData['maxChildren'] as num?)?.toInt() ?? 12;
-
       final oldGroupId = _cleanText(existingData['groupId']);
       final wasActive = existingData['isActive'] == true;
 
-      if (maxChildren > 0 &&
-          currentChildren >= maxChildren &&
+      if (!_groupHasCapacity(groupDoc) &&
           (!wasActive || oldGroupId != groupDoc.id)) {
         if (!mounted) return false;
 
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('المجموعة ممتلئة، اختاري مجموعة أخرى'),
-          ),
+          const SnackBar(content: Text('المجموعة ممتلئة، اختاري مجموعة أخرى')),
         );
         return false;
       }
@@ -2599,7 +5447,6 @@ Wrap(
       final parentPhone = _parentPhone(parentData);
       final childRef = existingChildDoc?.reference ??
           _firestore.collection('children').doc();
-
       final batch = _firestore.batch();
 
       batch.set(
@@ -2612,6 +5459,7 @@ Wrap(
           'identityNumber': identityNumber,
           'gender': gender,
           'birthDate': Timestamp.fromDate(birthDate),
+          ...profileFields,
           'section': 'Nursery',
           'childType': 'permanent',
           'enrollmentType': 'permanent',
@@ -2638,9 +5486,8 @@ Wrap(
           'permanentDeleted': false,
           'convertedFromTemporary':
               existingChildDoc != null && !isExistingPermanent,
-          'convertedToPermanentAt': existingChildDoc == null
-              ? null
-              : FieldValue.serverTimestamp(),
+          if (existingChildDoc != null)
+            'convertedToPermanentAt': FieldValue.serverTimestamp(),
           'temporaryAccess': false,
           'temporaryAccessCodeId': FieldValue.delete(),
           'sharedAccessCodeId': FieldValue.delete(),
@@ -2651,9 +5498,8 @@ Wrap(
           'archiveReason': FieldValue.delete(),
           'archivedAt': FieldValue.delete(),
           'updatedAt': FieldValue.serverTimestamp(),
-          if (existingChildDoc == null) ...{
+          if (existingChildDoc == null)
             'createdAt': FieldValue.serverTimestamp(),
-          },
         },
         SetOptions(merge: true),
       );
@@ -2688,7 +5534,6 @@ Wrap(
       }
 
       await batch.commit();
-
       await _refreshGroupChildrenCount(groupDoc.id);
 
       if (oldGroupId.isNotEmpty && oldGroupId != groupDoc.id) {
@@ -2700,9 +5545,7 @@ Wrap(
       setState(() {});
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('تمت إضافة الطفل الدائم بنجاح'),
-        ),
+        const SnackBar(content: Text('تمت إضافة الطفل الدائم بنجاح')),
       );
 
       return true;
@@ -2710,14 +5553,13 @@ Wrap(
       if (!mounted) return false;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('تعذر حفظ الطفل الدائم: $e'),
-        ),
+        SnackBar(content: Text('تعذر حفظ الطفل الدائم: $e')),
       );
 
       return false;
     }
   }
+
 
 
  String buildEmptyStateText() {
@@ -2842,6 +5684,78 @@ Wrap(
         ],
       ),
     );
+  }
+}
+
+
+class _PreparedTemporaryAccessCode {
+  final String id;
+  final String code;
+  final String parentName;
+  final String parentPhone;
+  final bool usesSharedAccessCode;
+
+  const _PreparedTemporaryAccessCode({
+    required this.id,
+    required this.code,
+    required this.parentName,
+    required this.parentPhone,
+    required this.usesSharedAccessCode,
+  });
+}
+
+class _NewChildProfileDraft {
+  DateTime birthDate = DateTime(2023, 1, 1);
+
+  bool hasChronicDiseases = false;
+  bool hasAllergies = false;
+  bool takesMedications = false;
+  bool hasDietaryRestrictions = false;
+  bool hasSpecialNeeds = false;
+
+  final chronicDiseasesCtrl = TextEditingController();
+  final allergiesCtrl = TextEditingController();
+  final medicationsCtrl = TextEditingController();
+  final dietaryRestrictionsCtrl = TextEditingController();
+  final specialNeedsCtrl = TextEditingController();
+  final healthNotesCtrl = TextEditingController();
+
+  final List<_PickupContactEditor> pickupContacts = [
+    _PickupContactEditor(),
+  ];
+
+  Map<String, dynamic> toMap() {
+    return {
+      'hasChronicDiseases': hasChronicDiseases,
+      'chronicDiseases':
+          hasChronicDiseases ? chronicDiseasesCtrl.text.trim() : '',
+      'hasAllergies': hasAllergies,
+      'allergies': hasAllergies ? allergiesCtrl.text.trim() : '',
+      'takesMedications': takesMedications,
+      'medications': takesMedications ? medicationsCtrl.text.trim() : '',
+      'hasDietaryRestrictions': hasDietaryRestrictions,
+      'dietaryRestrictions': hasDietaryRestrictions
+          ? dietaryRestrictionsCtrl.text.trim()
+          : '',
+      'hasSpecialNeeds': hasSpecialNeeds,
+      'specialNeeds': hasSpecialNeeds ? specialNeedsCtrl.text.trim() : '',
+      'healthNotes': healthNotesCtrl.text.trim(),
+      'authorizedPickupContacts':
+          pickupContacts.map((contact) => contact.toMap()).toList(),
+    };
+  }
+
+  void dispose() {
+    chronicDiseasesCtrl.dispose();
+    allergiesCtrl.dispose();
+    medicationsCtrl.dispose();
+    dietaryRestrictionsCtrl.dispose();
+    specialNeedsCtrl.dispose();
+    healthNotesCtrl.dispose();
+
+    for (final contact in pickupContacts) {
+      contact.dispose();
+    }
   }
 }
 

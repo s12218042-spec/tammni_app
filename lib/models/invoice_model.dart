@@ -93,6 +93,7 @@ class InvoiceChildItem {
   final String parentUid;
   final String parentUsername;
   final String childType;
+  final String enrollmentType;
   final String childStatus;
   final bool isTemporaryChild;
   final bool isTrialChild;
@@ -109,6 +110,7 @@ class InvoiceChildItem {
     this.parentUid = '',
     this.parentUsername = '',
     this.childType = '',
+    this.enrollmentType = '',
     this.childStatus = '',
     this.isTemporaryChild = false,
     this.isTrialChild = false,
@@ -172,6 +174,7 @@ class InvoiceChildItem {
       parentUid: _string(data['parentUid']),
       parentUsername: _string(data['parentUsername']).toLowerCase(),
       childType: normalizedType,
+      enrollmentType: normalizedType,
       childStatus: normalizedStatus,
       isTemporaryChild: isTemporary,
       isTrialChild: isTrial,
@@ -183,7 +186,9 @@ class InvoiceChildItem {
   Map<String, dynamic> toMap() {
     final resolvedGroupName = groupName.trim().isNotEmpty ? groupName : group;
     final resolvedGroup = group.trim().isNotEmpty ? group : resolvedGroupName;
-    final resolvedType = _normalizeChildType(childType);
+    final resolvedType = _normalizeChildType(
+      childType.trim().isNotEmpty ? childType : enrollmentType,
+    );
 
     final resolvedStatus = childStatus.trim().isNotEmpty
         ? childStatus.trim().toLowerCase()
@@ -207,6 +212,7 @@ class InvoiceChildItem {
       'parentUid': parentUid,
       'parentUsername': parentUsername.trim().toLowerCase(),
       'childType': resolvedType,
+      'enrollmentType': resolvedType,
       'childStatus': resolvedStatus,
       'isTemporaryChild': resolvedIsTemporary,
       'isTrialChild': resolvedIsTrial,
@@ -237,6 +243,7 @@ class InvoiceModel {
   final String temporaryParentPhone;
 
   final String childType;
+  final String enrollmentType;
   final String childStatus;
   final bool isTemporaryChild;
   final bool isTrialChild;
@@ -359,6 +366,7 @@ class InvoiceModel {
     this.temporaryParentName = '',
     this.temporaryParentPhone = '',
     this.childType = '',
+    this.enrollmentType = '',
     this.childStatus = '',
     this.isTemporaryChild = false,
     this.isTrialChild = false,
@@ -503,7 +511,14 @@ class InvoiceModel {
 
     final resolvedTotal = _toDouble(
       data['totalAmount'] ?? data['finalAmount'],
-      fallback: (resolvedSubtotal - resolvedTotalDiscount)
+      fallback: (resolvedSubtotal -
+              resolvedTotalDiscount +
+              _toDouble(data['extraHoursAmount'] ?? data['extraHoursTotal']) +
+              _toDouble(
+                data['consultationsAmount'] ??
+                    data['consultationAmount'] ??
+                    data['consultationsTotal'],
+              ))
           .clamp(0, double.infinity)
           .toDouble(),
     );
@@ -534,9 +549,9 @@ class InvoiceModel {
 
     final resolvedChildStatus = _firstNonEmpty([
       data['childStatus'],
-      data['status'],
       resolvedChildType == 'temporary' ? 'temporary' : '',
       resolvedChildType == 'trial' ? 'trial' : '',
+      resolvedChildType == 'permanent' ? 'active' : '',
     ]).toLowerCase();
 
     final resolvedIsTemporaryChild = data['isTemporaryChild'] == true ||
@@ -583,6 +598,7 @@ class InvoiceModel {
       temporaryParentName: _string(data['temporaryParentName']),
       temporaryParentPhone: _string(data['temporaryParentPhone']),
       childType: resolvedChildType,
+      enrollmentType: resolvedChildType,
       childStatus: resolvedChildStatus,
       isTemporaryChild: resolvedIsTemporaryChild,
       isTrialChild: resolvedIsTrialChild,
@@ -766,6 +782,9 @@ class InvoiceModel {
   Map<String, dynamic> toMap() {
     final resolvedGroupName = groupName.trim().isNotEmpty ? groupName : group;
     final resolvedGroup = group.trim().isNotEmpty ? group : resolvedGroupName;
+    final resolvedChildType = _normalizeChildType(
+      childType.trim().isNotEmpty ? childType : enrollmentType,
+    );
 
     final resolvedChildren = children.map((e) => e.toMap()).toList();
 
@@ -806,7 +825,8 @@ class InvoiceModel {
       'parentPhone': parentPhone,
       'temporaryParentName': temporaryParentName,
       'temporaryParentPhone': temporaryParentPhone,
-      'childType': childType,
+      'childType': resolvedChildType,
+      'enrollmentType': resolvedChildType,
       'childStatus': childStatus,
       'isTemporaryChild': isTemporaryChild,
       'isTrialChild': isTrialChild,
@@ -939,6 +959,21 @@ class InvoiceModel {
     return effectiveRemainingAmount > 0;
   }
 
+  bool get hasExtraHours {
+    return extraHoursAmount > 0 || extraHoursIds.isNotEmpty;
+  }
+
+  bool get hasConsultations {
+    return consultationsAmount > 0 || consultationIds.isNotEmpty;
+  }
+
+  bool get isHourlyTemporaryInvoice {
+    return billingType == 'hourly' &&
+        (hasTemporaryChild ||
+            invoiceCategory == 'temporary_child' ||
+            invoiceCategory == 'temporary_fee');
+  }
+
   double get effectiveSubtotal {
     if (subtotalAmount > 0) return subtotalAmount;
 
@@ -948,8 +983,6 @@ class InvoiceModel {
         registrationFee +
         lateFee +
         subscriptionAmount +
-        extraHoursAmount +
-        consultationsAmount +
         otherFeesAmount;
 
     if (calculated > 0) return calculated;
@@ -960,8 +993,6 @@ class InvoiceModel {
         registrationFee +
         lateFee +
         subscriptionAmount +
-        extraHoursAmount +
-        consultationsAmount +
         otherFeesAmount;
   }
 
@@ -973,7 +1004,12 @@ class InvoiceModel {
   double get effectiveTotalAmount {
     if (totalAmount > 0) return totalAmount;
     if (finalAmount > 0) return finalAmount;
-    return (effectiveSubtotal - effectiveDiscount).clamp(0, double.infinity);
+
+    return (effectiveSubtotal -
+            effectiveDiscount +
+            extraHoursAmount +
+            consultationsAmount)
+        .clamp(0, double.infinity);
   }
 
   double get effectiveRemainingAmount {
@@ -1003,7 +1039,11 @@ class InvoiceModel {
   }
 
   bool get hasTemporaryChild {
-    if (isTemporaryChild || _normalizeChildType(childType) == 'temporary') {
+    if (isTemporaryChild ||
+        _normalizeChildType(
+              childType.trim().isNotEmpty ? childType : enrollmentType,
+            ) ==
+            'temporary') {
       return true;
     }
 
@@ -1018,7 +1058,11 @@ class InvoiceModel {
   }
 
   bool get hasTrialChild {
-    if (isTrialChild || _normalizeChildType(childType) == 'trial') {
+    if (isTrialChild ||
+        _normalizeChildType(
+              childType.trim().isNotEmpty ? childType : enrollmentType,
+            ) ==
+            'trial') {
       return true;
     }
 
@@ -1132,6 +1176,7 @@ class InvoiceModel {
     String? temporaryParentName,
     String? temporaryParentPhone,
     String? childType,
+    String? enrollmentType,
     String? childStatus,
     bool? isTemporaryChild,
     bool? isTrialChild,
@@ -1231,6 +1276,7 @@ class InvoiceModel {
       temporaryParentName: temporaryParentName ?? this.temporaryParentName,
       temporaryParentPhone: temporaryParentPhone ?? this.temporaryParentPhone,
       childType: childType ?? this.childType,
+      enrollmentType: enrollmentType ?? this.enrollmentType,
       childStatus: childStatus ?? this.childStatus,
       isTemporaryChild: isTemporaryChild ?? this.isTemporaryChild,
       isTrialChild: isTrialChild ?? this.isTrialChild,
@@ -1429,11 +1475,5 @@ double _calculateSubtotalFromData(Map<String, dynamic> data) {
       _toDouble(data['registrationFee']) +
       _toDouble(data['lateFee']) +
       _toDouble(data['subscriptionAmount']) +
-      _toDouble(data['extraHoursAmount'] ?? data['extraHoursTotal']) +
-      _toDouble(
-        data['consultationsAmount'] ??
-            data['consultationAmount'] ??
-            data['consultationsTotal'],
-      ) +
       _toDouble(data['otherFeesAmount']);
 }

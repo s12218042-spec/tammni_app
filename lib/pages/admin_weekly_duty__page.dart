@@ -421,8 +421,15 @@ class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
 
         final staffDocs = snapshot.data!.docs.where((doc) {
           final data = doc.data();
+
           final isActive = data['isActive'] != false;
-          return isActive && _isNurseryStaff(data);
+          final accountStatus = _clean(data['accountStatus']).toLowerCase();
+          final isLiveStreamStation = data['isLiveStreamStation'] == true;
+
+          return isActive &&
+              accountStatus != 'archived' &&
+              !isLiveStreamStation &&
+              _isNurseryStaff(data);
         }).toList();
 
         staffDocs.sort((a, b) {

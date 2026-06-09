@@ -132,7 +132,10 @@ class ChildModel {
   /// permanent / temporary / trial
   final String childType;
 
-  /// active / temporary / trial / pending / rejected_after_trial / withdrawn / archived
+  /// Mirrors childType for compatibility with Firestore records and older pages.
+  final String enrollmentType;
+
+  /// active / temporary / trial / trial_pending_decision / pending / rejected_after_trial / withdrawn / archived
   final String status;
   final String childStatus;
 
@@ -142,6 +145,8 @@ class ChildModel {
   final String temporaryNote;
 
   final String temporaryAccessCodeId;
+  final String sharedAccessCodeId;
+  final bool usesSharedAccessCode;
   final String temporaryAccessCode;
   final DateTime? temporaryAccessStartAt;
   final DateTime? temporaryAccessEndAt;
@@ -161,6 +166,13 @@ class ChildModel {
   final DateTime? trialDecisionAt;
   final String trialDecision;
   final String trialNote;
+  final DateTime? trialApprovedAt;
+
+  final String convertedFromChildType;
+  final DateTime? convertedToPermanentAt;
+  final String previousTemporaryAccessCodeId;
+  final String previousTemporaryParentName;
+  final String previousTemporaryParentPhone;
 
   final bool isBillable;
   final bool excludeFromMonthlyInvoice;
@@ -222,6 +234,7 @@ class ChildModel {
     this.archivedAt,
     this.reactivatedAt,
     this.childType = 'permanent',
+    this.enrollmentType = '',
     this.status = 'active',
     this.childStatus = 'active',
     this.temporaryStartAt,
@@ -229,6 +242,8 @@ class ChildModel {
     this.temporaryReason = '',
     this.temporaryNote = '',
     this.temporaryAccessCodeId = '',
+    this.sharedAccessCodeId = '',
+    this.usesSharedAccessCode = false,
     this.temporaryAccessCode = '',
     this.temporaryAccessStartAt,
     this.temporaryAccessEndAt,
@@ -245,6 +260,12 @@ class ChildModel {
     this.trialDecisionAt,
     this.trialDecision = '',
     this.trialNote = '',
+    this.trialApprovedAt,
+    this.convertedFromChildType = '',
+    this.convertedToPermanentAt,
+    this.previousTemporaryAccessCodeId = '',
+    this.previousTemporaryParentName = '',
+    this.previousTemporaryParentPhone = '',
     this.isBillable = true,
     this.excludeFromMonthlyInvoice = false,
     this.hasChronicDiseases = false,
@@ -307,6 +328,7 @@ class ChildModel {
       case 'pending':
       case 'trial':
       case 'temporary':
+      case 'trial_pending_decision':
       case 'active':
       case 'rejected_after_trial':
       case 'withdrawn':
@@ -365,6 +387,11 @@ class ChildModel {
     final defaultExcludeFromMonthlyInvoice =
         resolvedType == 'temporary' || resolvedType == 'trial';
 
+    final defaultCanReactivate = !(resolvedType == 'trial' &&
+        (resolvedStatus == 'trial_pending_decision' ||
+            resolvedStatus == 'archived' ||
+            resolvedStatus == 'rejected_after_trial'));
+
     return ChildModel(
       id: _firstNonEmpty([
         data['id'],
@@ -408,13 +435,17 @@ class ChildModel {
         data['accountStatus'],
         data['isActive'] == false ? 'archived' : 'active',
       ]),
-      canReactivate: _boolValue(data['canReactivate'], defaultValue: true),
+      canReactivate: _boolValue(
+        data['canReactivate'],
+        defaultValue: defaultCanReactivate,
+      ),
       permanentDeleted:
           _boolValue(data['permanentDeleted'], defaultValue: false),
       archiveReason: _string(data['archiveReason']),
       archivedAt: _parseDate(data['archivedAt']),
       reactivatedAt: _parseDate(data['reactivatedAt']),
       childType: resolvedType,
+      enrollmentType: resolvedType,
       status: resolvedStatus,
       childStatus: resolvedStatus,
       temporaryStartAt: _parseDate(
@@ -429,6 +460,14 @@ class ChildModel {
         data['temporaryNotes'],
       ]),
       temporaryAccessCodeId: _string(data['temporaryAccessCodeId']),
+      sharedAccessCodeId: _firstNonEmpty([
+        data['sharedAccessCodeId'],
+        data['temporaryAccessCodeId'],
+      ]),
+      usesSharedAccessCode: _boolValue(
+        data['usesSharedAccessCode'],
+        defaultValue: _string(data['sharedAccessCodeId']).isNotEmpty,
+      ),
       temporaryAccessCode: _string(data['temporaryAccessCode']),
       temporaryAccessStartAt: _parseDate(data['temporaryAccessStartAt']),
       temporaryAccessEndAt: _parseDate(data['temporaryAccessEndAt']),
@@ -447,6 +486,15 @@ class ChildModel {
       trialDecisionAt: _parseDate(data['trialDecisionAt']),
       trialDecision: _string(data['trialDecision']),
       trialNote: _string(data['trialNote']),
+      trialApprovedAt: _parseDate(data['trialApprovedAt']),
+      convertedFromChildType: _string(data['convertedFromChildType']),
+      convertedToPermanentAt: _parseDate(data['convertedToPermanentAt']),
+      previousTemporaryAccessCodeId:
+          _string(data['previousTemporaryAccessCodeId']),
+      previousTemporaryParentName:
+          _string(data['previousTemporaryParentName']),
+      previousTemporaryParentPhone:
+          _string(data['previousTemporaryParentPhone']),
       isBillable: _boolValue(
         data['isBillable'],
         defaultValue: defaultIsBillable,
@@ -499,7 +547,9 @@ class ChildModel {
     final resolvedGroupName = groupName.trim().isNotEmpty ? groupName : group;
     final resolvedGroup = group.trim().isNotEmpty ? group : resolvedGroupName;
 
-    final resolvedType = normalizeChildType(childType);
+    final resolvedType = normalizeChildType(
+      childType.trim().isNotEmpty ? childType : enrollmentType,
+    );
 
     final resolvedStatus = normalizeChildStatus(
       childStatus.trim().isNotEmpty
@@ -538,7 +588,12 @@ class ChildModel {
       'temporaryParentPhone': temporaryParentPhone,
       'isActive': isActive,
       'accountStatus': accountStatus,
-      'canReactivate': canReactivate,
+      'canReactivate': resolvedType == 'trial' &&
+              (resolvedStatus == 'trial_pending_decision' ||
+                  resolvedStatus == 'archived' ||
+                  resolvedStatus == 'rejected_after_trial')
+          ? false
+          : canReactivate,
       'permanentDeleted': permanentDeleted,
       'archiveReason': archiveReason,
       'childType': resolvedType,
@@ -550,6 +605,10 @@ class ChildModel {
       'temporaryReason': temporaryReason,
       'temporaryNote': temporaryNote,
       'temporaryAccessCodeId': temporaryAccessCodeId,
+      'sharedAccessCodeId': sharedAccessCodeId.trim().isNotEmpty
+          ? sharedAccessCodeId
+          : temporaryAccessCodeId,
+      'usesSharedAccessCode': usesSharedAccessCode,
       'temporaryAccessCode': temporaryAccessCode,
       'temporaryFee': temporaryFee,
       'temporaryBillingType': temporaryBillingType,
@@ -561,6 +620,10 @@ class ChildModel {
       'hasConsultation': hasConsultation,
       'trialDecision': trialDecision,
       'trialNote': trialNote,
+      'convertedFromChildType': convertedFromChildType,
+      'previousTemporaryAccessCodeId': previousTemporaryAccessCodeId,
+      'previousTemporaryParentName': previousTemporaryParentName,
+      'previousTemporaryParentPhone': previousTemporaryParentPhone,
       'isBillable': isBillable,
       'excludeFromMonthlyInvoice': excludeFromMonthlyInvoice,
       'hasChronicDiseases': hasChronicDiseases,
@@ -616,6 +679,15 @@ class ChildModel {
       data['trialDecisionAt'] = Timestamp.fromDate(trialDecisionAt!);
     }
 
+    if (trialApprovedAt != null) {
+      data['trialApprovedAt'] = Timestamp.fromDate(trialApprovedAt!);
+    }
+
+    if (convertedToPermanentAt != null) {
+      data['convertedToPermanentAt'] =
+          Timestamp.fromDate(convertedToPermanentAt!);
+    }
+
     if (archivedAt != null) {
       data['archivedAt'] = Timestamp.fromDate(archivedAt!);
     }
@@ -640,7 +712,9 @@ class ChildModel {
   }
 
   bool get isTemporaryChild {
-    final type = normalizeChildType(childType);
+    final type = normalizeChildType(
+      childType.trim().isNotEmpty ? childType : enrollmentType,
+    );
     final resolvedStatus = normalizeChildStatus(
       childStatus.trim().isNotEmpty ? childStatus : status,
     );
@@ -649,12 +723,16 @@ class ChildModel {
   }
 
   bool get isTrial {
-    final type = normalizeChildType(childType);
+    final type = normalizeChildType(
+      childType.trim().isNotEmpty ? childType : enrollmentType,
+    );
     final resolvedStatus = normalizeChildStatus(
       childStatus.trim().isNotEmpty ? childStatus : status,
     );
 
-    return type == 'trial' || resolvedStatus == 'trial';
+    return type == 'trial' ||
+        resolvedStatus == 'trial' ||
+        resolvedStatus == 'trial_pending_decision';
   }
 
   bool get isTrialChild {
@@ -680,6 +758,11 @@ class ChildModel {
     return childStatus == 'pending' || status == 'pending';
   }
 
+  bool get isTrialPendingDecision {
+    return normalizeChildStatus(childStatus) == 'trial_pending_decision' ||
+        normalizeChildStatus(status) == 'trial_pending_decision';
+  }
+
   bool get isWithdrawn {
     return childStatus == 'withdrawn' || status == 'withdrawn';
   }
@@ -691,6 +774,14 @@ class ChildModel {
         status == 'rejected_after_trial' ||
         accountStatus == 'archived' ||
         !isActive;
+  }
+
+  bool get hasSharedTemporaryAccessCode {
+    return usesSharedAccessCode && sharedAccessCodeId.trim().isNotEmpty;
+  }
+
+  bool get canBeReactivated {
+    return isArchived && canReactivate && !isTrial;
   }
 
   bool get hasGroup {
@@ -733,6 +824,8 @@ class ChildModel {
         return 'قيد المراجعة';
       case 'trial':
         return 'فترة تجربة';
+      case 'trial_pending_decision':
+        return 'بانتظار قرار التجربة';
       case 'temporary':
         return 'طفل مؤقت';
       case 'active':
@@ -778,6 +871,7 @@ class ChildModel {
     DateTime? archivedAt,
     DateTime? reactivatedAt,
     String? childType,
+    String? enrollmentType,
     String? status,
     String? childStatus,
     DateTime? temporaryStartAt,
@@ -785,6 +879,8 @@ class ChildModel {
     String? temporaryReason,
     String? temporaryNote,
     String? temporaryAccessCodeId,
+    String? sharedAccessCodeId,
+    bool? usesSharedAccessCode,
     String? temporaryAccessCode,
     DateTime? temporaryAccessStartAt,
     DateTime? temporaryAccessEndAt,
@@ -801,6 +897,12 @@ class ChildModel {
     DateTime? trialDecisionAt,
     String? trialDecision,
     String? trialNote,
+    DateTime? trialApprovedAt,
+    String? convertedFromChildType,
+    DateTime? convertedToPermanentAt,
+    String? previousTemporaryAccessCodeId,
+    String? previousTemporaryParentName,
+    String? previousTemporaryParentPhone,
     bool? isBillable,
     bool? excludeFromMonthlyInvoice,
     bool? hasChronicDiseases,
@@ -854,6 +956,7 @@ class ChildModel {
       archivedAt: archivedAt ?? this.archivedAt,
       reactivatedAt: reactivatedAt ?? this.reactivatedAt,
       childType: childType ?? this.childType,
+      enrollmentType: enrollmentType ?? this.enrollmentType,
       status: status ?? this.status,
       childStatus: childStatus ?? this.childStatus,
       temporaryStartAt: temporaryStartAt ?? this.temporaryStartAt,
@@ -862,6 +965,9 @@ class ChildModel {
       temporaryNote: temporaryNote ?? this.temporaryNote,
       temporaryAccessCodeId:
           temporaryAccessCodeId ?? this.temporaryAccessCodeId,
+      sharedAccessCodeId: sharedAccessCodeId ?? this.sharedAccessCodeId,
+      usesSharedAccessCode:
+          usesSharedAccessCode ?? this.usesSharedAccessCode,
       temporaryAccessCode: temporaryAccessCode ?? this.temporaryAccessCode,
       temporaryAccessStartAt:
           temporaryAccessStartAt ?? this.temporaryAccessStartAt,
@@ -884,6 +990,17 @@ class ChildModel {
       trialDecisionAt: trialDecisionAt ?? this.trialDecisionAt,
       trialDecision: trialDecision ?? this.trialDecision,
       trialNote: trialNote ?? this.trialNote,
+      trialApprovedAt: trialApprovedAt ?? this.trialApprovedAt,
+      convertedFromChildType:
+          convertedFromChildType ?? this.convertedFromChildType,
+      convertedToPermanentAt:
+          convertedToPermanentAt ?? this.convertedToPermanentAt,
+      previousTemporaryAccessCodeId:
+          previousTemporaryAccessCodeId ?? this.previousTemporaryAccessCodeId,
+      previousTemporaryParentName:
+          previousTemporaryParentName ?? this.previousTemporaryParentName,
+      previousTemporaryParentPhone:
+          previousTemporaryParentPhone ?? this.previousTemporaryParentPhone,
       isBillable: isBillable ?? this.isBillable,
       excludeFromMonthlyInvoice:
           excludeFromMonthlyInvoice ?? this.excludeFromMonthlyInvoice,

@@ -187,15 +187,15 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
           await _firestore.collection('extra_child_hours').get();
       final consultationsSnapshot =
           await _firestore.collection('child_consultations').get();
-      QuerySnapshot<Map<String, dynamic>> liveStreamsSnapshot;
+      DocumentSnapshot<Map<String, dynamic>>? nurseryMainStreamDoc;
 
       try {
-        liveStreamsSnapshot = await _firestore
+        nurseryMainStreamDoc = await _firestore
             .collection('live_streams')
-            .where('status', isEqualTo: 'active')
+            .doc('nursery_main_stream')
             .get();
       } catch (_) {
-        liveStreamsSnapshot = await _firestore.collection('live_streams').get();
+        nurseryMainStreamDoc = null;
       }
 
       final today = startOfToday();
@@ -244,23 +244,49 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
 
       for (final doc in invoicesSnapshot.docs) {
         final data = doc.data();
+
         if (isHiddenInvoice(data)) continue;
 
-        final status = normalizeStatus(data['status'] ?? data['paymentStatus']);
-        final amount = numValue(data['totalAmount']);
+        final status = normalizeStatus(
+          data['paymentStatus'] ??
+              data['status'] ??
+              data['invoiceStatus'],
+        );
+
+        if (status == 'cancelled' || status == 'canceled') {
+          continue;
+        }
+
+        final amount = numValue(
+          data['totalAmount'] ??
+              data['finalAmount'] ??
+              data['amount'],
+        );
+
+        final storedPaidAmount = numValue(
+          data['paidAmount'] ?? data['paid'],
+        );
+
+        final paidAmount = status == 'paid' && storedPaidAmount <= 0
+            ? amount
+            : storedPaidAmount;
+
+        final remainingAmount = status == 'paid'
+            ? 0
+            : numValue(
+                data['remainingAmount'] ?? (amount - paidAmount),
+              );
 
         allInvoicesTotal += amount;
+        paidTotal += paidAmount;
+        unpaidTotal += remainingAmount < 0 ? 0 : remainingAmount;
 
         if (status == 'paid') {
           paidCount++;
-          paidTotal += amount;
         } else if (status == 'overdue') {
           overdueCount++;
-          unpaidTotal += amount;
-        } else if (status == 'cancelled' || status == 'canceled') {
         } else {
           unpaidCount++;
-          unpaidTotal += amount;
         }
       }
 
@@ -288,11 +314,12 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
       }
 
       int activeStreams = 0;
-      for (final doc in liveStreamsSnapshot.docs) {
-        final data = doc.data();
+
+      if (nurseryMainStreamDoc?.exists == true) {
+        final data = nurseryMainStreamDoc?.data() ?? <String, dynamic>{};
 
         if (isActiveLiveStream(data)) {
-          activeStreams++;
+          activeStreams = 1;
         }
       }
 

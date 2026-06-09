@@ -12,7 +12,6 @@ import 'child_handoff_log_page.dart';
 import 'incident_report_page.dart';
 import 'nursery_care_log_page.dart';
 import 'nursery_chats_page.dart';
-import 'send_parent_notification_page.dart';
 import 'send_group_update_page.dart';
 import 'staff_my_tasks_page.dart';
 import 'profile_details_page.dart';
@@ -883,29 +882,12 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
     setState(() {});
   }
 
-  Future<void> openSendNotification(List<ChildModel> children) async {
-    final child = await pickChild(children);
-    if (child == null) return;
-
-    final res = await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => SendParentNotificationPage(child: child),
-      ),
-    );
-
-    if (res == true && mounted) {
-      setState(() {});
-    }
-  }
-
   Future<void> _openNotificationsPage(List<ChildModel> children) async {
     await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => _NurseryNotificationsPage(
           children: children,
-          onSendPressed: () => openSendNotification(children),
           fetchRecentNotifications: fetchRecentSentNotifications,
           markAsRead: markNurseryNotificationAsRead,
         ),
@@ -923,7 +905,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
         textDirection: TextDirection.rtl,
         child: AlertDialog(
           title: const Text('تسجيل الخروج'),
-          content: const Text('هل أنتِ متأكدة أنكِ تريدين تسجيل الخروج؟'),
+          content: const Text('هل أنت متأكد أنك تريد تسجيل الخروج؟'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -1359,12 +1341,6 @@ final end = (data['weekEndDateKey'] ??
                 ),
               );
             }),
-          const SizedBox(height: 10),
-          OutlinedButton.icon(
-            onPressed: () => openSendNotification(nurseryChildren),
-            icon: const Icon(Icons.notifications_outlined),
-            label: const Text('إرسال إشعار للأهل'),
-          ),
         ],
       ),
     );
@@ -1773,16 +1749,6 @@ final end = (data['weekEndDateKey'] ??
                         icon: Icons.child_care_rounded,
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: _GroupInfoBox(
-                        title: 'الحالة',
-                        value: isFull ? 'ممتلئة' : 'متاحة',
-                        icon: isFull
-                            ? Icons.warning_amber_rounded
-                            : Icons.check_circle_outline_rounded,
-                      ),
-                    ),
                   ],
                 ),
                 if (isFull) ...[
@@ -2073,16 +2039,11 @@ final end = (data['weekEndDateKey'] ??
       ),
       _QuickActionItem(
         icon: Icons.report_problem_outlined,
-        label: 'حادث/ملاحظة',
+        label: 'حادث',
         onTap: () async {
           final child = await pickChild(children);
           if (child != null) openIncidentReport(child);
         },
-      ),
-      _QuickActionItem(
-        icon: Icons.notifications_outlined,
-        label: 'إرسال إشعار',
-        onTap: () => openSendNotification(children),
       ),
     ];
 
@@ -2597,13 +2558,11 @@ class _NurseryChildDashboardCard extends StatelessWidget {
 
 class _NurseryNotificationsPage extends StatefulWidget {
   final List<ChildModel> children;
-  final Future<void> Function() onSendPressed;
   final Future<List<Map<String, dynamic>>> Function() fetchRecentNotifications;
   final Future<void> Function(String notificationId) markAsRead;
 
   const _NurseryNotificationsPage({
     required this.children,
-    required this.onSendPressed,
     required this.fetchRecentNotifications,
     required this.markAsRead,
   });
@@ -2649,6 +2608,8 @@ class _NurseryNotificationsPageState extends State<_NurseryNotificationsPage> {
       case 'complaint_created':
       case 'complaint_reply':
         return Colors.redAccent;
+      case 'supplies':
+        return Colors.teal;
       case 'update_notification':
       case 'nursery_notification':
         return AppColors.primary;
@@ -2667,6 +2628,8 @@ class _NurseryNotificationsPageState extends State<_NurseryNotificationsPage> {
       case 'complaint_created':
       case 'complaint_reply':
         return Icons.report_problem_outlined;
+      case 'supplies':
+        return Icons.inventory_2_outlined;
       case 'update_notification':
       case 'nursery_notification':
         return Icons.notifications_active_outlined;
@@ -2693,20 +2656,6 @@ class _NurseryNotificationsPageState extends State<_NurseryNotificationsPage> {
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
               children: [
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: () async {
-                      await widget.onSendPressed();
-
-                      if (!mounted) return;
-                      await _refresh();
-                    },
-                    icon: const Icon(Icons.add_alert_outlined),
-                    label: const Text('إرسال إشعار جديد'),
-                  ),
-                ),
-                const SizedBox(height: 16),
                 const Text(
                   'آخر الإشعارات',
                   style: TextStyle(

@@ -88,6 +88,7 @@ class PushSenderService {
       case 'update_notification':
       case 'group_update':
       case 'group_update_notification':
+      case 'supplies':
       case 'nursery':
       case 'nursery_notification':
       case 'custom':
@@ -126,7 +127,9 @@ class PushSenderService {
         return 'complaints';
 
       case 'account_enabled':
+      case 'account_reactivated':
       case 'account_disabled':
+      case 'account_archived':
       case 'account_updated':
       case 'account_deleted':
         return 'account';
@@ -692,23 +695,32 @@ class PushSenderService {
             .toString()
             .trim();
 
-    final extraPayload = {
-      'status': (notificationData['status'] ?? '').toString(),
-      'priority': (notificationData['priority'] ??
-              notificationData['importance'] ??
-              '')
-          .toString(),
-      'createdByUid': (notificationData['createdByUid'] ?? '').toString(),
-      'createdByName': (notificationData['createdByName'] ?? '').toString(),
-      'createdByRole': (notificationData['createdByRole'] ?? '').toString(),
-      'messageId': (notificationData['messageId'] ?? '').toString(),
-      'conversationChildId':
-          (notificationData['conversationChildId'] ?? '').toString(),
-      'emoji': (notificationData['emoji'] ?? '').toString(),
-      'invoiceId': (notificationData['invoiceId'] ?? '').toString(),
-      'invoiceStatus': (notificationData['invoiceStatus'] ?? '').toString(),
-      'paymentStatus': (notificationData['paymentStatus'] ?? '').toString(),
-    };
+        final extraPayload = {
+          'status': (notificationData['status'] ?? '').toString(),
+          'priority': (notificationData['priority'] ??
+                  notificationData['importance'] ??
+                  '')
+              .toString(),
+          'createdByUid': (notificationData['createdByUid'] ?? '').toString(),
+          'createdByName': (notificationData['createdByName'] ?? '').toString(),
+          'createdByRole': (notificationData['createdByRole'] ?? '').toString(),
+          'messageId': (notificationData['messageId'] ?? '').toString(),
+          'conversationChildId':
+              (notificationData['conversationChildId'] ?? '').toString(),
+          'emoji': (notificationData['emoji'] ?? '').toString(),
+          'invoiceId': (notificationData['invoiceId'] ?? '').toString(),
+          'invoiceStatus': (notificationData['invoiceStatus'] ?? '').toString(),
+          'paymentStatus': (notificationData['paymentStatus'] ?? '').toString(),
+
+          'updateId': (notificationData['updateId'] ?? '').toString(),
+          'category': (notificationData['category'] ?? '').toString(),
+          'templateType': (notificationData['templateType'] ?? '').toString(),
+          'importanceLabel':
+              (notificationData['importanceLabel'] ?? '').toString(),
+          'groupId': (notificationData['groupId'] ?? '').toString(),
+          'groupName': (notificationData['groupName'] ?? '').toString(),
+          'childType': (notificationData['childType'] ?? '').toString(),
+        };
 
     int sentCount = 0;
 

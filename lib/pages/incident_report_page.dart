@@ -94,28 +94,6 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
     return incidentPlace;
   }
 
-  String autoAnalyzeRisk() {
-    final text = detailsCtrl.text.trim();
-
-    if (text.contains('دم') ||
-        text.contains('كسر') ||
-        text.contains('نزيف') ||
-        text.contains('إغماء') ||
-        text.contains('اختناق') ||
-        text.contains('صعوبة تنفس')) {
-      return 'urgent';
-    }
-
-    if (text.contains('بكاء') ||
-        text.contains('سقوط') ||
-        text.contains('اصطدام') ||
-        text.contains('جرح') ||
-        text.contains('تورم')) {
-      return 'important';
-    }
-
-    return 'normal';
-  }
 
   String riskLabel(String value) {
     switch (value) {
@@ -458,17 +436,14 @@ Future<Map<String, dynamic>> _uploadIncidentImageIfNeeded() async {
   };
 }
 
- String _buildIncidentSummary({
-  required String autoRisk,
-}) {
+ String _buildIncidentSummary() {
   final details = detailsCtrl.text.trim();
   final action = actionCtrl.text.trim();
 
   final parts = <String>[
     'نوع الحادث: $incidentType',
     'المكان: $finalIncidentPlace',
-    'درجة الخطورة: ${riskLabel(autoRisk)}',
-    'الأولوية: ${riskLabel(priority)}',
+    'درجة الخطورة: ${riskLabel(priority)}',
     if (details.isNotEmpty) 'التفاصيل: $details',
     if (action.isNotEmpty) 'الإجراء المتخذ: $action',
   ];
@@ -511,9 +486,9 @@ Future<Map<String, dynamic>> _uploadIncidentImageIfNeeded() async {
     });
 
     try {
-      final autoRisk = autoAnalyzeRisk();
+      final autoRisk = priority;
       final now = Timestamp.now();
-      final finalSummary = _buildIncidentSummary(autoRisk: autoRisk);
+      final finalSummary = _buildIncidentSummary();
 
       final userInfo = await fetchCurrentUserInfo();
       final parentInfo = await fetchParentLinkInfo();
@@ -762,36 +737,30 @@ Future<Map<String, dynamic>> _uploadIncidentImageIfNeeded() async {
 
   @override
   Widget build(BuildContext context) {
-    final autoRisk = autoAnalyzeRisk();
-
     return AppPageScaffold(
       title: 'تقرير حادث',
       child: ListView(
         children: [
-          Container(
-            padding: const EdgeInsets.all(14),
-            margin: const EdgeInsets.only(bottom: 12),
-            decoration: BoxDecoration(
-              color: riskColor(autoRisk).withOpacity(0.10),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: riskColor(autoRisk).withOpacity(0.25),
+          _card(
+            'درجة الخطورة',
+            Icons.warning_amber_rounded,
+            child: DropdownButtonFormField<String>(
+              value: priority,
+              decoration: _inputDecoration(
+                hint: 'اختاري درجة الخطورة',
               ),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.warning_amber_rounded, color: riskColor(autoRisk)),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'درجة الخطورة: ${riskLabel(autoRisk)}',
-                    style: TextStyle(
-                      color: riskColor(autoRisk),
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
+              items: const [
+                DropdownMenuItem(value: 'normal', child: Text('عادي')),
+                DropdownMenuItem(value: 'important', child: Text('مهم')),
+                DropdownMenuItem(value: 'urgent', child: Text('عاجل')),
               ],
+              onChanged: (value) {
+                if (value == null) return;
+
+                setState(() {
+                  priority = value;
+                });
+              },
             ),
           ),
           _card(
@@ -919,31 +888,7 @@ Future<Map<String, dynamic>> _uploadIncidentImageIfNeeded() async {
               ),
             ),
           ),
-         
-          _card(
-            'أولوية التقرير',
-            Icons.priority_high_outlined,
-            child: DropdownButtonFormField<String>(
-              value: priority,
-              decoration: _inputDecoration(
-                hint: 'اختاري الأولوية',
-              ),
-              items: const [
-                DropdownMenuItem(value: 'normal', child: Text('عادي')),
-                DropdownMenuItem(value: 'important', child: Text('مهم')),
-                DropdownMenuItem(value: 'urgent', child: Text('عاجل')),
-              ],
-              onChanged: (value) {
-                if (value == null) return;
-
-                setState(() {
-                  priority = value;
-                });
-              },
-            ),
-          ),
-         
-          const SizedBox(height: 10),
+const SizedBox(height: 10),
           ElevatedButton.icon(
             onPressed: isSaving ? null : saveIncident,
             icon: isSaving

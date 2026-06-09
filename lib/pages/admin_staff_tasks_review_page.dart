@@ -173,7 +173,14 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
       final data = doc.data();
 
       final removed = data['removedFromSchedule'] == true;
-      if (removed) return false;
+      final staffUsername =
+          _clean(data['staffUsername']).toLowerCase();
+
+      final isLiveStreamStation =
+          data['isLiveStreamStation'] == true ||
+          staffUsername == 'stream_station';
+
+      if (removed || isLiveStreamStation) return false;
 
       if (selectedStatus == 'all') return true;
 
@@ -445,24 +452,12 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
               child: Text('كل المهام'),
             ),
             DropdownMenuItem(
-              value: 'pending',
-              child: Text('بانتظار اعتماد الإدارة'),
-            ),
-            DropdownMenuItem(
               value: 'done',
               child: Text('تم الإنجاز'),
             ),
             DropdownMenuItem(
               value: 'not_done',
               child: Text('لم يتم الإنجاز'),
-            ),
-            DropdownMenuItem(
-              value: 'partially_done',
-              child: Text('تم الإنجاز جزئيًا'),
-            ),
-            DropdownMenuItem(
-              value: 'needs_follow_up',
-              child: Text('بحاجة متابعة'),
             ),
           ],
           onChanged: (value) {
