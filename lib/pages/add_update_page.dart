@@ -141,7 +141,7 @@ class _AddUpdatePageState extends State<AddUpdatePage> {
   }
 
   String roleLabel() {
-    return 'موظفة الحضانة';
+    return 'موظف الحضانة';
   }
 
   IconData typeIcon(String value) {

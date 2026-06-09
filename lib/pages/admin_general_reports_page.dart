@@ -732,7 +732,7 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
                           icon: Icons.family_restroom_rounded,
                         ),
                         statCard(
-                          title: 'موظفات الحضانة',
+                          title: 'موظفو الحضانة',
                           value: nurseryStaffCount.toString(),
                           icon: Icons.badge_outlined,
                         ),

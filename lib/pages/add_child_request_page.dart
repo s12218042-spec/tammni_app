@@ -314,7 +314,7 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
     if (!_formKey.currentState!.validate()) return;
 
     if (selectedBirthDate == null) {
-      _showSnack('اختاري تاريخ ميلاد الطفل');
+      _showSnack('اختر تاريخ ميلاد الطفل');
       return;
     }
 
@@ -328,7 +328,7 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
 
     for (final pickup in pickupContacts) {
       if (!pickup.isValid()) {
-        _showSnack('تأكدي من تعبئة بيانات جميع المخولين بالاستلام');
+        _showSnack('تأكد من تعبئة بيانات جميع المخولين بالاستلام');
         return;
       }
     }
@@ -482,7 +482,7 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
         children: [
           buildSectionTitle(
             'بيانات الطفل',
-            'أدخلي بيانات الطفل الأساسية.',
+            'أدخل بيانات الطفل الأساسية.',
           ),
           const SizedBox(height: 14),
           TextFormField(
@@ -493,7 +493,7 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
             ),
             validator: (value) {
               if ((value?.trim() ?? '').isEmpty) {
-                return 'أدخلي اسم الطفل';
+                return 'أدخل اسم الطفل';
               }
               return null;
             },
@@ -523,7 +523,7 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
             ),
             validator: (value) {
               if ((value?.trim() ?? '').isEmpty) {
-                return 'اختاري تاريخ الميلاد';
+                return 'اختر تاريخ الميلاد';
               }
               return null;
             },
@@ -582,7 +582,7 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
               ),
               validator: (value) {
                 if (hasChronicDiseases && (value?.trim() ?? '').isEmpty) {
-                  return 'أدخلي تفاصيل الأمراض المزمنة';
+                  return 'أدخل تفاصيل الأمراض المزمنة';
                 }
                 return null;
               },
@@ -610,7 +610,7 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
               ),
               validator: (value) {
                 if (hasAllergies && (value?.trim() ?? '').isEmpty) {
-                  return 'أدخلي تفاصيل الحساسية';
+                  return 'أدخل تفاصيل الحساسية';
                 }
                 return null;
               },
@@ -638,7 +638,7 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
               ),
               validator: (value) {
                 if (takesMedications && (value?.trim() ?? '').isEmpty) {
-                  return 'أدخلي تفاصيل الأدوية';
+                  return 'أدخل تفاصيل الأدوية';
                 }
                 return null;
               },
@@ -666,7 +666,7 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
               ),
               validator: (value) {
                 if (hasDietaryRestrictions && (value?.trim() ?? '').isEmpty) {
-                  return 'أدخلي تفاصيل القيود الغذائية';
+                  return 'أدخل تفاصيل القيود الغذائية';
                 }
                 return null;
               },
@@ -694,7 +694,7 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
               ),
               validator: (value) {
                 if (hasSpecialNeeds && (value?.trim() ?? '').isEmpty) {
-                  return 'أدخلي تفاصيل الاحتياجات الخاصة';
+                  return 'أدخل تفاصيل الاحتياجات الخاصة';
                 }
                 return null;
               },
@@ -722,7 +722,7 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
         children: [
           buildSectionTitle(
             'المخولون بالاستلام',
-            'أضيفي الأشخاص المخولين باستلام الطفل.',
+            'أضف الأشخاص المخولين باستلام الطفل.',
           ),
           const SizedBox(height: 10),
           ...List.generate(pickupContacts.length, (index) {
@@ -766,7 +766,7 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
                     ),
                     validator: (value) {
                       if ((value?.trim() ?? '').isEmpty) {
-                        return 'أدخلي الاسم';
+                        return 'أدخل الاسم';
                       }
                       return null;
                     },
@@ -780,7 +780,7 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
                     ),
                     validator: (value) {
                       if ((value?.trim() ?? '').isEmpty) {
-                        return 'أدخلي صلة القرابة';
+                        return 'أدخل صلة القرابة';
                       }
                       return null;
                     },
@@ -801,7 +801,7 @@ class _AddChildRequestPageState extends State<AddChildRequestPage> {
                       final clean = (value ?? '').trim();
 
                       if (clean.isEmpty) {
-                        return 'أدخلي رقم الجوال';
+                        return 'أدخل رقم الجوال';
                       }
 
                       return _validatePalestinianMobile(

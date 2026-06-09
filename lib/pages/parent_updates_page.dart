@@ -121,7 +121,7 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
     if (role == 'nursery' ||
         role == 'nursery_staff' ||
         role == 'nursery staff') {
-      return 'موظفة الحضانة';
+      return 'موظف الحضانة';
     }
 
     if (role == 'admin') return 'الإدارة';

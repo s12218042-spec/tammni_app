@@ -76,7 +76,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
   String roleLabel(String role) {
     final normalized = normalizeRole(role);
 
-    if (normalized == 'nursery_staff') return 'موظفة حضانة';
+    if (normalized == 'nursery_staff') return 'موظف حضانة';
     if (normalized == 'admin') return 'الإدارة';
     if (normalized == 'parent') return 'ولي أمر';
 
@@ -283,7 +283,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
           : (staffData['displayName'] ??
                   staffData['name'] ??
                   staffData['username'] ??
-                  'موظفة حضانة')
+                  'موظف حضانة')
               .toString();
 
       final username = child.assignedStaffUsername.trim().isNotEmpty
@@ -576,7 +576,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  isAdmin ? 'الإدارة' : 'موظفة حضانة',
+                  isAdmin ? 'الإدارة' : 'موظف حضانة',
                   style: const TextStyle(
                     fontSize: 13,
                     color: AppColors.textLight,

@@ -589,8 +589,8 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
     if (lastType == _handoffType) {
       _showSnack(
         _handoffType == 'delivery'
-            ? 'لا يمكن تسجيل تسليم مرتين متتاليتين. إذا كان السجل السابق خاطئًا استخدمي زر تعديل آخر سجل.'
-            : 'لا يمكن تسجيل استلام مرتين متتاليتين. إذا كان السجل السابق خاطئًا استخدمي زر تعديل آخر سجل.',
+            ? 'لا يمكن تسجيل تسليم مرتين متتاليتين. إذا كان السجل السابق خاطئًا استخدم زر تعديل آخر سجل.'
+            : 'لا يمكن تسجيل استلام مرتين متتاليتين. إذا كان السجل السابق خاطئًا استخدم زر تعديل آخر سجل.',
       );
       return;
     }
@@ -1063,7 +1063,7 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
     if (_isOtherRelationSelected) {
       return _buildTextField(
         controller: _relationController,
-        label: 'اكتبي صلة القرابة / الصفة',
+        label: 'اكتب صلة القرابة / الصفة',
         hint: 'مثال: جارة، مرافقة، شخص آخر مفوض',
         validator: (value) {
           if (value == null || value.trim().isEmpty) {
@@ -1096,7 +1096,7 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
           Expanded(
             child: Text(
               _relationController.text.trim().isEmpty
-                  ? 'اختاري صلة القرابة أو الصفة'
+                  ? 'اختر صلة القرابة أو الصفة'
                   : _relationController.text.trim(),
               style: TextStyle(
                 color: _relationController.text.trim().isEmpty
@@ -1348,7 +1348,7 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
               });
             },
             decoration: InputDecoration(
-              hintText: 'ابحثي بالشخص أو القرابة أو الملاحظة',
+              hintText: 'ابحث بالشخص أو القرابة أو الملاحظة',
               prefixIcon: const Icon(Icons.search_rounded),
               suffixIcon: _logSearchText.trim().isEmpty
                   ? null

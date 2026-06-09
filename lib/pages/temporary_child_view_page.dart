@@ -194,7 +194,7 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
 
   String _staffName() {
     final name = _cleanText(_childData['assignedStaffName']);
-    return name.isEmpty ? 'موظفة الحضانة' : name;
+    return name.isEmpty ? 'موظف الحضانة' : name;
   }
 
   bool get _isTrialChild {
@@ -648,7 +648,7 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
               textAlign: TextAlign.center,
             ),
             content: const Text(
-              'هل تريدين تسجيل الخروج من الدخول المؤقت؟',
+              'هل تريد تسجيل الخروج من الدخول المؤقت؟',
               textAlign: TextAlign.center,
               style: TextStyle(height: 1.5),
             ),
@@ -937,7 +937,7 @@ Widget _buildConsultationsCard() {
           ),
           _infoCard(
             icon: Icons.badge_outlined,
-            title: 'الموظفة',
+            title: 'الموظف',
             value: _staffName(),
           ),
           _infoCard(
@@ -1519,8 +1519,8 @@ Widget _buildConsultationsCard() {
       case 'queued':
       case 'waiting':
         return queuePosition > 0
-            ? 'أنتِ في قائمة الانتظار: $queuePosition'
-            : 'أنتِ في قائمة الانتظار';
+            ? 'أنت في قائمة الانتظار: $queuePosition'
+            : 'أنت في قائمة الانتظار';
       default:
         return 'طلب بث قائم';
     }
@@ -2786,9 +2786,9 @@ Widget _buildConsultationsCard() {
     final showAdmin = query.isEmpty ||
         'الإدارة admin'.toLowerCase().contains(query);
 
-    final staffTitle = hasStaff ? _staffName() : 'الموظفة';
+    final staffTitle = hasStaff ? _staffName() : 'الموظف';
     final showStaff = query.isEmpty ||
-        '$staffTitle موظفة الحضانة'.toLowerCase().contains(query);
+        '$staffTitle موظف الحضانة'.toLowerCase().contains(query);
 
     return Directionality(
       textDirection: TextDirection.rtl,
@@ -2819,7 +2819,7 @@ Widget _buildConsultationsCard() {
               targetRole: 'nursery_staff',
               targetUid: staffUid,
               enabled: hasStaff,
-              disabledText: 'لم يتم تحديد موظفة مسؤولة بعد',
+              disabledText: 'لم يتم تحديد موظف مسؤول بعد',
               onTap: () {
                 _openTemporaryChat(
                   targetRole: 'nursery_staff',

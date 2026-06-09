@@ -320,7 +320,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
       return Directionality(
         textDirection: TextDirection.rtl,
         child: AlertDialog(
-          title: const Text('اختاري الطفل'),
+          title: const Text('اختر الطفل'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: children.map((child) {

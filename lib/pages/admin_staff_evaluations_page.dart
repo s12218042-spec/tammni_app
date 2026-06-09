@@ -46,7 +46,7 @@ class _AdminStaffEvaluationsPageState
     'childrenInteraction': 'التعامل مع الأطفال',
     'parentsInteraction': 'التعامل مع الأهالي',
     'adminInteraction': 'التعامل مع الإدارة',
-    'staffInteraction': 'التعامل مع الموظفات',
+    'staffInteraction': 'التعامل مع الموظفين',
     'classroomCare': 'المحافظة على الصف',
     'indoorOutdoorCare': 'المحافظة على الساحة الداخلية/الخارجية',
     'initiativePressure': 'المبادرة وتحمل الضغط',
@@ -82,7 +82,7 @@ class _AdminStaffEvaluationsPageState
     if (displayName.isNotEmpty) return displayName;
     if (username.isNotEmpty) return username;
 
-    return 'موظفة بدون اسم';
+    return 'موظف بدون اسم';
   }
 
   DateTime get today {
@@ -168,7 +168,7 @@ class _AdminStaffEvaluationsPageState
   Future<void> _saveEvaluation() async {
     if (selectedStaffUid == null || selectedStaffData == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('اختاري الموظفة أولًا')),
+        const SnackBar(content: Text('اختر الموظف أولًا')),
       );
       return;
     }
@@ -245,13 +245,13 @@ class _AdminStaffEvaluationsPageState
           },
         );
       } catch (e) {
-        debugPrint('AdminStaffEvaluationsPage: فشل إرسال إشعار تقييم الموظفة: $e');
+        debugPrint('AdminStaffEvaluationsPage: فشل إرسال إشعار تقييم الموظف: $e');
       }
 
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم حفظ تقييم الموظفة بنجاح')),
+        const SnackBar(content: Text('تم حفظ تقييم الموظف بنجاح')),
       );
 
       setState(() {
@@ -385,7 +385,7 @@ class _AdminStaffEvaluationsPageState
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Text(
-                'تعذر تحميل الموظفات',
+                'تعذر تحميل الموظفين',
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: Colors.red),
               ),
@@ -442,7 +442,7 @@ class _AdminStaffEvaluationsPageState
             child: Padding(
               padding: EdgeInsets.all(16),
               child: Text(
-                'لا يوجد موظفات حضانة',
+                'لا يوجد موظفو حضانة',
                 textAlign: TextAlign.center,
               ),
             ),
@@ -460,7 +460,7 @@ class _AdminStaffEvaluationsPageState
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'اختيار الموظفة',
+                  'اختيار الموظف',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 16,
@@ -470,7 +470,7 @@ class _AdminStaffEvaluationsPageState
                 DropdownButtonFormField<String>(
                   value: selectedStaffStillExists ? selectedStaffUid : null,
                   decoration: const InputDecoration(
-                    labelText: 'الموظفة',
+                    labelText: 'الموظف',
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.person_outline),
                   ),
@@ -752,7 +752,7 @@ class _AdminStaffEvaluationsPageState
                   final data = doc.data();
 
                   final staffName = _clean(data['staffName']).isEmpty
-                      ? 'موظفة بدون اسم'
+                      ? 'موظف بدون اسم'
                       : _clean(data['staffName']);
 
                   final typeLabel = _clean(data['evaluationTypeLabel']).isEmpty
@@ -840,7 +840,7 @@ class _AdminStaffEvaluationsPageState
       child: Scaffold(
         backgroundColor: const Color(0xffF7F7F7),
         appBar: AppBar(
-          title: const Text('تقييم الموظفات'),
+          title: const Text('تقييم الموظفين'),
           centerTitle: true,
         ),
         body: RefreshIndicator(

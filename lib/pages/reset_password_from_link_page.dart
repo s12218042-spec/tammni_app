@@ -324,7 +324,7 @@ class _ResetPasswordFromLinkPageState
                   ),
                   const SizedBox(height: 10),
                   const Text(
-                    'أدخلي كلمة مرور جديدة ثم أكديها لإكمال تفعيل الحساب أو استعادة الوصول إليه.',
+                    'أدخل كلمة مرور جديدة ثم أكدها لإكمال تفعيل الحساب أو استعادة الوصول إليه.',
                     style: TextStyle(
                       fontSize: 14.5,
                       height: 1.7,

@@ -42,7 +42,7 @@ class _StaffMyEvaluationsPageState extends State<StaffMyEvaluationsPage> {
 
   setState(() {
     isLoading = false;
-    loadError = 'لم يتم العثور على المستخدم الحالي. سجّلي الدخول مرة أخرى.';
+    loadError = 'لم يتم العثور على المستخدم الحالي. سجّل الدخول مرة أخرى.';
     evaluations = [];
   });
 
@@ -67,7 +67,7 @@ class _StaffMyEvaluationsPageState extends State<StaffMyEvaluationsPage> {
         const Duration(seconds: 12),
         onTimeout: () {
           throw Exception(
-            'انتهت مهلة تحميل التقييمات. تأكدي من الاتصال أو الصلاحيات.',
+            'انتهت مهلة تحميل التقييمات. تأكد من الاتصال أو الصلاحيات.',
           );
         },
       );
@@ -191,7 +191,7 @@ class _StaffMyEvaluationsPageState extends State<StaffMyEvaluationsPage> {
                       const SizedBox(height: 4),
                       Text(
                         evaluations.isEmpty
-                            ? 'لم يتم إضافة تقييمات لكِ بعد'
+                            ? 'لم يتم إضافة تقييمات لك بعد'
                             : 'آخر تقييم: ${latestAverage.toStringAsFixed(2)} / 5 - $latestLabel',
                         style: TextStyle(
                           color: evaluations.isEmpty ? Colors.grey : color,

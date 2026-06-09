@@ -249,7 +249,7 @@ class _AdminOffersPageState extends State<AdminOffersPage> {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                             content: Text(
-                              'تأكدي من اسم العرض والسعر وعدد الأطفال',
+                              'تأكد من اسم العرض والسعر وعدد الأطفال',
                             ),
                           ),
                         );
@@ -838,7 +838,7 @@ class _EmptyOffersBox extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               const Text(
-                'أضيفي عرضًا جديدًا للبدء.',
+                'أضف عرضًا جديدًا للبدء.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.black54, height: 1.45),
               ),

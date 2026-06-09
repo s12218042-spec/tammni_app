@@ -165,7 +165,7 @@ Future<String?> _resolveVideoUrl() async {
 
       if (videoUrl == null || videoUrl.trim().isEmpty) {
         throw Exception(
-          'تعذر إنشاء رابط تشغيل للفيديو. تأكدي من وجود mediaPath محفوظ في Firestore.',
+          'تعذر إنشاء رابط تشغيل للفيديو. تأكد من وجود mediaPath محفوظ في Firestore.',
         );
       }
 

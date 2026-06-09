@@ -410,7 +410,7 @@ if (shouldCreateNotification && (statusChanged || hasReply)) {
                         decoration: const InputDecoration(
                           labelText: 'رد الإدارة لولي الأمر',
                           hintText:
-                              'اكتبي ردًا واضحًا سيظهر لولي الأمر في صفحة الشكاوى وسيصله كإشعار',
+                              'اكتب ردًا واضحًا سيظهر لولي الأمر في صفحة الشكاوى وسيصله كإشعار',
                           prefixIcon: Icon(Icons.reply_all_rounded),
                           alignLabelWithHint: true,
                         ),
@@ -900,7 +900,7 @@ if (shouldCreateNotification && (statusChanged || hasReply)) {
                 });
               },
               decoration: InputDecoration(
-                hintText: 'ابحثي بالعنوان أو اسم ولي الأمر أو اسم المستخدم',
+                hintText: 'ابحث بالعنوان أو اسم ولي الأمر أو اسم المستخدم',
                 prefixIcon: const Icon(Icons.search_rounded),
                 suffixIcon: _searchQuery.isEmpty
                     ? null

@@ -101,7 +101,7 @@ class _StartLiveStreamPageState extends State<StartLiveStreamPage>
     final role = _normalizeRole((data['role'] ?? '').toString());
 
     if (!_canUseStation(role)) {
-      throw Exception('لا تملكين صلاحية تشغيل محطة البث.');
+      throw Exception('لا تملك صلاحية تشغيل محطة البث.');
     }
 
     return {
@@ -263,7 +263,7 @@ class _StartLiveStreamPageState extends State<StartLiveStreamPage>
           child: AlertDialog(
             title: const Text('إيقاف البث؟'),
             content: const Text(
-              'سيتم إيقاف البث الحالي للمشاهدين.',
+              'سيتم إيقاف البث الحالي للمشاهدن.',
             ),
             actions: [
               TextButton(
@@ -320,7 +320,7 @@ class _StartLiveStreamPageState extends State<StartLiveStreamPage>
           child: AlertDialog(
             title: const Text('تسجيل الخروج'),
             content: const Text(
-              'هل تريدين تسجيل الخروج من محطة البث؟',
+              'هل تريد تسجيل الخروج من محطة البث؟',
             ),
             actions: [
               TextButton(
@@ -380,7 +380,7 @@ class _StartLiveStreamPageState extends State<StartLiveStreamPage>
   }
 
   String _statusSubtitle() {
-    if (!_isStationOnline) return 'أعيدي تشغيل المحطة.';
+    if (!_isStationOnline) return 'أعد تشغيل المحطة.';
 
     if (_isBroadcastActive) {
       return 'الكاميرا تعمل للمشاهدين الحاليين.';

@@ -101,7 +101,7 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
     if (fullName.isNotEmpty) return fullName;
     if (username.isNotEmpty) return username;
 
-    return 'موظفة بدون اسم';
+    return 'موظف بدون اسم';
   }
 
   double get bonusAmount {
@@ -234,7 +234,7 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('اختاري الموظفة أولًا')),
+        const SnackBar(content: Text('اختر الموظف أولًا')),
       );
       return;
     }
@@ -269,7 +269,7 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
           .timeout(
         const Duration(seconds: 12),
         onTimeout: () {
-          throw Exception('انتهت مهلة تحميل دوام الموظفة لهذا الشهر');
+          throw Exception('انتهت مهلة تحميل دوام الموظف لهذا الشهر');
         },
       );
 
@@ -334,14 +334,14 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
   Future<void> _savePayroll() async {
     if (selectedStaffUid == null || selectedStaffData == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('اختاري الموظفة أولًا')),
+        const SnackBar(content: Text('اختر الموظف أولًا')),
       );
       return;
     }
 
     if (!hasLoadedPayrollSummary || isLoading) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('حمّلي ملخص الدوام أولًا')),
+        const SnackBar(content: Text('حمّل ملخص الدوام أولًا')),
       );
       return;
     }
@@ -477,7 +477,7 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم اعتماد راتب الموظفة بنجاح')),
+        const SnackBar(content: Text('تم اعتماد راتب الموظف بنجاح')),
       );
     } catch (e) {
       if (!mounted) return;
@@ -549,7 +549,7 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Text(
-                'حدث خطأ أثناء تحميل الموظفات:\n${snapshot.error}',
+                'حدث خطأ أثناء تحميل الموظفين:\n${snapshot.error}',
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: Colors.red),
               ),
@@ -608,7 +608,7 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
             child: Padding(
               padding: EdgeInsets.all(16),
               child: Text(
-                'لا يوجد موظفات حضانة',
+                'لا يوجد موظفو حضانة',
                 textAlign: TextAlign.center,
               ),
             ),
@@ -623,7 +623,7 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
             child: DropdownButtonFormField<String>(
               value: selectedStaffStillExists ? selectedStaffUid : null,
               decoration: const InputDecoration(
-                labelText: 'الموظفة',
+                labelText: 'الموظف',
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.person_outline),
               ),
@@ -684,7 +684,7 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
             const SizedBox(height: 12),
             if (selectedStaffUid == null)
               const Text(
-                'اختاري موظفة أولًا',
+                'اختر موظف أولًا',
                 style: TextStyle(
                   color: Colors.grey,
                   fontWeight: FontWeight.bold,
@@ -724,7 +724,7 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
                     border: Border.all(color: Colors.orange.withOpacity(0.22)),
                   ),
                   child: const Text(
-                    'لا يوجد دوام محفوظ لهذه الموظفة في هذا الشهر',
+                    'لا يوجد دوام محفوظ لهذا الموظف في هذا الشهر',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: Colors.orange,
@@ -1002,7 +1002,7 @@ class _AdminStaffPayrollPageState extends State<AdminStaffPayrollPage> {
   @override
   Widget build(BuildContext context) {
     return AppPageScaffold(
-      title: 'رواتب الموظفات',
+      title: 'رواتب الموظفين',
       padding: const EdgeInsets.fromLTRB(0, 0, 0, 16),
       child: RefreshIndicator(
         onRefresh: _loadPayrollSummary,

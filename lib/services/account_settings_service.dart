@@ -67,7 +67,7 @@ class AccountSettingsData {
       case 'parent':
         return 'وليّ أمر';
       case 'nursery_staff':
-        return 'موظفة الحضانة';
+        return 'موظف الحضانة';
       case 'admin':
         return 'الإدارة';
       default:

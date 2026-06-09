@@ -503,7 +503,7 @@ class _AdminRegistrationRequestsPageState
           ),
           title: const Text('الموافقة على الطلب'),
           content: const Text(
-            'هل تريدين الموافقة على هذا الطلب؟',
+            'هل تريد الموافقة على هذا الطلب؟',
             textAlign: TextAlign.center,
           ),
           actions: [

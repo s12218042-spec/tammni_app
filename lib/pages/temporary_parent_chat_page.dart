@@ -48,7 +48,7 @@ class _TemporaryParentChatPageState extends State<TemporaryParentChatPage> {
   String get _targetDisplayName {
     if (widget.targetRole == 'nursery_staff') {
       return widget.targetName.trim().isEmpty
-          ? 'موظفة الحضانة'
+          ? 'موظف الحضانة'
           : widget.targetName.trim();
     }
 
@@ -266,7 +266,7 @@ class _TemporaryParentChatPageState extends State<TemporaryParentChatPage> {
                 const SizedBox(height: 4),
                 Text(
                   widget.targetRole == 'nursery_staff'
-                      ? 'موظفة حضانة'
+                      ? 'موظف حضانة'
                       : 'الإدارة',
                   style: const TextStyle(
                     fontSize: 13,
@@ -469,7 +469,7 @@ class _TemporaryParentChatPageState extends State<TemporaryParentChatPage> {
               maxLines: 4,
               textInputAction: TextInputAction.newline,
               decoration: InputDecoration(
-                hintText: 'اكتبي رسالة...',
+                hintText: 'اكتب رسالة...',
                 border: InputBorder.none,
               ),
             ),

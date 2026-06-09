@@ -238,7 +238,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
         _AdminAlertItem(
           title: 'يوجد $archivedChildren طفل/أطفال مؤرشفون',
           subtitle:
-              'راجعي الحالات غير النشطة.',
+              'راجع الحالات غير النشطة.',
           icon: Icons.archive_outlined,
           color: Colors.blueGrey,
         ),
@@ -601,7 +601,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
                 title: 'إجمالي المستخدمين',
                 value: '${data.totalUsers}',
                 subtitle:
-                    'أدمن ${data.adminsCount} • أولياء ${data.parentsCount} • موظفات ${data.staffCount}',
+                    'أدمن ${data.adminsCount} • أولياء ${data.parentsCount} • موظفين ${data.staffCount}',
                 icon: Icons.groups_rounded,
               ),
               _DashboardStatCard(
@@ -803,7 +803,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
 
         _AdminActionCard(
           icon: Icons.assignment_turned_in_outlined,
-          title: 'تحديد مهام الموظفات',
+          title: 'تحديد مهام الموظفين',
           subtitle: ' ',
           onTap: () async {
             await Navigator.push(
@@ -820,7 +820,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
 
         _AdminActionCard(
           icon: Icons.fact_check_outlined,
-          title: 'متابعة مهام الموظفات',
+          title: 'متابعة مهام الموظفين',
           subtitle: ' ',
           onTap: () async {
             await Navigator.push(
@@ -853,7 +853,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
         ),
         _AdminActionCard(
   icon: Icons.star_rate_outlined,
-  title: 'تقييم الموظفات',
+  title: 'تقييم الموظفين',
   subtitle: ' ',
   onTap: () async {
     await Navigator.push(
@@ -869,7 +869,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
 ),
 _AdminActionCard(
   icon: Icons.access_time_outlined,
-  title: 'دوام الموظفات',
+  title: 'دوام الموظفين',
   subtitle: ' ',
   onTap: () async {
     await Navigator.push(
@@ -885,7 +885,7 @@ _AdminActionCard(
 ),
 _AdminActionCard(
   icon: Icons.payments_outlined,
-  title: 'رواتب الموظفات',
+  title: 'رواتب الموظفين',
   subtitle: ' ',
   onTap: () async {
     await Navigator.push(

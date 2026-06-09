@@ -92,7 +92,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
       case 'parent':
         return 'ولي أمر';
       case 'nursery_staff':
-        return 'موظف/ة حضانة';
+        return 'موظف حضانة';
       case 'admin':
         return 'مدير النظام';
       default:
@@ -1925,7 +1925,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
                   selectedColor: Colors.teal,
                 ),
                 buildFilterChip(
-                  label: 'موظفات الحضانة',
+                  label: 'موظفو الحضانة',
                   selected: selectedRoleFilters.contains('nursery_staff'),
                   onTap: () => toggleRoleFilter('nursery_staff'),
                   selectedColor: Colors.orange,

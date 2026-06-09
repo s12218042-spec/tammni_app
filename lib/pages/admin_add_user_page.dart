@@ -26,7 +26,7 @@ class AdminAddUserPage extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           _AccountTypeCard(
-            title: 'إضافة موظفة حضانة',
+            title: 'إضافة موظف حضانة',
             subtitle:
                 '',
             icon: Icons.child_friendly_rounded,

@@ -385,7 +385,7 @@ class _ParentRegistrationRequestPageState
       } else if (e.code == 'invalid-email') {
         message = 'البريد الإلكتروني غير صالح';
       } else if (e.code == 'weak-password') {
-        message = 'حدث خطأ في إنشاء حساب التحقق، حاولي مرة أخرى';
+        message = 'حدث خطأ في إنشاء حساب التحقق، حاول مرة أخرى';
       } else if (e.message != null && e.message!.trim().isNotEmpty) {
         message = e.message!;
       }
@@ -411,7 +411,7 @@ class _ParentRegistrationRequestPageState
       final user = _auth.currentUser;
 
       if (user == null) {
-        throw Exception('لا يوجد حساب تحقق نشط. أرسلي رابط التحقق أولًا');
+        throw Exception('لا يوجد حساب تحقق نشط. أرسل رابط التحقق أولًا');
       }
 
       await user.reload();
@@ -428,7 +428,7 @@ class _ParentRegistrationRequestPageState
         _showSnack('تم التحقق من البريد الإلكتروني بنجاح');
       } else {
         _showSnack(
-          'لم يتم التحقق من البريد بعد. افتحي الرابط من البريد ثم أعيدي المحاولة',
+          'لم يتم التحقق من البريد بعد. افتح الرابط من البريد ثم أعد المحاولة',
         );
       }
     } catch (e) {
@@ -457,7 +457,7 @@ class _ParentRegistrationRequestPageState
 
     final currentUser = _auth.currentUser;
     if (currentUser == null) {
-      _showSnack('لا يوجد حساب تحقق نشط. أعيدي إرسال رابط التحقق');
+      _showSnack('لا يوجد حساب تحقق نشط. أعد إرسال رابط التحقق');
       return;
     }
 
@@ -757,7 +757,7 @@ try {
             ),
             validator: (value) {
               final text = value?.trim() ?? '';
-              if (text.isEmpty) return 'أدخلي الاسم الكامل';
+              if (text.isEmpty) return 'أدخل الاسم الكامل';
               if (text.length < 3) return 'الاسم قصير جدًا';
               return null;
             },
@@ -794,7 +794,7 @@ try {
               }
 
               if (!_isValidEmail(clean)) {
-                return 'أدخلي بريدًا إلكترونيًا صحيحًا';
+                return 'أدخل بريدًا إلكترونيًا صحيحًا';
               }
 
               return null;

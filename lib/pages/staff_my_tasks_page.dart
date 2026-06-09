@@ -183,7 +183,7 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
 
   setState(() {
     isLoading = false;
-    loadError = 'لم يتم العثور على المستخدم الحالي. سجّلي الدخول مرة أخرى.';
+    loadError = 'لم يتم العثور على المستخدم الحالي. سجّل الدخول مرة أخرى.';
     tasks = [];
   });
 
@@ -212,7 +212,7 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
         const Duration(seconds: 12),
         onTimeout: () {
           throw Exception(
-            'انتهت مهلة تحميل المهام. تأكدي من الاتصال أو صلاحيات Firestore.',
+            'انتهت مهلة تحميل المهام. تأكد من الاتصال أو صلاحيات Firestore.',
           );
         },
       );
@@ -232,7 +232,7 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
           const Duration(seconds: 12),
           onTimeout: () {
             throw Exception(
-              'انتهت مهلة تحميل المهام. تأكدي من الاتصال أو صلاحيات Firestore.',
+              'انتهت مهلة تحميل المهام. تأكد من الاتصال أو صلاحيات Firestore.',
             );
           },
         );
@@ -616,7 +616,7 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
             Text(
               isSelectedDateToday
                   ? 'لا توجد مهام موزعة عليك اليوم'
-                  : 'لا توجد مهام لكِ في هذا التاريخ',
+                  : 'لا توجد مهام لك في هذا التاريخ',
               textAlign: TextAlign.center,
               style: const TextStyle(
                 fontWeight: FontWeight.bold,

@@ -59,7 +59,7 @@ String roleLabel(UserRole role) {
     case UserRole.parent:
       return 'ولي أمر';
     case UserRole.nurseryStaff:
-      return 'موظفة حضانة';
+      return 'موظف حضانة';
     case UserRole.admin:
       return 'مدير النظام';
   }

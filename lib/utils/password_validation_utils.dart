@@ -56,19 +56,19 @@ class PasswordValidationUtils {
     }
 
     if (_weakPasswords.contains(lowerText)) {
-      return 'كلمة المرور ضعيفة جدًا، اختاري كلمة أقوى';
+      return 'كلمة المرور ضعيفة جدًا، اختر كلمة أقوى';
     }
 
     if (_allCharactersSame(text)) {
-      return 'كلمة المرور ضعيفة جدًا، لا تستخدمي نفس الحرف أو الرقم مكررًا';
+      return 'كلمة المرور ضعيفة جدًا، لا تستخدم نفس الحرف أو الرقم مكررًا';
     }
 
     if (_isOnlyNumbers(text) && text.length < 8) {
-      return 'كلمة المرور الضعيفة جدًا لا تُقبل، استخدمي حروفًا وأرقامًا';
+      return 'كلمة المرور الضعيفة جدًا لا تُقبل، استخدم حروفًا وأرقامًا';
     }
 
     if (_isOnlyLetters(text) && text.length < 8) {
-      return 'كلمة المرور الضعيفة جدًا لا تُقبل، استخدمي حروفًا وأرقامًا';
+      return 'كلمة المرور الضعيفة جدًا لا تُقبل، استخدم حروفًا وأرقامًا';
     }
 
     return null;

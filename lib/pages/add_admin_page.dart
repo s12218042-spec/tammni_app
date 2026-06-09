@@ -285,7 +285,7 @@ Widget buildSectionTitle(String title, String subtitle) {
 
   String? validateBirthDate() {
     if (birthDate == null) {
-      return 'اختاري تاريخ الميلاد';
+      return 'اختر تاريخ الميلاد';
     }
 
     final age = calculateAge(birthDate!);
@@ -303,7 +303,7 @@ Widget buildSectionTitle(String title, String subtitle) {
 
   String? validateHireDate() {
     if (hireDate == null) {
-      return 'اختاري تاريخ التعيين';
+      return 'اختر تاريخ التعيين';
     }
 
     final now = DateTime.now();
@@ -545,7 +545,7 @@ Widget buildSectionTitle(String title, String subtitle) {
                     validator: (value) {
                       final text = value?.trim() ?? '';
 
-                      if (text.isEmpty) return 'أدخلي الاسم الكامل';
+                      if (text.isEmpty) return 'أدخل الاسم الكامل';
                       if (text.length < 3) return 'الاسم قصير جدًا';
 
                       return null;
@@ -564,7 +564,7 @@ Widget buildSectionTitle(String title, String subtitle) {
                     validator: (value) {
                       final text = value?.trim() ?? '';
 
-                      if (text.isEmpty) return 'أدخلي اسم المستخدم';
+                      if (text.isEmpty) return 'أدخل اسم المستخدم';
                       if (!isValidUsername(text)) {
                         return 'اسم المستخدم يجب أن يبدأ بحرف صغير ويحتوي فقط على حروف صغيرة/أرقام/./_';
                       }
@@ -586,9 +586,9 @@ Widget buildSectionTitle(String title, String subtitle) {
                     validator: (value) {
                       final text = value?.trim() ?? '';
 
-                      if (text.isEmpty) return 'أدخلي البريد الإلكتروني';
+                      if (text.isEmpty) return 'أدخل البريد الإلكتروني';
                       if (!isValidEmail(text)) {
-                        return 'أدخلي بريدًا إلكترونيًا صالحًا';
+                        return 'أدخل بريدًا إلكترونيًا صالحًا';
                       }
 
                       return null;
@@ -622,7 +622,7 @@ Widget buildSectionTitle(String title, String subtitle) {
                     validator: (value) {
                       final text = value?.trim() ?? '';
 
-                      if (text.isEmpty) return 'أدخلي كلمة المرور';
+                      if (text.isEmpty) return 'أدخل كلمة المرور';
                       if (!isValidPassword(text)) {
                         return 'يجب أن تحتوي على 8 أحرف على الأقل وحرف كبير وصغير ورقم ورمز خاص';
                       }
@@ -639,7 +639,7 @@ Widget buildSectionTitle(String title, String subtitle) {
                     decoration: customDecoration(
                       label: 'تأكيد كلمة المرور',
                       icon: Icons.lock_reset_rounded,
-                      hint: 'أعيدي كتابة كلمة المرور',
+                      hint: 'أعد كتابة كلمة المرور',
                       suffixIcon: IconButton(
                         onPressed: isLoading
                             ? null
@@ -659,7 +659,7 @@ Widget buildSectionTitle(String title, String subtitle) {
                     validator: (value) {
                       final text = value?.trim() ?? '';
 
-                      if (text.isEmpty) return 'أدخلي تأكيد كلمة المرور';
+                      if (text.isEmpty) return 'أدخل تأكيد كلمة المرور';
                       if (text != passwordCtrl.text.trim()) {
                         return 'كلمة المرور وتأكيدها غير متطابقين';
                       }
@@ -695,7 +695,7 @@ Widget buildSectionTitle(String title, String subtitle) {
                     validator: (value) {
                       final text = value?.trim() ?? '';
 
-                      if (text.isEmpty) return 'أدخلي رقم الهوية';
+                      if (text.isEmpty) return 'أدخل رقم الهوية';
                       if (!isValidPalestinianId(text)) {
                         return 'رقم الهوية الفلسطينية غير صالح';
                       }
@@ -745,7 +745,7 @@ Widget buildSectionTitle(String title, String subtitle) {
                     validator: (value) {
                       final text = value?.trim() ?? '';
 
-                      if (text.isEmpty) return 'أدخلي رقم الجوال';
+                      if (text.isEmpty) return 'أدخل رقم الجوال';
                       if (!isValidPalestinianMobile(text)) {
                         return 'رقم الجوال الفلسطيني غير صالح';
                       }
@@ -794,7 +794,7 @@ Widget buildSectionTitle(String title, String subtitle) {
                     validator: (value) {
                       final text = value?.trim() ?? '';
 
-                      if (text.isEmpty) return 'أدخلي العنوان';
+                      if (text.isEmpty) return 'أدخل العنوان';
                       if (text.length < 5) return 'العنوان قصير جدًا';
 
                       return null;
@@ -827,7 +827,7 @@ Widget buildSectionTitle(String title, String subtitle) {
                     validator: (value) {
                       final text = value?.trim() ?? '';
 
-                      if (text.isEmpty) return 'أدخلي المسمى الوظيفي';
+                      if (text.isEmpty) return 'أدخل المسمى الوظيفي';
 
                       return null;
                     },
@@ -909,7 +909,7 @@ Widget buildSectionTitle(String title, String subtitle) {
                     validator: (value) {
                       final text = value?.trim() ?? '';
 
-                      if (text.isEmpty) return 'أدخلي اسم الجامعة';
+                      if (text.isEmpty) return 'أدخل اسم الجامعة';
 
                       return null;
                     },
@@ -927,7 +927,7 @@ Widget buildSectionTitle(String title, String subtitle) {
                     validator: (value) {
                       final text = value?.trim() ?? '';
 
-                      if (text.isEmpty) return 'أدخلي اسم الكلية';
+                      if (text.isEmpty) return 'أدخل اسم الكلية';
 
                       return null;
                     },
@@ -945,7 +945,7 @@ Widget buildSectionTitle(String title, String subtitle) {
                     validator: (value) {
                       final text = value?.trim() ?? '';
 
-                      if (text.isEmpty) return 'أدخلي التخصص';
+                      if (text.isEmpty) return 'أدخل التخصص';
 
                       return null;
                     },
@@ -964,7 +964,7 @@ Widget buildSectionTitle(String title, String subtitle) {
                     validator: (value) {
                       final text = value?.trim() ?? '';
 
-                      if (text.isEmpty) return 'أدخلي سنة التخرج';
+                      if (text.isEmpty) return 'أدخل سنة التخرج';
 
                       final year = int.tryParse(text);
                       final currentYear = DateTime.now().year;
@@ -990,7 +990,7 @@ Widget buildSectionTitle(String title, String subtitle) {
                     validator: (value) {
                       final text = value?.trim() ?? '';
 
-                      if (text.isEmpty) return 'أدخلي سنوات الخبرة';
+                      if (text.isEmpty) return 'أدخل سنوات الخبرة';
 
                       final years = int.tryParse(text);
 

@@ -1064,7 +1064,7 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
             maxLines: 3,
             decoration: const InputDecoration(
               labelText: 'ملاحظة إدارية',
-              hintText: 'أدخلي ملاحظة إضافية إن وجدت',
+              hintText: 'أدخل ملاحظة إضافية إن وجدت',
               alignLabelWithHint: true,
             ),
           ),
@@ -1124,7 +1124,7 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
               });
             },
             decoration: InputDecoration(
-              hintText: 'ابحثي بالملاحظة أو باسم من سجّل الحدث',
+              hintText: 'ابحث بالملاحظة أو باسم من سجّل الحدث',
               prefixIcon: const Icon(Icons.search_rounded),
               suffixIcon: searchText.isEmpty
                   ? null
@@ -1229,7 +1229,7 @@ class _EntryExitLogPageState extends State<EntryExitLogPage> {
           ),
           SizedBox(height: 6),
           Text(
-            'جرّبي تغيير الفلاتر أو البحث بكلمات أخرى.',
+            'جرّب تغيير الفلاتر أو البحث بكلمات أخرى.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 13.5,
@@ -1270,7 +1270,7 @@ class _EntryExitLogCard extends StatelessWidget {
     if (role == 'nursery_staff' ||
         role == 'nursery staff' ||
         role == 'nursery') {
-      return 'موظفة حضانة';
+      return 'موظف حضانة';
     }
 
     if (role == 'parent') return 'ولي أمر';

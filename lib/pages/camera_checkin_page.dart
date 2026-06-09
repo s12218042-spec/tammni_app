@@ -206,7 +206,7 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
     final selected = picked;
 
     if (selected == null) {
-      _showSnack('صوّري صورة أو فيديو أولًا');
+      _showSnack('صوّر صورة أو فيديو أولًا');
       return;
     }
 
@@ -602,7 +602,7 @@ class _CameraCheckinPageState extends State<CameraCheckinPage> {
         maxLines: 3,
         decoration: InputDecoration(
           labelText: 'وصف الوسائط',
-          hintText: 'اكتبي وصفًا قصيرًا',
+          hintText: 'اكتب وصفًا قصيرًا',
           filled: true,
           fillColor: AppColors.background,
           border: OutlineInputBorder(

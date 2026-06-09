@@ -81,7 +81,7 @@ class _StaffEmployeeFilePageState extends State<StaffEmployeeFilePage> {
   if (!mounted) return;
 
   setState(() {
-    loadError = 'لم يتم العثور على المستخدم الحالي. سجّلي الدخول مرة أخرى.';
+    loadError = 'لم يتم العثور على المستخدم الحالي. سجّل الدخول مرة أخرى.';
     isLoading = false;
   });
 
@@ -334,8 +334,8 @@ class _StaffEmployeeFilePageState extends State<StaffEmployeeFilePage> {
                 children: [
                   Text(
                     isMyDuty
-                        ? 'أنتِ ضمن مناوبات هذا الأسبوع'
-                        : 'لا توجد مناوبة عليكِ هذا الأسبوع',
+                        ? 'أنت ضمن مناوبات هذا الأسبوع'
+                        : 'لا توجد مناوبة عليك هذا الأسبوع',
                     style: TextStyle(
                       color: isMyDuty ? Colors.green : Colors.black87,
                       fontWeight: FontWeight.w900,

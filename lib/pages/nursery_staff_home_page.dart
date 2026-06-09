@@ -67,7 +67,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
   String get _pageTitle {
     switch (selectedIndex) {
       case 0:
-        return 'الرئيسية - موظفة الحضانة';
+        return 'الرئيسية - موظف الحضانة';
       case 1:
         return 'المتابعة';
       case 2:
@@ -75,7 +75,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
       case 3:
         return 'الإعدادات';
       default:
-        return 'الرئيسية - موظفة الحضانة';
+        return 'الرئيسية - موظف الحضانة';
     }
   }
 
@@ -1204,7 +1204,7 @@ if (rawDutyStaff is List && rawDutyStaff.isNotEmpty) {
 
 if (dutyStaffNames.isEmpty) {
   dutyStaffNames =
-      (data['staffName'] ?? data['dutyStaffName'] ?? 'موظفة غير محددة')
+      (data['staffName'] ?? data['dutyStaffName'] ?? 'موظف غير محدد')
           .toString()
           .trim();
 }
@@ -1239,8 +1239,8 @@ final end = (data['weekEndDateKey'] ??
                   children: [
                     Text(
                       isMyDuty
-                          ? 'أنتِ المناوبة لهذا الأسبوع'
-                          : 'لا توجد مناوبة عليكِ هذا الأسبوع',
+                          ? 'أنت المناوب لهذا الأسبوع'
+                          : 'لا توجد مناوبة عليك هذا الأسبوع',
                       style: TextStyle(
                         color: isMyDuty ? Colors.green : AppColors.textDark,
                         fontWeight: FontWeight.w900,
@@ -1360,7 +1360,7 @@ final end = (data['weekEndDateKey'] ??
 
               final displayName = data?.name.trim().isNotEmpty == true
                   ? data!.name
-                  : 'موظفة الحضانة';
+                  : 'موظف الحضانة';
 
               final subtitle = data == null
                   ? 'متابعة الرعاية اليومية'
@@ -1797,7 +1797,7 @@ final end = (data['weekEndDateKey'] ??
         border: Border.all(color: AppColors.primary.withOpacity(0.08)),
       ),
       child: Text(
-        'أهلاً بكِ',
+        'أهلاً بك',
         style: Theme.of(context).textTheme.headlineSmall?.copyWith(
               fontWeight: FontWeight.w800,
               color: AppColors.textDark,

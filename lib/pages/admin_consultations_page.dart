@@ -254,7 +254,7 @@ Future<List<Map<String, dynamic>>> fetchChildren() async {
     if (!_formKey.currentState!.validate()) return;
 
     if (selectedChild == null) {
-      _showSnack('اختاري الطفل أولًا');
+      _showSnack('اختر الطفل أولًا');
       return;
     }
         final selectedChildType =
@@ -802,7 +802,7 @@ Future<List<Map<String, dynamic>>> fetchChildren() async {
                           },
                           validator: (value) {
                             if (value == null || value.isEmpty) {
-                              return 'اختاري الطفل';
+                              return 'اختر الطفل';
                             }
                             return null;
                           },
@@ -883,7 +883,7 @@ Future<List<Map<String, dynamic>>> fetchChildren() async {
                         onChanged: (_) => setState(() {}),
                         validator: (value) {
                           final val = _numValue(value);
-                          if (val <= 0) return 'أدخلي عدد ساعات صحيح';
+                          if (val <= 0) return 'أدخل عدد ساعات صحيح';
                           return null;
                         },
                       ),
@@ -898,7 +898,7 @@ Future<List<Map<String, dynamic>>> fetchChildren() async {
                         onChanged: (_) => setState(() {}),
                         validator: (value) {
                           final val = _numValue(value);
-                          if (val <= 0) return 'أدخلي سعر صحيح';
+                          if (val <= 0) return 'أدخل سعر صحيح';
                           return null;
                         },
                       ),

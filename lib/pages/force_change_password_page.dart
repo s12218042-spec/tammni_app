@@ -46,7 +46,7 @@ class _ForceChangePasswordPageState extends State<ForceChangePasswordPage> {
       case 'nursery':
       case 'nursery staff':
       case 'nursery_staff':
-        return 'موظفة الحضانة';
+        return 'موظف الحضانة';
       case 'admin':
         return 'الإدارة';
       default:

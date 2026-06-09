@@ -243,7 +243,7 @@ class _MessagesPageState extends State<MessagesPage> {
   String roleLabel(String role) {
     final clean = normalizeRole(role);
 
-    if (clean == 'nursery_staff') return 'موظفة حضانة';
+    if (clean == 'nursery_staff') return 'موظف حضانة';
     if (clean == 'parent') return 'ولي أمر';
     if (clean == 'admin') return 'الإدارة';
 

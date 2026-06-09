@@ -173,7 +173,7 @@ Future<List<Map<String, dynamic>>> fetchChildren() async {
     if (!_formKey.currentState!.validate()) return;
 
     if (selectedChild == null) {
-      _showSnack('اختاري الطفل أولًا');
+      _showSnack('اختر الطفل أولًا');
       return;
     }
 
@@ -374,7 +374,7 @@ if (parentUid.isNotEmpty || parentUsername.isNotEmpty || childId.isNotEmpty) {
                           },
                           validator: (value) {
                             if (value == null || value.isEmpty) {
-                              return 'اختاري الطفل';
+                              return 'اختر الطفل';
                             }
                             return null;
                           },
@@ -407,7 +407,7 @@ if (parentUid.isNotEmpty || parentUsername.isNotEmpty || childId.isNotEmpty) {
                         validator: (value) {
                           final val = double.tryParse(value?.trim() ?? '');
                           if (val == null || val <= 0) {
-                            return 'أدخلي عدد ساعات صحيح';
+                            return 'أدخل عدد ساعات صحيح';
                           }
                           return null;
                         },

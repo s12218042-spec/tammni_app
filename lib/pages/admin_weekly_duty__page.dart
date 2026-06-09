@@ -63,7 +63,7 @@ class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
     if (displayName.isNotEmpty) return displayName;
     if (username.isNotEmpty) return username;
 
-    return 'موظفة بدون اسم';
+    return 'موظف بدون اسم';
   }
 
   String _formatDate(DateTime date) {
@@ -120,7 +120,7 @@ class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
   Future<void> _saveWeeklyDuty() async {
     if (selectedStaffUids.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('اختاري موظفة للمناوبة')),
+        const SnackBar(content: Text('اختر موظف للمناوبة')),
       );
       return;
     }
@@ -206,7 +206,7 @@ class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
           },
         );
       } catch (e) {
-        debugPrint('AdminWeeklyDutyPage: فشل إرسال إشعار المناوبة للموظفة $staffUid: $e');
+        debugPrint('AdminWeeklyDutyPage: فشل إرسال إشعار المناوبة للموظف $staffUid: $e');
       }
       }
 
@@ -401,7 +401,7 @@ class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Text(
-                'تعذر تحميل الموظفات',
+                'تعذر تحميل الموظفين',
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: Colors.red),
               ),
@@ -442,7 +442,7 @@ class _AdminWeeklyDutyPageState extends State<AdminWeeklyDutyPage> {
             child: Padding(
               padding: EdgeInsets.all(16),
               child: Text(
-                'لا توجد موظفات حضانة',
+                'لا يوجد موظفو حضانة',
                 textAlign: TextAlign.center,
               ),
             ),

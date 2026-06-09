@@ -668,8 +668,8 @@ class _ParentConsultationsPageState extends State<ParentConsultationsPage> {
           ),
           content: Text(
             approved
-                ? 'هل تريدين الموافقة على هذه الاستشارة؟'
-                : 'هل تريدين رفض هذه الاستشارة؟',
+                ? 'هل تريد الموافقة على هذه الاستشارة؟'
+                : 'هل تريد رفض هذه الاستشارة؟',
           ),
           actions: [
             TextButton(

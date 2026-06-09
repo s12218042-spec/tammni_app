@@ -344,7 +344,7 @@ class UserModel {
         return 'ولي أمر';
 
       case 'nursery_staff':
-        return 'موظفة حضانة';
+        return 'موظف حضانة';
 
       case 'admin':
         return 'مدير النظام';

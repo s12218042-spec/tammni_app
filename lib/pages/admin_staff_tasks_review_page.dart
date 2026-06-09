@@ -285,7 +285,7 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         _dialogInfo(
-                          'الموظفة',
+                          'الموظف',
                           _clean(data['staffName']).isEmpty
                               ? 'غير محددة'
                               : _clean(data['staffName']),
@@ -474,7 +474,7 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
     final data = doc.data();
 
     final staffName = _clean(data['staffName']).isEmpty
-        ? 'موظفة غير محددة'
+        ? 'موظف غير محدد'
         : _clean(data['staffName']);
 
     final staffUsername = _clean(data['staffUsername']);
@@ -668,7 +668,7 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
       child: Scaffold(
         backgroundColor: const Color(0xffF7F7F7),
         appBar: AppBar(
-          title: const Text('متابعة مهام الموظفات'),
+          title: const Text('متابعة مهام الموظفين'),
           centerTitle: true,
         ),
         body: RefreshIndicator(

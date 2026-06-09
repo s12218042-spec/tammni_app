@@ -323,7 +323,7 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
                   TextField(
                     textAlign: TextAlign.right,
                     decoration: InputDecoration(
-                     hintText: 'ابحثي باسم الطفل أو المنشئ',
+                     hintText: 'ابحث باسم الطفل أو المنشئ',
                       prefixIcon: const Icon(Icons.search_rounded),
                       suffixIcon: searchText.trim().isEmpty
                           ? null
@@ -438,7 +438,7 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
                           const SizedBox(height: 4),
                           Text(
                             hasCustomFilters
-                                ? 'جرّبي تغيير الفلاتر أو البحث بكلمات أخرى.'
+                                ? 'جرّب تغيير الفلاتر أو البحث بكلمات أخرى.'
                                 : 'لا توجد تحديثات حالياً.',
                             textAlign: TextAlign.center,
                             style: const TextStyle(color: Colors.black54),

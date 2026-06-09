@@ -56,7 +56,7 @@ class MessageService {
       case 'parent':
         return 'وليّ الأمر';
       case 'nursery_staff':
-        return 'موظفة الحضانة';
+        return 'موظف الحضانة';
       case 'admin':
         return 'الإدارة';
       default:

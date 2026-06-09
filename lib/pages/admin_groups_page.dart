@@ -202,7 +202,7 @@ class _AdminGroupsPageState extends State<AdminGroupsPage> {
                             return const Card(
                               child: Padding(
                                 padding: EdgeInsets.all(14),
-                                child: Text('لا توجد موظفات حضانة'),
+                                child: Text('لا يوجد موظفو حضانة'),
                               ),
                             );
                           }
@@ -212,7 +212,7 @@ class _AdminGroupsPageState extends State<AdminGroupsPage> {
                                 ? null
                                 : selectedStaffUid,
                             decoration: const InputDecoration(
-                              labelText: 'الموظفة المسؤولة',
+                              labelText: 'الموظف المسؤول',
                               prefixIcon: Icon(Icons.badge_outlined),
                             ),
                             items: staffDocs.map((doc) {
@@ -222,7 +222,7 @@ class _AdminGroupsPageState extends State<AdminGroupsPage> {
                                   ? _cleanText(data['name'])
                                   : _cleanText(data['username']).isNotEmpty
                                       ? _cleanText(data['username'])
-                                      : 'موظفة بدون اسم';
+                                      : 'موظف بدون اسم';
 
                               final username = _cleanText(data['username']);
 
@@ -272,7 +272,7 @@ class _AdminGroupsPageState extends State<AdminGroupsPage> {
                             if (groupName.isEmpty) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
-                                  content: Text('اكتبي اسم المجموعة'),
+                                  content: Text('اكتب اسم المجموعة'),
                                 ),
                               );
                               return;
@@ -281,7 +281,7 @@ class _AdminGroupsPageState extends State<AdminGroupsPage> {
                             if (maxChildren <= 0) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
-                                  content: Text('أدخلي عدد أطفال صحيح'),
+                                  content: Text('أدخل عدد أطفال صحيح'),
                                 ),
                               );
                               return;
@@ -290,7 +290,7 @@ class _AdminGroupsPageState extends State<AdminGroupsPage> {
                             if (selectedStaffUid.isEmpty) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
-                                  content: Text('اختاري الموظفة المسؤولة'),
+                                  content: Text('اختر الموظف المسؤول'),
                                 ),
                               );
                               return;
@@ -1219,7 +1219,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       const SnackBar(
                                         content: Text(
-                                          'اختاري حساب ولي الأمر الرسمي',
+                                          'اختر حساب ولي الأمر الرسمي',
                                         ),
                                       ),
                                     );
@@ -1457,7 +1457,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       const SnackBar(
                                         content: Text(
-                                          'اختاري حساب ولي الأمر الرسمي',
+                                          'اختر حساب ولي الأمر الرسمي',
                                         ),
                                       ),
                                     );
@@ -1793,7 +1793,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
           value: linkWithSiblings,
-          title: const Text('ربط بإخوة مسجلين بنفس الكود'),
+          title: const Text('ربط بإخوة مسجلن بنفس الكود'),
           onChanged: onToggle,
         ),
         if (linkWithSiblings)
@@ -2227,12 +2227,12 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
     _TemporaryChildProfileDraft profile,
   ) {
     if (profile.birthDate == null) {
-      return 'اختاري تاريخ ميلاد الطفل';
+      return 'اختر تاريخ ميلاد الطفل';
     }
 
     for (final pickup in profile.pickupContacts) {
       if (!pickup.isValid()) {
-        return 'تأكدي من تعبئة بيانات الشخص المخوّل بالاستلام';
+        return 'تأكد من تعبئة بيانات الشخص المخوّل بالاستلام';
       }
 
       if (!_isValidPalestinianMobile(pickup.phoneCtrl.text)) {
@@ -2751,7 +2751,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                                   if (childName.isEmpty) {
                                     await _showSheetValidationError(
                                       sheetContext,
-                                      'اكتبي اسم الطفل',
+                                      'اكتب اسم الطفل',
                                     );
                                     return;
                                   }
@@ -2759,7 +2759,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                                   if (parentName.isEmpty) {
                                     await _showSheetValidationError(
                                       sheetContext,
-                                      'اكتبي اسم ولي الأمر',
+                                      'اكتب اسم ولي الأمر',
                                     );
                                     return;
                                   }
@@ -2767,7 +2767,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                                   if (parentPhone.isEmpty) {
                                     await _showSheetValidationError(
                                       sheetContext,
-                                      'اكتبي رقم ولي الأمر',
+                                      'اكتب رقم ولي الأمر',
                                     );
                                     return;
                                   }
@@ -2784,7 +2784,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                                       selectedSharedAccessCodeId.isEmpty) {
                                     await _showSheetValidationError(
                                       sheetContext,
-                                      'اختاري كود الإخوة',
+                                      'اختر كود الإخوة',
                                     );
                                     return;
                                   }
@@ -2792,7 +2792,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                                   if (finalAmount <= 0) {
                                     await _showSheetValidationError(
                                       sheetContext,
-                                      'أدخلي قيمة فاتورة صحيحة',
+                                      'أدخل قيمة فاتورة صحيحة',
                                     );
                                     return;
                                   }
@@ -3397,7 +3397,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                                   if (childName.isEmpty) {
                                     await _showSheetValidationError(
                                       sheetContext,
-                                      'اكتبي اسم الطفل',
+                                      'اكتب اسم الطفل',
                                     );
                                     return;
                                   }
@@ -3405,7 +3405,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                                   if (parentName.isEmpty) {
                                     await _showSheetValidationError(
                                       sheetContext,
-                                      'اكتبي اسم ولي الأمر',
+                                      'اكتب اسم ولي الأمر',
                                     );
                                     return;
                                   }
@@ -3413,7 +3413,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                                   if (parentPhone.isEmpty) {
                                     await _showSheetValidationError(
                                       sheetContext,
-                                      'اكتبي رقم ولي الأمر',
+                                      'اكتب رقم ولي الأمر',
                                     );
                                     return;
                                   }
@@ -3430,7 +3430,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                                       selectedSharedAccessCodeId.isEmpty) {
                                     await _showSheetValidationError(
                                       sheetContext,
-                                      'اختاري كود الإخوة',
+                                      'اختر كود الإخوة',
                                     );
                                     return;
                                   }
@@ -3966,7 +3966,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       const SnackBar(
                                         content:
-                                            Text('أدخلي عدد ساعات صحيح'),
+                                            Text('أدخل عدد ساعات صحيح'),
                                       ),
                                     );
                                     return;
@@ -3975,7 +3975,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                                   if (hourlyRate <= 0) {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       const SnackBar(
-                                        content: Text('أدخلي سعر ساعة صحيح'),
+                                        content: Text('أدخل سعر ساعة صحيح'),
                                       ),
                                     );
                                     return;
@@ -3985,7 +3985,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                                       selectedSharedAccessCodeId.isEmpty) {
                                     await _showSheetValidationError(
                                       sheetContext,
-                                      'اختاري كود الإخوة',
+                                      'اختر كود الإخوة',
                                     );
                                     return;
                                   }
@@ -4326,14 +4326,14 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
 
       if (hoursCount <= 0) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('أدخلي عدد ساعات صحيح')),
+          const SnackBar(content: Text('أدخل عدد ساعات صحيح')),
         );
         return;
       }
 
       if (hourlyRate <= 0) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('أدخلي سعر ساعة صحيح')),
+          const SnackBar(content: Text('أدخل سعر ساعة صحيح')),
         );
         return;
       }

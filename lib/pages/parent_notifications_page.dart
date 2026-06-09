@@ -407,7 +407,7 @@ class _ParentNotificationsPageState extends State<ParentNotificationsPage> {
 if (type == 'group_update' || type == 'group_update_notification') {
   ScaffoldMessenger.of(context).showSnackBar(
     const SnackBar(
-      content: Text('يمكنكِ مشاهدة التحديث الجماعي من صفحة تحديثات الطفل'),
+      content: Text('يمكنك مشاهدة التحديث الجماعي من صفحة تحديثات الطفل'),
     ),
   );
 
@@ -890,7 +890,7 @@ setState(() {});
     if (role == 'nursery' ||
         role == 'nursery_staff' ||
         role == 'nursery staff') {
-      roleLabel = 'موظفة الحضانة';
+      roleLabel = 'موظف الحضانة';
     } else if (role == 'admin') {
       roleLabel = 'الإدارة';
     } else if (role == 'parent') {

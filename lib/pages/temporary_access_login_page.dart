@@ -527,7 +527,7 @@ class _TemporaryAccessLoginPageState extends State<TemporaryAccessLoginPage> {
         return Directionality(
           textDirection: TextDirection.rtl,
           child: AlertDialog(
-            title: const Text('اختاري الطفل'),
+            title: const Text('اختر الطفل'),
             content: SizedBox(
               width: 420,
               child: ListView.separated(
@@ -709,7 +709,7 @@ class _TemporaryAccessLoginPageState extends State<TemporaryAccessLoginPage> {
       debugPrint('TEMP ACCESS LOGIN ERROR: $e');
       debugPrint('$st');
 
-      _showMessage('تعذر الدخول، حاولي مرة أخرى');
+      _showMessage('تعذر الدخول، حاول مرة أخرى');
     } finally {
       if (mounted) {
         setState(() {

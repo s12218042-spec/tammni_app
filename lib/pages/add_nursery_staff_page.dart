@@ -28,7 +28,7 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
   final phoneCtrl = TextEditingController();
   final alternativePhoneCtrl = TextEditingController();
   final addressCtrl = TextEditingController();
-  final jobTitleCtrl = TextEditingController(text: 'موظفة حضانة');
+  final jobTitleCtrl = TextEditingController(text: 'موظف حضانة');
   final specializationCtrl = TextEditingController();
   final universityCtrl = TextEditingController();
   final collegeCtrl = TextEditingController();
@@ -235,13 +235,13 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
 
   String? validateBirthDate() {
     if (birthDate == null) {
-      return 'اختاري تاريخ الميلاد';
+      return 'اختر تاريخ الميلاد';
     }
 
     final age = calculateAge(birthDate!);
 
     if (age < 18) {
-      return 'عمر موظفة الحضانة يجب أن يكون 18 سنة فأكثر';
+      return 'عمر موظف الحضانة يجب أن يكون 18 سنة فأكثر';
     }
 
     if (age > 70) {
@@ -253,7 +253,7 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
 
   String? validateHireDate() {
     if (hireDate == null) {
-      return 'اختاري تاريخ التعيين';
+      return 'اختر تاريخ التعيين';
     }
 
     final now = DateTime.now();
@@ -398,7 +398,7 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم إنشاء حساب موظفة الحضانة بنجاح')),
+        const SnackBar(content: Text('تم إنشاء حساب موظف الحضانة بنجاح')),
       );
 
       Navigator.pop(context, true);
@@ -473,7 +473,7 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
   @override
   Widget build(BuildContext context) {
     return AppPageScaffold(
-      title: 'إضافة موظفة حضانة',
+      title: 'إضافة موظف حضانة',
       child: Form(
         key: _formKey,
         child: ListView(
@@ -494,7 +494,7 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     ),
                     validator: (value) {
                       final text = value?.trim() ?? '';
-                      if (text.isEmpty) return 'أدخلي الاسم الكامل';
+                      if (text.isEmpty) return 'أدخل الاسم الكامل';
                       if (text.length < 3) return 'الاسم قصير جدًا';
                       return null;
                     },
@@ -510,7 +510,7 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     ),
                     validator: (value) {
                       final text = value?.trim() ?? '';
-                      if (text.isEmpty) return 'أدخلي اسم المستخدم';
+                      if (text.isEmpty) return 'أدخل اسم المستخدم';
                       if (!isValidUsername(text)) {
                         return 'اسم المستخدم يجب أن يبدأ بحرف صغير ويحتوي فقط على حروف صغيرة/أرقام/./_';
                       }
@@ -529,9 +529,9 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     ),
                     validator: (value) {
                       final text = value?.trim() ?? '';
-                      if (text.isEmpty) return 'أدخلي البريد الإلكتروني';
+                      if (text.isEmpty) return 'أدخل البريد الإلكتروني';
                       if (!isValidEmail(text)) {
-                        return 'أدخلي بريدًا إلكترونيًا صالحًا';
+                        return 'أدخل بريدًا إلكترونيًا صالحًا';
                       }
                       return null;
                     },
@@ -562,7 +562,7 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     ),
                     validator: (value) {
                       final text = value?.trim() ?? '';
-                      if (text.isEmpty) return 'أدخلي كلمة المرور';
+                      if (text.isEmpty) return 'أدخل كلمة المرور';
                       if (!isValidPassword(text)) {
                         return 'يجب أن تحتوي على 8 أحرف على الأقل وحرف كبير وصغير ورقم ورمز خاص';
                       }
@@ -596,7 +596,7 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     ),
                     validator: (value) {
                       final text = value?.trim() ?? '';
-                      if (text.isEmpty) return 'أدخلي تأكيد كلمة المرور';
+                      if (text.isEmpty) return 'أدخل تأكيد كلمة المرور';
                       if (text != passwordCtrl.text.trim()) {
                         return 'كلمة المرور وتأكيدها غير متطابقين';
                       }
@@ -626,7 +626,7 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     ),
                     validator: (value) {
                       final text = value?.trim() ?? '';
-                      if (text.isEmpty) return 'أدخلي رقم الهوية';
+                      if (text.isEmpty) return 'أدخل رقم الهوية';
                       if (!isValidPalestinianId(text)) {
                         return 'رقم الهوية الفلسطينية غير صالح';
                       }
@@ -671,7 +671,7 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     ),
                     validator: (value) {
                       final text = value?.trim() ?? '';
-                      if (text.isEmpty) return 'أدخلي رقم الجوال';
+                      if (text.isEmpty) return 'أدخل رقم الجوال';
                       if (!isValidPalestinianMobile(text)) {
                         return 'رقم الجوال الفلسطيني غير صالح';
                       }
@@ -712,7 +712,7 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     ),
                     validator: (value) {
                       final text = value?.trim() ?? '';
-                      if (text.isEmpty) return 'أدخلي العنوان';
+                      if (text.isEmpty) return 'أدخل العنوان';
                       if (text.length < 5) return 'العنوان قصير جدًا';
                       return null;
                     },
@@ -739,7 +739,7 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     ),
                     validator: (value) {
                       final text = value?.trim() ?? '';
-                      if (text.isEmpty) return 'أدخلي المسمى الوظيفي';
+                      if (text.isEmpty) return 'أدخل المسمى الوظيفي';
                       return null;
                     },
                   ),
@@ -788,7 +788,7 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     ),
                     validator: (value) {
                       final text = value?.trim() ?? '';
-                      if (text.isEmpty) return 'أدخلي اسم الجامعة';
+                      if (text.isEmpty) return 'أدخل اسم الجامعة';
                       return null;
                     },
                   ),
@@ -803,7 +803,7 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     ),
                     validator: (value) {
                       final text = value?.trim() ?? '';
-                      if (text.isEmpty) return 'أدخلي اسم الكلية';
+                      if (text.isEmpty) return 'أدخل اسم الكلية';
                       return null;
                     },
                   ),
@@ -818,7 +818,7 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     ),
                     validator: (value) {
                       final text = value?.trim() ?? '';
-                      if (text.isEmpty) return 'أدخلي التخصص';
+                      if (text.isEmpty) return 'أدخل التخصص';
                       return null;
                     },
                   ),
@@ -834,7 +834,7 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     ),
                     validator: (value) {
                       final text = value?.trim() ?? '';
-                      if (text.isEmpty) return 'أدخلي سنة التخرج';
+                      if (text.isEmpty) return 'أدخل سنة التخرج';
 
                       final year = int.tryParse(text);
                       final currentYear = DateTime.now().year;
@@ -858,7 +858,7 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     ),
                     validator: (value) {
                       final text = value?.trim() ?? '';
-                      if (text.isEmpty) return 'أدخلي سنوات الخبرة';
+                      if (text.isEmpty) return 'أدخل سنوات الخبرة';
 
                       final years = int.tryParse(text);
 
@@ -882,7 +882,7 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                     validator: (value) {
                       final items = splitCommaValues(value ?? '');
                       if (items.isEmpty) {
-                        return 'أدخلي مسؤولية واحدة على الأقل';
+                        return 'أدخل مسؤولية واحدة على الأقل';
                       }
                       return null;
                     },
@@ -1017,7 +1017,7 @@ class _AddNurseryStaffPageState extends State<AddNurseryStaffPage> {
                       label: Text(
                         isLoading
                             ? 'جارٍ إنشاء الحساب...'
-                            : 'إنشاء حساب موظفة الحضانة',
+                            : 'إنشاء حساب موظف الحضانة',
                       ),
                     ),
                   ),

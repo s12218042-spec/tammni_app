@@ -477,7 +477,7 @@ class _SendGroupUpdatePageState extends State<SendGroupUpdatePage> {
 
   bool _validateBeforeSave() {
     if (selectedChildIds.isEmpty) {
-      _showSnack('اختاري طفلًا واحدًا على الأقل');
+      _showSnack('اختر طفلًا واحدًا على الأقل');
       return false;
     }
 
@@ -485,7 +485,7 @@ class _SendGroupUpdatePageState extends State<SendGroupUpdatePage> {
     final extra = extraCtrl.text.trim();
 
     if (note.isEmpty && extra.isEmpty && selectedMediaFile == null) {
-      _showSnack('اكتبي وصفًا أو أضيفي صورة/فيديو للتحديث');
+      _showSnack('اكتب وصفًا أو أضف صورة/فيديو للتحديث');
       return false;
     }
 

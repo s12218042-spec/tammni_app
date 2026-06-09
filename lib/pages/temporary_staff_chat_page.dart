@@ -135,7 +135,7 @@ class _TemporaryStaffChatPageState extends State<TemporaryStaffChatPage> {
     if (uid.isEmpty) {
       return {
         'uid': '',
-        'name': 'موظفة الحضانة',
+        'name': 'موظف الحضانة',
       };
     }
 
@@ -149,13 +149,13 @@ class _TemporaryStaffChatPageState extends State<TemporaryStaffChatPage> {
           _cleanText(
             data['displayName'] ?? data['name'] ?? data['username'],
           ),
-          'موظفة الحضانة',
+          'موظف الحضانة',
         ),
       };
     } catch (_) {
       return {
         'uid': uid,
-        'name': 'موظفة الحضانة',
+        'name': 'موظف الحضانة',
       };
     }
   }
@@ -203,7 +203,7 @@ class _TemporaryStaffChatPageState extends State<TemporaryStaffChatPage> {
         'groupName': widget.groupName,
         'fromRole': 'nursery_staff',
         'fromUid': staffInfo['uid'] ?? _currentUid,
-        'fromName': staffInfo['name'] ?? 'موظفة الحضانة',
+        'fromName': staffInfo['name'] ?? 'موظف الحضانة',
         'targetRole': 'temporary_parent',
         'targetUid': '',
         'targetName': _safeName(widget.parentName, 'ولي أمر مؤقت'),
@@ -471,7 +471,7 @@ class _TemporaryStaffChatPageState extends State<TemporaryStaffChatPage> {
               maxLines: 4,
               textInputAction: TextInputAction.newline,
               decoration: const InputDecoration(
-                hintText: 'اكتبي رسالة...',
+                hintText: 'اكتب رسالة...',
                 border: InputBorder.none,
               ),
             ),

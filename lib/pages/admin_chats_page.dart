@@ -148,7 +148,7 @@ if (!isAllowedChatRole(role)) return false;
   String roleLabel(String role) {
     switch (normalizeRole(role)) {
       case 'nursery_staff':
-        return 'موظفة حضانة';
+        return 'موظف حضانة';
       case 'admin':
         return 'الإدارة';
       case 'parent':
@@ -228,7 +228,7 @@ if (!isAllowedChatRole(role)) return false;
   ),
   DropdownMenuItem(
     value: 'nursery_staff',
-    child: Text('موظفات الحضانة'),
+    child: Text('موظفو الحضانة'),
   ),
   DropdownMenuItem(
     value: 'parent',

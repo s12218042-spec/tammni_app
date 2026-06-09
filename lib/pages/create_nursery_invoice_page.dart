@@ -910,13 +910,13 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
     if (!_formKey.currentState!.validate()) return;
 
     if (selectedChild == null) {
-      _showSnack('اختاري الطفل أولًا');
+      _showSnack('اختر الطفل أولًا');
       return;
     }
 
     if (isTwoChildrenOffer) {
       if (selectedSecondChild == null) {
-        _showSnack('اختاري الطفل الثاني لعرض طفلين');
+        _showSnack('اختر الطفل الثاني لعرض طفلين');
         return;
       }
 
@@ -932,7 +932,7 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
 
       if (parentChildren.length >= 2) {
         _showSnack(
-          'هذا ولي الأمر لديه طفلين أو أكثر. اختاري عرض طفلين بدل إنشاء فاتورة 700 لطفل واحد.',
+          'هذا ولي الأمر لديه طفلين أو أكثر. اختر عرض طفلين بدل إنشاء فاتورة 700 لطفل واحد.',
         );
         return;
       }
@@ -1478,7 +1478,7 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
                           },
                           validator: (value) {
                             if (value == null || value.isEmpty) {
-                              return 'اختاري الطفل';
+                              return 'اختر الطفل';
                             }
                             return null;
                           },
@@ -1547,7 +1547,7 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
                             if (isTwoChildrenOffer) ...[
                               const SizedBox(height: 14),
                               if (selectedChild == null)
-                                const Text('اختاري الطفل الأول أولًا')
+                                const Text('اختر الطفل الأول أولًا')
                               else if (secondOptions.isEmpty)
                                 const Text('لا يوجد طفل ثاني لنفس ولي الأمر')
                               else
@@ -1574,7 +1574,7 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
                                   validator: (value) {
                                     if (isTwoChildrenOffer &&
                                         (value == null || value.isEmpty)) {
-                                      return 'اختاري الطفل الثاني';
+                                      return 'اختر الطفل الثاني';
                                     }
                                     return null;
                                   },

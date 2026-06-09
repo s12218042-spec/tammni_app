@@ -1353,7 +1353,7 @@ class _AdminInvoicesPageState extends State<AdminInvoicesPage> {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text(
-                          'أدخلي مبلغًا أكبر من صفر وأقل من الإجمالي',
+                          'أدخل مبلغًا أكبر من صفر وأقل من الإجمالي',
                         ),
                       ),
                     );

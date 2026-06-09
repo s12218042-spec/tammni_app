@@ -747,7 +747,7 @@ Future<Map<String, dynamic>> _uploadIncidentImageIfNeeded() async {
             child: DropdownButtonFormField<String>(
               value: priority,
               decoration: _inputDecoration(
-                hint: 'اختاري درجة الخطورة',
+                hint: 'اختر درجة الخطورة',
               ),
               items: const [
                 DropdownMenuItem(value: 'normal', child: Text('عادي')),
@@ -771,7 +771,7 @@ Future<Map<String, dynamic>> _uploadIncidentImageIfNeeded() async {
                 DropdownButtonFormField<String>(
                   value: incidentPlace,
                   decoration: _inputDecoration(
-                    hint: 'اختاري مكان الحادث',
+                    hint: 'اختر مكان الحادث',
                   ),
                   items: placeOptions
                       .map(
@@ -799,7 +799,7 @@ Future<Map<String, dynamic>> _uploadIncidentImageIfNeeded() async {
                     controller: otherLocationCtrl,
                     decoration: _inputDecoration(
                       label: 'تحديد المكان',
-                      hint: 'اكتبي مكان الحادث',
+                      hint: 'اكتب مكان الحادث',
                       icon: Icons.edit_location_alt_outlined,
                     ),
                   ),
@@ -846,7 +846,7 @@ Future<Map<String, dynamic>> _uploadIncidentImageIfNeeded() async {
             child: DropdownButtonFormField<String>(
               value: incidentType,
               decoration: _inputDecoration(
-                hint: 'اختاري نوع الحادث',
+                hint: 'اختر نوع الحادث',
               ),
               items: incidentTypes
                   .map(
@@ -873,7 +873,7 @@ Future<Map<String, dynamic>> _uploadIncidentImageIfNeeded() async {
               maxLines: 4,
               onChanged: (_) => setState(() {}),
               decoration: _inputDecoration(
-                hint: 'اكتبي تفاصيل الحادث',
+                hint: 'اكتب تفاصيل الحادث',
               ),
             ),
           ),
@@ -884,7 +884,7 @@ Future<Map<String, dynamic>> _uploadIncidentImageIfNeeded() async {
               controller: actionCtrl,
               maxLines: 3,
               decoration: _inputDecoration(
-                hint: 'اكتبي الإجراء الذي تم اتخاذه',
+                hint: 'اكتب الإجراء الذي تم اتخاذه',
               ),
             ),
           ),

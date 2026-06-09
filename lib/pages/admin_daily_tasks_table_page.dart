@@ -73,7 +73,7 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
     if (name.isNotEmpty) return name;
     if (fullName.isNotEmpty) return fullName;
     if (username.isNotEmpty) return username;
-    return 'موظفة بدون اسم';
+    return 'موظف بدون اسم';
   }
 
   String _weekKey(DateTime date) {
@@ -209,7 +209,7 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
 
     if (!hasAnyTask) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('اختاري مهمة واحدة على الأقل')),
+        const SnackBar(content: Text('اختر مهمة واحدة على الأقل')),
       );
       return;
     }
@@ -433,7 +433,7 @@ batch.set(ref, taskData, SetOptions(merge: true));
           );
         } catch (e) {
   debugPrint(
-    'AdminDailyTasksTablePage: فشل إرسال إشعار مهام اليوم للموظفة $staffUid: $e',
+    'AdminDailyTasksTablePage: فشل إرسال إشعار مهام اليوم للموظف $staffUid: $e',
   );
 }
       }
@@ -469,7 +469,7 @@ batch.set(ref, taskData, SetOptions(merge: true));
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
                 pw.Text(
-                  'جدول مهام الموظفات اليومية',
+                  'جدول مهام الموظفين اليومية',
                   style: pw.TextStyle(
                     fontSize: 22,
                     fontWeight: pw.FontWeight.bold,
@@ -479,7 +479,7 @@ batch.set(ref, taskData, SetOptions(merge: true));
                 pw.Text('التاريخ: $dateKey'),
                 pw.SizedBox(height: 16),
                 pw.TableHelper.fromTextArray(
-                  headers: ['الموظفة', 'المهام'],
+                  headers: ['الموظف', 'المهام'],
                   data: rows.map((row) {
                     final tasksList = row['tasks'];
                     final tasks = tasksList is List
@@ -658,7 +658,7 @@ batch.set(ref, taskData, SetOptions(merge: true));
       child: Padding(
         padding: EdgeInsets.all(18),
         child: Text(
-          'تعذر تحميل الموظفات',
+          'تعذر تحميل الموظفين',
           textAlign: TextAlign.center,
           style: TextStyle(
             color: Colors.red,
@@ -674,7 +674,7 @@ batch.set(ref, taskData, SetOptions(merge: true));
       child: Padding(
         padding: EdgeInsets.all(16),
         child: Text(
-          'لا يوجد موظفات حضانة',
+          'لا يوجد موظفو حضانة',
           textAlign: TextAlign.center,
         ),
       ),
@@ -713,7 +713,7 @@ batch.set(ref, taskData, SetOptions(merge: true));
       child: Scaffold(
         backgroundColor: const Color(0xffF7F7F7),
         appBar: AppBar(
-          title: const Text('تحديد مهام الموظفات'),
+          title: const Text('تحديد مهام الموظفين'),
           centerTitle: true,
         ),
         body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(

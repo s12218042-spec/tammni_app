@@ -350,7 +350,7 @@ class _LiveStreamViewerPageState extends State<LiveStreamViewerPage> {
           child: AlertDialog(
             title: const Text('إنهاء المشاهدة'),
             content: const Text(
-              'هل تريدين إنهاء مشاهدة البث المباشر؟',
+              'هل تريد إنهاء مشاهدة البث المباشر؟',
             ),
             actions: [
               TextButton(
@@ -395,7 +395,7 @@ class _LiveStreamViewerPageState extends State<LiveStreamViewerPage> {
           child: AlertDialog(
             title: const Text('إلغاء الطلب'),
             content: const Text(
-              'هل تريدين إلغاء طلب البث المباشر؟',
+              'هل تريد إلغاء طلب البث المباشر؟',
             ),
             actions: [
               TextButton(
@@ -536,7 +536,7 @@ class _LiveStreamViewerPageState extends State<LiveStreamViewerPage> {
             Text(
               isReady
                   ? 'دورك متاح الآن'
-                  : 'أنتِ في قائمة الانتظار',
+                  : 'أنت في قائمة الانتظار',
               style: const TextStyle(
                 color: AppColors.textDark,
                 fontWeight: FontWeight.w800,

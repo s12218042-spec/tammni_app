@@ -82,7 +82,7 @@ class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
     if (name.isNotEmpty) return name;
     if (fullName.isNotEmpty) return fullName;
     if (username.isNotEmpty) return username;
-    return 'موظفة بدون اسم';
+    return 'موظف بدون اسم';
   }
 
   String _formatTimeOfDay(TimeOfDay? time) {
@@ -320,7 +320,7 @@ class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
         (checkIn == null || checkOut == null)) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('حددي وقت الحضور والانصراف للموظفة ${_staffName(data)}'),
+          content: Text('حدد وقت الحضور والانصراف للموظف ${_staffName(data)}'),
         ),
       );
       return;
@@ -331,7 +331,7 @@ class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
       if (worked <= 0) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('وقت الانصراف غير صحيح للموظفة ${_staffName(data)}'),
+            content: Text('وقت الانصراف غير صحيح للموظف ${_staffName(data)}'),
           ),
         );
         return;
@@ -358,7 +358,7 @@ class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content:
-                Text('حددي وقت الحضور والانصراف للموظفة ${_staffName(data)}'),
+                Text('حدد وقت الحضور والانصراف للموظف ${_staffName(data)}'),
           ),
         );
         return;
@@ -370,7 +370,7 @@ class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content:
-                  Text('وقت الانصراف غير صحيح للموظفة ${_staffName(data)}'),
+                  Text('وقت الانصراف غير صحيح للموظف ${_staffName(data)}'),
             ),
           );
           return;
@@ -510,7 +510,7 @@ class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم حفظ دوام الموظفات بنجاح')),
+        const SnackBar(content: Text('تم حفظ دوام الموظفين بنجاح')),
       );
 
       setState(() {
@@ -598,7 +598,7 @@ class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
                     )
                   : const Icon(Icons.save_outlined),
               label: Text(
-                isSaving ? 'جاري الحفظ...' : 'حفظ دوام كل الموظفات',
+                isSaving ? 'جاري الحفظ...' : 'حفظ دوام كل الموظفين',
               ),
             ),
           ],
@@ -824,7 +824,7 @@ class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
               onPressed:
                   isSaving ? null : () => _saveAttendanceForStaff(staffDoc),
               icon: const Icon(Icons.save_outlined),
-              label: const Text('حفظ دوام هذه الموظفة'),
+              label: const Text('حفظ دوام هذا الموظف'),
             ),
           ],
         ),
@@ -874,7 +874,7 @@ class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
       child: Padding(
         padding: const EdgeInsets.all(18),
         child: Text(
-          'حدث خطأ أثناء تحميل الموظفات:\n$error',
+          'حدث خطأ أثناء تحميل الموظفين:\n$error',
           textAlign: TextAlign.center,
           style: const TextStyle(
             color: Colors.red,
@@ -890,7 +890,7 @@ class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
       child: Padding(
         padding: EdgeInsets.all(18),
         child: Text(
-          'لا يوجد موظفات حضانة',
+          'لا يوجد موظفو حضانة',
           textAlign: TextAlign.center,
         ),
       ),
@@ -904,7 +904,7 @@ class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
       child: Scaffold(
         backgroundColor: const Color(0xffF7F7F7),
         appBar: AppBar(
-          title: const Text('دوام الموظفات'),
+          title: const Text('دوام الموظفين'),
           centerTitle: true,
         ),
         body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(

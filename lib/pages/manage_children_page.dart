@@ -1701,7 +1701,7 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
 
     if (groups.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('أنشئي مجموعة مفعلة أولًا')),
+        const SnackBar(content: Text('أنشئ مجموعة مفعلة أولًا')),
       );
       return;
     }
@@ -1850,7 +1850,7 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
                         value: linkWithSiblings,
-                        title: const Text('ربط بإخوة مسجلين بنفس الكود'),
+                        title: const Text('ربط بإخوة مسجلن بنفس الكود'),
                         onChanged: (value) {
                           setSheetState(() {
                             linkWithSiblings = value;
@@ -2026,7 +2026,7 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
 
                                   if (selectedGroupId.isEmpty) {
                                     await _showValidationError(
-                                      'اختاري المجموعة',
+                                      'اختر المجموعة',
                                     );
                                     return;
                                   }
@@ -2034,7 +2034,7 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
                                   if (parentName.isEmpty ||
                                       !_isValidPalestinianMobile(parentPhone)) {
                                     await _showValidationError(
-                                      'تأكدي من اسم ولي الأمر ورقم الجوال',
+                                      'تأكد من اسم ولي الأمر ورقم الجوال',
                                     );
                                     return;
                                   }
@@ -2042,7 +2042,7 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
                                   if (linkWithSiblings &&
                                       selectedSharedAccessCodeId.isEmpty) {
                                     await _showValidationError(
-                                      'اختاري كود الإخوة',
+                                      'اختر كود الإخوة',
                                     );
                                     return;
                                   }
@@ -2056,14 +2056,14 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
 
                                   if (parseMoney(hoursCtrl.text) <= 0) {
                                     await _showValidationError(
-                                      'أدخلي عدد ساعات صحيح',
+                                      'أدخل عدد ساعات صحيح',
                                     );
                                     return;
                                   }
 
                                   if (parseMoney(hourlyRateCtrl.text) <= 0) {
                                     await _showValidationError(
-                                      'أدخلي سعر ساعة صحيح',
+                                      'أدخل سعر ساعة صحيح',
                                     );
                                     return;
                                   }
@@ -2084,7 +2084,7 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
 
                                   if (total <= 0) {
                                     await _showValidationError(
-                                      'أدخلي فاتورة صحيحة',
+                                      'أدخل فاتورة صحيحة',
                                     );
                                     return;
                                   }
@@ -2384,7 +2384,7 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
   if (groups.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('لا توجد مجموعات مفعّلة. أنشئي مجموعة أولاً من إدارة المجموعات.'),
+        content: Text('لا توجد مجموعات مفعّلة. أنشئ مجموعة أولاً من إدارة المجموعات.'),
       ),
     );
     return;
@@ -2406,7 +2406,7 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
                 child: DropdownButtonFormField<String>(
                   value: selectedGroupId.trim().isEmpty ? null : selectedGroupId,
                   decoration: const InputDecoration(
-                    labelText: 'اختاري المجموعة',
+                    labelText: 'اختر المجموعة',
                     prefixIcon: Icon(Icons.groups_2_outlined),
                   ),
                   items: groups.map((doc) {
@@ -2416,7 +2416,7 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
                         (data['groupName'] ?? 'مجموعة بدون اسم').toString();
 
                     final staffName =
-                        (data['assignedStaffName'] ?? 'موظفة غير محددة')
+                        (data['assignedStaffName'] ?? 'موظف غير محدد')
                             .toString();
 
                     final currentChildren =
@@ -2681,7 +2681,7 @@ String temporaryChildSummary(Map<String, dynamic> child) {
                               : () async {
                                   if (selectedParentUid.isEmpty) {
                                     await _showValidationError(
-                                      'اختاري حساب ولي الأمر الرسمي',
+                                      'اختر حساب ولي الأمر الرسمي',
                                     );
                                     return;
                                   }
@@ -2988,7 +2988,7 @@ String temporaryChildSummary(Map<String, dynamic> child) {
                               : () async {
                                   if (selectedParentUid.isEmpty) {
                                     await _showValidationError(
-                                      'اختاري حساب ولي الأمر الرسمي',
+                                      'اختر حساب ولي الأمر الرسمي',
                                     );
                                     return;
                                   }
@@ -3422,7 +3422,7 @@ String temporaryChildSummary(Map<String, dynamic> child) {
            const SizedBox(height: 8),
             _infoRow(
              Icons.badge_outlined,
-             'الموظفة المسؤولة',
+             'الموظف المسؤول',
              assignedStaffName,
             ),
           ],
@@ -3594,7 +3594,7 @@ String temporaryChildSummary(Map<String, dynamic> child) {
           TextField(
             textAlign: TextAlign.right,
             decoration: InputDecoration(
-              hintText: 'ابحثي باسم الطفل أو رقم الهوية أو اسم ولي الأمر',
+              hintText: 'ابحث باسم الطفل أو رقم الهوية أو اسم ولي الأمر',
               prefixIcon: const Icon(Icons.search_rounded),
               suffixIcon: searchText.trim().isEmpty
                   ? null
@@ -3775,37 +3775,37 @@ Wrap(
   String? _newChildProfileValidationError(_NewChildProfileDraft profile) {
     if (profile.hasChronicDiseases &&
         profile.chronicDiseasesCtrl.text.trim().isEmpty) {
-      return 'أدخلي تفاصيل الأمراض المزمنة';
+      return 'أدخل تفاصيل الأمراض المزمنة';
     }
 
     if (profile.hasAllergies && profile.allergiesCtrl.text.trim().isEmpty) {
-      return 'أدخلي تفاصيل الحساسية';
+      return 'أدخل تفاصيل الحساسية';
     }
 
     if (profile.takesMedications &&
         profile.medicationsCtrl.text.trim().isEmpty) {
-      return 'أدخلي تفاصيل الأدوية';
+      return 'أدخل تفاصيل الأدوية';
     }
 
     if (profile.hasDietaryRestrictions &&
         profile.dietaryRestrictionsCtrl.text.trim().isEmpty) {
-      return 'أدخلي تفاصيل القيود الغذائية';
+      return 'أدخل تفاصيل القيود الغذائية';
     }
 
     if (profile.hasSpecialNeeds &&
         profile.specialNeedsCtrl.text.trim().isEmpty) {
-      return 'أدخلي تفاصيل الاحتياجات الخاصة';
+      return 'أدخل تفاصيل الاحتياجات الخاصة';
     }
 
     if (profile.pickupContacts.isEmpty) {
-      return 'أضيفي شخصًا مخولًا بالاستلام';
+      return 'أضف شخصًا مخولًا بالاستلام';
     }
 
     for (final pickup in profile.pickupContacts) {
       if (pickup.nameCtrl.text.trim().isEmpty ||
           pickup.relationCtrl.text.trim().isEmpty ||
           pickup.phoneCtrl.text.trim().isEmpty) {
-        return 'تأكدي من تعبئة بيانات الأشخاص المخولين بالاستلام';
+        return 'تأكد من تعبئة بيانات الأشخاص المخولين بالاستلام';
       }
 
       if (!_isValidPalestinianMobile(pickup.phoneCtrl.text)) {
@@ -3824,7 +3824,7 @@ Wrap(
       builder: (dialogContext) => Directionality(
         textDirection: TextDirection.rtl,
         child: AlertDialog(
-          title: const Text('راجعي البيانات'),
+          title: const Text('راجع البيانات'),
           content: Text(message),
           actions: [
             TextButton(
@@ -4295,7 +4295,7 @@ Wrap(
 
     if (groups.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('أنشئي مجموعة مفعلة أولًا')),
+        const SnackBar(content: Text('أنشئ مجموعة مفعلة أولًا')),
       );
       return;
     }
@@ -4409,7 +4409,7 @@ Wrap(
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
                         value: linkWithSiblings,
-                        title: const Text('ربط بإخوة مسجلين بنفس الكود'),
+                        title: const Text('ربط بإخوة مسجلن بنفس الكود'),
                         onChanged: (value) {
                           setSheetState(() {
                             linkWithSiblings = value;
@@ -4650,14 +4650,14 @@ Wrap(
 
                                   if (selectedGroupId.isEmpty) {
                                     await _showValidationError(
-                                      'اختاري المجموعة',
+                                      'اختر المجموعة',
                                     );
                                     return;
                                   }
 
                                   if (childName.isEmpty) {
                                     await _showValidationError(
-                                      'اكتبي اسم الطفل',
+                                      'اكتب اسم الطفل',
                                     );
                                     return;
                                   }
@@ -4665,7 +4665,7 @@ Wrap(
                                   if (parentName.isEmpty ||
                                       !_isValidPalestinianMobile(parentPhone)) {
                                     await _showValidationError(
-                                      'تأكدي من اسم ولي الأمر ورقم الجوال',
+                                      'تأكد من اسم ولي الأمر ورقم الجوال',
                                     );
                                     return;
                                   }
@@ -4673,7 +4673,7 @@ Wrap(
                                   if (linkWithSiblings &&
                                       selectedSharedAccessCodeId.isEmpty) {
                                     await _showValidationError(
-                                      'اختاري كود الإخوة',
+                                      'اختر كود الإخوة',
                                     );
                                     return;
                                   }
@@ -4687,7 +4687,7 @@ Wrap(
 
                                   if (!isTrial && parseMoney(hoursCtrl.text) <= 0) {
                                     await _showValidationError(
-                                      'أدخلي عدد ساعات صحيح',
+                                      'أدخل عدد ساعات صحيح',
                                     );
                                     return;
                                   }
@@ -4695,7 +4695,7 @@ Wrap(
                                   if (!isTrial &&
                                       parseMoney(hourlyRateCtrl.text) <= 0) {
                                     await _showValidationError(
-                                      'أدخلي سعر ساعة صحيح',
+                                      'أدخل سعر ساعة صحيح',
                                     );
                                     return;
                                   }
@@ -4716,7 +4716,7 @@ Wrap(
 
                                   if (!isTrial && total <= 0) {
                                     await _showValidationError(
-                                      'أدخلي فاتورة صحيحة',
+                                      'أدخل فاتورة صحيحة',
                                     );
                                     return;
                                   }
@@ -5114,7 +5114,7 @@ Wrap(
 
     if (groups.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('أنشئي مجموعة مفعلة أولًا')),
+        const SnackBar(content: Text('أنشئ مجموعة مفعلة أولًا')),
       );
       return;
     }
@@ -5299,21 +5299,21 @@ Wrap(
 
                                   if (selectedParentUid.isEmpty) {
                                     await _showValidationError(
-                                      'اختاري ولي الأمر',
+                                      'اختر ولي الأمر',
                                     );
                                     return;
                                   }
 
                                   if (selectedGroupId.isEmpty) {
                                     await _showValidationError(
-                                      'اختاري المجموعة',
+                                      'اختر المجموعة',
                                     );
                                     return;
                                   }
 
                                   if (childName.isEmpty) {
                                     await _showValidationError(
-                                      'اكتبي اسم الطفل',
+                                      'اكتب اسم الطفل',
                                     );
                                     return;
                                   }
@@ -5436,7 +5436,7 @@ Wrap(
         if (!mounted) return false;
 
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('المجموعة ممتلئة، اختاري مجموعة أخرى')),
+          const SnackBar(content: Text('المجموعة ممتلئة، اختر مجموعة أخرى')),
         );
         return false;
       }
