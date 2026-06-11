@@ -1297,24 +1297,12 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
   String childLabel(Map<String, dynamic> child) {
     final group = (child['group'] ?? '').toString();
     final parent = (child['parentName'] ?? '').toString();
-    final childType = (child['childType'] ?? '').toString().trim().toLowerCase();
 
-    String typeLabel = 'دائم';
-
-    if (childType == 'temporary' || child['isTemporaryChild'] == true) {
-      typeLabel = 'مؤقت';
-    } else if (childType == 'trial' || child['isTrialChild'] == true) {
-      typeLabel = 'تجربة';
-    }
-
-    final parts = [
+    return [
       (child['name'] ?? 'طفل بدون اسم').toString(),
-      typeLabel,
       group.isEmpty ? 'بدون مجموعة' : group,
       if (parent.isNotEmpty) parent,
-    ];
-
-    return parts.join(' • ');
+    ].join(' • ');
   }
 
   Widget selectedChildInfo(Map<String, dynamic> child) {
@@ -1339,11 +1327,7 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
           const SizedBox(height: 6),
           Text(
             'المجموعة: ${(child['group'] ?? '').toString().isEmpty ? 'غير محدد' : child['group']}',
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'نوع الطفل: ${(child['childType'] ?? '').toString() == 'temporary' ? 'مؤقت' : (child['childType'] ?? '').toString() == 'trial' ? 'تجربة' : 'دائم'}',
-          ),
+          ),  
         ],
       ),
     );
@@ -1457,21 +1441,43 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
                         )
                       else
                         DropdownButtonFormField<String>(
-                          value: selectedChild?['id'],
+                          value: selectedChild?['id']?.toString(),
+                          isExpanded: true,
+                          menuMaxHeight: 360,
                           decoration: customDecoration(
-                            label: '',
+                            label: 'الطفل',
                             icon: Icons.child_care_rounded,
                           ),
                           items: children.map((child) {
                             return DropdownMenuItem<String>(
-                              value: child['id'] as String,
-                              child: Text(childLabel(child)),
+                              value: child['id'].toString(),
+                              child: Text(
+                                childLabel(child),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.right,
+                              ),
                             );
                           }).toList(),
+                          selectedItemBuilder: (context) {
+                            return children.map((child) {
+                              return Align(
+                                alignment: Alignment.centerRight,
+                                child: Text(
+                                  (child['name'] ?? 'طفل بدون اسم').toString(),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.right,
+                                ),
+                              );
+                            }).toList();
+                          },
                           onChanged: (value) {
+                            if (value == null) return;
+
                             setState(() {
                               selectedChild = children.firstWhere(
-                                (child) => child['id'] == value,
+                                (child) => child['id'].toString() == value,
                               );
                               selectedSecondChild = null;
                             });
@@ -1509,7 +1515,9 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
                               const Text('لا توجد عروض فعالة حاليًا')
                             else
                               DropdownButtonFormField<String>(
-                                value: selectedOffer?['dropdownValue'],
+                                value: selectedOffer?['dropdownValue']?.toString(),
+                                isExpanded: true,
+                                menuMaxHeight: 360,
                                 decoration: customDecoration(
                                   label: 'اختيار عرض',
                                   icon: Icons.local_offer_outlined,
@@ -1517,12 +1525,21 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
                                 items: [
                                   const DropdownMenuItem<String>(
                                     value: '',
-                                    child: Text('بدون عرض'),
+                                    child: Text(
+                                      'بدون عرض',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
                                   ),
                                   ...offers.map((offer) {
                                     return DropdownMenuItem<String>(
-                                      value: offer['dropdownValue'] as String,
-                                      child: Text(offerLabel(offer)),
+                                      value: offer['dropdownValue'].toString(),
+                                      child: Text(
+                                        offerLabel(offer),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        textAlign: TextAlign.right,
+                                      ),
                                     );
                                   }),
                                 ],
@@ -1533,8 +1550,7 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
                                       selectedSecondChild = null;
                                     } else {
                                       selectedOffer = offers.firstWhere(
-                                        (offer) =>
-                                            offer['dropdownValue'] == value,
+                                        (offer) => offer['dropdownValue'].toString() == value,
                                       );
 
                                       if (!isTwoChildrenOffer) {
@@ -1552,22 +1568,43 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
                                 const Text('لا يوجد طفل ثاني لنفس ولي الأمر')
                               else
                                 DropdownButtonFormField<String>(
-                                  value: selectedSecondChild?['id'],
+                                  value: selectedSecondChild?['id']?.toString(),
+                                  isExpanded: true,
+                                  menuMaxHeight: 360,
                                   decoration: customDecoration(
                                     label: 'الطفل الثاني للعرض',
                                     icon: Icons.child_friendly_rounded,
                                   ),
                                   items: secondOptions.map((child) {
                                     return DropdownMenuItem<String>(
-                                      value: child['id'] as String,
-                                      child: Text(childLabel(child)),
+                                      value: child['id'].toString(),
+                                      child: Text(
+                                        childLabel(child),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        textAlign: TextAlign.right,
+                                      ),
                                     );
                                   }).toList(),
+                                  selectedItemBuilder: (context) {
+                                    return secondOptions.map((child) {
+                                      return Align(
+                                        alignment: Alignment.centerRight,
+                                        child: Text(
+                                          (child['name'] ?? 'طفل بدون اسم').toString(),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          textAlign: TextAlign.right,
+                                        ),
+                                      );
+                                    }).toList();
+                                  },
                                   onChanged: (value) {
+                                    if (value == null) return;
+
                                     setState(() {
-                                      selectedSecondChild =
-                                          secondOptions.firstWhere(
-                                        (child) => child['id'] == value,
+                                      selectedSecondChild = secondOptions.firstWhere(
+                                        (child) => child['id'].toString() == value,
                                       );
                                     });
                                   },

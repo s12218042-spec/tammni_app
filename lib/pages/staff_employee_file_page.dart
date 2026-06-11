@@ -269,43 +269,6 @@ class _StaffEmployeeFilePageState extends State<StaffEmployeeFilePage> {
     );
   }
 
-  Widget _buildHeaderCard() {
-    return Card(
-      margin: const EdgeInsets.all(12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            CircleAvatar(
-              radius: 26,
-              backgroundColor: Colors.blueGrey.withOpacity(0.12),
-              child: const Icon(
-                Icons.badge_outlined,
-                color: Colors.blueGrey,
-              ),
-            ),
-            const SizedBox(width: 12),
-            const Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'ملفي الوظيفي',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w900,
-                      fontSize: 18,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildDutyCard() {
     final isMyDuty = _isMyDuty();
 
@@ -745,7 +708,6 @@ class _StaffEmployeeFilePageState extends State<StaffEmployeeFilePage> {
                   : ListView(
                       physics: const AlwaysScrollableScrollPhysics(),
                       children: [
-                        _buildHeaderCard(),
                         _sectionTitle('المناوبة الأسبوعية', Icons.event_note_outlined),
                         _buildDutyCard(),
                         _sectionTitle('آخر تقييم', Icons.star_rate_outlined),

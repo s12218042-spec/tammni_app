@@ -28,6 +28,7 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
   final TextEditingController searchCtrl = TextEditingController();
 
   Future<Map<String, dynamic>?>? _adminFuture;
+  Future<Map<String, Map<String, dynamic>>>? _childrenIdentityFuture;
 
   String? get currentUserId => FirebaseAuth.instance.currentUser?.uid;
 
@@ -45,6 +46,7 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
   void initState() {
     super.initState();
     _adminFuture = _fetchAdminContact();
+    _childrenIdentityFuture = _loadChildrenIdentityData();
   }
 
   @override
@@ -56,6 +58,23 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
   String _clean(dynamic value) {
     if (value == null) return '';
     return value.toString().trim();
+  }
+
+  String _normalizeLower(dynamic value) {
+    return _clean(value).toLowerCase();
+  }
+
+  String _normalizePhone(dynamic value) {
+    return _clean(value).replaceAll(RegExp(r'[^0-9+]'), '');
+  }
+
+  String _firstNonEmpty(Iterable<dynamic> values) {
+    for (final value in values) {
+      final clean = _clean(value);
+      if (clean.isNotEmpty) return clean;
+    }
+
+    return '';
   }
 
   String _normalizeRole(String role) {
@@ -100,9 +119,6 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
 
       case 'parent':
         return 'ولي الأمر';
-
-      case 'temporary_parent':
-        return 'ولي أمر زائر';
 
       default:
         return role.trim().isEmpty ? 'مستخدم' : role.trim();
@@ -171,79 +187,247 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
     }
   }
 
-  List<Map<String, dynamic>> _buildParentContacts() {
-    final contacts = <Map<String, dynamic>>[];
-    final formalKeys = <String>{};
-    final temporaryKeys = <String>{};
+  Future<Map<String, Map<String, dynamic>>> _loadChildrenIdentityData() async {
+    final result = <String, Map<String, dynamic>>{};
+    final parentUserCache = <String, Map<String, dynamic>>{};
 
     for (final child in activeChildren) {
-      final isTemporary = child.isTemporaryChild || child.isTrialChild;
+      Map<String, dynamic> raw = <String, dynamic>{};
 
-      if (isTemporary) {
-        final key = 'temporary_${child.id}';
+      try {
+        final childDoc =
+            await _firestore.collection('children').doc(child.id).get();
 
-        if (!temporaryKeys.add(key)) continue;
+        raw = childDoc.data() ?? <String, dynamic>{};
+      } catch (_) {}
 
-        final parentName = child.parentName.trim().isEmpty
-            ? 'ولي أمر زائر'
-            : child.parentName.trim();
+      final parentUid = _firstNonEmpty([
+        raw['parentUid'],
+        child.parentUid,
+      ]);
 
-        contacts.add({
-          'key': key,
-          'kind': 'temporary_parent',
-          'id': child.id,
+      Map<String, dynamic> parentUser = <String, dynamic>{};
+
+      if (parentUid.isNotEmpty) {
+        if (parentUserCache.containsKey(parentUid)) {
+          parentUser = parentUserCache[parentUid]!;
+        } else {
+          try {
+            final userDoc =
+                await _firestore.collection('users').doc(parentUid).get();
+
+            parentUser = userDoc.data() ?? <String, dynamic>{};
+          } catch (_) {
+            parentUser = <String, dynamic>{};
+          }
+
+          parentUserCache[parentUid] = parentUser;
+        }
+      }
+
+      result[child.id] = {
+        ...raw,
+        '_resolvedParentUid': parentUid,
+        '_resolvedParentUsername': _firstNonEmpty([
+          raw['parentUsername'],
+          child.parentUsername,
+          parentUser['username'],
+        ]).toLowerCase(),
+        '_resolvedParentName': _firstNonEmpty([
+          raw['parentName'],
+          child.parentName,
+          parentUser['displayName'],
+          parentUser['name'],
+          parentUser['fullName'],
+          parentUser['username'],
+          'ولي الأمر',
+        ]),
+        '_resolvedParentPhone': _firstNonEmpty([
+          raw['parentPhone'],
+          raw['phone'],
+          raw['parentMobile'],
+          raw['mobile'],
+          parentUser['phone'],
+          parentUser['mobile'],
+          parentUser['phoneNumber'],
+        ]),
+        '_resolvedParentProfileId': _firstNonEmpty([
+          raw['parentProfileId'],
+          raw['parentRecordId'],
+          raw['familyId'],
+          parentUser['parentProfileId'],
+          parentUser['parentRecordId'],
+          parentUser['familyId'],
+        ]),
+      };
+    }
+
+    return result;
+  }
+
+  String _familyKeyForChild(
+    ChildModel child,
+    Map<String, dynamic> raw,
+  ) {
+    final profileId = _firstNonEmpty([
+      raw['_resolvedParentProfileId'],
+      raw['parentProfileId'],
+      raw['parentRecordId'],
+      raw['familyId'],
+    ]);
+
+    if (profileId.isNotEmpty) {
+      return 'profile_${profileId.toLowerCase()}';
+    }
+
+    final phone = _normalizePhone(
+      _firstNonEmpty([
+        raw['_resolvedParentPhone'],
+        raw['parentPhone'],
+        raw['phone'],
+        raw['parentMobile'],
+        raw['mobile'],
+      ]),
+    );
+
+    if (phone.isNotEmpty) {
+      return 'phone_$phone';
+    }
+
+    final parentUid = _firstNonEmpty([
+      raw['_resolvedParentUid'],
+      raw['parentUid'],
+      child.parentUid,
+    ]);
+
+    if (parentUid.isNotEmpty) {
+      return 'uid_$parentUid';
+    }
+
+    final username = _normalizeLower(
+      _firstNonEmpty([
+        raw['_resolvedParentUsername'],
+        raw['parentUsername'],
+        child.parentUsername,
+      ]),
+    );
+
+    if (username.isNotEmpty) {
+      return 'username_$username';
+    }
+
+    final parentName = _normalizeLower(
+      _firstNonEmpty([
+        raw['_resolvedParentName'],
+        raw['parentName'],
+        child.parentName,
+      ]),
+    );
+
+    return parentName.isEmpty ? 'child_${child.id}' : 'legacy_name_$parentName';
+  }
+
+  String _childKindLabel(ChildModel child) {
+    if (child.isTrialChild) return 'طفل تجربة';
+    if (child.isTemporaryChild) return 'طفل زائر';
+    return 'طفل دائم';
+  }
+
+  String _childrenCountLabel(int count) {
+    if (count == 1) return 'طفل واحد';
+    if (count == 2) return 'طفلان';
+    if (count >= 3 && count <= 10) return '$count أطفال';
+    return '$count طفل';
+  }
+
+  List<Map<String, dynamic>> _buildGroupedParentContacts(
+    Map<String, Map<String, dynamic>> identityByChildId,
+  ) {
+    final groups = <String, Map<String, dynamic>>{};
+
+    for (final child in activeChildren) {
+      final raw = identityByChildId[child.id] ?? <String, dynamic>{};
+      final familyKey = _familyKeyForChild(child, raw);
+
+      final parentName = _firstNonEmpty([
+        raw['_resolvedParentName'],
+        raw['parentName'],
+        child.parentName,
+        'ولي الأمر',
+      ]);
+
+      final group = groups.putIfAbsent(
+        familyKey,
+        () => {
+          'key': familyKey,
+          'kind': 'parent_group',
           'name': parentName,
-          'role': 'temporary_parent',
-          'subtitle': child.isTrialChild ? 'ولي أمر طفل تجربة' : 'ولي أمر زائر',
-          'child': child,
-        });
+          'role': 'parent',
+          'children': <ChildModel>[],
+          'rawChildren': <String, Map<String, dynamic>>{},
+        },
+      );
 
-        continue;
+      final children = group['children'] as List<ChildModel>;
+      final rawChildren =
+          group['rawChildren'] as Map<String, Map<String, dynamic>>;
+
+      if (!children.any((item) => item.id == child.id)) {
+        children.add(child);
       }
 
-      final parentUid = child.parentUid.trim();
-      final parentUsername = child.parentUsername.trim().toLowerCase();
+      rawChildren[child.id] = raw;
 
-      final fallbackKey = parentUsername.isNotEmpty
-          ? parentUsername
-          : child.parentName.trim().toLowerCase();
-
-      final uniqueKey =
-          parentUid.isNotEmpty ? 'parent_$parentUid' : 'parent_$fallbackKey';
-
-      if (uniqueKey == 'parent_' || !formalKeys.add(uniqueKey)) {
-        continue;
+      if (_clean(group['name']).isEmpty || group['name'] == 'ولي الأمر') {
+        group['name'] = parentName;
       }
+    }
 
-      final parentName = child.parentName.trim().isEmpty
-          ? 'ولي الأمر'
-          : child.parentName.trim();
+    final contacts = groups.values.toList();
 
-      contacts.add({
-        'key': uniqueKey,
-        'kind': 'parent',
-        'id': parentUid,
-        'username': parentUsername,
-        'name': parentName,
-        'role': 'parent',
-        'subtitle': 'ولي الأمر',
-        'child': child,
-      });
+    for (final contact in contacts) {
+      final children = contact['children'] as List<ChildModel>;
+
+      children.sort((a, b) => a.name.compareTo(b.name));
+
+      if (children.length == 1) {
+        final child = children.first;
+
+        contact['subtitle'] = child.isTrialChild
+            ? 'ولي أمر طفل تجربة'
+            : child.isTemporaryChild
+                ? 'ولي أمر زائر'
+                : 'ولي الأمر';
+      } else {
+        contact['subtitle'] =
+            'ولي الأمر • ${_childrenCountLabel(children.length)}';
+      }
     }
 
     return contacts;
   }
 
-  Future<String> _resolveOfficialParentUid(
-    Map<String, dynamic> contact,
-  ) async {
-    final currentUid = _clean(contact['id']);
+  Future<String> _resolveOfficialParentUidForChild({
+    required ChildModel child,
+    required Map<String, dynamic> raw,
+  }) async {
+    final currentUid = _firstNonEmpty([
+      raw['_resolvedParentUid'],
+      raw['parentUid'],
+      child.parentUid,
+    ]);
 
     if (currentUid.isNotEmpty) {
       return currentUid;
     }
 
-    final username = _clean(contact['username']).toLowerCase();
+    final username = _normalizeLower(
+      _firstNonEmpty([
+        raw['_resolvedParentUsername'],
+        raw['parentUsername'],
+        child.parentUsername,
+      ]),
+    );
 
     if (username.isEmpty) {
       return '';
@@ -312,6 +496,212 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
     };
   }
 
+  Future<void> _openOfficialChildChat({
+    required ChildModel child,
+    required Map<String, dynamic> raw,
+    required String parentName,
+  }) async {
+    final parentUid = await _resolveOfficialParentUidForChild(
+      child: child,
+      raw: raw,
+    );
+
+    if (!mounted) return;
+
+    if (parentUid.isEmpty) {
+      _showMessage('تعذر العثور على حساب ولي الأمر');
+      return;
+    }
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => MessagesPage(
+          child: child,
+          targetRole: 'parent',
+          targetUserId: parentUid,
+          targetUserName: parentName,
+          targetSection: 'Nursery',
+        ),
+      ),
+    );
+
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  Future<void> _openTemporaryChildChat({
+    required ChildModel child,
+    required Map<String, dynamic> raw,
+  }) async {
+    final access = await _loadTemporaryAccessData(child);
+
+    if (!mounted) return;
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TemporaryStaffChatPage(
+          accessCodeId: _clean(access['accessCodeId']),
+          accessCode: _clean(access['accessCode']),
+          childId: child.id,
+          childName: child.name,
+          parentName: _firstNonEmpty([
+            raw['_resolvedParentName'],
+            raw['parentName'],
+            child.parentName,
+          ]),
+          parentPhone: _firstNonEmpty([
+            raw['_resolvedParentPhone'],
+            raw['parentPhone'],
+            raw['phone'],
+            raw['parentMobile'],
+            raw['mobile'],
+          ]),
+          groupId: child.groupId,
+          groupName: child.displayGroup,
+        ),
+      ),
+    );
+
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  Future<void> _openParentChild({
+    required ChildModel child,
+    required Map<String, dynamic> raw,
+    required String parentName,
+  }) async {
+    if (child.isTemporaryChild || child.isTrialChild) {
+      await _openTemporaryChildChat(
+        child: child,
+        raw: raw,
+      );
+
+      return;
+    }
+
+    await _openOfficialChildChat(
+      child: child,
+      raw: raw,
+      parentName: parentName,
+    );
+  }
+
+  Future<void> _showChildrenPicker(
+    Map<String, dynamic> contact,
+  ) async {
+    final children = List<ChildModel>.from(
+      contact['children'] as List<ChildModel>,
+    );
+
+    final rawChildren = Map<String, Map<String, dynamic>>.from(
+      contact['rawChildren'] as Map<String, Map<String, dynamic>>,
+    );
+
+    final parentName = _clean(contact['name']).isEmpty
+        ? 'ولي الأمر'
+        : _clean(contact['name']);
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(
+                top: Radius.circular(26),
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 42,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppColors.border,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  parentName,
+                  style: const TextStyle(
+                    color: AppColors.textDark,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'اختر الطفل لفتح المحادثة',
+                  style: TextStyle(
+                    color: AppColors.textLight,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ...children.map((child) {
+                  final raw =
+                      rawChildren[child.id] ?? <String, dynamic>{};
+
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: CircleAvatar(
+                      backgroundColor:
+                          AppColors.primary.withOpacity(0.10),
+                      child: const Icon(
+                        Icons.child_care_rounded,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                    title: Text(
+                      child.name,
+                      style: const TextStyle(
+                        color: AppColors.textDark,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    subtitle: Text(
+                      '${_childKindLabel(child)}'
+                      '${child.displayGroup.trim().isEmpty ? '' : ' • ${child.displayGroup}'}',
+                      style: const TextStyle(
+                        color: AppColors.textLight,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    trailing: const Icon(
+                      Icons.chevron_left_rounded,
+                      color: AppColors.textLight,
+                    ),
+                    onTap: () async {
+                      Navigator.pop(sheetContext);
+
+                      await _openParentChild(
+                        child: child,
+                        raw: raw,
+                        parentName: parentName,
+                      );
+                    },
+                  );
+                }),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _openContact(Map<String, dynamic> contact) async {
     final kind = _clean(contact['kind']);
 
@@ -342,69 +732,36 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
       return;
     }
 
-    if (kind == 'parent') {
-      final child = contact['child'] as ChildModel?;
-      final parentUid = await _resolveOfficialParentUid(contact);
+    if (kind != 'parent_group') return;
 
-      if (!mounted) return;
+    final children = List<ChildModel>.from(
+      contact['children'] as List<ChildModel>,
+    );
 
-      if (child == null || parentUid.isEmpty) {
-        _showMessage('تعذر العثور على حساب ولي الأمر');
-        return;
-      }
+    final rawChildren = Map<String, Map<String, dynamic>>.from(
+      contact['rawChildren'] as Map<String, Map<String, dynamic>>,
+    );
 
-      await Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => MessagesPage(
-            child: child,
-            targetRole: 'parent',
-            targetUserId: parentUid,
-            targetUserName: _clean(contact['name']).isEmpty
-                ? 'ولي الأمر'
-                : _clean(contact['name']),
-            targetSection: 'Nursery',
-          ),
-        ),
-      );
-
-      if (!mounted) return;
-      setState(() {});
-
+    if (children.isEmpty) {
+      _showMessage('تعذر تحميل بيانات الأطفال');
       return;
     }
 
-    if (kind == 'temporary_parent') {
-      final child = contact['child'] as ChildModel?;
-
-      if (child == null) {
-        _showMessage('تعذر تحميل بيانات الطفل');
-        return;
-      }
-
-      final access = await _loadTemporaryAccessData(child);
-
-      if (!mounted) return;
-
-      await Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => TemporaryStaffChatPage(
-            accessCodeId: _clean(access['accessCodeId']),
-            accessCode: _clean(access['accessCode']),
-            childId: child.id,
-            childName: child.name,
-            parentName: child.parentName,
-            parentPhone: '',
-            groupId: child.groupId,
-            groupName: child.displayGroup,
-          ),
-        ),
-      );
-
-      if (!mounted) return;
-      setState(() {});
+    if (children.length > 1) {
+      await _showChildrenPicker(contact);
+      return;
     }
+
+    final child = children.first;
+    final raw = rawChildren[child.id] ?? <String, dynamic>{};
+
+    await _openParentChild(
+      child: child,
+      raw: raw,
+      parentName: _clean(contact['name']).isEmpty
+          ? 'ولي الأمر'
+          : _clean(contact['name']),
+    );
   }
 
   void _showMessage(String message) {
@@ -415,70 +772,195 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
     );
   }
 
-  Map<String, MessageModel> _latestOfficialMessagesByKey(
-    List<MessageModel> messages,
-  ) {
-    final uid = currentUserId ?? '';
-    final result = <String, MessageModel>{};
-
-    for (final message in messages) {
-      final key = message.conversationKeyFor(uid);
-      final old = result[key];
-
-      if (old == null || message.sentAt.compareTo(old.sentAt) > 0) {
-        result[key] = message;
-      }
-    }
-
-    return result;
-  }
-
   Stream<QuerySnapshot<Map<String, dynamic>>>? _temporaryMessagesStream() {
-    final childIds = temporaryChildren.map((child) => child.id).toSet().toList();
-
-    if (childIds.isEmpty) return null;
+    if (temporaryChildren.isEmpty) return null;
 
     return _firestore
         .collection('temporary_messages')
-        .where('childId', whereIn: childIds)
-        .limit(300)
+        .limit(500)
         .snapshots();
   }
 
-  Map<String, Map<String, dynamic>> _latestTemporaryMessagesByKey(
+  Map<String, Map<String, dynamic>> _latestTemporaryMessagesByChildId(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
+    final allowedChildIds =
+        temporaryChildren.map((child) => child.id).toSet();
+
     final result = <String, Map<String, dynamic>>{};
 
     for (final doc in docs) {
       final data = doc.data();
       final childId = _clean(data['childId']);
 
-      if (childId.isEmpty) continue;
+      if (childId.isEmpty || !allowedChildIds.contains(childId)) {
+        continue;
+      }
 
-      final key = 'temporary_$childId';
-      final old = result[key];
+      final old = result[childId];
 
-      final currentDate = data['createdAt'] is Timestamp
-          ? data['createdAt'] as Timestamp
-          : Timestamp.fromMillisecondsSinceEpoch(0);
+      final currentDate = _timestampFromDynamic(
+            data['createdAt'] ??
+                data['sentAt'] ??
+                data['time'],
+          ) ??
+          Timestamp.fromMillisecondsSinceEpoch(0);
 
-      final oldDate = old?['createdAt'] is Timestamp
-          ? old!['createdAt'] as Timestamp
-          : Timestamp.fromMillisecondsSinceEpoch(0);
+      final oldDate = _timestampFromDynamic(
+            old?['createdAt'] ??
+                old?['sentAt'] ??
+                old?['time'],
+          ) ??
+          Timestamp.fromMillisecondsSinceEpoch(0);
 
       if (old == null || currentDate.compareTo(oldDate) > 0) {
-        result[key] = data;
+        result[childId] = data;
       }
     }
 
     return result;
   }
 
+  MessageModel? _latestOfficialMessageForContact({
+    required Map<String, dynamic> contact,
+    required List<MessageModel> messages,
+  }) {
+    final kind = _clean(contact['kind']);
+    final myUid = currentUserId ?? '';
+
+    MessageModel? latest;
+
+    if (kind == 'admin') {
+      final adminUid = _clean(contact['id']);
+
+      for (final message in messages) {
+        final belongsToAdmin =
+            (message.senderId == myUid && message.receiverId == adminUid) ||
+                (message.senderId == adminUid &&
+                    message.receiverId == myUid);
+
+        if (!belongsToAdmin) continue;
+
+        if (latest == null || message.sentAt.compareTo(latest.sentAt) > 0) {
+          latest = message;
+        }
+      }
+
+      return latest;
+    }
+
+    final children = List<ChildModel>.from(
+      contact['children'] as List<ChildModel>,
+    );
+
+    final officialChildIds = children
+        .where((child) => !child.isTemporaryChild && !child.isTrialChild)
+        .map((child) => child.id)
+        .toSet();
+
+    if (officialChildIds.isEmpty) return null;
+
+    for (final message in messages) {
+      if (!officialChildIds.contains(message.childId)) continue;
+
+      if (latest == null || message.sentAt.compareTo(latest.sentAt) > 0) {
+        latest = message;
+      }
+    }
+
+    return latest;
+  }
+
+  Map<String, dynamic>? _latestTemporaryMessageForContact({
+    required Map<String, dynamic> contact,
+    required Map<String, Map<String, dynamic>> temporaryMessagesByChildId,
+  }) {
+    if (_clean(contact['kind']) != 'parent_group') return null;
+
+    final children = List<ChildModel>.from(
+      contact['children'] as List<ChildModel>,
+    );
+
+    Map<String, dynamic>? latest;
+    Timestamp? latestTime;
+
+    for (final child in children) {
+      if (!child.isTemporaryChild && !child.isTrialChild) continue;
+
+      final message = temporaryMessagesByChildId[child.id];
+
+      if (message == null) continue;
+
+      final time = _timestampFromDynamic(
+            message['createdAt'] ??
+                message['sentAt'] ??
+                message['time'],
+          ) ??
+          Timestamp.fromMillisecondsSinceEpoch(0);
+
+      if (latest == null ||
+          latestTime == null ||
+          time.compareTo(latestTime) > 0) {
+        latest = message;
+        latestTime = time;
+      }
+    }
+
+    return latest;
+  }
+
+  Timestamp? _latestContactTime({
+    required MessageModel? officialMessage,
+    required Map<String, dynamic>? temporaryMessage,
+  }) {
+    final officialTime = officialMessage?.sentAt;
+
+    final temporaryTime = _timestampFromDynamic(
+      temporaryMessage?['createdAt'] ??
+          temporaryMessage?['sentAt'] ??
+          temporaryMessage?['time'],
+    );
+
+    if (officialTime == null) return temporaryTime;
+    if (temporaryTime == null) return officialTime;
+
+    return officialTime.compareTo(temporaryTime) >= 0
+        ? officialTime
+        : temporaryTime;
+  }
+
+  String _previewForContact({
+    required MessageModel? officialMessage,
+    required Map<String, dynamic>? temporaryMessage,
+  }) {
+    final officialTime = officialMessage?.sentAt;
+
+    final temporaryTime = _timestampFromDynamic(
+      temporaryMessage?['createdAt'] ??
+          temporaryMessage?['sentAt'] ??
+          temporaryMessage?['time'],
+    );
+
+    final temporaryPreview = _clean(
+      temporaryMessage?['message'] ??
+          temporaryMessage?['text'] ??
+          temporaryMessage?['body'],
+    );
+
+    if (officialTime == null) return temporaryPreview;
+    if (temporaryTime == null) {
+      return officialMessage?.displayText.trim() ?? '';
+    }
+
+    return temporaryTime.compareTo(officialTime) > 0
+        ? temporaryPreview
+        : officialMessage?.displayText.trim() ?? '';
+  }
+
   Widget _buildContactCard({
     required Map<String, dynamic> contact,
-    MessageModel? officialMessage,
-    Map<String, dynamic>? temporaryMessage,
+    required MessageModel? officialMessage,
+    required Map<String, dynamic>? temporaryMessage,
   }) {
     final name = _clean(contact['name']).isEmpty
         ? 'ولي الأمر'
@@ -486,22 +968,17 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
 
     final subtitle = _clean(contact['subtitle']);
     final kind = _clean(contact['kind']);
-
     final isAdmin = kind == 'admin';
-    final isTemporary = kind == 'temporary_parent';
 
-    final officialPreview = officialMessage?.displayText.trim() ?? '';
-    final temporaryPreview = _clean(
-      temporaryMessage?['message'] ??
-          temporaryMessage?['text'] ??
-          temporaryMessage?['body'],
+    final preview = _previewForContact(
+      officialMessage: officialMessage,
+      temporaryMessage: temporaryMessage,
     );
 
-    final preview = isTemporary ? temporaryPreview : officialPreview;
-
-    final Timestamp? time = isTemporary
-        ? _timestampFromDynamic(temporaryMessage?['createdAt'])
-        : officialMessage?.sentAt;
+    final time = _latestContactTime(
+      officialMessage: officialMessage,
+      temporaryMessage: temporaryMessage,
+    );
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -555,7 +1032,9 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      subtitle.isEmpty ? _roleLabel(_clean(contact['role'])) : subtitle,
+                      subtitle.isEmpty
+                          ? _roleLabel(_clean(contact['role']))
+                          : subtitle,
                       style: const TextStyle(
                         fontSize: 13,
                         color: AppColors.textLight,
@@ -581,7 +1060,7 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  if (time is Timestamp)
+                  if (time != null)
                     Text(
                       _formatTime(time),
                       style: const TextStyle(
@@ -604,51 +1083,75 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
     );
   }
 
-  List<Map<String, dynamic>> _sortedContacts(
-    List<Map<String, dynamic>> contacts,
-    Map<String, MessageModel> officialMessages,
-    Map<String, Map<String, dynamic>> temporaryMessages,
-  ) {
+  List<Map<String, dynamic>> _sortedContacts({
+    required List<Map<String, dynamic>> contacts,
+    required List<MessageModel> officialMessages,
+    required Map<String, Map<String, dynamic>> temporaryMessagesByChildId,
+  }) {
     final search = searchCtrl.text.trim().toLowerCase();
 
     final filtered = contacts.where((contact) {
-      if (search.isEmpty) return true;
-
-      final key = _clean(contact['key']);
-      final kind = _clean(contact['kind']);
-
-      final officialPreview = officialMessages[key]?.displayText ?? '';
-      final temporaryPreview = _clean(
-        temporaryMessages[key]?['message'] ??
-            temporaryMessages[key]?['text'] ??
-            temporaryMessages[key]?['body'],
+      final officialMessage = _latestOfficialMessageForContact(
+        contact: contact,
+        messages: officialMessages,
       );
+
+      final temporaryMessage = _latestTemporaryMessageForContact(
+        contact: contact,
+        temporaryMessagesByChildId: temporaryMessagesByChildId,
+      );
+
+      final preview = _previewForContact(
+        officialMessage: officialMessage,
+        temporaryMessage: temporaryMessage,
+      );
+
+      final children = contact['children'] is List<ChildModel>
+          ? contact['children'] as List<ChildModel>
+          : <ChildModel>[];
+
+      final childrenNames = children.map((child) => child.name).join(' ');
 
       final values = [
         contact['name'],
         contact['subtitle'],
-        contact['username'],
-        kind == 'temporary_parent' ? temporaryPreview : officialPreview,
+        childrenNames,
+        preview,
       ].join(' ').toLowerCase();
 
-      return values.contains(search);
+      return search.isEmpty || values.contains(search);
     }).toList();
 
-    int compareTime(Map<String, dynamic> a, Map<String, dynamic> b) {
-      Timestamp? timestampFor(Map<String, dynamic> contact) {
-        final key = _clean(contact['key']);
-        final kind = _clean(contact['kind']);
+    filtered.sort((a, b) {
+      final aOfficial = _latestOfficialMessageForContact(
+        contact: a,
+        messages: officialMessages,
+      );
 
-        if (kind == 'temporary_parent') {
-          final value = temporaryMessages[key]?['createdAt'];
-          return value is Timestamp ? value : null;
-        }
+      final aTemporary = _latestTemporaryMessageForContact(
+        contact: a,
+        temporaryMessagesByChildId: temporaryMessagesByChildId,
+      );
 
-        return officialMessages[key]?.sentAt;
-      }
+      final bOfficial = _latestOfficialMessageForContact(
+        contact: b,
+        messages: officialMessages,
+      );
 
-      final aTime = timestampFor(a);
-      final bTime = timestampFor(b);
+      final bTemporary = _latestTemporaryMessageForContact(
+        contact: b,
+        temporaryMessagesByChildId: temporaryMessagesByChildId,
+      );
+
+      final aTime = _latestContactTime(
+        officialMessage: aOfficial,
+        temporaryMessage: aTemporary,
+      );
+
+      final bTime = _latestContactTime(
+        officialMessage: bOfficial,
+        temporaryMessage: bTemporary,
+      );
 
       if (aTime != null && bTime != null) {
         return bTime.compareTo(aTime);
@@ -664,9 +1167,7 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
       if (aKind != 'admin' && bKind == 'admin') return 1;
 
       return _clean(a['name']).compareTo(_clean(b['name']));
-    }
-
-    filtered.sort(compareTime);
+    });
 
     return filtered;
   }
@@ -723,67 +1224,38 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
     return FutureBuilder<Map<String, dynamic>?>(
       future: _adminFuture,
       builder: (context, adminSnapshot) {
-        final baseContacts = <Map<String, dynamic>>[
-          if (adminSnapshot.data != null) adminSnapshot.data!,
-          ..._buildParentContacts(),
-        ];
-
-        return StreamBuilder<List<MessageModel>>(
-          stream: _messageService.getLatestChatsForUser(
-            currentUserId: uid,
-          ),
-          builder: (context, officialSnapshot) {
-            if (officialSnapshot.connectionState == ConnectionState.waiting &&
-                !officialSnapshot.hasData) {
+        return FutureBuilder<Map<String, Map<String, dynamic>>>(
+          future: _childrenIdentityFuture,
+          builder: (context, identitySnapshot) {
+            if (identitySnapshot.connectionState ==
+                    ConnectionState.waiting &&
+                !identitySnapshot.hasData) {
               return const Center(child: CircularProgressIndicator());
             }
 
-            if (officialSnapshot.hasError) {
-              return Center(
-                child: Text(
-                  'حدث خطأ أثناء تحميل المحادثات: ${officialSnapshot.error}',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.red.shade700,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              );
-            }
+            final identityByChildId =
+                identitySnapshot.data ?? <String, Map<String, dynamic>>{};
 
-            final officialMessages = _latestOfficialMessagesByKey(
-              officialSnapshot.data ?? [],
-            );
+            final baseContacts = <Map<String, dynamic>>[
+              if (adminSnapshot.data != null) adminSnapshot.data!,
+              ..._buildGroupedParentContacts(identityByChildId),
+            ];
 
-            final temporaryStream = _temporaryMessagesStream();
-
-            if (temporaryStream == null) {
-              final contacts = _sortedContacts(
-                baseContacts,
-                officialMessages,
-                const {},
-              );
-
-              return _buildContactsList(
-                contacts: contacts,
-                officialMessages: officialMessages,
-                temporaryMessages: const {},
-              );
-            }
-
-            return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: temporaryStream,
-              builder: (context, temporarySnapshot) {
-                if (temporarySnapshot.connectionState ==
+            return StreamBuilder<List<MessageModel>>(
+              stream: _messageService.getLatestChatsForUser(
+                currentUserId: uid,
+              ),
+              builder: (context, officialSnapshot) {
+                if (officialSnapshot.connectionState ==
                         ConnectionState.waiting &&
-                    !temporarySnapshot.hasData) {
+                    !officialSnapshot.hasData) {
                   return const Center(child: CircularProgressIndicator());
                 }
 
-                if (temporarySnapshot.hasError) {
+                if (officialSnapshot.hasError) {
                   return Center(
                     child: Text(
-                      'حدث خطأ أثناء تحميل محادثات ولي الأمر الزائر: ${temporarySnapshot.error}',
+                      'حدث خطأ أثناء تحميل المحادثات: ${officialSnapshot.error}',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         color: Colors.red.shade700,
@@ -793,20 +1265,64 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
                   );
                 }
 
-                final temporaryMessages = _latestTemporaryMessagesByKey(
-                  temporarySnapshot.data?.docs ?? [],
-                );
+                final officialMessages = officialSnapshot.data ?? [];
+                final temporaryStream = _temporaryMessagesStream();
 
-                final contacts = _sortedContacts(
-                  baseContacts,
-                  officialMessages,
-                  temporaryMessages,
-                );
+                if (temporaryStream == null) {
+                  final contacts = _sortedContacts(
+                    contacts: baseContacts,
+                    officialMessages: officialMessages,
+                    temporaryMessagesByChildId: const {},
+                  );
 
-                return _buildContactsList(
-                  contacts: contacts,
-                  officialMessages: officialMessages,
-                  temporaryMessages: temporaryMessages,
+                  return _buildContactsList(
+                    contacts: contacts,
+                    officialMessages: officialMessages,
+                    temporaryMessagesByChildId: const {},
+                  );
+                }
+
+                return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream: temporaryStream,
+                  builder: (context, temporarySnapshot) {
+                    if (temporarySnapshot.connectionState ==
+                            ConnectionState.waiting &&
+                        !temporarySnapshot.hasData) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+
+                    if (temporarySnapshot.hasError) {
+                      return Center(
+                        child: Text(
+                          'حدث خطأ أثناء تحميل محادثات ولي الأمر الزائر: ${temporarySnapshot.error}',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.red.shade700,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      );
+                    }
+
+                    final temporaryMessagesByChildId =
+                        _latestTemporaryMessagesByChildId(
+                      temporarySnapshot.data?.docs ?? [],
+                    );
+
+                    final contacts = _sortedContacts(
+                      contacts: baseContacts,
+                      officialMessages: officialMessages,
+                      temporaryMessagesByChildId:
+                          temporaryMessagesByChildId,
+                    );
+
+                    return _buildContactsList(
+                      contacts: contacts,
+                      officialMessages: officialMessages,
+                      temporaryMessagesByChildId:
+                          temporaryMessagesByChildId,
+                    );
+                  },
                 );
               },
             );
@@ -818,8 +1334,9 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
 
   Widget _buildContactsList({
     required List<Map<String, dynamic>> contacts,
-    required Map<String, MessageModel> officialMessages,
-    required Map<String, Map<String, dynamic>> temporaryMessages,
+    required List<MessageModel> officialMessages,
+    required Map<String, Map<String, dynamic>>
+        temporaryMessagesByChildId,
   }) {
     if (contacts.isEmpty) {
       return Center(
@@ -857,12 +1374,21 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
       itemCount: contacts.length,
       itemBuilder: (context, index) {
         final contact = contacts[index];
-        final key = _clean(contact['key']);
+
+        final officialMessage = _latestOfficialMessageForContact(
+          contact: contact,
+          messages: officialMessages,
+        );
+
+        final temporaryMessage = _latestTemporaryMessageForContact(
+          contact: contact,
+          temporaryMessagesByChildId: temporaryMessagesByChildId,
+        );
 
         return _buildContactCard(
           contact: contact,
-          officialMessage: officialMessages[key],
-          temporaryMessage: temporaryMessages[key],
+          officialMessage: officialMessage,
+          temporaryMessage: temporaryMessage,
         );
       },
     );

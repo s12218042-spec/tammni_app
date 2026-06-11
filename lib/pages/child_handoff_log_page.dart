@@ -1717,7 +1717,7 @@ class _ChildHandoffLogPageState extends State<ChildHandoffLogPage> {
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Text(
-                                  'سجل تسليم واستلام $_safeChildName',
+                                  ' $_safeChildName',
                                   style: const TextStyle(
                                     fontSize: 17,
                                     fontWeight: FontWeight.w800,

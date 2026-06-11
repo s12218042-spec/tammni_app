@@ -58,6 +58,21 @@ class MyApp extends StatelessWidget {
         GlobalCupertinoLocalizations.delegate,
       ],
       theme: AppTheme.lightTheme,
+
+      builder: (context, child) {
+        final mediaQuery = MediaQuery.of(context);
+
+        return MediaQuery(
+          data: mediaQuery.copyWith(
+            textScaler: mediaQuery.textScaler.clamp(
+              minScaleFactor: 0.90,
+              maxScaleFactor: 1.00,
+            ),
+          ),
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
+
       home: const WelcomePage(),
     );
   }

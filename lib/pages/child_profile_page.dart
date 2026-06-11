@@ -24,21 +24,6 @@ class ChildProfilePage extends StatefulWidget {
 class _ChildProfilePageState extends State<ChildProfilePage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  String statusLabel(String status, bool isActive) {
-    if (!isActive) return 'مؤرشف';
-    if (status == 'active') return 'نشط';
-    if (status == 'transferred') return 'منقول';
-    if (status == 'graduated') return 'متخرج';
-    return 'نشط';
-  }
-
-  Color statusColor(String status, bool isActive) {
-    if (!isActive) return Colors.orange;
-    if (status == 'graduated') return Colors.blueGrey;
-    if (status == 'transferred') return Colors.deepPurple;
-    return Colors.green;
-  }
-
   String childAgeText(DateTime? birthDate) {
     if (birthDate == null) return 'غير محدد';
 
@@ -133,14 +118,10 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
           final currentData = childSnapshot.data;
 
           final currentName = (currentData?['name'] ?? child.name).toString();
-          final isActive = currentData?['isActive'] ?? true;
-          final status = (currentData?['status'] ?? 'active').toString();
 
           final birthDateRaw = currentData?['birthDate'];
           final currentBirthDate =
               birthDateRaw is Timestamp ? birthDateRaw.toDate() : child.birthDate;
-
-          final currentStatusColor = statusColor(status, isActive);
 
           return ListView(
             children: [
@@ -198,25 +179,6 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
                         icon: Icons.cake_outlined,
                         title: 'العمر',
                         value: childAgeText(currentBirthDate),
-                      ),
-                      const SizedBox(height: 10),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: currentStatusColor.withValues(alpha: 0.10),
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              isActive
-                                  ? Icons.check_circle_outline
-                                  : Icons.archive_outlined,
-                              color: currentStatusColor,
-                            ),
-                          ],
-                        ),
                       ),
                     ],
                   ),

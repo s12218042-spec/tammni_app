@@ -568,7 +568,10 @@ batch.set(ref, taskData, SetOptions(merge: true));
                 final label = task['label'] ?? '';
 
                 return FilterChip(
-                  label: Text(label),
+                  label: Text(
+                    label,
+                    style: const TextStyle(height: 1.25),
+                  ),
                   selected: selectedTasks[uid]?[key] ?? false,
                   onSelected: isSaving
                       ? null
@@ -623,35 +626,36 @@ batch.set(ref, taskData, SetOptions(merge: true));
   }
 
   Widget _buildSaveButton(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> staffDocs,
-  ) {
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(
-            minHeight: 50,
-            maxHeight: 54,
-          ),
-          child: SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: isSaving ? null : () => _saveTasks(staffDocs),
-              icon: isSaving
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.save),
-              label: Text(isSaving ? 'جاري الحفظ...' : 'حفظ مهام اليوم'),
-            ),
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> staffDocs,
+) {
+  return SafeArea(
+    top: false,
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+      child: SizedBox(
+        width: double.infinity,
+        height: 58,
+        child: ElevatedButton.icon(
+          onPressed: isSaving ? null : () => _saveTasks(staffDocs),
+          icon: isSaving
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : const Icon(Icons.save),
+          label: Text(
+            isSaving ? 'جاري الحفظ...' : 'حفظ مهام اليوم',
+            maxLines: 1,
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildErrorState(Object? error) {
     return const Center(

@@ -873,7 +873,7 @@ Future<Map<String, dynamic>> _uploadIncidentImageIfNeeded() async {
               maxLines: 4,
               onChanged: (_) => setState(() {}),
               decoration: _inputDecoration(
-                hint: 'اكتب تفاصيل الحادث',
+                hint: '',
               ),
             ),
           ),
@@ -884,7 +884,7 @@ Future<Map<String, dynamic>> _uploadIncidentImageIfNeeded() async {
               controller: actionCtrl,
               maxLines: 3,
               decoration: _inputDecoration(
-                hint: 'اكتب الإجراء الذي تم اتخاذه',
+                hint: '',
               ),
             ),
           ),

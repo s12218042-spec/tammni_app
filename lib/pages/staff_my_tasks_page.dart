@@ -18,18 +18,21 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
   bool isLoading = false;
   String? loadError;
 
+  String selectedStatus = 'all';
+
   List<QueryDocumentSnapshot<Map<String, dynamic>>> tasks = [];
+
+  DateTime get today {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day);
+  }
 
   String get dateKey {
     final y = selectedDate.year;
     final m = selectedDate.month.toString().padLeft(2, '0');
     final d = selectedDate.day.toString().padLeft(2, '0');
-    return '$y-$m-$d';
-  }
 
-  DateTime get today {
-    final now = DateTime.now();
-    return DateTime(now.year, now.month, now.day);
+    return '$y-$m-$d';
   }
 
   bool get isSelectedDateToday {
@@ -38,24 +41,33 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
         selectedDate.day == today.day;
   }
 
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> get filteredTasks {
+    if (selectedStatus == 'all') {
+      return tasks;
+    }
+
+    return tasks.where((doc) {
+      final data = doc.data();
+      return _taskStatus(data) == selectedStatus;
+    }).toList();
+  }
+
   String _clean(dynamic value) {
     if (value == null) return '';
     return value.toString().trim();
   }
 
+ 
   String _safeStatus(dynamic value) {
     final raw = _clean(value).toLowerCase();
 
-    const allowed = {
-      'pending',
-      'done',
-      'not_done',
-      'partially_done',
-      'needs_follow_up',
-    };
+    if (raw == 'done' ||
+        raw == 'completed' ||
+        raw == 'complete') {
+      return 'done';
+    }
 
-    if (allowed.contains(raw)) return raw;
-    return 'pending';
+    return 'not_done';
   }
 
   @override
@@ -72,14 +84,8 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
       case 'done':
         return 'تم الإنجاز';
       case 'not_done':
-        return 'لم يتم الإنجاز';
-      case 'partially_done':
-        return 'تم الإنجاز جزئيًا';
-      case 'needs_follow_up':
-        return 'بحاجة متابعة';
-      case 'pending':
       default:
-        return 'بانتظار اعتماد الإدارة';
+        return 'لم يتم الإنجاز';
     }
   }
 
@@ -88,30 +94,18 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
       case 'done':
         return Colors.green;
       case 'not_done':
-        return Colors.redAccent;
-      case 'partially_done':
-        return Colors.orange;
-      case 'needs_follow_up':
-        return Colors.purple;
-      case 'pending':
       default:
-        return Colors.blueGrey;
+        return Colors.redAccent;
     }
   }
 
   IconData _statusIcon(String status) {
     switch (_safeStatus(status)) {
       case 'done':
-        return Icons.check_circle_outline;
+        return Icons.check_circle_outline_rounded;
       case 'not_done':
-        return Icons.cancel_outlined;
-      case 'partially_done':
-        return Icons.timelapse;
-      case 'needs_follow_up':
-        return Icons.flag_outlined;
-      case 'pending':
       default:
-        return Icons.hourglass_empty;
+        return Icons.cancel_outlined;
     }
   }
 
@@ -146,6 +140,7 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
     if (taskLabel.isNotEmpty) return taskLabel;
     if (taskTitle.isNotEmpty) return taskTitle;
     if (title.isNotEmpty) return title;
+
     return 'مهمة بدون عنوان';
   }
 
@@ -155,20 +150,29 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
 
     if (taskType.isNotEmpty) return taskType;
     if (taskKey.isNotEmpty) return taskKey;
+
     return '';
   }
 
   String _taskStatus(Map<String, dynamic> data) {
-    return _safeStatus(data['status'] ?? data['taskStatus']);
+    return _safeStatus(
+      data['status'] ?? data['taskStatus'],
+    );
   }
 
   Future<String> _currentUsername() async {
     final user = _auth.currentUser;
+
     if (user == null) return '';
 
     try {
-      final doc = await _firestore.collection('users').doc(user.uid).get();
+      final doc = await _firestore
+          .collection('users')
+          .doc(user.uid)
+          .get();
+
       final data = doc.data() ?? {};
+
       return _clean(data['username']).toLowerCase();
     } catch (_) {
       return '';
@@ -179,16 +183,17 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
     final user = _auth.currentUser;
 
     if (user == null) {
-  if (!mounted) return;
+      if (!mounted) return;
 
-  setState(() {
-    isLoading = false;
-    loadError = 'لم يتم العثور على المستخدم الحالي. سجّل الدخول مرة أخرى.';
-    tasks = [];
-  });
+      setState(() {
+        isLoading = false;
+        loadError =
+            'لم يتم العثور على المستخدم الحالي. سجّل الدخول مرة أخرى.';
+        tasks = [];
+      });
 
-  return;
-}
+      return;
+    }
 
     setState(() {
       isLoading = true;
@@ -199,8 +204,9 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
     try {
       final username = await _currentUsername();
 
-      final Map<String, QueryDocumentSnapshot<Map<String, dynamic>>> docsById =
-          {};
+      final Map<String,
+              QueryDocumentSnapshot<Map<String, dynamic>>>
+          docsById = {};
 
       final byUid = await _firestore
           .collection('staff_tasks')
@@ -244,13 +250,18 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
 
       final docs = docsById.values.where((doc) {
         final data = doc.data();
-        if (data['removedFromSchedule'] == true) return false;
+
+        if (data['removedFromSchedule'] == true) {
+          return false;
+        }
+
         return true;
       }).toList();
 
       docs.sort((a, b) {
         final aTask = _taskTitle(a.data());
         final bTask = _taskTitle(b.data());
+
         return aTask.compareTo(bTask);
       });
 
@@ -276,13 +287,19 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
       context: context,
       initialDate: selectedDate,
       firstDate: DateTime(2025),
-      lastDate: DateTime(2035),
+      lastDate: today,
     );
 
     if (picked == null) return;
 
     setState(() {
-      selectedDate = DateTime(picked.year, picked.month, picked.day);
+      selectedDate = DateTime(
+        picked.year,
+        picked.month,
+        picked.day,
+      );
+
+      selectedStatus = 'all';
     });
 
     await _loadMyTasks();
@@ -290,12 +307,17 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
 
   String _formatDate(dynamic value) {
     if (value is Timestamp) {
-      final d = value.toDate();
-      return '${d.year}/${d.month.toString().padLeft(2, '0')}/${d.day.toString().padLeft(2, '0')}';
+      final date = value.toDate();
+
+      return '${date.year}/'
+          '${date.month.toString().padLeft(2, '0')}/'
+          '${date.day.toString().padLeft(2, '0')}';
     }
 
     if (value is DateTime) {
-      return '${value.year}/${value.month.toString().padLeft(2, '0')}/${value.day.toString().padLeft(2, '0')}';
+      return '${value.year}/'
+          '${value.month.toString().padLeft(2, '0')}/'
+          '${value.day.toString().padLeft(2, '0')}';
     }
 
     return dateKey;
@@ -304,7 +326,9 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
   Widget _buildHeader() {
     return Card(
       margin: const EdgeInsets.all(12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
@@ -321,6 +345,7 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
                     isSelectedDateToday
                         ? 'مهامي اليوم: $dateKey'
                         : 'مهامي بتاريخ: $dateKey',
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       fontWeight: FontWeight.bold,
@@ -329,12 +354,25 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Flexible(
-                  fit: FlexFit.loose,
+                SizedBox(
+                  width: 124,
+                  height: 52,
                   child: OutlinedButton.icon(
                     onPressed: isLoading ? null : _pickDate,
-                    icon: const Icon(Icons.date_range),
-                    label: const Text('اختيار تاريخ'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 6,
+                      ),
+                    ),
+                    icon: const Icon(
+                      Icons.date_range,
+                      size: 18,
+                    ),
+                    label: const Text(
+                      'تاريخ',
+                      maxLines: 1,
+                    ),
                   ),
                 ),
               ],
@@ -349,37 +387,64 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
     );
   }
 
+  Widget _buildStatusFilter() {
+    return Card(
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: DropdownButtonFormField<String>(
+          value: selectedStatus,
+          isExpanded: true,
+          decoration: const InputDecoration(
+            labelText: 'فلترة الحالة',
+            border: OutlineInputBorder(),
+          ),
+          items: const [
+            DropdownMenuItem(
+              value: 'all',
+              child: Text('كل المهام'),
+            ),
+            DropdownMenuItem(
+              value: 'done',
+              child: Text('تم الإنجاز'),
+            ),
+            DropdownMenuItem(
+              value: 'not_done',
+              child: Text('لم يتم الإنجاز'),
+            ),
+          ],
+          onChanged: (value) {
+            setState(() {
+              selectedStatus = value ?? 'all';
+            });
+          },
+        ),
+      ),
+    );
+  }
+
   Widget _buildSummary() {
-    int pending = 0;
     int done = 0;
     int notDone = 0;
-    int partial = 0;
-    int followUp = 0;
 
     for (final doc in tasks) {
       final status = _taskStatus(doc.data());
 
-      switch (status) {
-        case 'done':
-          done++;
-          break;
-        case 'not_done':
-          notDone++;
-          break;
-        case 'partially_done':
-          partial++;
-          break;
-        case 'needs_follow_up':
-          followUp++;
-          break;
-        default:
-          pending++;
+      if (status == 'done') {
+        done++;
+      } else {
+        notDone++;
       }
     }
 
     return Card(
       margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Wrap(
@@ -393,34 +458,16 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
               icon: Icons.task_alt_outlined,
             ),
             _summaryChip(
-              label: 'بانتظار',
-              value: pending,
-              color: Colors.blueGrey,
-              icon: Icons.hourglass_empty,
-            ),
-            _summaryChip(
               label: 'تم الإنجاز',
               value: done,
               color: Colors.green,
-              icon: Icons.check_circle_outline,
+              icon: Icons.check_circle_outline_rounded,
             ),
             _summaryChip(
-              label: 'لم يتم',
+              label: 'لم يتم الإنجاز',
               value: notDone,
               color: Colors.redAccent,
               icon: Icons.cancel_outlined,
-            ),
-            _summaryChip(
-              label: 'جزئي',
-              value: partial,
-              color: Colors.orange,
-              icon: Icons.timelapse,
-            ),
-            _summaryChip(
-              label: 'متابعة',
-              value: followUp,
-              color: Colors.purple,
-              icon: Icons.flag_outlined,
             ),
           ],
         ),
@@ -435,22 +482,32 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
     required IconData icon,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 10,
+        vertical: 8,
+      ),
       decoration: BoxDecoration(
         color: color.withOpacity(0.08),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withOpacity(0.18)),
+        border: Border.all(
+          color: color.withOpacity(0.18),
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: color, size: 18),
+          Icon(
+            icon,
+            color: color,
+            size: 18,
+          ),
           const SizedBox(width: 6),
           Text(
             '$label: $value',
             style: TextStyle(
               color: color,
               fontWeight: FontWeight.bold,
+              height: 1.25,
             ),
           ),
         ],
@@ -458,18 +515,18 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
     );
   }
 
-  Widget _buildTaskCard(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+  Widget _buildTaskCard(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
     final data = doc.data();
 
     final taskLabel = _taskTitle(data);
     final taskType = _taskType(data);
     final status = _taskStatus(data);
 
-    final statusLabel = _clean(data['statusLabel']).isEmpty
-        ? _statusLabel(status)
-        : _clean(data['statusLabel']);
+  
+    final statusLabel = _statusLabel(status);
 
-    final notes = _clean(data['notes']);
 
     final adminNote = _clean(data['adminReviewNote']).isNotEmpty
         ? _clean(data['adminReviewNote'])
@@ -482,7 +539,9 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
 
     return Card(
       margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
@@ -492,12 +551,16 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
               children: [
                 CircleAvatar(
                   backgroundColor: color.withOpacity(0.14),
-                  child: Icon(_taskIcon(taskType), color: color),
+                  child: Icon(
+                    _taskIcon(taskType),
+                    color: color,
+                  ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     taskLabel,
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       fontSize: 16,
@@ -509,11 +572,16 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
             ),
             const SizedBox(height: 10),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 8,
+              ),
               decoration: BoxDecoration(
                 color: color.withOpacity(0.10),
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: color.withOpacity(0.18)),
+                border: Border.all(
+                  color: color.withOpacity(0.18),
+                ),
               ),
               child: Row(
                 children: [
@@ -529,6 +597,7 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
                       style: TextStyle(
                         color: color,
                         fontWeight: FontWeight.bold,
+                        height: 1.3,
                       ),
                     ),
                   ),
@@ -544,17 +613,9 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
             if (reviewedAt != null) ...[
               const SizedBox(height: 10),
               _buildInfoBox(
-                title: 'اعتماد الإدارة',
+                title: 'تحديث الإدارة',
                 value: _formatDate(reviewedAt),
                 icon: Icons.fact_check_outlined,
-              ),
-            ],
-            if (notes.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              _buildInfoBox(
-                title: 'ملاحظات التوزيع',
-                value: notes,
-                icon: Icons.notes_outlined,
               ),
             ],
             if (adminNote.isNotEmpty) ...[
@@ -581,17 +642,25 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
       decoration: BoxDecoration(
         color: Colors.grey.shade50,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade300),
+        border: Border.all(
+          color: Colors.grey.shade300,
+        ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 18, color: Colors.grey.shade700),
+          Icon(
+            icon,
+            size: 18,
+            color: Colors.grey.shade700,
+          ),
           const SizedBox(width: 6),
           Expanded(
             child: Text(
               '$title: $value',
-              style: const TextStyle(height: 1.4),
+              style: const TextStyle(
+                height: 1.4,
+              ),
             ),
           ),
         ],
@@ -602,7 +671,9 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
   Widget _buildEmptyState() {
     return Card(
       margin: const EdgeInsets.all(12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
@@ -629,10 +700,46 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
     );
   }
 
+  Widget _buildFilteredEmptyState() {
+    final label = selectedStatus == 'done'
+        ? 'لا توجد مهام تم إنجازها'
+        : 'لا توجد مهام غير منجزة';
+
+    return Card(
+      margin: const EdgeInsets.all(12),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          children: [
+            const Icon(
+              Icons.filter_alt_off_outlined,
+              size: 48,
+              color: Colors.blueGrey,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildErrorState() {
     return Card(
       margin: const EdgeInsets.all(12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
@@ -655,13 +762,23 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
             Text(
               loadError ?? 'خطأ غير معروف',
               textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.grey),
+              style: const TextStyle(
+                color: Colors.grey,
+              ),
             ),
             const SizedBox(height: 12),
-            ElevatedButton.icon(
-              onPressed: isLoading ? null : _loadMyTasks,
-              icon: const Icon(Icons.refresh),
-              label: const Text('إعادة المحاولة'),
+            SizedBox(
+              height: 56,
+              child: ElevatedButton.icon(
+                onPressed: isLoading
+                    ? null
+                    : _loadMyTasks,
+                icon: const Icon(Icons.refresh),
+                label: const Text(
+                  'إعادة المحاولة',
+                  maxLines: 1,
+                ),
+              ),
             ),
           ],
         ),
@@ -673,7 +790,9 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
     if (isLoading) {
       return Card(
         margin: const EdgeInsets.all(12),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
         child: const Padding(
           padding: EdgeInsets.all(24),
           child: Column(
@@ -682,7 +801,9 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
               SizedBox(height: 12),
               Text(
                 'جاري تحميل مهامك...',
-                style: TextStyle(fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ],
           ),
@@ -698,10 +819,16 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
       return _buildEmptyState();
     }
 
+    final visibleTasks = filteredTasks;
+
     return Column(
       children: [
+        _buildStatusFilter(),
         _buildSummary(),
-        ...tasks.map(_buildTaskCard),
+        if (visibleTasks.isEmpty)
+          _buildFilteredEmptyState()
+        else
+          ...visibleTasks.map(_buildTaskCard),
       ],
     );
   }
@@ -720,7 +847,9 @@ class _StaffMyTasksPageState extends State<StaffMyTasksPage> {
           onRefresh: _loadMyTasks,
           child: ListView(
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.only(bottom: 24),
+            padding: const EdgeInsets.only(
+              bottom: 24,
+            ),
             children: [
               _buildHeader(),
               _buildBodyContent(),

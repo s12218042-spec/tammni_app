@@ -8,6 +8,15 @@ import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 
 
+double sheetBottomSafePadding(BuildContext context) {
+  final mediaQuery = MediaQuery.of(context);
+
+  return mediaQuery.viewInsets.bottom +
+      mediaQuery.viewPadding.bottom +
+      16;
+}
+
+
 class AdminGroupsPage extends StatefulWidget {
   final bool openAddChildFlow;
 
@@ -135,7 +144,7 @@ class _AdminGroupsPageState extends State<AdminGroupsPage> {
                   left: 16,
                   right: 16,
                   top: 16,
-                  bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+                  bottom: sheetBottomSafePadding(context),
                 ),
                 child: SingleChildScrollView(
                   child: Column(
@@ -1156,7 +1165,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                   left: 16,
                   right: 16,
                   top: 16,
-                  bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+                  bottom: sheetBottomSafePadding(sheetContext),
                 ),
                 child: SingleChildScrollView(
                   child: Column(
@@ -1394,7 +1403,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                   left: 16,
                   right: 16,
                   top: 16,
-                  bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+                  bottom: sheetBottomSafePadding(sheetContext),
                 ),
                 child: SingleChildScrollView(
                   child: Column(
@@ -2098,7 +2107,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
               left: 16,
               right: 16,
               top: 16,
-              bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+              bottom: sheetBottomSafePadding(sheetContext),
             ),
             child: SizedBox(
               height: MediaQuery.of(sheetContext).size.height * 0.75,
@@ -2407,7 +2416,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
           controller: profile.healthNotesCtrl,
           maxLines: 3,
           decoration: const InputDecoration(
-            labelText: 'ملاحظات صحية عامة',
+            labelText: 'ملاحظات صحية ',
             prefixIcon: Icon(Icons.health_and_safety_rounded),
           ),
         ),
@@ -2598,7 +2607,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                   left: 16,
                   right: 16,
                   top: 16,
-                  bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+                  bottom: sheetBottomSafePadding(sheetContext),
                 ),
                 child: SingleChildScrollView(
                   child: Column(
@@ -3285,7 +3294,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                   left: 16,
                   right: 16,
                   top: 16,
-                  bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+                  bottom: sheetBottomSafePadding(sheetContext),
                 ),
                 child: SingleChildScrollView(
                   child: Column(
@@ -3848,7 +3857,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                   left: 16,
                   right: 16,
                   top: 16,
-                  bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+                  bottom: sheetBottomSafePadding(sheetContext),
                 ),
                 child: SingleChildScrollView(
                   child: Column(
@@ -4507,7 +4516,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                   left: 16,
                   right: 16,
                   top: 16,
-                  bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+                  bottom: sheetBottomSafePadding(sheetContext),
                 ),
                 child: SingleChildScrollView(
                   child: Column(
@@ -4688,14 +4697,21 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
   }
 
   Future<void> _openAddOptionsSheet() async {
-    await showModalBottomSheet<void>(
-      context: context,
-      useSafeArea: true,
-      builder: (sheetContext) {
-        return Directionality(
-          textDirection: TextDirection.rtl,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (sheetContext) {
+      return Directionality(
+        textDirection: TextDirection.rtl,
+        child: Padding(
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            top: 16,
+            bottom: sheetBottomSafePadding(sheetContext),
+          ),
+          child: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -4712,7 +4728,8 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                 const SizedBox(height: 18),
                 ListTile(
                   leading: CircleAvatar(
-                    backgroundColor: AppColors.primary.withValues(alpha: 0.10),
+                    backgroundColor:
+                        AppColors.primary.withValues(alpha: 0.10),
                     child: const Icon(
                       Icons.person_add_alt_1_rounded,
                       color: AppColors.primary,
@@ -4730,7 +4747,8 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                 const Divider(height: 1),
                 ListTile(
                   leading: CircleAvatar(
-                    backgroundColor: AppColors.primary.withValues(alpha: 0.10),
+                    backgroundColor:
+                        AppColors.primary.withValues(alpha: 0.10),
                     child: const Icon(
                       Icons.child_care_rounded,
                       color: AppColors.primary,
@@ -4766,10 +4784,11 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
               ],
             ),
           ),
-        );
-      },
-    );
-  }
+        ),
+      );
+    },
+  );
+}
 
   Widget _buildChildCard(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data() ?? <String, dynamic>{};

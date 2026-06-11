@@ -41,6 +41,26 @@ class _AdminComplaintsPageState extends State<AdminComplaintsPage> {
     return text.isEmpty ? fallback : text;
   }
 
+  String _normalizeSearchText(dynamic value) {
+    final text = _safeText(value).toLowerCase();
+
+    return text
+        .replaceAll(RegExp(r'[\u064B-\u065F\u0670]'), '')
+        .replaceAll('ـ', '')
+        .replaceAll(RegExp(r'[أإآٱ]'), 'ا')
+        .replaceAll('ى', 'ي')
+        .replaceAll('ؤ', 'و')
+        .replaceAll('ئ', 'ي')
+        .replaceAll('ة', 'ه')
+        .replaceAll(RegExp(r'[^\u0600-\u06FFa-z0-9@._+]+'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+
+  String _digitsOnly(dynamic value) {
+    return _safeText(value).replaceAll(RegExp(r'[^0-9]'), '');
+  }
+
   String _statusLabel(String status) {
     switch (status.trim().toLowerCase()) {
       case 'pending':
@@ -127,7 +147,6 @@ class _AdminComplaintsPageState extends State<AdminComplaintsPage> {
   String _priorityForStatus(String status) {
     switch (status.trim().toLowerCase()) {
       case 'resolved':
-        return 'important';
       case 'rejected':
         return 'important';
       default:
@@ -241,62 +260,60 @@ class _AdminComplaintsPageState extends State<AdminComplaintsPage> {
 
       final hasReply = replyText.isNotEmpty;
 
-      
-
       await batch.commit();
 
-if (shouldCreateNotification && (statusChanged || hasReply)) {
-  try {
-    final notificationTitle = _notificationTitleForStatus(newStatus);
-    final notificationBody = _notificationBodyForComplaint(
-      status: newStatus,
-      complaintTitle: complaintTitle,
-      adminReply: replyText,
-    );
+      if (shouldCreateNotification && (statusChanged || hasReply)) {
+        try {
+          final notificationTitle = _notificationTitleForStatus(newStatus);
+          final notificationBody = _notificationBodyForComplaint(
+            status: newStatus,
+            complaintTitle: complaintTitle,
+            adminReply: replyText,
+          );
 
-    await AppNotificationService.instance.notifyParent(
-      parentUid: parentUid,
-      parentUsername: parentUsername,
-      parentName: parentName,
-      title: notificationTitle,
-      body: notificationBody,
-      type: 'complaint_update',
-      priority: _priorityForStatus(newStatus),
-      createdByUid: adminInfo['uid'] ?? '',
-      createdByName: adminInfo['name'] ?? 'الإدارة',
-      createdByRole: 'admin',
-      extraData: {
-        'complaintId': docId,
-        'complaintTitle': complaintTitle,
-        'complaintStatus': newStatus,
-        'adminReply': replyText,
-        'notificationType': 'complaint_update',
-        'category': 'complaints',
-        'templateType': 'admin_complaint_reply',
-        'importance': _priorityForStatus(newStatus),
-        'level': _priorityForStatus(newStatus),
-        'createdByUsername': adminInfo['username'] ?? '',
-        'senderId': adminInfo['uid'] ?? '',
-        'senderName': adminInfo['name'] ?? 'الإدارة',
-        'senderRole': 'admin',
-        'source': 'admin_complaints_page',
-        'screen': 'complaints',
-        'route': 'parent_complaints',
-        'relatedCollection': 'complaints',
-        'relatedDocId': docId,
-        'eventAt': now,
-        'timestamp': now,
-      },
-    );
-  } catch (e) {
-    debugPrint('AdminComplaintsPage: فشل إرسال إشعار تحديث الشكوى: $e');
-  }
-}
+          await AppNotificationService.instance.notifyParent(
+            parentUid: parentUid,
+            parentUsername: parentUsername,
+            parentName: parentName,
+            title: notificationTitle,
+            body: notificationBody,
+            type: 'complaint_update',
+            priority: _priorityForStatus(newStatus),
+            createdByUid: adminInfo['uid'] ?? '',
+            createdByName: adminInfo['name'] ?? 'الإدارة',
+            createdByRole: 'admin',
+            extraData: {
+              'complaintId': docId,
+              'complaintTitle': complaintTitle,
+              'complaintStatus': newStatus,
+              'adminReply': replyText,
+              'notificationType': 'complaint_update',
+              'category': 'complaints',
+              'templateType': 'admin_complaint_reply',
+              'importance': _priorityForStatus(newStatus),
+              'level': _priorityForStatus(newStatus),
+              'createdByUsername': adminInfo['username'] ?? '',
+              'senderId': adminInfo['uid'] ?? '',
+              'senderName': adminInfo['name'] ?? 'الإدارة',
+              'senderRole': 'admin',
+              'source': 'admin_complaints_page',
+              'screen': 'complaints',
+              'route': 'parent_complaints',
+              'relatedCollection': 'complaints',
+              'relatedDocId': docId,
+              'eventAt': now,
+              'timestamp': now,
+            },
+          );
+        } catch (e) {
+          debugPrint('AdminComplaintsPage: فشل إرسال إشعار تحديث الشكوى: $e');
+        }
+      }
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-         content: const Text(
+        const SnackBar(
+          content: Text(
             'تم تحديث حالة الشكوى بنجاح',
             textAlign: TextAlign.center,
           ),
@@ -489,27 +506,84 @@ if (shouldCreateNotification && (statusChanged || hasReply)) {
     );
   }
 
+  bool _matchesSearch({
+    required String docId,
+    required Map<String, dynamic> data,
+    required String rawQuery,
+  }) {
+    final normalizedQuery = _normalizeSearchText(rawQuery);
+    final digitsQuery = _digitsOnly(rawQuery);
+
+    if (normalizedQuery.isEmpty && digitsQuery.isEmpty) return true;
+
+    final status = _safeText(data['status'], fallback: 'pending');
+
+    final textValues = [
+      docId,
+      data['title'],
+      data['message'],
+      data['description'],
+      data['details'],
+      data['parentName'],
+      data['parentUsername'],
+      data['parentUid'],
+      data['parentEmail'],
+      data['email'],
+      data['childId'],
+      data['childName'],
+      data['adminReply'],
+      data['reviewNote'],
+      data['category'],
+      data['type'],
+      status,
+      _statusLabel(status),
+    ];
+
+    final normalizedHaystack = textValues
+        .map(_normalizeSearchText)
+        .where((value) => value.isNotEmpty)
+        .join(' ');
+
+    if (normalizedQuery.isNotEmpty &&
+        normalizedHaystack.contains(normalizedQuery)) {
+      return true;
+    }
+
+    if (digitsQuery.isNotEmpty) {
+      final digitsHaystack = [
+        data['parentPhone'],
+        data['phone'],
+        data['alternatePhone'],
+        data['alternativePhone'],
+        data['parentUid'],
+        docId,
+      ].map(_digitsOnly).join(' ');
+
+      if (digitsHaystack.contains(digitsQuery)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _applyFilters(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
     return docs.where((doc) {
       final data = doc.data();
-
-      final status = _safeText(data['status'], fallback: 'pending');
-      final title = _safeText(data['title']).toLowerCase();
-      final message = _safeText(data['message']).toLowerCase();
-      final parentName = _safeText(data['parentName']).toLowerCase();
-      final parentUsername = _safeText(data['parentUsername']).toLowerCase();
+      final status = _safeText(data['status'], fallback: 'pending')
+          .trim()
+          .toLowerCase();
 
       final matchesStatus =
           _selectedStatuses.isEmpty || _selectedStatuses.contains(status);
 
-      final q = _searchQuery.trim().toLowerCase();
-      final matchesSearch = q.isEmpty ||
-          title.contains(q) ||
-          message.contains(q) ||
-          parentName.contains(q) ||
-          parentUsername.contains(q);
+      final matchesSearch = _matchesSearch(
+        docId: doc.id,
+        data: data,
+        rawQuery: _searchQuery,
+      );
 
       return matchesStatus && matchesSearch;
     }).toList();
@@ -900,9 +974,10 @@ if (shouldCreateNotification && (statusChanged || hasReply)) {
                 });
               },
               decoration: InputDecoration(
-                hintText: 'ابحث بالعنوان أو اسم ولي الأمر أو اسم المستخدم',
+                hintText:
+                    'ابحث بالعنوان أو اسم ولي الأمر أو المستخدم أو الطفل أو نص الشكوى',
                 prefixIcon: const Icon(Icons.search_rounded),
-                suffixIcon: _searchQuery.isEmpty
+                suffixIcon: _searchQuery.trim().isEmpty
                     ? null
                     : IconButton(
                         onPressed: () {
@@ -964,11 +1039,11 @@ if (shouldCreateNotification && (statusChanged || hasReply)) {
   }
 
   Widget _buildEmptyState() {
-    return Card(
+    return const Card(
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: EdgeInsets.all(24),
         child: Column(
-          children: const [
+          children: [
             Icon(
               Icons.inbox_outlined,
               size: 44,

@@ -240,11 +240,9 @@ Future<List<Map<String, dynamic>>> fetchChildren() async {
     final name = (child['name'] ?? 'طفل بدون اسم').toString();
     final group = (child['group'] ?? '').toString();
     final parent = (child['parentName'] ?? '').toString();
-    final type = (child['childTypeLabel'] ?? '').toString();
 
     return [
       name,
-      if (type.isNotEmpty) type,
       group.isEmpty ? 'بدون مجموعة' : group,
       if (parent.isNotEmpty) parent,
     ].join(' • ');
@@ -782,24 +780,50 @@ Future<List<Map<String, dynamic>>> fetchChildren() async {
                         const Text('لا يوجد أطفال حاليًا')
                       else
                         DropdownButtonFormField<String>(
-                          value: selectedChild?['id'],
+                          value: selectedChild?['id']?.toString(),
+                          isExpanded: true,
+                          menuMaxHeight: 360,
                           decoration: customDecoration(
                             label: 'الطفل',
                             icon: Icons.child_care_rounded,
                           ),
+
                           items: children.map((child) {
                             return DropdownMenuItem<String>(
-                              value: child['id'] as String,
-                              child: Text(childLabel(child)),
+                              value: child['id'].toString(),
+                              child: Text(
+                                childLabel(child),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.right,
+                              ),
                             );
                           }).toList(),
+
+                          selectedItemBuilder: (context) {
+                            return children.map((child) {
+                              return Align(
+                                alignment: Alignment.centerRight,
+                                child: Text(
+                                  (child['name'] ?? 'طفل بدون اسم').toString(),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.right,
+                                ),
+                              );
+                            }).toList();
+                          },
+
                           onChanged: (value) {
+                            if (value == null) return;
+
                             setState(() {
                               selectedChild = children.firstWhere(
-                                (child) => child['id'] == value,
+                                (child) => child['id'].toString() == value,
                               );
                             });
                           },
+
                           validator: (value) {
                             if (value == null || value.isEmpty) {
                               return 'اختر الطفل';
@@ -909,15 +933,6 @@ Future<List<Map<String, dynamic>>> fetchChildren() async {
                         title: const Text('تاريخ مقترح'),
                         subtitle: Text(formatDate(suggestedDate)),
                         onTap: pickSuggestedDate,
-                      ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: notesCtrl,
-                        maxLines: 3,
-                        decoration: customDecoration(
-                          label: 'ملاحظات داخلية',
-                          icon: Icons.notes_rounded,
-                        ),
                       ),
                     ],
                   ),

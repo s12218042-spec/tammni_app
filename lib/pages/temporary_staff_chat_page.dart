@@ -40,8 +40,18 @@ class _TemporaryStaffChatPageState extends State<TemporaryStaffChatPage> {
   final FocusNode _messageFocusNode = FocusNode();
 
   bool isSending = false;
+  bool isLoadingIdentity = true;
+
+  String currentActorRole = '';
+  String currentActorName = '';
 
   String get _currentUid => _auth.currentUser?.uid.trim() ?? '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCurrentActorInfo();
+  }
 
   @override
   void dispose() {
@@ -54,6 +64,51 @@ class _TemporaryStaffChatPageState extends State<TemporaryStaffChatPage> {
   String _cleanText(dynamic value) {
     if (value == null) return '';
     return value.toString().trim();
+  }
+
+  String _normalizeRole(dynamic value) {
+    final role = _cleanText(value).toLowerCase();
+
+    switch (role) {
+      case 'nursery':
+      case 'nursery staff':
+      case 'nursery_staff':
+      case 'staff':
+      case 'employee':
+      case 'teacher':
+      case 'موظفة':
+      case 'موظفة حضانة':
+      case 'حضانة':
+        return 'nursery_staff';
+
+      case 'admin':
+      case 'manager':
+      case 'مدير':
+      case 'مدير النظام':
+      case 'ادمن':
+      case 'أدمن':
+        return 'admin';
+
+      case 'temporary_parent':
+      case 'temporary parent':
+      case 'ولي أمر زائر':
+      case 'ولي الامر الزائر':
+      case 'ولي الأمر الزائر':
+        return 'temporary_parent';
+
+      default:
+        return role;
+    }
+  }
+
+  bool get _isAllowedActor {
+    return currentActorRole == 'admin' ||
+        currentActorRole == 'nursery_staff';
+  }
+
+  String get _actorFallbackName {
+    if (currentActorRole == 'admin') return 'الإدارة';
+    return 'موظف الحضانة';
   }
 
   DateTime? _dateFromDynamic(dynamic value) {
@@ -82,23 +137,78 @@ class _TemporaryStaffChatPageState extends State<TemporaryStaffChatPage> {
     return clean.isEmpty || clean == '-' ? fallback : clean;
   }
 
+  Future<void> _loadCurrentActorInfo() async {
+    final uid = _currentUid;
+
+    if (uid.isEmpty) {
+      if (!mounted) return;
+
+      setState(() {
+        isLoadingIdentity = false;
+      });
+
+      return;
+    }
+
+    try {
+      final doc = await _firestore.collection('users').doc(uid).get();
+      final data = doc.data() ?? <String, dynamic>{};
+
+      final role = _normalizeRole(data['role']);
+      final name = _safeName(
+        _cleanText(
+          data['displayName'] ??
+              data['name'] ??
+              data['fullName'] ??
+              data['username'],
+        ),
+        role == 'admin' ? 'الإدارة' : 'موظف الحضانة',
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        currentActorRole = role;
+        currentActorName = name;
+        isLoadingIdentity = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+
+      setState(() {
+        isLoadingIdentity = false;
+      });
+    }
+  }
+
+  bool _targetUidMatchesCurrentActor(String value) {
+    final targetUid = value.trim();
+
+    if (targetUid.isEmpty) return true;
+    if (targetUid == _currentUid) return true;
+
+    return currentActorRole == 'admin' && targetUid.toLowerCase() == 'admin';
+  }
+
   bool _isMessageForThisConversation(Map<String, dynamic> data) {
-    final fromRole = _cleanText(data['fromRole']).toLowerCase();
-    final targetRole = _cleanText(data['targetRole']).toLowerCase();
+    if (!_isAllowedActor) return false;
+
+    final fromRole = _normalizeRole(data['fromRole']);
+    final targetRole = _normalizeRole(data['targetRole']);
     final targetUid = _cleanText(data['targetUid']);
     final fromUid = _cleanText(data['fromUid']);
 
     final fromTemporaryParent =
         fromRole == 'temporary_parent' &&
-        targetRole == 'nursery_staff' &&
-        (targetUid.isEmpty || targetUid == _currentUid);
+        targetRole == currentActorRole &&
+        _targetUidMatchesCurrentActor(targetUid);
 
-    final fromCurrentStaff =
-        fromRole == 'nursery_staff' &&
+    final fromCurrentActor =
+        fromRole == currentActorRole &&
         targetRole == 'temporary_parent' &&
         (fromUid.isEmpty || fromUid == _currentUid);
 
-    return fromTemporaryParent || fromCurrentStaff;
+    return fromTemporaryParent || fromCurrentActor;
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> _messagesStream() {
@@ -129,37 +239,6 @@ class _TemporaryStaffChatPageState extends State<TemporaryStaffChatPage> {
     return filtered;
   }
 
-  Future<Map<String, String>> _currentStaffInfo() async {
-    final uid = _currentUid;
-
-    if (uid.isEmpty) {
-      return {
-        'uid': '',
-        'name': 'موظف الحضانة',
-      };
-    }
-
-    try {
-      final doc = await _firestore.collection('users').doc(uid).get();
-      final data = doc.data() ?? <String, dynamic>{};
-
-      return {
-        'uid': uid,
-        'name': _safeName(
-          _cleanText(
-            data['displayName'] ?? data['name'] ?? data['username'],
-          ),
-          'موظف الحضانة',
-        ),
-      };
-    } catch (_) {
-      return {
-        'uid': uid,
-        'name': 'موظف الحضانة',
-      };
-    }
-  }
-
   Future<void> _scrollToBottom({bool animated = true}) async {
     await Future.delayed(const Duration(milliseconds: 80));
 
@@ -183,6 +262,11 @@ class _TemporaryStaffChatPageState extends State<TemporaryStaffChatPage> {
 
     if (text.isEmpty || isSending) return;
 
+    if (_currentUid.isEmpty || !_isAllowedActor) {
+      _showSnack('تعذر تحديد هوية المستخدم');
+      return;
+    }
+
     FocusScope.of(context).unfocus();
 
     setState(() {
@@ -190,8 +274,6 @@ class _TemporaryStaffChatPageState extends State<TemporaryStaffChatPage> {
     });
 
     try {
-      final staffInfo = await _currentStaffInfo();
-
       await _firestore.collection('temporary_messages').add({
         'accessCodeId': widget.accessCodeId,
         'accessCode': widget.accessCode,
@@ -201,9 +283,9 @@ class _TemporaryStaffChatPageState extends State<TemporaryStaffChatPage> {
         'parentPhone': widget.parentPhone,
         'groupId': widget.groupId,
         'groupName': widget.groupName,
-        'fromRole': 'nursery_staff',
-        'fromUid': staffInfo['uid'] ?? _currentUid,
-        'fromName': staffInfo['name'] ?? 'موظف الحضانة',
+        'fromRole': currentActorRole,
+        'fromUid': _currentUid,
+        'fromName': _safeName(currentActorName, _actorFallbackName),
         'targetRole': 'temporary_parent',
         'targetUid': '',
         'targetName': _safeName(widget.parentName, 'ولي أمر زائر'),
@@ -217,12 +299,8 @@ class _TemporaryStaffChatPageState extends State<TemporaryStaffChatPage> {
       messageCtrl.clear();
 
       await _scrollToBottom();
-    } catch (e) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تعذر إرسال الرسالة')),
-      );
+    } catch (_) {
+      _showSnack('تعذر إرسال الرسالة');
     } finally {
       if (!mounted) return;
 
@@ -230,6 +308,14 @@ class _TemporaryStaffChatPageState extends State<TemporaryStaffChatPage> {
         isSending = false;
       });
     }
+  }
+
+  void _showSnack(String message) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
   }
 
   Widget _buildHeaderCard() {
@@ -276,9 +362,9 @@ class _TemporaryStaffChatPageState extends State<TemporaryStaffChatPage> {
                   ),
                 ),
                 const SizedBox(height: 4),
-                const Text(
-                  'ولي أمر زائر',
-                  style: TextStyle(
+                Text(
+                  'ولي أمر زائر • ${widget.childName}',
+                  style: const TextStyle(
                     fontSize: 13,
                     color: AppColors.textLight,
                     fontWeight: FontWeight.w600,
@@ -325,8 +411,8 @@ class _TemporaryStaffChatPageState extends State<TemporaryStaffChatPage> {
   }
 
   Widget _buildMessageBubble(Map<String, dynamic> data) {
-    final fromRole = _cleanText(data['fromRole']).toLowerCase();
-    final isMe = fromRole == 'nursery_staff';
+    final fromRole = _normalizeRole(data['fromRole']);
+    final isMe = fromRole == currentActorRole;
 
     final text = _cleanText(
       data['message'] ?? data['text'] ?? data['body'],
@@ -508,8 +594,37 @@ class _TemporaryStaffChatPageState extends State<TemporaryStaffChatPage> {
     );
   }
 
+  Widget _buildIdentityError() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Text(
+          _currentUid.isEmpty
+              ? 'تعذر تحميل هوية المستخدم'
+              : 'هذه الصفحة متاحة للإدارة وموظفي الحضانة فقط',
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: AppColors.textLight,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (isLoadingIdentity) {
+      return const Directionality(
+        textDirection: TextDirection.rtl,
+        child: Scaffold(
+          body: Center(
+            child: CircularProgressIndicator(),
+          ),
+        ),
+      );
+    }
+
     return GestureDetector(
       onTap: () {
         FocusScope.of(context).unfocus();
@@ -517,17 +632,19 @@ class _TemporaryStaffChatPageState extends State<TemporaryStaffChatPage> {
       child: AppPageScaffold(
         title: 'المحادثة',
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-        child: Column(
-          children: [
-            _buildHeaderCard(),
-            const SizedBox(height: 14),
-            Expanded(
-              child: _buildMessagesList(),
-            ),
-            const SizedBox(height: 8),
-            _buildInputArea(),
-          ],
-        ),
+        child: !_isAllowedActor
+            ? _buildIdentityError()
+            : Column(
+                children: [
+                  _buildHeaderCard(),
+                  const SizedBox(height: 14),
+                  Expanded(
+                    child: _buildMessagesList(),
+                  ),
+                  const SizedBox(height: 8),
+                  _buildInputArea(),
+                ],
+              ),
       ),
     );
   }

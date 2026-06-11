@@ -41,7 +41,10 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
     final value = role.trim().toLowerCase();
     return value == 'nursery' ||
         value == 'nursery_staff' ||
-        value == 'nursery staff';
+        value == 'nursery staff' ||
+        value == 'staff' ||
+        value == 'employee' ||
+        value == 'teacher';
   }
 
   String normalizeRole(String role) {
@@ -49,7 +52,10 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
 
     if (value == 'nursery' ||
         value == 'nursery staff' ||
-        value == 'nursery_staff') {
+        value == 'nursery_staff' ||
+        value == 'staff' ||
+        value == 'employee' ||
+        value == 'teacher') {
       return 'nursery_staff';
     }
 
@@ -59,18 +65,53 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
     return value;
   }
 
+  String _normalizeSearchText(dynamic value) {
+    var text = (value ?? '').toString().trim().toLowerCase();
+
+    const arabicDiacritics = r'[\u064B-\u065F\u0670\u06D6-\u06ED]';
+
+    text = text
+        .replaceAll(RegExp(arabicDiacritics), '')
+        .replaceAll('أ', 'ا')
+        .replaceAll('إ', 'ا')
+        .replaceAll('آ', 'ا')
+        .replaceAll('ؤ', 'و')
+        .replaceAll('ئ', 'ي')
+        .replaceAll('ى', 'ي')
+        .replaceAll('ة', 'ه')
+        .replaceAll('ـ', '')
+        .replaceAll(RegExp(r'[^\p{L}\p{N}]+', unicode: true), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+
+    return text;
+  }
+
+  bool _matchesSearchQuery({
+    required String query,
+    required List<dynamic> values,
+  }) {
+    final normalizedQuery = _normalizeSearchText(query);
+    if (normalizedQuery.isEmpty) return true;
+
+    final combined = values
+        .map(_normalizeSearchText)
+        .where((value) => value.isNotEmpty)
+        .join(' ');
+
+    return combined.contains(normalizedQuery);
+  }
+
   bool looksLikeAdminChat({
     required String role,
     required String name,
   }) {
     final normalizedRole = normalizeRole(role);
-    final cleanName = name.trim().toLowerCase();
+    final cleanName = _normalizeSearchText(name);
 
     return normalizedRole == 'admin' ||
         cleanName == 'admin' ||
-        cleanName == 'الإدارة' ||
-        cleanName == 'ادارة' ||
-        cleanName == 'الإداره';
+        cleanName == 'الاداره';
   }
 
   String roleLabel(String role) {
@@ -231,7 +272,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
   Future<List<Map<String, dynamic>>> fetchAllowedPeople() async {
     if (activeChildren.isEmpty) return [];
 
-    final searchText = searchCtrl.text.trim().toLowerCase();
+    final searchText = searchCtrl.text;
     final usersSnapshot = await _firestore.collection('users').get();
 
     Map<String, dynamic>? userDataById(String uid) {
@@ -254,7 +295,8 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
 
       people.add({
         'id': doc.id,
-        'displayName': data['displayName'] ?? data['name'] ?? data['username'] ?? 'الإدارة',
+        'displayName':
+            data['displayName'] ?? data['name'] ?? data['username'] ?? 'الإدارة',
         'username': data['username'] ?? '',
         'email': data['email'] ?? '',
         'role': 'admin',
@@ -304,17 +346,16 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
     }
 
     final filtered = people.where((person) {
-      if (searchText.isEmpty) return true;
-
-      final name = (person['displayName'] ?? '').toString().toLowerCase();
-      final username = (person['username'] ?? '').toString().toLowerCase();
-      final childName = (person['childName'] ?? '').toString().toLowerCase();
-      final role = roleLabel((person['role'] ?? '').toString()).toLowerCase();
-
-      return name.contains(searchText) ||
-          username.contains(searchText) ||
-          childName.contains(searchText) ||
-          role.contains(searchText);
+      return _matchesSearchQuery(
+        query: searchText,
+        values: [
+          person['displayName'],
+          person['username'],
+          person['email'],
+          person['childName'],
+          roleLabel((person['role'] ?? '').toString()),
+        ],
+      );
     }).toList();
 
     filtered.sort((a, b) {
@@ -338,7 +379,6 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
 
     return filtered;
   }
-
 
   String contactKeyFromPerson(Map<String, dynamic> person) {
     final role = normalizeRole((person['role'] ?? '').toString());
@@ -371,8 +411,6 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
 
     return '${otherRole}_${otherUserId.trim()}';
   }
-
-
 
   Widget buildRecentChatCard(MessageModel message) {
     if (activeChildren.isEmpty) {
@@ -437,12 +475,12 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
             context,
             MaterialPageRoute(
               builder: (_) => MessagesPage(
-              child: isAdminChat ? null : childForChat,
-              targetRole: isAdminChat ? 'admin' : targetRole,
-              targetUserId: targetUserId,
-              targetUserName: displayName,
-              targetSection: targetSection,
-            ),
+                child: isAdminChat ? null : childForChat,
+                targetRole: isAdminChat ? 'admin' : targetRole,
+                targetUserId: targetUserId,
+                targetUserName: displayName,
+                targetSection: targetSection,
+              ),
             ),
           );
 
@@ -455,9 +493,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
               radius: 25,
               backgroundColor: color.withValues(alpha: 0.14),
               child: Icon(
-                isAdminChat
-                    ? Icons.business_outlined
-                    : roleIcon(targetRole),
+                isAdminChat ? Icons.business_outlined : roleIcon(targetRole),
                 color: color,
               ),
             ),
@@ -565,9 +601,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  name.isEmpty
-                      ? (isAdmin ? 'الإدارة' : 'بدون اسم')
-                      : name,
+                  name.isEmpty ? (isAdmin ? 'الإدارة' : 'بدون اسم') : name,
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w800,
@@ -593,14 +627,13 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
                 context,
                 MaterialPageRoute(
                   builder: (_) => MessagesPage(
-                  child: isAdmin ? null : childForChat,
-                  targetRole: isAdmin ? 'admin' : role,
-                  targetUserId: (person['id'] ?? '').toString(),
-                  targetUserName: name.isEmpty
-                      ? (isAdmin ? 'الإدارة' : 'بدون اسم')
-                      : name,
-                  targetSection: section,
-                ),
+                    child: isAdmin ? null : childForChat,
+                    targetRole: isAdmin ? 'admin' : role,
+                    targetUserId: (person['id'] ?? '').toString(),
+                    targetUserName:
+                        name.isEmpty ? (isAdmin ? 'الإدارة' : 'بدون اسم') : name,
+                    targetSection: section,
+                  ),
                 ),
               );
 
@@ -624,15 +657,15 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
     );
   }
 
-
   Widget buildSearchHeader() {
     return TextField(
       controller: searchCtrl,
+      textAlign: TextAlign.right,
       onChanged: (_) => setState(() {}),
       decoration: InputDecoration(
-        hintText: 'البحث',
+        hintText: 'ابحث بالاسم أو اسم المستخدم أو اسم الطفل أو نص الرسالة',
         prefixIcon: const Icon(Icons.search_rounded),
-        suffixIcon: searchCtrl.text.isEmpty
+        suffixIcon: searchCtrl.text.trim().isEmpty
             ? null
             : IconButton(
                 onPressed: () {
@@ -644,7 +677,6 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
       ),
     );
   }
-
 
   Widget buildRecentChatsTab() {
     if (currentUserId == null) {
@@ -670,7 +702,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
           );
         }
 
-        final searchText = searchCtrl.text.trim().toLowerCase();
+        final searchText = searchCtrl.text;
 
         final rawChats = (snapshot.data ?? []).where((message) {
           final senderRole = normalizeRole(message.senderRole);
@@ -687,9 +719,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
           if (activeChildren.isEmpty) return false;
 
           final otherRole = senderIsParent ? receiverRole : senderRole;
-          final otherName =
-              senderIsParent ? message.receiverName : message.senderName;
-
+          final otherName = senderIsParent ? message.receiverName : message.senderName;
 
           final isAdminChat = looksLikeAdminChat(
             role: otherRole,
@@ -700,19 +730,22 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
               isNurseryRole(otherRole) || isAdminChat || otherRole == 'admin';
 
           if (!allowedOtherRole) return false;
-          if (searchText.isEmpty) return true;
 
           final childName = childBelongsToCurrentParent(message.childId)
-              ? pickChildForMessage(message).name.toLowerCase()
+              ? pickChildForMessage(message).name
               : '';
-          final messageText = message.text.toLowerCase();
-          final otherNameText = otherName.toLowerCase();
-          final roleText = roleLabel(otherRole).toLowerCase();
 
-          return otherNameText.contains(searchText) ||
-              messageText.contains(searchText) ||
-              childName.contains(searchText) ||
-              roleText.contains(searchText);
+          return _matchesSearchQuery(
+            query: searchText,
+            values: [
+              otherName,
+              message.text,
+              childName,
+              roleLabel(otherRole),
+              message.senderName,
+              message.receiverName,
+            ],
+          );
         }).toList();
 
         final chats = deduplicateRecentChats(rawChats);
@@ -736,7 +769,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
             if (chats.isEmpty && extraPeople.isEmpty) {
               return const Center(
                 child: Text(
-                  'لا توجد محادثات',
+                  'لا توجد نتائج مطابقة',
                   style: TextStyle(
                     color: AppColors.textLight,
                     fontWeight: FontWeight.w700,
@@ -746,6 +779,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
             }
 
             return ListView(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
               children: [
                 ...chats.map(buildRecentChatCard),
                 ...extraPeople.map(buildPersonCard),
@@ -756,8 +790,6 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
       },
     );
   }
-
-
 
   @override
   Widget build(BuildContext context) {

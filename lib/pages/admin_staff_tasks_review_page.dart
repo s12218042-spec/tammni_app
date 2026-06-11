@@ -10,12 +10,14 @@ class AdminStaffTasksReviewPage extends StatefulWidget {
       _AdminStaffTasksReviewPageState();
 }
 
-class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
+class _AdminStaffTasksReviewPageState
+    extends State<AdminStaffTasksReviewPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
   DateTime selectedDate = DateTime.now();
   bool isLoading = false;
+
   final ScrollController _scrollController = ScrollController();
 
   String selectedStatus = 'all';
@@ -35,6 +37,7 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
     final y = selectedDate.year;
     final m = selectedDate.month.toString().padLeft(2, '0');
     final d = selectedDate.day.toString().padLeft(2, '0');
+
     return '$y-$m-$d';
   }
 
@@ -46,16 +49,11 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
   String _safeStatus(dynamic value) {
     final raw = _clean(value).toLowerCase();
 
-    const allowed = {
-      'pending',
-      'done',
-      'not_done',
-      'partially_done',
-      'needs_follow_up',
-    };
+    if (raw == 'done' || raw == 'completed') {
+      return 'done';
+    }
 
-    if (allowed.contains(raw)) return raw;
-    return 'pending';
+    return 'not_done';
   }
 
   String _statusLabel(String status) {
@@ -63,14 +61,8 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
       case 'done':
         return 'تم الإنجاز';
       case 'not_done':
-        return 'لم يتم الإنجاز';
-      case 'partially_done':
-        return 'تم الإنجاز جزئيًا';
-      case 'needs_follow_up':
-        return 'بحاجة متابعة';
-      case 'pending':
       default:
-        return 'بانتظار اعتماد الإدارة';
+        return 'لم يتم الإنجاز';
     }
   }
 
@@ -79,14 +71,8 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
       case 'done':
         return Colors.green;
       case 'not_done':
-        return Colors.redAccent;
-      case 'partially_done':
-        return Colors.orange;
-      case 'needs_follow_up':
-        return Colors.purple;
-      case 'pending':
       default:
-        return Colors.blueGrey;
+        return Colors.redAccent;
     }
   }
 
@@ -95,14 +81,8 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
       case 'done':
         return Icons.check_circle_rounded;
       case 'not_done':
-        return Icons.cancel_rounded;
-      case 'partially_done':
-        return Icons.change_circle_rounded;
-      case 'needs_follow_up':
-        return Icons.flag_rounded;
-      case 'pending':
       default:
-        return Icons.hourglass_bottom_rounded;
+        return Icons.cancel_rounded;
     }
   }
 
@@ -134,7 +114,8 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
       return {
         'uid': user.uid,
         'name': name,
-        'role': _clean(data['role']).isNotEmpty ? _clean(data['role']) : 'admin',
+        'role':
+            _clean(data['role']).isNotEmpty ? _clean(data['role']) : 'admin',
       };
     } catch (_) {
       return {
@@ -150,13 +131,18 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
       context: context,
       initialDate: selectedDate,
       firstDate: DateTime(2025),
-      lastDate: DateTime(2035),
+      lastDate: today,
     );
 
     if (picked == null) return;
 
     setState(() {
-      selectedDate = DateTime(picked.year, picked.month, picked.day);
+      selectedDate = DateTime(
+        picked.year,
+        picked.month,
+        picked.day,
+      );
+
       selectedStatus = 'all';
     });
   }
@@ -173,6 +159,7 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
       final data = doc.data();
 
       final removed = data['removedFromSchedule'] == true;
+
       final staffUsername =
           _clean(data['staffUsername']).toLowerCase();
 
@@ -180,21 +167,37 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
           data['isLiveStreamStation'] == true ||
           staffUsername == 'stream_station';
 
-      if (removed || isLiveStreamStation) return false;
+      if (removed || isLiveStreamStation) {
+        return false;
+      }
 
-      if (selectedStatus == 'all') return true;
+      if (selectedStatus == 'all') {
+        return true;
+      }
 
-      final status = _safeStatus(data['status'] ?? data['taskStatus']);
+      final status = _safeStatus(
+        data['status'] ?? data['taskStatus'],
+      );
+
       return status == selectedStatus;
     }).toList();
 
     docs.sort((a, b) {
       final aName = _clean(a.data()['staffName']);
       final bName = _clean(b.data()['staffName']);
-      if (aName != bName) return aName.compareTo(bName);
 
-      final aTask = _clean(a.data()['taskLabel'] ?? a.data()['title']);
-      final bTask = _clean(b.data()['taskLabel'] ?? b.data()['title']);
+      if (aName != bName) {
+        return aName.compareTo(bName);
+      }
+
+      final aTask = _clean(
+        a.data()['taskLabel'] ?? a.data()['title'],
+      );
+
+      final bTask = _clean(
+        b.data()['taskLabel'] ?? b.data()['title'],
+      );
+
       return aTask.compareTo(bTask);
     });
 
@@ -232,7 +235,9 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم تحديث حالة المهمة')),
+        const SnackBar(
+          content: Text('تم تحديث حالة المهمة'),
+        ),
       );
 
       setState(() {});
@@ -240,7 +245,9 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('حدث خطأ أثناء تحديث المهمة: $e')),
+        SnackBar(
+          content: Text('حدث خطأ أثناء تحديث المهمة: $e'),
+        ),
       );
     } finally {
       if (mounted) {
@@ -260,6 +267,7 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
           content: Text('لا يمكن تعديل مهام الأيام السابقة'),
         ),
       );
+
       return;
     }
 
@@ -280,7 +288,9 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
                 title: const Text('تحديث حالة المهمة'),
                 content: SingleChildScrollView(
                   child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 420),
+                    constraints: const BoxConstraints(
+                      maxWidth: 420,
+                    ),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -298,15 +308,12 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
                         const SizedBox(height: 14),
                         DropdownButtonFormField<String>(
                           value: selectedTaskStatus,
+                          isExpanded: true,
                           decoration: const InputDecoration(
                             labelText: 'حالة المهمة',
                             border: OutlineInputBorder(),
                           ),
                           items: const [
-                            DropdownMenuItem(
-                              value: 'pending',
-                              child: Text('بانتظار اعتماد الإدارة'),
-                            ),
                             DropdownMenuItem(
                               value: 'done',
                               child: Text('تم الإنجاز'),
@@ -315,17 +322,10 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
                               value: 'not_done',
                               child: Text('لم يتم الإنجاز'),
                             ),
-                            DropdownMenuItem(
-                              value: 'partially_done',
-                              child: Text('تم الإنجاز جزئيًا'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'needs_follow_up',
-                              child: Text('بحاجة متابعة'),
-                            ),
                           ],
                           onChanged: (value) {
                             if (value == null) return;
+
                             setDialogState(() {
                               selectedTaskStatus = value;
                             });
@@ -337,12 +337,15 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
                 ),
                 actions: [
                   TextButton(
-                    onPressed: () => Navigator.pop(dialogContext),
+                    onPressed: () {
+                      Navigator.pop(dialogContext);
+                    },
                     child: const Text('إلغاء'),
                   ),
                   ElevatedButton.icon(
                     onPressed: () async {
                       Navigator.pop(dialogContext);
+
                       await _updateTaskStatus(
                         taskId: doc.id,
                         newStatus: selectedTaskStatus,
@@ -368,10 +371,14 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
     if (taskLabel.isNotEmpty) return taskLabel;
     if (taskTitle.isNotEmpty) return taskTitle;
     if (title.isNotEmpty) return title;
+
     return 'مهمة بدون عنوان';
   }
 
-  Widget _dialogInfo(String title, String value) {
+  Widget _dialogInfo(
+    String title,
+    String value,
+  ) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -385,7 +392,9 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
         Expanded(
           child: Text(
             value.trim().isEmpty ? '-' : value,
-            style: const TextStyle(fontWeight: FontWeight.bold),
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+            ),
           ),
         ),
       ],
@@ -395,7 +404,9 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
   Widget _buildHeader() {
     return Card(
       margin: const EdgeInsets.all(12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Row(
@@ -417,15 +428,24 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
             const SizedBox(width: 8),
             SizedBox(
               width: 112,
-              height: 44,
+              height: 48,
               child: OutlinedButton.icon(
                 onPressed: _pickDate,
                 style: OutlinedButton.styleFrom(
-                  minimumSize: const Size(0, 44),
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  minimumSize: const Size(0, 48),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
                 ),
-                icon: const Icon(Icons.date_range, size: 18),
-                label: const Text('تاريخ'),
+                icon: const Icon(
+                  Icons.date_range,
+                  size: 18,
+                ),
+                label: const Text(
+                  'تاريخ',
+                  maxLines: 1,
+                ),
               ),
             ),
           ],
@@ -437,11 +457,14 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
   Widget _buildStatusFilter() {
     return Card(
       margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: DropdownButtonFormField<String>(
           value: selectedStatus,
+          isExpanded: true,
           decoration: const InputDecoration(
             labelText: 'فلترة الحالة',
             border: OutlineInputBorder(),
@@ -470,7 +493,9 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
     );
   }
 
-  Widget _buildTaskCard(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+  Widget _buildTaskCard(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
     final data = doc.data();
 
     final staffName = _clean(data['staffName']).isEmpty
@@ -478,13 +503,20 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
         : _clean(data['staffName']);
 
     final staffUsername = _clean(data['staffUsername']);
+
     final taskLabel = _taskTitle(data);
-    final status = _safeStatus(data['status'] ?? data['taskStatus']);
+
+    final status = _safeStatus(
+      data['status'] ?? data['taskStatus'],
+    );
+
     final color = _statusColor(status);
 
     return Card(
       margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
@@ -494,7 +526,10 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
               children: [
                 CircleAvatar(
                   backgroundColor: color.withOpacity(0.12),
-                  child: Icon(_statusIcon(status), color: color),
+                  child: Icon(
+                    _statusIcon(status),
+                    color: color,
+                  ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -522,22 +557,26 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 9,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    _statusLabel(status),
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: color,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
+                Flexible(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 9,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: color.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      _statusLabel(status),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: color,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                        height: 1.25,
+                      ),
                     ),
                   ),
                 ),
@@ -555,13 +594,18 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
             if (isToday)
               SizedBox(
                 width: double.infinity,
+                height: 56,
                 child: OutlinedButton.icon(
-                  onPressed: isLoading ? null : () => _openReviewDialog(doc),
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(0, 44),
-                  ),
+                  onPressed: isLoading
+                      ? null
+                      : () {
+                          _openReviewDialog(doc);
+                        },
                   icon: const Icon(Icons.edit_outlined),
-                  label: const Text('تعديل حالة المهمة'),
+                  label: const Text(
+                    'تعديل حالة المهمة',
+                    maxLines: 1,
+                  ),
                 ),
               ),
           ],
@@ -573,7 +617,9 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
   Widget _buildEmptyState() {
     return Card(
       margin: const EdgeInsets.all(12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+      ),
       child: const Padding(
         padding: EdgeInsets.all(24),
         child: Column(
@@ -597,10 +643,14 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
     );
   }
 
-  Widget _buildErrorState(Object? error) {
+  Widget _buildErrorState(
+    Object? error,
+  ) {
     return Card(
       margin: const EdgeInsets.all(12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+      ),
       child: const Padding(
         padding: EdgeInsets.all(24),
         child: Column(
@@ -625,19 +675,23 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
   }
 
   Widget _buildTasksList() {
-    return FutureBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+    return FutureBuilder<
+        List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
       future: _fetchTasksForSelectedDate(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return _buildErrorState(snapshot.error);
         }
 
-        if (snapshot.connectionState == ConnectionState.waiting) {
+        if (snapshot.connectionState ==
+            ConnectionState.waiting) {
           return const Card(
             margin: EdgeInsets.all(12),
             child: Padding(
               padding: EdgeInsets.all(24),
-              child: Center(child: CircularProgressIndicator()),
+              child: Center(
+                child: CircularProgressIndicator(),
+              ),
             ),
           );
         }
@@ -649,7 +703,11 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
         }
 
         return Column(
-          children: docs.map(_buildTaskCard).toList(),
+          children: docs
+              .map(
+                (doc) => _buildTaskCard(doc),
+              )
+              .toList(),
         );
       },
     );
@@ -681,7 +739,9 @@ class _AdminStaffTasksReviewPageState extends State<AdminStaffTasksReviewPage> {
             child: ListView(
               controller: _scrollController,
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.only(bottom: 24),
+              padding: const EdgeInsets.only(
+                bottom: 24,
+              ),
               children: [
                 _buildHeader(),
                 _buildStatusFilter(),

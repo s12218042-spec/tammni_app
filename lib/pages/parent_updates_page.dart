@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../models/child_model.dart';
+import '../services/gallery_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 import 'video_preview_page.dart';
@@ -793,12 +794,6 @@ class _UpdateCard extends StatelessWidget {
     return value.startsWith('http://') || value.startsWith('https://');
   }
 
-  String get _bestRemoteUrl {
-    if (_hasPublicUrl) return publicUrl!.trim();
-    if (_hasRemoteUrl) return mediaUrl!.trim();
-    return '';
-  }
-
   bool get _hasLocalPath {
     final value = (mediaPath ?? '').trim();
 
@@ -819,9 +814,6 @@ class _UpdateCard extends StatelessWidget {
 
   bool get _hasRemoteVideo =>
       (_hasPublicUrl || _hasRemoteUrl) && _normalizedMediaType == 'video';
-
-  bool get _hasLocalImage =>
-      !kIsWeb && _hasLocalPath && _normalizedMediaType == 'image';
 
   bool get _hasLocalVideo =>
       !kIsWeb && _hasLocalPath && _normalizedMediaType == 'video';
@@ -1046,54 +1038,19 @@ class _UpdateCard extends StatelessWidget {
               ],
             ),
 
-            if ((_hasPublicUrl || _hasRemoteUrl) &&
-                _normalizedMediaType == 'image')
+            if (_normalizedMediaType == 'image' &&
+                _resolvedSource.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 12),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(16),
-                  child: Image.network(
-                    _bestRemoteUrl,
-                    height: 190,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) {
-                      return Container(
-                        height: 120,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: AppColors.background,
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: const Text('تعذر تحميل الصورة'),
-                      );
-                    },
-                  ),
-                ),
-              ),
-            if (!((_hasPublicUrl || _hasRemoteUrl) &&
-                    _normalizedMediaType == 'image') &&
-                _hasLocalImage)
-              Padding(
-                padding: const EdgeInsets.only(top: 12),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: Image.file(
-                    File(mediaPath!.trim()),
-                    height: 190,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) {
-                      return Container(
-                        height: 120,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: AppColors.background,
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: const Text('تعذر فتح الصورة المحلية'),
-                      );
-                    },
+                  child: _UpdateMediaImage(
+                    mediaPath: mediaPath ?? '',
+                    mediaUrl: mediaUrl ?? '',
+                    publicUrl: publicUrl ?? '',
+                    storageProvider: (storageProvider ?? '').trim().isNotEmpty
+                        ? storageProvider!.trim()
+                        : 'supabase',
                   ),
                 ),
               ),
@@ -1162,3 +1119,140 @@ class _UpdateCard extends StatelessWidget {
     );
   }
 }
+
+class _UpdateMediaImage extends StatefulWidget {
+  final String mediaPath;
+  final String mediaUrl;
+  final String publicUrl;
+  final String storageProvider;
+
+  const _UpdateMediaImage({
+    required this.mediaPath,
+    required this.mediaUrl,
+    required this.publicUrl,
+    required this.storageProvider,
+  });
+
+  @override
+  State<_UpdateMediaImage> createState() => _UpdateMediaImageState();
+}
+
+class _UpdateMediaImageState extends State<_UpdateMediaImage> {
+  final GalleryService _galleryService = GalleryService();
+
+  late Future<String?> _futureUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _futureUrl = _resolveUrl();
+  }
+
+  @override
+  void didUpdateWidget(covariant _UpdateMediaImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.mediaPath != widget.mediaPath ||
+        oldWidget.mediaUrl != widget.mediaUrl ||
+        oldWidget.publicUrl != widget.publicUrl ||
+        oldWidget.storageProvider != widget.storageProvider) {
+      _futureUrl = _resolveUrl();
+    }
+  }
+
+  Future<String?> _resolveUrl() {
+    return _galleryService.resolveFreshMediaUrlFromFields(
+      storageProvider: widget.storageProvider,
+      mediaPath: widget.mediaPath,
+      oldMediaUrl: widget.mediaUrl,
+      publicUrl: widget.publicUrl,
+    );
+  }
+
+  bool get _hasLocalPath {
+    final path = widget.mediaPath.trim();
+
+    if (path.isEmpty) return false;
+    if (path.startsWith('blob:')) return false;
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      return false;
+    }
+
+    return true;
+  }
+
+  Widget _brokenImage(String message) {
+    return Container(
+      height: 120,
+      width: double.infinity,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Text(message),
+    );
+  }
+
+  Widget _localFallback() {
+    if (!kIsWeb && _hasLocalPath) {
+      return Image.file(
+        File(widget.mediaPath.trim()),
+        height: 190,
+        width: double.infinity,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) {
+          return _brokenImage('تعذر فتح الصورة المحلية');
+        },
+      );
+    }
+
+    return _brokenImage('تعذر تحميل الصورة');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<String?>(
+      future: _futureUrl,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Container(
+            height: 190,
+            width: double.infinity,
+            alignment: Alignment.center,
+            color: AppColors.background,
+            child: const CircularProgressIndicator(),
+          );
+        }
+
+        final url = (snapshot.data ?? '').trim();
+
+        if (url.isEmpty) {
+          return _localFallback();
+        }
+
+        return Image.network(
+          url,
+          height: 190,
+          width: double.infinity,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) {
+            return _localFallback();
+          },
+          loadingBuilder: (context, child, progress) {
+            if (progress == null) return child;
+
+            return Container(
+              height: 190,
+              width: double.infinity,
+              alignment: Alignment.center,
+              color: AppColors.background,
+              child: const CircularProgressIndicator(),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+

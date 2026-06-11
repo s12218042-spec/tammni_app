@@ -13,165 +13,171 @@ class AdminUpdatesFeedPage extends StatefulWidget {
 
 class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final TextEditingController searchCtrl = TextEditingController();
 
   final Set<String> selectedTypes = {};
   String searchText = '';
 
   final List<String> nurseryTypes = [
-  'group_update',
-  'نشاط جماعي',
-  'وجبة جماعية',
-  'فعالية',
-  'صورة جماعية',
-  'فيديو جماعي',
-  'إعلان',
-  'ملاحظة عامة',
-  'وجبة',
-  'نوم',
-  'صحة',
-  'نشاط',
-  'ملاحظة',
-  'كاميرا',
-  'وسائط',
-];
+    'group_update',
+    'نشاط جماعي',
+    'وجبة جماعية',
+    'فعالية',
+    'صورة جماعية',
+    'فيديو جماعي',
+    'إعلان',
+    'ملاحظة عامة',
+    'وجبة',
+    'نوم',
+    'صحة',
+    'نشاط',
+    'ملاحظة',
+    'كاميرا',
+    'وسائط',
+  ];
 
+  List<String> get availableTypes => nurseryTypes;
 
- List<String> get availableTypes => nurseryTypes;
+  @override
+  void dispose() {
+    searchCtrl.dispose();
+    super.dispose();
+  }
 
   String typeLabel(String value) {
-  switch (value.trim()) {
-    case 'group_update':
-      return 'تحديث جماعي';
-    case 'meal':
-    case 'وجبة':
-      return 'وجبة';
-    case 'sleep':
-    case 'نوم':
-      return 'نوم';
-    case 'health':
-    case 'صحة':
-      return 'صحة';
-    case 'activity':
-    case 'نشاط':
-      return 'نشاط';
-    case 'entry':
-      return 'دخول';
-    case 'exit':
-      return 'خروج';
-    case 'note':
-    case 'ملاحظة':
-      return 'ملاحظة';
-    case 'نشاط جماعي':
-      return 'نشاط جماعي';
-    case 'وجبة جماعية':
-      return 'وجبة جماعية';
-    case 'فعالية':
-      return 'فعالية';
-    case 'صورة جماعية':
-      return 'صورة جماعية';
-    case 'فيديو جماعي':
-      return 'فيديو جماعي';
-    case 'إعلان':
-      return 'إعلان';
-    case 'ملاحظة عامة':
-      return 'ملاحظة عامة';
-    case 'كاميرا':
-      return 'كاميرا';
-    case 'وسائط':
-      return 'وسائط';
-    default:
-      return value.trim().isEmpty ? 'تحديث' : value;
+    switch (value.trim()) {
+      case 'group_update':
+        return 'تحديث جماعي';
+      case 'meal':
+      case 'وجبة':
+        return 'وجبة';
+      case 'sleep':
+      case 'نوم':
+        return 'نوم';
+      case 'health':
+      case 'صحة':
+        return 'صحة';
+      case 'activity':
+      case 'نشاط':
+        return 'نشاط';
+      case 'entry':
+        return 'دخول';
+      case 'exit':
+        return 'خروج';
+      case 'note':
+      case 'ملاحظة':
+        return 'ملاحظة';
+      case 'نشاط جماعي':
+        return 'نشاط جماعي';
+      case 'وجبة جماعية':
+        return 'وجبة جماعية';
+      case 'فعالية':
+        return 'فعالية';
+      case 'صورة جماعية':
+        return 'صورة جماعية';
+      case 'فيديو جماعي':
+        return 'فيديو جماعي';
+      case 'إعلان':
+        return 'إعلان';
+      case 'ملاحظة عامة':
+        return 'ملاحظة عامة';
+      case 'كاميرا':
+        return 'كاميرا';
+      case 'وسائط':
+        return 'وسائط';
+      default:
+        return value.trim().isEmpty ? 'تحديث' : value;
+    }
   }
-}
 
   IconData typeIcon(String value) {
-  switch (value.trim()) {
-    case 'group_update':
-    case 'نشاط جماعي':
-    case 'وجبة جماعية':
-    case 'فعالية':
-    case 'صورة جماعية':
-    case 'فيديو جماعي':
-    case 'إعلان':
-    case 'ملاحظة عامة':
-      return Icons.groups_2_rounded;
-    case 'meal':
-    case 'وجبة':
-      return Icons.restaurant_rounded;
-    case 'sleep':
-    case 'نوم':
-      return Icons.bedtime_rounded;
-    case 'health':
-    case 'صحة':
-      return Icons.medical_services_rounded;
-    case 'activity':
-    case 'نشاط':
-      return Icons.extension_rounded;
-    case 'entry':
-      return Icons.login_rounded;
-    case 'exit':
-      return Icons.logout_rounded;
-    case 'note':
-    case 'ملاحظة':
-      return Icons.sticky_note_2_rounded;
-    case 'كاميرا':
-    case 'وسائط':
-      return Icons.photo_library_outlined;
-    default:
-      return Icons.notifications_active_rounded;
+    switch (value.trim()) {
+      case 'group_update':
+      case 'نشاط جماعي':
+      case 'وجبة جماعية':
+      case 'فعالية':
+      case 'صورة جماعية':
+      case 'فيديو جماعي':
+      case 'إعلان':
+      case 'ملاحظة عامة':
+        return Icons.groups_2_rounded;
+      case 'meal':
+      case 'وجبة':
+        return Icons.restaurant_rounded;
+      case 'sleep':
+      case 'نوم':
+        return Icons.bedtime_rounded;
+      case 'health':
+      case 'صحة':
+        return Icons.medical_services_rounded;
+      case 'activity':
+      case 'نشاط':
+        return Icons.extension_rounded;
+      case 'entry':
+        return Icons.login_rounded;
+      case 'exit':
+        return Icons.logout_rounded;
+      case 'note':
+      case 'ملاحظة':
+        return Icons.sticky_note_2_rounded;
+      case 'كاميرا':
+      case 'وسائط':
+        return Icons.photo_library_outlined;
+      default:
+        return Icons.notifications_active_rounded;
+    }
   }
-}
 
   Color typeColor(String value) {
-  switch (value.trim()) {
-    case 'group_update':
-    case 'نشاط جماعي':
-    case 'وجبة جماعية':
-    case 'فعالية':
-    case 'صورة جماعية':
-    case 'فيديو جماعي':
-    case 'إعلان':
-    case 'ملاحظة عامة':
-      return Colors.purple;
-    case 'meal':
-    case 'وجبة':
-      return Colors.orange;
-    case 'sleep':
-    case 'نوم':
-      return Colors.indigo;
-    case 'health':
-    case 'صحة':
-      return Colors.redAccent;
-    case 'activity':
-    case 'نشاط':
-      return Colors.green;
-    case 'entry':
-      return Colors.green;
-    case 'exit':
-      return Colors.deepOrange;
-    case 'note':
-    case 'ملاحظة':
-      return Colors.brown;
-    case 'كاميرا':
-    case 'وسائط':
-      return AppColors.secondary;
-    default:
-      return AppColors.primary;
+    switch (value.trim()) {
+      case 'group_update':
+      case 'نشاط جماعي':
+      case 'وجبة جماعية':
+      case 'فعالية':
+      case 'صورة جماعية':
+      case 'فيديو جماعي':
+      case 'إعلان':
+      case 'ملاحظة عامة':
+        return Colors.purple;
+      case 'meal':
+      case 'وجبة':
+        return Colors.orange;
+      case 'sleep':
+      case 'نوم':
+        return Colors.indigo;
+      case 'health':
+      case 'صحة':
+        return Colors.redAccent;
+      case 'activity':
+      case 'نشاط':
+        return Colors.green;
+      case 'entry':
+        return Colors.green;
+      case 'exit':
+        return Colors.deepOrange;
+      case 'note':
+      case 'ملاحظة':
+        return Colors.brown;
+      case 'كاميرا':
+      case 'وسائط':
+        return AppColors.secondary;
+      default:
+        return AppColors.primary;
+    }
   }
-}
 
   DateTime extractDate(Map<String, dynamic> data) {
-  final value = data['eventAt'] ??
-      data['time'] ??
-      data['createdAt'] ??
-      data['timestamp'] ??
-      data['updatedAt'];
+    final value = data['eventAt'] ??
+        data['time'] ??
+        data['createdAt'] ??
+        data['timestamp'] ??
+        data['updatedAt'];
 
-  if (value is Timestamp) return value.toDate();
-  if (value is DateTime) return value;
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
 
-  return DateTime.fromMillisecondsSinceEpoch(0);
-}
+    return DateTime.fromMillisecondsSinceEpoch(0);
+  }
 
   String formatDateTime(DateTime date) {
     if (date.millisecondsSinceEpoch == 0) return 'بدون وقت';
@@ -188,93 +194,214 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
     return '$year/$month/$day - $hour:$minute $period';
   }
 
-  void toggleTypeFilter(String value) {
-    setState(() {
-      if (selectedTypes.contains(value)) {
-        selectedTypes.remove(value);
-      } else {
-        selectedTypes.add(value);
-      }
-    });
-  }
-
   void clearFilters() {
+    searchCtrl.clear();
+
     setState(() {
       selectedTypes.clear();
       searchText = '';
     });
   }
-  
-  bool _isGroupUpdate(Map<String, dynamic> data) {
-  final type = (data['type'] ?? '').toString().trim().toLowerCase();
-  final source = (data['source'] ?? '').toString().trim().toLowerCase();
-  final updateSource =
-      (data['updateSource'] ?? '').toString().trim().toLowerCase();
 
-  return data['isGroupUpdate'] == true ||
-      type == 'group_update' ||
-      source == 'group_update' ||
-      updateSource == 'group_update' ||
-      data['groupUpdateId'] != null;
-}
+  void clearSearch() {
+    searchCtrl.clear();
+
+    setState(() {
+      searchText = '';
+    });
+  }
+
+  void openTypeFiltersSheet() {
+    final draftSelectedTypes = <String>{...selectedTypes};
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return SafeArea(
+              top: false,
+              child: Container(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.72,
+                ),
+                padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.vertical(
+                    top: Radius.circular(26),
+                  ),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 42,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: AppColors.border,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'فلترة حسب نوع التحديث',
+                      style: TextStyle(
+                        color: AppColors.textDark,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 17,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'يمكنك اختيار أكثر من نوع',
+                      style: TextStyle(
+                        color: AppColors.textLight,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Flexible(
+                      child: SingleChildScrollView(
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: availableTypes.map((type) {
+                            return buildTypeChip(
+                              value: type,
+                              selectedValues: draftSelectedTypes,
+                              onChanged: (isSelected) {
+                                setSheetState(() {
+                                  if (isSelected) {
+                                    draftSelectedTypes.add(type);
+                                  } else {
+                                    draftSelectedTypes.remove(type);
+                                  }
+                                });
+                              },
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: draftSelectedTypes.isEmpty
+                                ? null
+                                : () {
+                                    setSheetState(() {
+                                      draftSelectedTypes.clear();
+                                    });
+                                  },
+                            child: const Text('مسح الاختيارات'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () {
+                              setState(() {
+                                selectedTypes
+                                  ..clear()
+                                  ..addAll(draftSelectedTypes);
+                              });
+
+                              Navigator.pop(sheetContext);
+                            },
+                            child: const Text('تطبيق'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  bool _isGroupUpdate(Map<String, dynamic> data) {
+    final type = (data['type'] ?? '').toString().trim().toLowerCase();
+    final source = (data['source'] ?? '').toString().trim().toLowerCase();
+    final updateSource =
+        (data['updateSource'] ?? '').toString().trim().toLowerCase();
+
+    return data['isGroupUpdate'] == true ||
+        type == 'group_update' ||
+        source == 'group_update' ||
+        updateSource == 'group_update' ||
+        data['groupUpdateId'] != null;
+  }
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> applyFilters(
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-) {
-  return docs.where((doc) {
-    final data = doc.data();
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    return docs.where((doc) {
+      final data = doc.data();
 
-    final section = (data['section'] ?? '').toString().trim();
-    final type = (data['type'] ??
-            data['updateType'] ??
-            data['category'] ??
-            '')
-        .toString()
-        .trim();
+      final section = (data['section'] ?? '').toString().trim();
+      final type = (data['type'] ??
+              data['updateType'] ??
+              data['category'] ??
+              '')
+          .toString()
+          .trim();
 
-    final isGroupUpdate = _isGroupUpdate(data);
+      final isGroupUpdate = _isGroupUpdate(data);
 
-    final childName =
-        (data['childName'] ?? data['name'] ?? '').toString();
+      final childName = (data['childName'] ?? data['name'] ?? '').toString();
 
-    final createdByName =
-        (data['createdByName'] ?? data['senderName'] ?? '').toString();
+      final createdByName =
+          (data['createdByName'] ?? data['senderName'] ?? '').toString();
 
-    final groupName =
-        (data['groupName'] ?? data['group'] ?? '').toString();
+      final groupName =
+          (data['groupName'] ?? data['group'] ?? '').toString();
 
-    final notes = (data['note'] ??
-            data['notes'] ??
-            data['description'] ??
-            data['text'] ??
-            data['message'] ??
-            data['body'] ??
-            '')
-        .toString();
+      final notes = (data['note'] ??
+              data['notes'] ??
+              data['description'] ??
+              data['text'] ??
+              data['message'] ??
+              data['body'] ??
+              '')
+          .toString();
 
-    final matchesSection =
-        section.trim().isEmpty || section.trim() == 'Nursery';
+      final matchesSection =
+          section.trim().isEmpty || section.trim() == 'Nursery';
 
-    final matchesType = selectedTypes.isEmpty ||
-        selectedTypes.contains(type) ||
-        (selectedTypes.contains('group_update') && isGroupUpdate);
+      final matchesType = selectedTypes.isEmpty ||
+          selectedTypes.contains(type) ||
+          (selectedTypes.contains('group_update') && isGroupUpdate);
 
-    final query = searchText.trim().toLowerCase();
+      final query = searchText.trim().toLowerCase();
 
-    final matchesSearch = query.isEmpty ||
-        childName.toLowerCase().contains(query) ||
-        createdByName.toLowerCase().contains(query) ||
-        groupName.toLowerCase().contains(query) ||
-        notes.toLowerCase().contains(query);
+      final matchesSearch = query.isEmpty ||
+          childName.toLowerCase().contains(query) ||
+          createdByName.toLowerCase().contains(query) ||
+          groupName.toLowerCase().contains(query) ||
+          notes.toLowerCase().contains(query);
 
-    return matchesSection && matchesType && matchesSearch;
-  }).toList();
-}
+      return matchesSection && matchesType && matchesSearch;
+    }).toList();
+  }
 
   Widget buildTypeChip({
     required String value,
+    required Set<String> selectedValues,
+    required ValueChanged<bool> onChanged,
   }) {
-    final isSelected = selectedTypes.contains(value);
+    final isSelected = selectedValues.contains(value);
     final color = typeColor(value);
 
     return FilterChip(
@@ -291,7 +418,7 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
         color: isSelected ? Colors.white : color,
       ),
       selected: isSelected,
-      onSelected: (_) => toggleTypeFilter(value),
+      onSelected: onChanged,
       selectedColor: color,
       checkmarkColor: Colors.white,
       backgroundColor: Colors.white,
@@ -305,6 +432,112 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
     );
   }
 
+  Widget compactFiltersCard({
+    required bool hasCustomFilters,
+  }) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          children: [
+            TextField(
+              controller: searchCtrl,
+              textAlign: TextAlign.right,
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: 'ابحث باسم الطفل أو المنشئ',
+                prefixIcon: const Icon(Icons.search_rounded),
+                suffixIcon: searchText.trim().isEmpty
+                    ? null
+                    : IconButton(
+                        onPressed: clearSearch,
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+              onChanged: (value) {
+                setState(() {
+                  searchText = value;
+                });
+              },
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: openTypeFiltersSheet,
+                    icon: const Icon(Icons.tune_rounded),
+                    label: Text(
+                      selectedTypes.isEmpty
+                          ? 'فلترة حسب النوع'
+                          : 'الأنواع المختارة: ${selectedTypes.length}',
+                    ),
+                  ),
+                ),
+                if (hasCustomFilters) ...[
+                  const SizedBox(width: 8),
+                  IconButton(
+                    tooltip: 'إعادة تعيين الفلاتر',
+                    onPressed: clearFilters,
+                    icon: const Icon(Icons.restart_alt_rounded),
+                    color: AppColors.primary,
+                  ),
+                ],
+              ],
+            ),
+            if (selectedTypes.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 34,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: selectedTypes.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 6),
+                  itemBuilder: (context, index) {
+                    final value = selectedTypes.elementAt(index);
+                    final color = typeColor(value);
+
+                    return Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 9,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: color.withOpacity(0.10),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: color.withOpacity(0.22),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(typeIcon(value), size: 14, color: color),
+                          const SizedBox(width: 5),
+                          Text(
+                            typeLabel(value),
+                            style: TextStyle(
+                              color: color,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final hasCustomFilters =
@@ -314,79 +547,10 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
       title: 'سجل تحديثات الحضانة',
       child: Column(
         children: [
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  TextField(
-                    textAlign: TextAlign.right,
-                    decoration: InputDecoration(
-                     hintText: 'ابحث باسم الطفل أو المنشئ',
-                      prefixIcon: const Icon(Icons.search_rounded),
-                      suffixIcon: searchText.trim().isEmpty
-                          ? null
-                          : IconButton(
-                              onPressed: () {
-                                setState(() {
-                                  searchText = '';
-                                });
-                              },
-                              icon: const Icon(Icons.close_rounded),
-                            ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                    ),
-                    onChanged: (value) {
-                      setState(() {
-                        searchText = value;
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 14),
-                  const Text(
-                    'نوع التحديث',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.textDark,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  if (availableTypes.isEmpty)
-                    const Text(
-                      'لا توجد أنواع متاحة للفلاتر المختارة حاليًا.',
-                      style: TextStyle(
-                        color: AppColors.textLight,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    )
-                  else
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: availableTypes.map((type) {
-                        return buildTypeChip(value: type);
-                      }).toList(),
-                    ),
-                  if (hasCustomFilters) ...[
-                    const SizedBox(height: 12),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: TextButton.icon(
-                        onPressed: clearFilters,
-                        icon: const Icon(Icons.restart_alt_rounded),
-                        label: const Text('إعادة تعيين الفلاتر'),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
+          compactFiltersCard(
+            hasCustomFilters: hasCustomFilters,
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           Expanded(
             child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: _firestore
@@ -413,6 +577,7 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
 
                 if (filteredDocs.isEmpty) {
                   return Card(
+                    margin: EdgeInsets.zero,
                     child: Padding(
                       padding: const EdgeInsets.all(24),
                       child: Column(
@@ -450,6 +615,7 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
                 }
 
                 return ListView.builder(
+                  padding: const EdgeInsets.only(bottom: 18),
                   itemCount: filteredDocs.length,
                   itemBuilder: (context, index) {
                     final data = filteredDocs[index].data();
@@ -457,11 +623,11 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
                     final isGroupUpdate = _isGroupUpdate(data);
 
                     final rawType = (data['type'] ??
-                      data['updateType'] ??
-                      data['category'] ??
-                       '')
-                     .toString()
-                     .trim();
+                            data['updateType'] ??
+                            data['category'] ??
+                            '')
+                        .toString()
+                        .trim();
 
                     final type = isGroupUpdate ? 'group_update' : rawType;
                     final childName =
@@ -471,31 +637,35 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
                     final createdByRole =
                         (data['createdByRole'] ?? '').toString();
                     final groupName =
-                        (data['groupName'] ?? data['group'] ?? '').toString().trim();
+                        (data['groupName'] ?? data['group'] ?? '')
+                            .toString()
+                            .trim();
 
-                    final targetScopeLabel =
-                        (data['targetScopeLabel'] ??
-                   ((data['targetScope'] ?? '').toString() == 'all_nursery'
-                   ? 'كل أطفال الحضانة'
-                   : (data['targetScope'] ?? '').toString() == 'my_group'
-                    ? 'مجموعتي فقط'
-                    : ''))
-                    .toString()
-                    .trim();
+                    final targetScopeLabel = (data['targetScopeLabel'] ??
+                            ((data['targetScope'] ?? '').toString() ==
+                                    'all_nursery'
+                                ? 'كل أطفال الحضانة'
+                                : (data['targetScope'] ?? '').toString() ==
+                                        'my_group'
+                                    ? 'مجموعتي فقط'
+                                    : ''))
+                        .toString()
+                        .trim();
+
                     final details = (data['note'] ??
-        data['notes'] ??
-        data['description'] ??
-        data['text'] ??
-        data['message'] ??
-        data['body'] ??
-        '')
-    .toString();
+                            data['notes'] ??
+                            data['description'] ??
+                            data['text'] ??
+                            data['message'] ??
+                            data['body'] ??
+                            '')
+                        .toString();
 
                     final time = extractDate(data);
                     final color = typeColor(type);
 
                     return Card(
-                      margin: const EdgeInsets.only(bottom: 12),
+                      margin: const EdgeInsets.only(bottom: 10),
                       child: Padding(
                         padding: const EdgeInsets.all(14),
                         child: Column(
@@ -528,33 +698,25 @@ class _AdminUpdatesFeedPageState extends State<AdminUpdatesFeedPage> {
                                         spacing: 6,
                                         runSpacing: 6,
                                         children: [
-                                         _InfoChip(
-  label: typeLabel(type),
-  icon: typeIcon(type),
-  color: color,
-),
-
-if (isGroupUpdate)
-  _InfoChip(
-    label: 'تحديث جماعي',
-    icon: Icons.groups_2_rounded,
-    color: Colors.purple,
-  ),
-
-if (isGroupUpdate && groupName.isNotEmpty)
-  _InfoChip(
-    label: 'المجموعة: $groupName',
-    icon: Icons.group_outlined,
-    color: Colors.purple,
-  ),
-
-if (isGroupUpdate && targetScopeLabel.isNotEmpty)
-  _InfoChip(
-    label: targetScopeLabel,
-    icon: Icons.send_outlined,
-    color: Colors.purple,
-  ),
-
+                                          _InfoChip(
+                                            label: typeLabel(type),
+                                            icon: typeIcon(type),
+                                            color: color,
+                                          ),
+                                          if (isGroupUpdate &&
+                                              groupName.isNotEmpty)
+                                            _InfoChip(
+                                              label: 'المجموعة: $groupName',
+                                              icon: Icons.group_outlined,
+                                              color: Colors.purple,
+                                            ),
+                                          if (isGroupUpdate &&
+                                              targetScopeLabel.isNotEmpty)
+                                            _InfoChip(
+                                              label: targetScopeLabel,
+                                              icon: Icons.send_outlined,
+                                              color: Colors.purple,
+                                            ),
                                         ],
                                       ),
                                     ],

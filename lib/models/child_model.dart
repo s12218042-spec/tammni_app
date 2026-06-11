@@ -113,11 +113,13 @@ class ChildModel {
   final String parentName;
   final String parentUsername;
   final String parentPhone;
+  final String parentProfileId;
 
   final String temporaryParentUid;
   final String temporaryParentUsername;
   final String temporaryParentName;
   final String temporaryParentPhone;
+  final String temporaryParentProfileId;
 
   final DateTime? birthDate;
 
@@ -221,10 +223,12 @@ class ChildModel {
     this.assignedStaffName = '',
     this.assignedStaffUsername = '',
     this.parentPhone = '',
+    this.parentProfileId = '',
     this.temporaryParentUid = '',
     this.temporaryParentUsername = '',
     this.temporaryParentName = '',
     this.temporaryParentPhone = '',
+    this.temporaryParentProfileId = '',
     this.birthDate,
     this.isActive = true,
     this.accountStatus = 'active',
@@ -423,12 +427,31 @@ class ChildModel {
       parentUid: _string(data['parentUid']),
       parentName: _string(data['parentName']),
       parentUsername: _string(data['parentUsername']).toLowerCase(),
-      parentPhone: _string(data['parentPhone']),
+      parentPhone: _firstNonEmpty([
+        data['parentPhone'],
+        data['phone'],
+        data['parentMobile'],
+        data['mobile'],
+      ]),
+      parentProfileId: _firstNonEmpty([
+        data['parentProfileId'],
+        data['parentRecordId'],
+        data['familyId'],
+      ]),
       temporaryParentUid: _string(data['temporaryParentUid']),
       temporaryParentUsername:
           _string(data['temporaryParentUsername']).toLowerCase(),
       temporaryParentName: _string(data['temporaryParentName']),
-      temporaryParentPhone: _string(data['temporaryParentPhone']),
+      temporaryParentPhone: _firstNonEmpty([
+        data['temporaryParentPhone'],
+        data['temporaryPhone'],
+      ]),
+      temporaryParentProfileId: _firstNonEmpty([
+        data['temporaryParentProfileId'],
+        data['parentProfileId'],
+        data['parentRecordId'],
+        data['familyId'],
+      ]),
       birthDate: _parseDate(data['birthDate']),
       isActive: _boolValue(data['isActive'], defaultValue: true),
       accountStatus: _firstNonEmpty([
@@ -582,10 +605,12 @@ class ChildModel {
       'parentName': parentName,
       'parentUsername': parentUsername.trim().toLowerCase(),
       'parentPhone': parentPhone,
+      'parentProfileId': parentProfileId,
       'temporaryParentUid': temporaryParentUid,
       'temporaryParentUsername': temporaryParentUsername.trim().toLowerCase(),
       'temporaryParentName': temporaryParentName,
       'temporaryParentPhone': temporaryParentPhone,
+      'temporaryParentProfileId': temporaryParentProfileId,
       'isActive': isActive,
       'accountStatus': accountStatus,
       'canReactivate': resolvedType == 'trial' &&
@@ -796,6 +821,113 @@ class ChildModel {
         assignedStaffName.trim().isNotEmpty;
   }
 
+  String get resolvedParentProfileId {
+    if (isTemporaryChild || isTrialChild) {
+      return _firstNonEmpty([
+        temporaryParentProfileId,
+        parentProfileId,
+      ]);
+    }
+
+    return _firstNonEmpty([
+      parentProfileId,
+      temporaryParentProfileId,
+    ]);
+  }
+
+  String get resolvedParentUid {
+    if (isTemporaryChild || isTrialChild) {
+      return _firstNonEmpty([
+        temporaryParentUid,
+        parentUid,
+      ]);
+    }
+
+    return _firstNonEmpty([
+      parentUid,
+      temporaryParentUid,
+    ]);
+  }
+
+  String get resolvedParentUsername {
+    if (isTemporaryChild || isTrialChild) {
+      return _firstNonEmpty([
+        temporaryParentUsername,
+        parentUsername,
+      ]).toLowerCase();
+    }
+
+    return _firstNonEmpty([
+      parentUsername,
+      temporaryParentUsername,
+    ]).toLowerCase();
+  }
+
+  String get resolvedParentName {
+    if (isTemporaryChild || isTrialChild) {
+      return _firstNonEmpty([
+        temporaryParentName,
+        parentName,
+        previousTemporaryParentName,
+      ]);
+    }
+
+    return _firstNonEmpty([
+      parentName,
+      temporaryParentName,
+      previousTemporaryParentName,
+    ]);
+  }
+
+  String get resolvedParentPhone {
+    if (isTemporaryChild || isTrialChild) {
+      return _firstNonEmpty([
+        temporaryParentPhone,
+        parentPhone,
+        previousTemporaryParentPhone,
+      ]);
+    }
+
+    return _firstNonEmpty([
+      parentPhone,
+      temporaryParentPhone,
+      previousTemporaryParentPhone,
+    ]);
+  }
+
+  String get parentConversationKey {
+    final profileId = resolvedParentProfileId.trim().toLowerCase();
+
+    if (profileId.isNotEmpty) {
+      return 'profile_$profileId';
+    }
+
+    final phone = _normalizePhone(resolvedParentPhone);
+
+    if (phone.isNotEmpty) {
+      return 'phone_$phone';
+    }
+
+    final uid = resolvedParentUid.trim();
+
+    if (uid.isNotEmpty) {
+      return 'uid_$uid';
+    }
+
+    final username = resolvedParentUsername.trim().toLowerCase();
+
+    if (username.isNotEmpty) {
+      return 'username_$username';
+    }
+
+    return 'child_$id';
+  }
+
+  String get displayParentName {
+    final value = resolvedParentName.trim();
+    return value.isEmpty ? 'ولي الأمر' : value;
+  }
+
   String get displayName {
     return name.trim().isNotEmpty ? name : fullName;
   }
@@ -858,10 +990,12 @@ class ChildModel {
     String? parentName,
     String? parentUsername,
     String? parentPhone,
+    String? parentProfileId,
     String? temporaryParentUid,
     String? temporaryParentUsername,
     String? temporaryParentName,
     String? temporaryParentPhone,
+    String? temporaryParentProfileId,
     DateTime? birthDate,
     bool? isActive,
     String? accountStatus,
@@ -942,11 +1076,14 @@ class ChildModel {
       parentName: parentName ?? this.parentName,
       parentUsername: parentUsername ?? this.parentUsername,
       parentPhone: parentPhone ?? this.parentPhone,
+      parentProfileId: parentProfileId ?? this.parentProfileId,
       temporaryParentUid: temporaryParentUid ?? this.temporaryParentUid,
       temporaryParentUsername:
           temporaryParentUsername ?? this.temporaryParentUsername,
       temporaryParentName: temporaryParentName ?? this.temporaryParentName,
       temporaryParentPhone: temporaryParentPhone ?? this.temporaryParentPhone,
+      temporaryParentProfileId:
+          temporaryParentProfileId ?? this.temporaryParentProfileId,
       birthDate: birthDate ?? this.birthDate,
       isActive: isActive ?? this.isActive,
       accountStatus: accountStatus ?? this.accountStatus,
@@ -1033,6 +1170,10 @@ class ChildModel {
 String _string(dynamic value) {
   if (value == null) return '';
   return value.toString().trim();
+}
+
+String _normalizePhone(dynamic value) {
+  return _string(value).replaceAll(RegExp(r'[^0-9+]'), '');
 }
 
 String _firstNonEmpty(List<dynamic> values) {

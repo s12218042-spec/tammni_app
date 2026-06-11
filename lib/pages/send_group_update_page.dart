@@ -538,13 +538,33 @@ class _SendGroupUpdatePageState extends State<SendGroupUpdatePage> {
     });
 
     try {
-      final snapshot = await _firestore
-          .collection('children')
-          .where('section', isEqualTo: 'Nursery')
-          .where('isActive', isEqualTo: true)
-          .get();
+      // لا نعتمد على section داخل الاستعلام؛ لأن بعض السجلات القديمة قد لا
+      // تحتوي على section أو قد تحمل قيمة مختلفة رغم أن الطفل ما زال نشطًا.
+      // نجلب السجلات ثم نفلتر الأطفال النشطين داخل Flutter حتى لا يختفي أي طفل.
+      final snapshot = await _firestore.collection('children').get();
 
-      final children = snapshot.docs.map((doc) {
+      final children = snapshot.docs.where((doc) {
+        final data = doc.data();
+        final isActive = data['isActive'];
+        final status = (data['childStatus'] ?? data['status'] ?? '')
+            .toString()
+            .trim()
+            .toLowerCase();
+
+        if (isActive == false) return false;
+
+        if (status == 'archived' ||
+            status == 'withdrawn' ||
+            status == 'rejected' ||
+            status == 'rejected_after_trial' ||
+            status == 'inactive' ||
+            status == 'deleted' ||
+            status == 'trial_pending_decision') {
+          return false;
+        }
+
+        return true;
+      }).map((doc) {
         final data = doc.data();
 
         final fixedData = <String, dynamic>{
@@ -954,7 +974,7 @@ class _SendGroupUpdatePageState extends State<SendGroupUpdatePage> {
           const SizedBox(width: 14),
           Expanded(
             child: Text(
-              'تحديث جماعي - ${widget.groupName}',
+              ' ${widget.groupName}',
               style: const TextStyle(
                 fontWeight: FontWeight.w900,
                 fontSize: 18,

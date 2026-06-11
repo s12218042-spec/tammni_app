@@ -558,7 +558,7 @@ return {
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              'سجل رعاية ${widget.child.name}',
+              ' ${widget.child.name}',
               style: const TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.w800,

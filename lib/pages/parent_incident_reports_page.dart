@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../models/child_model.dart';
+import '../services/gallery_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 
@@ -137,17 +138,15 @@ class ParentIncidentReportsPage extends StatelessWidget {
 
     if (clean == 'nursery' ||
         clean == 'nursery staff' ||
-        clean == 'nursery_staff') {
+        clean == 'nursery_staff' ||
+        clean == 'staff' ||
+        clean == 'employee' ||
+        clean == 'teacher') {
       return 'موظف الحضانة';
     }
 
-    if (clean == 'admin') {
-      return 'الإدارة';
-    }
-
-    if (clean == 'parent') {
-      return 'وليّ الأمر';
-    }
+    if (clean == 'admin') return 'الإدارة';
+    if (clean == 'parent') return 'وليّ الأمر';
 
     return role.trim().isEmpty ? '' : role;
   }
@@ -159,6 +158,11 @@ class ParentIncidentReportsPage extends StatelessWidget {
       }
     }
     return '';
+  }
+
+  bool _isUsableRemoteUrl(String value) {
+    final clean = value.trim().toLowerCase();
+    return clean.startsWith('http://') || clean.startsWith('https://');
   }
 
   String _resolveIncidentType(Map<String, dynamic> data) {
@@ -226,17 +230,62 @@ class ParentIncidentReportsPage extends StatelessWidget {
     ]);
   }
 
-  String _resolveImageUrl(Map<String, dynamic> data) {
-  return _firstNonEmpty([
-    data['mediaUrl'],
-    data['imageUrl'],
-    data['photoUrl'],
-    data['attachmentUrl'],
-    data['publicUrl'],
-    data['signedUrl'],
-    data['downloadUrl'],
-  ]);
-}
+  String _resolveMediaPath(Map<String, dynamic> data) {
+    final path = _firstNonEmpty([
+      data['mediaPath'],
+      data['imagePath'],
+      data['path'],
+      data['photoPath'],
+      data['attachmentPath'],
+    ]);
+
+    if (path.startsWith('blob:')) return '';
+    if (_isUsableRemoteUrl(path)) return '';
+
+    return path;
+  }
+
+  String _resolveMediaUrl(Map<String, dynamic> data) {
+    return _firstNonEmpty([
+      data['mediaUrl'],
+      data['imageUrl'],
+      data['photoUrl'],
+      data['attachmentUrl'],
+      data['url'],
+      data['signedUrl'],
+      data['downloadUrl'],
+    ]);
+  }
+
+  String _resolvePublicUrl(Map<String, dynamic> data) {
+    return _firstNonEmpty([
+      data['publicUrl'],
+      data['mediaPublicUrl'],
+    ]);
+  }
+
+  String _resolveStorageProvider(Map<String, dynamic> data) {
+    return _firstNonEmpty([
+      data['storageProvider'],
+      data['provider'],
+    ]);
+  }
+
+  bool _hasImage(Map<String, dynamic> data) {
+    final mediaType = (data['mediaType'] ?? data['imageType'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+
+    final hasAnySource = _resolveMediaPath(data).isNotEmpty ||
+        _resolveMediaUrl(data).isNotEmpty ||
+        _resolvePublicUrl(data).isNotEmpty;
+
+    if (!hasAnySource) return false;
+    if (mediaType.isEmpty) return true;
+
+    return mediaType == 'image';
+  }
 
   List<String> _resolveWitnesses(Map<String, dynamic> data) {
     final value = data['witnesses'];
@@ -280,7 +329,11 @@ class ParentIncidentReportsPage extends StatelessWidget {
         'createdByName': _resolveCreatedByName(data),
         'createdByRole': _resolveCreatedByRole(data),
         'displayDateTime': displayDateTime,
-        'imageUrl': _resolveImageUrl(data),
+        'mediaPath': _resolveMediaPath(data),
+        'mediaUrl': _resolveMediaUrl(data),
+        'publicUrl': _resolvePublicUrl(data),
+        'storageProvider': _resolveStorageProvider(data),
+        'hasImage': _hasImage(data),
         'witnesses': _resolveWitnesses(data),
       };
     }).toList();
@@ -306,37 +359,25 @@ class ParentIncidentReportsPage extends StatelessWidget {
         .snapshots();
   }
 
-  Widget _buildImagePreview(String imageUrl) {
-    if (imageUrl.trim().isEmpty) return const SizedBox.shrink();
+  Widget _buildImagePreview({
+    required bool hasImage,
+    required String mediaPath,
+    required String mediaUrl,
+    required String publicUrl,
+    required String storageProvider,
+  }) {
+    if (!hasImage) return const SizedBox.shrink();
 
     return Padding(
       padding: const EdgeInsets.only(top: 12),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(14),
-        child: Image.network(
-          imageUrl,
-          height: 160,
-          width: double.infinity,
-          fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) {
-            return Container(
-              height: 120,
-              width: double.infinity,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: Colors.grey.shade300),
-              ),
-              child: Text(
-                'تعذر عرض صورة الحادث',
-                style: TextStyle(
-                  color: Colors.grey.shade600,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            );
-          },
+        child: IncidentFreshMediaImage(
+          mediaPath: mediaPath,
+          mediaUrl: mediaUrl,
+          publicUrl: publicUrl,
+          storageProvider:
+              storageProvider.trim().isEmpty ? 'supabase' : storageProvider,
         ),
       ),
     );
@@ -491,7 +532,12 @@ class ParentIncidentReportsPage extends StatelessWidget {
                         (data['createdByRole'] ?? '').toString();
                     final displayDateTime =
                         data['displayDateTime'] as DateTime?;
-                    final imageUrl = (data['imageUrl'] ?? '').toString();
+                    final mediaPath = (data['mediaPath'] ?? '').toString();
+                    final mediaUrl = (data['mediaUrl'] ?? '').toString();
+                    final publicUrl = (data['publicUrl'] ?? '').toString();
+                    final storageProvider =
+                        (data['storageProvider'] ?? '').toString();
+                    final hasImage = data['hasImage'] == true;
                     final witnesses =
                         (data['witnesses'] as List<String>?) ?? [];
 
@@ -566,7 +612,13 @@ class ParentIncidentReportsPage extends StatelessWidget {
                                 ),
                               ],
                             ),
-                            _buildImagePreview(imageUrl),
+                            _buildImagePreview(
+                              hasImage: hasImage,
+                              mediaPath: mediaPath,
+                              mediaUrl: mediaUrl,
+                              publicUrl: publicUrl,
+                              storageProvider: storageProvider,
+                            ),
                             const SizedBox(height: 4),
                             _infoRow(
                               icon: Icons.location_on_outlined,
@@ -604,6 +656,128 @@ class ParentIncidentReportsPage extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class IncidentFreshMediaImage extends StatefulWidget {
+  final String mediaPath;
+  final String mediaUrl;
+  final String publicUrl;
+  final String storageProvider;
+
+  const IncidentFreshMediaImage({
+    super.key,
+    required this.mediaPath,
+    required this.mediaUrl,
+    required this.publicUrl,
+    required this.storageProvider,
+  });
+
+  @override
+  State<IncidentFreshMediaImage> createState() =>
+      _IncidentFreshMediaImageState();
+}
+
+class _IncidentFreshMediaImageState extends State<IncidentFreshMediaImage> {
+  final GalleryService _galleryService = GalleryService();
+
+  late Future<String?> _futureUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _futureUrl = _resolveUrl();
+  }
+
+  @override
+  void didUpdateWidget(covariant IncidentFreshMediaImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.mediaPath != widget.mediaPath ||
+        oldWidget.mediaUrl != widget.mediaUrl ||
+        oldWidget.publicUrl != widget.publicUrl ||
+        oldWidget.storageProvider != widget.storageProvider) {
+      _futureUrl = _resolveUrl();
+    }
+  }
+
+  Future<String?> _resolveUrl() {
+    return _galleryService.resolveFreshMediaUrlFromFields(
+      storageProvider: widget.storageProvider,
+      mediaPath: widget.mediaPath,
+      oldMediaUrl: widget.mediaUrl,
+      publicUrl: widget.publicUrl,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<String?>(
+      future: _futureUrl,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Container(
+            height: 160,
+            width: double.infinity,
+            color: AppColors.primary.withOpacity(0.06),
+            alignment: Alignment.center,
+            child: const CircularProgressIndicator(),
+          );
+        }
+
+        final url = snapshot.data ?? '';
+
+        if (url.trim().isEmpty) {
+          return const _BrokenIncidentImageBox();
+        }
+
+        return Image.network(
+          url,
+          height: 160,
+          width: double.infinity,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) {
+            return const _BrokenIncidentImageBox();
+          },
+          loadingBuilder: (context, child, progress) {
+            if (progress == null) return child;
+
+            return Container(
+              height: 160,
+              width: double.infinity,
+              color: AppColors.primary.withOpacity(0.06),
+              alignment: Alignment.center,
+              child: const CircularProgressIndicator(),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _BrokenIncidentImageBox extends StatelessWidget {
+  const _BrokenIncidentImageBox();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 120,
+      width: double.infinity,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: Text(
+        'تعذر عرض صورة الحادث',
+        style: TextStyle(
+          color: Colors.grey.shade600,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }

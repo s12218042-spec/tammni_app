@@ -101,8 +101,64 @@ class _ParentNotificationsPageState extends State<ParentNotificationsPage> {
       }
     }
 
+    final childNamesById = <String, String>{};
+
+    for (final doc in uniqueDocs) {
+      final data = doc.data();
+      final childId = _firstNonEmpty([
+        data['childId'],
+        data['conversationChildId'],
+      ]);
+
+      final savedChildName = _firstNonEmpty([
+        data['childName'],
+      ]);
+
+      if (childId.isNotEmpty && savedChildName.isNotEmpty) {
+        childNamesById[childId] = savedChildName;
+      }
+    }
+
+    final missingChildIds = uniqueDocs
+        .map((doc) {
+          final data = doc.data();
+          return _firstNonEmpty([
+            data['childId'],
+            data['conversationChildId'],
+          ]);
+        })
+        .where((childId) =>
+            childId.isNotEmpty && !childNamesById.containsKey(childId))
+        .toSet();
+
+    for (final childId in missingChildIds) {
+      try {
+        final childDoc =
+            await _firestore.collection('children').doc(childId).get();
+        final childData = childDoc.data();
+
+        if (childData == null) continue;
+
+        final resolvedChildName = _firstNonEmpty([
+          childData['name'],
+          childData['fullName'],
+          childData['childName'],
+        ]);
+
+        if (resolvedChildName.isNotEmpty) {
+          childNamesById[childId] = resolvedChildName;
+        }
+      } catch (_) {
+        // يبقى الإشعار ظاهرًا حتى لو تعذر استرجاع اسم الطفل.
+      }
+    }
+
     final items = uniqueDocs.map((doc) {
       final data = doc.data();
+      final childId = _firstNonEmpty([
+        data['childId'],
+        data['conversationChildId'],
+      ]);
 
       final time = _firstTimestamp([
         data['time'],
@@ -126,12 +182,10 @@ class _ParentNotificationsPageState extends State<ParentNotificationsPage> {
           data['description'],
           data['details'],
         ]),
-        'childId': _firstNonEmpty([
-          data['childId'],
-        ]),
+        'childId': childId,
         'childName': _firstNonEmpty([
           data['childName'],
-          data['name'],
+          childNamesById[childId],
         ]),
         'type': _firstNonEmpty([
           data['type'],

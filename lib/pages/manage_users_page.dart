@@ -79,12 +79,103 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
 
   String normalizeRole(String value) {
     final role = value.trim().toLowerCase();
+
     if (role == 'nursery' ||
         role == 'nursery staff' ||
-        role == 'nursery_staff') {
+        role == 'nursery_staff' ||
+        role == 'staff' ||
+        role == 'employee' ||
+        role == 'teacher') {
       return 'nursery_staff';
     }
+
     return role;
+  }
+
+  String _normalizeSearchText(dynamic value) {
+    var text = _fieldAsString(value).toLowerCase();
+
+    text = text
+        .replaceAll(RegExp(r'[\u064B-\u065F\u0670\u06D6-\u06ED]'), '')
+        .replaceAll('ـ', '')
+        .replaceAll(RegExp(r'[أإآٱ]'), 'ا')
+        .replaceAll('ى', 'ي')
+        .replaceAll('ؤ', 'و')
+        .replaceAll('ئ', 'ي')
+        .replaceAll('ة', 'ه')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+
+    return text;
+  }
+
+  String _normalizeDigits(dynamic value) {
+    var text = _fieldAsString(value);
+
+    const replacements = {
+      '٠': '0',
+      '١': '1',
+      '٢': '2',
+      '٣': '3',
+      '٤': '4',
+      '٥': '5',
+      '٦': '6',
+      '٧': '7',
+      '٨': '8',
+      '٩': '9',
+      '۰': '0',
+      '۱': '1',
+      '۲': '2',
+      '۳': '3',
+      '۴': '4',
+      '۵': '5',
+      '۶': '6',
+      '۷': '7',
+      '۸': '8',
+      '۹': '9',
+    };
+
+    replacements.forEach((key, replacement) {
+      text = text.replaceAll(key, replacement);
+    });
+
+    return text.replaceAll(RegExp(r'[^0-9]'), '');
+  }
+
+  String _compactSearchText(dynamic value) {
+    return _normalizeSearchText(value)
+        .replaceAll(RegExp(r'[\s\-_.@+()]'), '');
+  }
+
+  bool _matchesSearchQuery({
+    required String query,
+    required List<dynamic> values,
+  }) {
+    final normalizedQuery = _normalizeSearchText(query);
+    if (normalizedQuery.isEmpty) return true;
+
+    final compactQuery = _compactSearchText(query);
+    final digitsQuery = _normalizeDigits(query);
+
+    for (final value in values) {
+      final normalizedValue = _normalizeSearchText(value);
+
+      if (normalizedValue.contains(normalizedQuery)) {
+        return true;
+      }
+
+      if (compactQuery.isNotEmpty &&
+          _compactSearchText(value).contains(compactQuery)) {
+        return true;
+      }
+
+      if (digitsQuery.length >= 2 &&
+          _normalizeDigits(value).contains(digitsQuery)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   String roleLabel(String r) {
@@ -495,17 +586,11 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
   ) {
     return docs.where((doc) {
       final data = doc.data();
+      final parentInfo = _mapField(data, 'parentInfo');
+      final personalInfo = _mapField(data, 'personalInfo');
 
       final userRole = normalizeRole((data['role'] ?? '').toString());
-      final name =
-          ((data['displayName'] ?? data['name'] ?? '').toString().toLowerCase())
-              .trim();
-      final username = (data['username'] ?? '').toString().toLowerCase().trim();
-      final email = (data['email'] ?? '').toString().toLowerCase().trim();
-      final phone = extractPhone(data).toLowerCase();
-      final alternatePhone = extractAlternatePhone(data).toLowerCase();
-      final nationalId = extractNationalId(data).toLowerCase();
-      final statusLabelText = accountStatusLabel(data).toLowerCase();
+      final statusLabelText = accountStatusLabel(data);
 
       final matchesRole =
           selectedRoleFilters.isEmpty || selectedRoleFilters.contains(userRole);
@@ -513,15 +598,31 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
       final matchesStatus = selectedStatusFilters.isEmpty ||
           selectedStatusFilters.contains(statusLabelText);
 
-      final query = searchText.trim().toLowerCase();
-
-      final matchesSearch = query.isEmpty ||
-          name.contains(query) ||
-          username.contains(query) ||
-          email.contains(query) ||
-          phone.contains(query) ||
-          alternatePhone.contains(query) ||
-          nationalId.contains(query);
+      final matchesSearch = _matchesSearchQuery(
+        query: searchText,
+        values: [
+          data['displayName'],
+          data['name'],
+          data['fullName'],
+          parentInfo['fullName'],
+          parentInfo['name'],
+          personalInfo['fullName'],
+          personalInfo['name'],
+          data['username'],
+          data['email'],
+          extractPhone(data),
+          extractAlternatePhone(data),
+          extractNationalId(data),
+          extractCity(data),
+          extractAddress(data),
+          extractJobTitle(data),
+          extractQualification(data),
+          extractSpecialization(data),
+          extractNotes(data),
+          roleLabel(userRole),
+          statusLabelText,
+        ],
+      );
 
       return matchesRole && matchesStatus && matchesSearch;
     }).toList();

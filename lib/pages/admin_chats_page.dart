@@ -2,8 +2,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../models/child_model.dart';
+import '../models/message_model.dart';
+import '../services/message_service.dart';
 import '../theme/app_theme.dart';
 import 'messages_page.dart';
+import 'temporary_staff_chat_page.dart';
 
 class AdminChatsPage extends StatefulWidget {
   const AdminChatsPage({super.key});
@@ -15,10 +19,13 @@ class AdminChatsPage extends StatefulWidget {
 class _AdminChatsPageState extends State<AdminChatsPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
+  final MessageService _messageService = MessageService();
   final TextEditingController searchCtrl = TextEditingController();
 
   String searchText = '';
   String selectedRole = 'all';
+
+  String? get currentUserId => _auth.currentUser?.uid;
 
   @override
   void dispose() {
@@ -26,131 +33,84 @@ class _AdminChatsPageState extends State<AdminChatsPage> {
     super.dispose();
   }
 
-  String normalizeRole(dynamic value) {
-    final role = (value ?? '').toString().trim().toLowerCase();
-
-    if (role == 'nursery' ||
-        role == 'nursery staff' ||
-        role == 'nursery_staff') {
-      return 'nursery_staff';
-    }
-
-    if (role == 'admin') return 'admin';
-    if (role == 'parent') return 'parent';
-
-    return role;
-  }
-
-  bool isNurseryRole(dynamic value) {
-    return normalizeRole(value) == 'nursery_staff';
-  }
-
-  bool isAllowedChatRole(dynamic value) {
-  final role = normalizeRole(value);
-  return role == 'nursery_staff' || role == 'parent';
-}
-
   String cleanText(dynamic value) {
     if (value == null) return '';
     return value.toString().trim();
   }
 
-  bool isLiveStreamStationAccount(Map<String, dynamic> data) {
-  final username = cleanText(data['username']).toLowerCase();
-  final email = cleanText(data['email']).toLowerCase();
+  String normalizeLower(dynamic value) {
+    return cleanText(value).toLowerCase();
+  }
 
-  return data['isLiveStreamStation'] == true ||
-      username == 'stream_station' ||
-      email == 'stream.station@tammni.com';
-}
+  String normalizePhone(dynamic value) {
+    return cleanText(value).replaceAll(RegExp(r'[^0-9+]'), '');
+  }
 
-  String firstNonEmpty(List<dynamic> values) {
+  String firstNonEmpty(Iterable<dynamic> values) {
     for (final value in values) {
       final text = cleanText(value);
+
       if (text.isNotEmpty) return text;
     }
+
     return '';
   }
 
-  Future<List<Map<String, dynamic>>> fetchAdminContacts() async {
-    final currentUser = _auth.currentUser;
-    if (currentUser == null) return [];
+  String normalizeRole(dynamic value) {
+    final role = normalizeLower(value);
 
-    final snapshot = await _firestore.collection('users').get();
-    final query = searchText.trim().toLowerCase();
+    switch (role) {
+      case 'nursery':
+      case 'nursery staff':
+      case 'nursery_staff':
+      case 'staff':
+      case 'employee':
+      case 'teacher':
+      case 'موظفة':
+      case 'موظفة حضانة':
+      case 'حضانة':
+        return 'nursery_staff';
 
-    final users = snapshot.docs.map((doc) {
-      final data = doc.data();
-      final role = normalizeRole(data['role']);
+      case 'admin':
+      case 'manager':
+      case 'مدير':
+      case 'مدير النظام':
+      case 'ادمن':
+      case 'أدمن':
+        return 'admin';
 
-      final name = firstNonEmpty([
-        data['displayName'],
-        data['name'],
-        data['fullName'],
-        data['username'],
-        'مستخدم',
-      ]);
+      case 'parent':
+      case 'ولي امر':
+      case 'ولي أمر':
+      case 'ولي الامر':
+      case 'ولي الأمر':
+        return 'parent';
 
-      return {
-        'docId': doc.id,
-        'uid': firstNonEmpty([
-          data['uid'],
-          doc.id,
-        ]),
-        'name': name,
-        'username': cleanText(data['username']),
-        'email': cleanText(data['email']),
-        'role': role,
-        'section': cleanText(data['section']),
-        'isActive': (data['isActive'] ?? true) == true,
-        'accountStatus': cleanText(data['accountStatus']).toLowerCase(),
-        'isLiveStreamStation': isLiveStreamStationAccount(data),
-      };
-    }).where((user) {
-      final uid = cleanText(user['uid']);
-      final role = normalizeRole(user['role']);
-      final name = cleanText(user['name']).toLowerCase();
-      final username = cleanText(user['username']).toLowerCase();
-      final email = cleanText(user['email']).toLowerCase();
-      final isActive = user['isActive'] == true;
-      final accountStatus = cleanText(user['accountStatus']).toLowerCase();
-      final isLiveStreamStation = user['isLiveStreamStation'] == true;
+      case 'temporary_parent':
+      case 'temporary parent':
+      case 'ولي أمر زائر':
+      case 'ولي الامر الزائر':
+      case 'ولي الأمر الزائر':
+        return 'temporary_parent';
 
-      if (!isActive) return false;
-      if (accountStatus == 'archived') return false;
-      if (isLiveStreamStation) return false;
-      if (uid == currentUser.uid) return false;
+      default:
+        return role;
+    }
+  }
 
-    
-if (!isAllowedChatRole(role)) return false;
+  bool isLiveStreamStationAccount(Map<String, dynamic> data) {
+    final username = normalizeLower(data['username']);
+    final email = normalizeLower(data['email']);
 
-      if (selectedRole != 'all' && role != selectedRole) return false;
-
-      if (query.isNotEmpty &&
-          !name.contains(query) &&
-          !username.contains(query) &&
-          !email.contains(query)) {
-        return false;
-      }
-
-      return true;
-    }).toList();
-
-    users.sort((a, b) {
-      final nameA = cleanText(a['name']);
-      final nameB = cleanText(b['name']);
-      return nameA.compareTo(nameB);
-    });
-
-    return users;
+    return data['isLiveStreamStation'] == true ||
+        username == 'stream_station' ||
+        email == 'stream.station@tammni.com';
   }
 
   String roleLabel(String role) {
     switch (normalizeRole(role)) {
       case 'nursery_staff':
         return 'موظف حضانة';
-      case 'admin':
-        return 'الإدارة';
       case 'parent':
         return 'ولي أمر';
       default:
@@ -162,8 +122,6 @@ if (!isAllowedChatRole(role)) return false;
     switch (normalizeRole(role)) {
       case 'nursery_staff':
         return Colors.orange;
-      case 'admin':
-        return Colors.redAccent;
       case 'parent':
         return Colors.teal;
       default:
@@ -175,13 +133,970 @@ if (!isAllowedChatRole(role)) return false;
     switch (normalizeRole(role)) {
       case 'nursery_staff':
         return Icons.child_care_rounded;
-      case 'admin':
-        return Icons.admin_panel_settings_rounded;
       case 'parent':
         return Icons.family_restroom_rounded;
       default:
         return Icons.person_rounded;
     }
+  }
+
+  String firstLetter(String name) {
+    final value = name.trim();
+    return value.isEmpty ? 'و' : value.substring(0, 1);
+  }
+
+  String childrenCountLabel(int count) {
+    if (count == 1) return 'طفل واحد';
+    if (count == 2) return 'طفلان';
+    if (count >= 3 && count <= 10) return '$count أطفال';
+    return '$count طفل';
+  }
+
+  String childTypeLabel(ChildModel child) {
+    if (child.isTrialChild) return 'طفل تجربة';
+    if (child.isTemporaryChild) return 'طفل زائر';
+    return 'طفل دائم';
+  }
+
+  String formatTime(Timestamp timestamp) {
+    final date = timestamp.toDate();
+    final now = DateTime.now();
+
+    final sameDay =
+        date.year == now.year && date.month == now.month && date.day == now.day;
+
+    if (sameDay) {
+      final hour = date.hour > 12
+          ? date.hour - 12
+          : (date.hour == 0 ? 12 : date.hour);
+
+      final minute = date.minute.toString().padLeft(2, '0');
+      final period = date.hour >= 12 ? 'م' : 'ص';
+
+      return '$hour:$minute $period';
+    }
+
+    return '${date.day}/${date.month}';
+  }
+
+  Timestamp? timestampFromDynamic(dynamic value) {
+    if (value is Timestamp) return value;
+    if (value is DateTime) return Timestamp.fromDate(value);
+
+    return null;
+  }
+
+  List<String> userAliases({
+    required String uid,
+    required Map<String, dynamic> data,
+  }) {
+    final aliases = <String>[];
+
+    final profileId = firstNonEmpty([
+      data['parentProfileId'],
+      data['parentRecordId'],
+      data['familyId'],
+    ]).toLowerCase();
+
+    final phone = normalizePhone(
+      firstNonEmpty([
+        data['phone'],
+        data['mobile'],
+        data['phoneNumber'],
+        data['parentPhone'],
+      ]),
+    );
+
+    final username = normalizeLower(data['username']);
+
+    if (profileId.isNotEmpty) aliases.add('profile_$profileId');
+    if (phone.isNotEmpty) aliases.add('phone_$phone');
+    if (uid.trim().isNotEmpty) aliases.add('uid_${uid.trim()}');
+    if (username.isNotEmpty) aliases.add('username_$username');
+
+    return aliases;
+  }
+
+  List<String> childAliases(ChildModel child) {
+    final aliases = <String>[];
+
+    final profileId = child.resolvedParentProfileId.trim().toLowerCase();
+    final phone = normalizePhone(child.resolvedParentPhone);
+    final uid = child.resolvedParentUid.trim();
+    final username = child.resolvedParentUsername.trim().toLowerCase();
+
+    if (profileId.isNotEmpty) aliases.add('profile_$profileId');
+    if (phone.isNotEmpty) aliases.add('phone_$phone');
+    if (uid.isNotEmpty) aliases.add('uid_$uid');
+    if (username.isNotEmpty) aliases.add('username_$username');
+
+    return aliases;
+  }
+
+  Map<String, dynamic> createParentGroup({
+    required String key,
+    required String name,
+  }) {
+    return {
+      'key': key,
+      'kind': 'parent_group',
+      'name': name.trim().isEmpty ? 'ولي الأمر' : name.trim(),
+      'role': 'parent',
+      'subtitle': 'ولي أمر',
+      'officialUids': <String>{},
+      'usernames': <String>{},
+      'emails': <String>{},
+      'phones': <String>{},
+      'children': <ChildModel>[],
+    };
+  }
+
+  Future<List<Map<String, dynamic>>> fetchAdminContacts() async {
+    final currentUser = _auth.currentUser;
+
+    if (currentUser == null) return [];
+
+    final usersSnapshot = await _firestore.collection('users').get();
+    final childrenSnapshot = await _firestore.collection('children').get();
+
+    final query = searchText.trim().toLowerCase();
+
+    final staffContacts = <Map<String, dynamic>>[];
+    final parentGroups = <String, Map<String, dynamic>>{};
+    final aliasToGroupKey = <String, String>{};
+    final officialParentUids = <String>{};
+
+    String ensureGroup({
+      required List<String> aliases,
+      required String fallbackKey,
+      required String name,
+    }) {
+      String? groupKey;
+
+      for (final alias in aliases) {
+        final existingKey = aliasToGroupKey[alias];
+
+        if (existingKey != null) {
+          groupKey = existingKey;
+          break;
+        }
+      }
+
+      groupKey ??= fallbackKey;
+
+      parentGroups.putIfAbsent(
+        groupKey,
+        () => createParentGroup(
+          key: groupKey!,
+          name: name,
+        ),
+      );
+
+      for (final alias in aliases) {
+        aliasToGroupKey[alias] = groupKey;
+      }
+
+      return groupKey;
+    }
+
+    for (final doc in usersSnapshot.docs) {
+      final data = doc.data();
+      final role = normalizeRole(data['role']);
+      final isActive = (data['isActive'] ?? true) == true;
+      final accountStatus = normalizeLower(data['accountStatus']);
+
+      if (!isActive || accountStatus == 'archived') continue;
+      if (doc.id == currentUser.uid) continue;
+      if (isLiveStreamStationAccount(data)) continue;
+
+      final name = firstNonEmpty([
+        data['displayName'],
+        data['name'],
+        data['fullName'],
+        data['username'],
+        'مستخدم',
+      ]);
+
+      if (role == 'nursery_staff') {
+        staffContacts.add({
+          'key': 'staff_${doc.id}',
+          'kind': 'nursery_staff',
+          'uid': doc.id,
+          'name': name,
+          'username': cleanText(data['username']),
+          'email': cleanText(data['email']),
+          'role': 'nursery_staff',
+          'section': cleanText(data['section']),
+        });
+
+        continue;
+      }
+
+      if (role != 'parent') continue;
+
+      officialParentUids.add(doc.id);
+
+      final aliases = userAliases(
+        uid: doc.id,
+        data: data,
+      );
+
+      final fallbackKey = aliases.isNotEmpty
+          ? aliases.first
+          : 'official_parent_${doc.id}';
+
+      final groupKey = ensureGroup(
+        aliases: aliases,
+        fallbackKey: fallbackKey,
+        name: name,
+      );
+
+      final group = parentGroups[groupKey]!;
+      final uids = group['officialUids'] as Set<String>;
+      final usernames = group['usernames'] as Set<String>;
+      final emails = group['emails'] as Set<String>;
+      final phones = group['phones'] as Set<String>;
+
+      uids.add(doc.id);
+
+      final username = normalizeLower(data['username']);
+      final email = normalizeLower(data['email']);
+      final phone = normalizePhone(
+        firstNonEmpty([
+          data['phone'],
+          data['mobile'],
+          data['phoneNumber'],
+          data['parentPhone'],
+        ]),
+      );
+
+      if (username.isNotEmpty) usernames.add(username);
+      if (email.isNotEmpty) emails.add(email);
+      if (phone.isNotEmpty) phones.add(phone);
+    }
+
+    for (final doc in childrenSnapshot.docs) {
+      final child = ChildModel.fromDocument(doc);
+
+      if (!child.isActiveChild) continue;
+
+      final aliases = childAliases(child);
+
+      final fallbackKey = aliases.isNotEmpty
+          ? aliases.first
+          : 'child_${child.id}';
+
+      final groupKey = ensureGroup(
+        aliases: aliases,
+        fallbackKey: fallbackKey,
+        name: child.displayParentName,
+      );
+
+      final group = parentGroups[groupKey]!;
+      final children = group['children'] as List<ChildModel>;
+      final officialUids = group['officialUids'] as Set<String>;
+      final usernames = group['usernames'] as Set<String>;
+      final phones = group['phones'] as Set<String>;
+
+      if (!children.any((item) => item.id == child.id)) {
+        children.add(child);
+      }
+
+      final resolvedUid = child.resolvedParentUid.trim();
+
+      if (officialParentUids.contains(resolvedUid)) {
+        officialUids.add(resolvedUid);
+      }
+
+      final username = child.resolvedParentUsername.trim().toLowerCase();
+      final phone = normalizePhone(child.resolvedParentPhone);
+
+      if (username.isNotEmpty) usernames.add(username);
+      if (phone.isNotEmpty) phones.add(phone);
+
+      if (cleanText(group['name']).isEmpty ||
+          cleanText(group['name']) == 'ولي الأمر') {
+        group['name'] = child.displayParentName;
+      }
+    }
+
+    final parentContacts = parentGroups.values.toList();
+
+    for (final contact in parentContacts) {
+      final children = contact['children'] as List<ChildModel>;
+      children.sort((a, b) => a.displayName.compareTo(b.displayName));
+
+      contact['subtitle'] = children.isEmpty
+          ? 'ولي أمر'
+          : children.length == 1
+              ? 'ولي أمر'
+              : 'ولي أمر • ${childrenCountLabel(children.length)}';
+    }
+
+    final contacts = <Map<String, dynamic>>[
+      ...staffContacts,
+      ...parentContacts,
+    ].where((contact) {
+      final role = normalizeRole(contact['role']);
+
+      if (selectedRole != 'all' && role != selectedRole) {
+        return false;
+      }
+
+      if (query.isEmpty) return true;
+
+      final children = contact['children'] is List<ChildModel>
+          ? contact['children'] as List<ChildModel>
+          : <ChildModel>[];
+
+      final childrenNames =
+          children.map((child) => child.displayName).join(' ');
+
+      final values = [
+        contact['name'],
+        contact['username'],
+        contact['email'],
+        contact['subtitle'],
+        childrenNames,
+        ...(contact['usernames'] is Set<String>
+            ? (contact['usernames'] as Set<String>)
+            : <String>{}),
+        ...(contact['emails'] is Set<String>
+            ? (contact['emails'] as Set<String>)
+            : <String>{}),
+        ...(contact['phones'] is Set<String>
+            ? (contact['phones'] as Set<String>)
+            : <String>{}),
+      ].join(' ').toLowerCase();
+
+      return values.contains(query);
+    }).toList();
+
+    contacts.sort((a, b) {
+      final roleA = normalizeRole(a['role']);
+      final roleB = normalizeRole(b['role']);
+
+      if (roleA != roleB) {
+        if (roleA == 'nursery_staff') return -1;
+        if (roleB == 'nursery_staff') return 1;
+      }
+
+      return cleanText(a['name']).compareTo(cleanText(b['name']));
+    });
+
+    return contacts;
+  }
+
+  Future<Map<String, String>> loadTemporaryAccessData(
+    ChildModel child,
+  ) async {
+    String accessCodeId = child.temporaryAccessCodeId.trim();
+    String accessCode = child.temporaryAccessCode.trim();
+
+    if (accessCodeId.isEmpty || accessCode.isEmpty) {
+      try {
+        final childDoc =
+            await _firestore.collection('children').doc(child.id).get();
+
+        final data = childDoc.data() ?? <String, dynamic>{};
+
+        accessCodeId = accessCodeId.isEmpty
+            ? cleanText(
+                data['temporaryAccessCodeId'] ??
+                    data['sharedAccessCodeId'] ??
+                    data['accessCodeId'],
+              )
+            : accessCodeId;
+
+        accessCode = accessCode.isEmpty
+            ? cleanText(
+                data['temporaryAccessCode'] ??
+                    data['accessCode'] ??
+                    data['code'],
+              )
+            : accessCode;
+      } catch (_) {}
+    }
+
+    if (accessCodeId.isEmpty || accessCode.isEmpty) {
+      try {
+        final snapshot = await _firestore
+            .collection('temporary_access_codes')
+            .where('childId', isEqualTo: child.id)
+            .where('isActive', isEqualTo: true)
+            .limit(1)
+            .get();
+
+        if (snapshot.docs.isNotEmpty) {
+          final doc = snapshot.docs.first;
+          final data = doc.data();
+
+          accessCodeId = accessCodeId.isEmpty ? doc.id : accessCodeId;
+          accessCode =
+              accessCode.isEmpty ? cleanText(data['code']) : accessCode;
+        }
+      } catch (_) {}
+    }
+
+    return {
+      'accessCodeId': accessCodeId,
+      'accessCode': accessCode,
+    };
+  }
+
+  Future<String> resolveOfficialParentUid(
+    Map<String, dynamic> contact,
+  ) async {
+    final officialUids = contact['officialUids'] is Set<String>
+        ? contact['officialUids'] as Set<String>
+        : <String>{};
+
+    if (officialUids.isNotEmpty) {
+      return officialUids.first;
+    }
+
+    final children = contact['children'] is List<ChildModel>
+        ? contact['children'] as List<ChildModel>
+        : <ChildModel>[];
+
+    for (final child in children) {
+      if (child.isTemporaryChild || child.isTrialChild) continue;
+
+      final uid = child.resolvedParentUid.trim();
+
+      if (uid.isNotEmpty) return uid;
+    }
+
+    final usernames = contact['usernames'] is Set<String>
+        ? contact['usernames'] as Set<String>
+        : <String>{};
+
+    for (final username in usernames) {
+      try {
+        final snapshot = await _firestore
+            .collection('users')
+            .where('username', isEqualTo: username)
+            .where('role', isEqualTo: 'parent')
+            .limit(1)
+            .get();
+
+        if (snapshot.docs.isNotEmpty) {
+          return snapshot.docs.first.id;
+        }
+      } catch (_) {}
+    }
+
+    return '';
+  }
+
+  Future<void> openOfficialParentChat(
+    Map<String, dynamic> contact,
+  ) async {
+    final uid = await resolveOfficialParentUid(contact);
+
+    if (!mounted) return;
+
+    if (uid.isEmpty) {
+      showMessage('تعذر العثور على حساب ولي الأمر');
+      return;
+    }
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => MessagesPage(
+          child: null,
+          targetRole: 'parent',
+          targetUserId: uid,
+          targetUserName: cleanText(contact['name']).isEmpty
+              ? 'ولي الأمر'
+              : cleanText(contact['name']),
+          targetSection: 'Nursery',
+        ),
+      ),
+    );
+
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  Future<void> openTemporaryChildChat(
+    ChildModel child,
+  ) async {
+    final access = await loadTemporaryAccessData(child);
+
+    if (!mounted) return;
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TemporaryStaffChatPage(
+          accessCodeId: access['accessCodeId'] ?? '',
+          accessCode: access['accessCode'] ?? '',
+          childId: child.id,
+          childName: child.displayName,
+          parentName: child.displayParentName,
+          parentPhone: child.resolvedParentPhone,
+          groupId: child.groupId,
+          groupName: child.displayGroup,
+        ),
+      ),
+    );
+
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  List<Map<String, dynamic>> parentConversationRoutes(
+    Map<String, dynamic> contact,
+  ) {
+    final routes = <Map<String, dynamic>>[];
+
+    final officialUids = contact['officialUids'] is Set<String>
+        ? contact['officialUids'] as Set<String>
+        : <String>{};
+
+    final children = contact['children'] is List<ChildModel>
+        ? contact['children'] as List<ChildModel>
+        : <ChildModel>[];
+
+    final hasPermanentChild = children.any((child) {
+      return !child.isTemporaryChild && !child.isTrialChild;
+    });
+
+    if (officialUids.isNotEmpty || hasPermanentChild) {
+      routes.add({
+        'kind': 'official_parent',
+        'title': 'المحادثة الرسمية',
+        'subtitle': 'ولي الأمر',
+      });
+    }
+
+    for (final child in children) {
+      if (!child.isTemporaryChild && !child.isTrialChild) continue;
+
+      routes.add({
+        'kind': 'temporary_child',
+        'title': child.displayName,
+        'subtitle': '${childTypeLabel(child)} • ${child.displayGroup}',
+        'child': child,
+      });
+    }
+
+    return routes;
+  }
+
+  Future<void> openParentContact(
+    Map<String, dynamic> contact,
+  ) async {
+    final routes = parentConversationRoutes(contact);
+
+    if (routes.isEmpty) {
+      showMessage('لا توجد محادثة متاحة لولي الأمر');
+      return;
+    }
+
+    if (routes.length == 1) {
+      final route = routes.first;
+
+      if (route['kind'] == 'official_parent') {
+        await openOfficialParentChat(contact);
+      } else {
+        await openTemporaryChildChat(route['child'] as ChildModel);
+      }
+
+      return;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: SafeArea(
+            top: false,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(
+                  top: Radius.circular(26),
+                ),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 42,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: AppColors.border,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    cleanText(contact['name']).isEmpty
+                        ? 'ولي الأمر'
+                        : cleanText(contact['name']),
+                    style: const TextStyle(
+                      color: AppColors.textDark,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'اختر المحادثة التي تريد فتحها',
+                    style: TextStyle(
+                      color: AppColors.textLight,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  ...routes.map((route) {
+                    final isOfficial =
+                        route['kind'] == 'official_parent';
+
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: CircleAvatar(
+                        backgroundColor:
+                            AppColors.primary.withOpacity(0.10),
+                        child: Icon(
+                          isOfficial
+                              ? Icons.person_outline_rounded
+                              : Icons.child_care_rounded,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                      title: Text(
+                        cleanText(route['title']),
+                        style: const TextStyle(
+                          color: AppColors.textDark,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      subtitle: Text(
+                        cleanText(route['subtitle']),
+                        style: const TextStyle(
+                          color: AppColors.textLight,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      trailing: const Icon(
+                        Icons.chevron_left_rounded,
+                        color: AppColors.textLight,
+                      ),
+                      onTap: () async {
+                        Navigator.pop(sheetContext);
+
+                        if (isOfficial) {
+                          await openOfficialParentChat(contact);
+                        } else {
+                          await openTemporaryChildChat(
+                            route['child'] as ChildModel,
+                          );
+                        }
+                      },
+                    );
+                  }),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> openStaffChat(
+    Map<String, dynamic> contact,
+  ) async {
+    final uid = cleanText(contact['uid']);
+
+    if (uid.isEmpty) {
+      showMessage('تعذر العثور على حساب موظف الحضانة');
+      return;
+    }
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => MessagesPage(
+          child: null,
+          targetRole: 'nursery_staff',
+          targetUserId: uid,
+          targetUserName: cleanText(contact['name']).isEmpty
+              ? 'موظف حضانة'
+              : cleanText(contact['name']),
+          targetSection: cleanText(contact['section']).isEmpty
+              ? 'Nursery'
+              : cleanText(contact['section']),
+        ),
+      ),
+    );
+
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  void showMessage(String message) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> temporaryMessagesStream() {
+    return _firestore
+        .collection('temporary_messages')
+        .limit(500)
+        .snapshots();
+  }
+
+  bool isTemporaryMessageForAdmin(Map<String, dynamic> data) {
+    final uid = currentUserId ?? '';
+    final fromRole = normalizeRole(data['fromRole']);
+    final targetRole = normalizeRole(data['targetRole']);
+    final fromUid = cleanText(data['fromUid']);
+    final targetUid = cleanText(data['targetUid']);
+
+    final fromParent =
+        fromRole == 'temporary_parent' &&
+        targetRole == 'admin' &&
+        (targetUid.isEmpty ||
+            targetUid == uid ||
+            targetUid.toLowerCase() == 'admin');
+
+    final fromAdmin =
+        fromRole == 'admin' &&
+        targetRole == 'temporary_parent' &&
+        (fromUid.isEmpty || fromUid == uid);
+
+    return fromParent || fromAdmin;
+  }
+
+  Map<String, Map<String, dynamic>> latestTemporaryMessagesByChildId(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final result = <String, Map<String, dynamic>>{};
+
+    for (final doc in docs) {
+      final data = doc.data();
+
+      if (!isTemporaryMessageForAdmin(data)) continue;
+
+      final childId = cleanText(data['childId']);
+
+      if (childId.isEmpty) continue;
+
+      final old = result[childId];
+
+      final currentDate = timestampFromDynamic(
+            data['createdAt'] ??
+                data['sentAt'] ??
+                data['time'],
+          ) ??
+          Timestamp.fromMillisecondsSinceEpoch(0);
+
+      final oldDate = timestampFromDynamic(
+            old?['createdAt'] ??
+                old?['sentAt'] ??
+                old?['time'],
+          ) ??
+          Timestamp.fromMillisecondsSinceEpoch(0);
+
+      if (old == null || currentDate.compareTo(oldDate) > 0) {
+        result[childId] = data;
+      }
+    }
+
+    return result;
+  }
+
+  MessageModel? latestOfficialMessageForContact({
+    required Map<String, dynamic> contact,
+    required List<MessageModel> messages,
+  }) {
+    final kind = cleanText(contact['kind']);
+    final myUid = currentUserId ?? '';
+
+    final targetUids = <String>{};
+
+    if (kind == 'nursery_staff') {
+      final uid = cleanText(contact['uid']);
+
+      if (uid.isNotEmpty) targetUids.add(uid);
+    }
+
+    if (kind == 'parent_group' &&
+        contact['officialUids'] is Set<String>) {
+      targetUids.addAll(contact['officialUids'] as Set<String>);
+    }
+
+    if (targetUids.isEmpty) return null;
+
+    MessageModel? latest;
+
+    for (final message in messages) {
+      final belongsToContact =
+          (message.senderId == myUid &&
+                  targetUids.contains(message.receiverId)) ||
+              (message.receiverId == myUid &&
+                  targetUids.contains(message.senderId));
+
+      if (!belongsToContact) continue;
+
+      if (latest == null || message.sentAt.compareTo(latest.sentAt) > 0) {
+        latest = message;
+      }
+    }
+
+    return latest;
+  }
+
+  Map<String, dynamic>? latestTemporaryMessageForContact({
+    required Map<String, dynamic> contact,
+    required Map<String, Map<String, dynamic>> temporaryMessagesByChildId,
+  }) {
+    if (cleanText(contact['kind']) != 'parent_group') return null;
+
+    final children = contact['children'] is List<ChildModel>
+        ? contact['children'] as List<ChildModel>
+        : <ChildModel>[];
+
+    Map<String, dynamic>? latest;
+    Timestamp? latestTime;
+
+    for (final child in children) {
+      if (!child.isTemporaryChild && !child.isTrialChild) continue;
+
+      final message = temporaryMessagesByChildId[child.id];
+
+      if (message == null) continue;
+
+      final time = timestampFromDynamic(
+            message['createdAt'] ??
+                message['sentAt'] ??
+                message['time'],
+          ) ??
+          Timestamp.fromMillisecondsSinceEpoch(0);
+
+      if (latest == null ||
+          latestTime == null ||
+          time.compareTo(latestTime) > 0) {
+        latest = message;
+        latestTime = time;
+      }
+    }
+
+    return latest;
+  }
+
+  Timestamp? latestContactTime({
+    required MessageModel? officialMessage,
+    required Map<String, dynamic>? temporaryMessage,
+  }) {
+    final officialTime = officialMessage?.sentAt;
+
+    final temporaryTime = timestampFromDynamic(
+      temporaryMessage?['createdAt'] ??
+          temporaryMessage?['sentAt'] ??
+          temporaryMessage?['time'],
+    );
+
+    if (officialTime == null) return temporaryTime;
+    if (temporaryTime == null) return officialTime;
+
+    return officialTime.compareTo(temporaryTime) >= 0
+        ? officialTime
+        : temporaryTime;
+  }
+
+  String previewForContact({
+    required MessageModel? officialMessage,
+    required Map<String, dynamic>? temporaryMessage,
+  }) {
+    final officialTime = officialMessage?.sentAt;
+
+    final temporaryTime = timestampFromDynamic(
+      temporaryMessage?['createdAt'] ??
+          temporaryMessage?['sentAt'] ??
+          temporaryMessage?['time'],
+    );
+
+    final temporaryPreview = cleanText(
+      temporaryMessage?['message'] ??
+          temporaryMessage?['text'] ??
+          temporaryMessage?['body'],
+    );
+
+    if (officialTime == null) return temporaryPreview;
+
+    if (temporaryTime == null) {
+      return officialMessage?.displayText.trim() ?? '';
+    }
+
+    return temporaryTime.compareTo(officialTime) > 0
+        ? temporaryPreview
+        : officialMessage?.displayText.trim() ?? '';
+  }
+
+  List<Map<String, dynamic>> sortedContacts({
+    required List<Map<String, dynamic>> contacts,
+    required List<MessageModel> officialMessages,
+    required Map<String, Map<String, dynamic>> temporaryMessagesByChildId,
+  }) {
+    final sorted = [...contacts];
+
+    sorted.sort((a, b) {
+      final aOfficial = latestOfficialMessageForContact(
+        contact: a,
+        messages: officialMessages,
+      );
+
+      final aTemporary = latestTemporaryMessageForContact(
+        contact: a,
+        temporaryMessagesByChildId: temporaryMessagesByChildId,
+      );
+
+      final bOfficial = latestOfficialMessageForContact(
+        contact: b,
+        messages: officialMessages,
+      );
+
+      final bTemporary = latestTemporaryMessageForContact(
+        contact: b,
+        temporaryMessagesByChildId: temporaryMessagesByChildId,
+      );
+
+      final aTime = latestContactTime(
+        officialMessage: aOfficial,
+        temporaryMessage: aTemporary,
+      );
+
+      final bTime = latestContactTime(
+        officialMessage: bOfficial,
+        temporaryMessage: bTemporary,
+      );
+
+      if (aTime != null && bTime != null) {
+        return bTime.compareTo(aTime);
+      }
+
+      if (aTime != null) return -1;
+      if (bTime != null) return 1;
+
+      return cleanText(a['name']).compareTo(cleanText(b['name']));
+    });
+
+    return sorted;
   }
 
   Widget buildSearchCard() {
@@ -201,6 +1116,7 @@ if (!isAllowedChatRole(role)) return false;
                     : IconButton(
                         onPressed: () {
                           searchCtrl.clear();
+
                           setState(() {
                             searchText = '';
                           });
@@ -222,19 +1138,19 @@ if (!isAllowedChatRole(role)) return false;
                 prefixIcon: Icon(Icons.filter_list_rounded),
               ),
               items: const [
-  DropdownMenuItem(
-    value: 'all',
-    child: Text('الكل'),
-  ),
-  DropdownMenuItem(
-    value: 'nursery_staff',
-    child: Text('موظفو الحضانة'),
-  ),
-  DropdownMenuItem(
-    value: 'parent',
-    child: Text('أولياء الأمور'),
-  ),
-],
+                DropdownMenuItem(
+                  value: 'all',
+                  child: Text('الكل'),
+                ),
+                DropdownMenuItem(
+                  value: 'nursery_staff',
+                  child: Text('موظفو الحضانة'),
+                ),
+                DropdownMenuItem(
+                  value: 'parent',
+                  child: Text('أولياء الأمور'),
+                ),
+              ],
               onChanged: (value) {
                 setState(() {
                   selectedRole = value ?? 'all';
@@ -281,14 +1197,32 @@ if (!isAllowedChatRole(role)) return false;
     );
   }
 
-  Widget buildContactCard(Map<String, dynamic> user) {
-    final uid = cleanText(user['uid']);
-    final name = firstNonEmpty([
-      user['name'],
-      'مستخدم',
-    ]);
-    final role = normalizeRole(user['role']);
+  Widget buildContactCard({
+    required Map<String, dynamic> contact,
+    required MessageModel? officialMessage,
+    required Map<String, dynamic>? temporaryMessage,
+  }) {
+    final role = normalizeRole(contact['role']);
+    final kind = cleanText(contact['kind']);
+    final name = cleanText(contact['name']).isEmpty
+        ? roleLabel(role)
+        : cleanText(contact['name']);
+
     final color = roleColor(role);
+
+    final preview = previewForContact(
+      officialMessage: officialMessage,
+      temporaryMessage: temporaryMessage,
+    );
+
+    final time = latestContactTime(
+      officialMessage: officialMessage,
+      temporaryMessage: temporaryMessage,
+    );
+
+    final subtitle = kind == 'parent_group'
+        ? cleanText(contact['subtitle'])
+        : roleLabel(role);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
@@ -299,10 +1233,18 @@ if (!isAllowedChatRole(role)) return false;
         ),
         leading: CircleAvatar(
           backgroundColor: color.withOpacity(0.12),
-          child: Icon(
-            roleIcon(role),
-            color: color,
-          ),
+          child: kind == 'parent_group'
+              ? Text(
+                  firstLetter(name),
+                  style: TextStyle(
+                    color: color,
+                    fontWeight: FontWeight.w800,
+                  ),
+                )
+              : Icon(
+                  roleIcon(role),
+                  color: color,
+                ),
         ),
         title: Text(
           name,
@@ -313,40 +1255,188 @@ if (!isAllowedChatRole(role)) return false;
         ),
         subtitle: Padding(
           padding: const EdgeInsets.only(top: 4),
-          child: Text(
-            roleLabel(role),
-            style: const TextStyle(
-              color: AppColors.textLight,
-              fontWeight: FontWeight.w600,
-              height: 1.4,
-            ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                subtitle.isEmpty ? roleLabel(role) : subtitle,
+                style: const TextStyle(
+                  color: AppColors.textLight,
+                  fontWeight: FontWeight.w600,
+                  height: 1.4,
+                ),
+              ),
+              if (preview.isNotEmpty) ...[
+                const SizedBox(height: 5),
+                Text(
+                  preview,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.textDark,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ],
           ),
         ),
-        trailing: const Icon(
-          Icons.arrow_forward_ios_rounded,
-          size: 18,
-          color: AppColors.textLight,
+        trailing: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (time != null)
+              Text(
+                formatTime(time),
+                style: const TextStyle(
+                  color: AppColors.textLight,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 11.5,
+                ),
+              ),
+            const SizedBox(height: 5),
+            const Icon(
+              Icons.arrow_forward_ios_rounded,
+              size: 17,
+              color: AppColors.textLight,
+            ),
+          ],
         ),
         onTap: () async {
-          await Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => MessagesPage(
-                child: null,
-                targetRole: role,
-                targetUserId: uid,
-                targetUserName: name,
-                targetSection: cleanText(user['section']).isEmpty
-                    ? 'Nursery'
-                    : cleanText(user['section']),
+          if (kind == 'nursery_staff') {
+            await openStaffChat(contact);
+          } else {
+            await openParentContact(contact);
+          }
+        },
+      ),
+    );
+  }
+
+  Widget buildChatsList() {
+    final uid = currentUserId;
+
+    if (uid == null) {
+      return const Center(
+        child: Text('تعذر تحميل هوية المستخدم'),
+      );
+    }
+
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: fetchAdminContacts(),
+      builder: (context, contactsSnapshot) {
+        if (contactsSnapshot.connectionState == ConnectionState.waiting &&
+            !contactsSnapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (contactsSnapshot.hasError) {
+          return Center(
+            child: Text(
+              'حدث خطأ أثناء تحميل جهات الاتصال:\n${contactsSnapshot.error}',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.red.shade700,
+                fontWeight: FontWeight.w700,
               ),
             ),
           );
+        }
 
-          if (!mounted) return;
-          setState(() {});
-        },
-      ),
+        final contacts = contactsSnapshot.data ?? [];
+
+        return StreamBuilder<List<MessageModel>>(
+          stream: _messageService.getLatestChatsForUser(
+            currentUserId: uid,
+          ),
+          builder: (context, officialSnapshot) {
+            if (officialSnapshot.connectionState ==
+                    ConnectionState.waiting &&
+                !officialSnapshot.hasData) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            if (officialSnapshot.hasError) {
+              return Center(
+                child: Text(
+                  'حدث خطأ أثناء تحميل المحادثات:\n${officialSnapshot.error}',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.red.shade700,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              );
+            }
+
+            return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: temporaryMessagesStream(),
+              builder: (context, temporarySnapshot) {
+                if (temporarySnapshot.connectionState ==
+                        ConnectionState.waiting &&
+                    !temporarySnapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                if (temporarySnapshot.hasError) {
+                  return Center(
+                    child: Text(
+                      'حدث خطأ أثناء تحميل رسائل أولياء الأمور الزائرين:\n'
+                      '${temporarySnapshot.error}',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.red.shade700,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  );
+                }
+
+                final officialMessages = officialSnapshot.data ?? [];
+
+                final temporaryMessagesByChildId =
+                    latestTemporaryMessagesByChildId(
+                  temporarySnapshot.data?.docs ?? [],
+                );
+
+                final sorted = sortedContacts(
+                  contacts: contacts,
+                  officialMessages: officialMessages,
+                  temporaryMessagesByChildId: temporaryMessagesByChildId,
+                );
+
+                if (sorted.isEmpty) {
+                  return buildEmptyState();
+                }
+
+                return ListView.builder(
+                  itemCount: sorted.length,
+                  itemBuilder: (context, index) {
+                    final contact = sorted[index];
+
+                    final officialMessage = latestOfficialMessageForContact(
+                      contact: contact,
+                      messages: officialMessages,
+                    );
+
+                    final temporaryMessage =
+                        latestTemporaryMessageForContact(
+                      contact: contact,
+                      temporaryMessagesByChildId:
+                          temporaryMessagesByChildId,
+                    );
+
+                    return buildContactCard(
+                      contact: contact,
+                      officialMessage: officialMessage,
+                      temporaryMessage: temporaryMessage,
+                    );
+                  },
+                );
+              },
+            );
+          },
+        );
+      },
     );
   }
 
@@ -357,42 +1447,7 @@ if (!isAllowedChatRole(role)) return false;
         buildSearchCard(),
         const SizedBox(height: 12),
         Expanded(
-          child: FutureBuilder<List<Map<String, dynamic>>>(
-            future: fetchAdminContacts(),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(
-                  child: CircularProgressIndicator(),
-                );
-              }
-
-              if (snapshot.hasError) {
-                return Center(
-                  child: Text(
-                    'حدث خطأ أثناء تحميل جهات الاتصال:\n${snapshot.error}',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.red.shade700,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                );
-              }
-
-              final users = snapshot.data ?? [];
-
-              if (users.isEmpty) {
-                return buildEmptyState();
-              }
-
-              return ListView.builder(
-                itemCount: users.length,
-                itemBuilder: (context, index) {
-                  return buildContactCard(users[index]);
-                },
-              );
-            },
-          ),
+          child: buildChatsList(),
         ),
       ],
     );

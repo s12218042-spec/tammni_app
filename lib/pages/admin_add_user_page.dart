@@ -14,7 +14,6 @@ class AdminAddUserPage extends StatelessWidget {
       title: 'إنشاء حسابات الموظفين',
       child: ListView(
         children: [
-          _buildHeaderCard(context),
           const SizedBox(height: 16),
 
           Text(
@@ -64,66 +63,6 @@ class AdminAddUserPage extends StatelessWidget {
 },
           ),
           const SizedBox(height: 12),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHeaderCard(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            AppColors.primary.withOpacity(0.16),
-            AppColors.secondary.withOpacity(0.10),
-          ],
-          begin: Alignment.topRight,
-          end: Alignment.bottomLeft,
-        ),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: AppColors.primary.withOpacity(0.18),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.shadow.withOpacity(0.08),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 60,
-            height: 60,
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.75),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.groups_rounded,
-              color: AppColors.primary,
-              size: 30,
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'إنشاء حسابات الموظفين',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.textDark,
-                      ),
-                ),
-                const SizedBox(height: 6),
-              ],
-            ),
-          ),
         ],
       ),
     );

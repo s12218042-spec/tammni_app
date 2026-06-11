@@ -666,68 +666,46 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
       try {
         final snapshot = await query.limit(limit).get();
         allDocs.addAll(snapshot.docs);
-      } catch (_) {}
+      } catch (error) {
+        debugPrint('NURSERY NOTIFICATIONS QUERY ERROR: $error');
+      }
     }
 
     if (currentUid.isNotEmpty) {
       await addQuery(
         _firestore
             .collection('notifications')
-            .where('targetUid', isEqualTo: currentUid)
-            .orderBy('createdAt', descending: true),
+            .where('targetUid', isEqualTo: currentUid),
       );
 
       await addQuery(
         _firestore
             .collection('notifications')
-            .where('receiverUid', isEqualTo: currentUid)
-            .orderBy('createdAt', descending: true),
-      );
-
-      await addQuery(
-        _firestore
-            .collection('notifications')
-            .where('userUid', isEqualTo: currentUid)
-            .orderBy('createdAt', descending: true),
+            .where('createdByUid', isEqualTo: currentUid),
       );
     }
 
-    await addQuery(
-      _firestore
-          .collection('notifications')
-          .where('targetRole', isEqualTo: 'nursery_staff')
-          .orderBy('createdAt', descending: true),
-    );
+    const nurseryRoleValues = [
+      'nursery_staff',
+      'nursery',
+      'nursery staff',
+      'staff',
+      'employee',
+      'teacher',
+    ];
 
-    await addQuery(
-      _firestore
-          .collection('notifications')
-          .where('notificationFor', isEqualTo: 'nursery_staff')
-          .orderBy('createdAt', descending: true),
-    );
+    for (final role in nurseryRoleValues) {
+      await addQuery(
+        _firestore
+            .collection('notifications')
+            .where('targetRole', isEqualTo: role),
+      );
 
-    await addQuery(
-      _firestore
-          .collection('notifications')
-          .where('createdByRole', isEqualTo: 'nursery_staff')
-          .orderBy('createdAt', descending: true),
-    );
-
-    await addQuery(
-      _firestore
-          .collection('notifications')
-          .where('byRole', isEqualTo: 'nursery_staff')
-          .orderBy('createdAt', descending: true),
-    );
-
-    if (allDocs.isEmpty) {
-      final fallback = await _firestore
-          .collection('notifications')
-          .orderBy('createdAt', descending: true)
-          .limit(limit)
-          .get();
-
-      allDocs.addAll(fallback.docs);
+      await addQuery(
+        _firestore
+            .collection('notifications')
+            .where('notificationFor', isEqualTo: role),
+      );
     }
 
     final seen = <String>{};
@@ -740,11 +718,8 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
     }
 
     unique.sort((a, b) {
-      final aData = a.data();
-      final bData = b.data();
-
-      final aTime = _resolveNotificationTimestamp(aData);
-      final bTime = _resolveNotificationTimestamp(bData);
+      final aTime = _resolveNotificationTimestamp(a.data());
+      final bTime = _resolveNotificationTimestamp(b.data());
 
       if (aTime == null && bTime == null) return 0;
       if (aTime == null) return 1;
@@ -2667,6 +2642,16 @@ class _NurseryNotificationsPageState extends State<_NurseryNotificationsPage> {
                 const SizedBox(height: 12),
                 if (snapshot.connectionState == ConnectionState.waiting)
                   const Center(child: CircularProgressIndicator())
+                else if (snapshot.hasError)
+                  const Card(
+                    child: Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Text(
+                        'تعذر تحميل الإشعارات. اسحب للأسفل للمحاولة مرة أخرى.',
+                        style: TextStyle(color: AppColors.textLight),
+                      ),
+                    ),
+                  )
                 else if (items.isEmpty)
                   const Card(
                     child: Padding(

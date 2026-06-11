@@ -354,24 +354,50 @@ if (parentUid.isNotEmpty || parentUsername.isNotEmpty || childId.isNotEmpty) {
                         const Text('لا يوجد أطفال دائمون متاحون لإضافة ساعات إضافية.')
                       else
                         DropdownButtonFormField<String>(
-                          value: selectedChild?['id'],
+                          value: selectedChild?['id']?.toString(),
+                          isExpanded: true,
+                          menuMaxHeight: 360,
                           decoration: customDecoration(
                             label: 'الطفل',
                             icon: Icons.child_care_rounded,
                           ),
+
                           items: children.map((child) {
                             return DropdownMenuItem<String>(
-                              value: child['id'] as String,
-                              child: Text(childLabel(child)),
+                              value: child['id'].toString(),
+                              child: Text(
+                                childLabel(child),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.right,
+                              ),
                             );
                           }).toList(),
+
+                          selectedItemBuilder: (context) {
+                            return children.map((child) {
+                              return Align(
+                                alignment: Alignment.centerRight,
+                                child: Text(
+                                  (child['name'] ?? 'طفل بدون اسم').toString(),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.right,
+                                ),
+                              );
+                            }).toList();
+                          },
+
                           onChanged: (value) {
+                            if (value == null) return;
+
                             setState(() {
                               selectedChild = children.firstWhere(
-                                (child) => child['id'] == value,
+                                (child) => child['id'].toString() == value,
                               );
                             });
                           },
+
                           validator: (value) {
                             if (value == null || value.isEmpty) {
                               return 'اختر الطفل';

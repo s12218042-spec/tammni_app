@@ -9,6 +9,14 @@ import '../theme/app_theme.dart';
 import '../widgets/app_page_scaffold.dart';
 import 'entry_exit_log_page.dart';
 
+double sheetBottomSafePadding(BuildContext context) {
+  final mediaQuery = MediaQuery.of(context);
+
+  return mediaQuery.viewInsets.bottom +
+      mediaQuery.viewPadding.bottom +
+      16;
+}
+
 class ManageChildrenPage extends StatefulWidget {
   const ManageChildrenPage({super.key});
 
@@ -1099,7 +1107,7 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
                             controller: healthNotesCtrl,
                             maxLines: 3,
                             decoration: const InputDecoration(
-                              labelText: 'ملاحظات صحية عامة',
+                              labelText: 'ملاحظات صحية',
                               prefixIcon:
                                   Icon(Icons.health_and_safety_rounded),
                             ),
@@ -1772,7 +1780,7 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
                   left: 16,
                   right: 16,
                   top: 16,
-                  bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+                  bottom: sheetBottomSafePadding(sheetContext),
                 ),
                 child: SingleChildScrollView(
                   child: Column(
@@ -2620,7 +2628,7 @@ String temporaryChildSummary(Map<String, dynamic> child) {
                   left: 16,
                   right: 16,
                   top: 16,
-                  bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+                  bottom: sheetBottomSafePadding(sheetContext),
                 ),
                 child: SingleChildScrollView(
                   child: Column(
@@ -2927,7 +2935,7 @@ String temporaryChildSummary(Map<String, dynamic> child) {
                   left: 16,
                   right: 16,
                   top: 16,
-                  bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+                  bottom: sheetBottomSafePadding(sheetContext),
                 ),
                 child: SingleChildScrollView(
                   child: Column(
@@ -3996,7 +4004,7 @@ Wrap(
           controller: profile.healthNotesCtrl,
           maxLines: 3,
           decoration: const InputDecoration(
-            labelText: 'ملاحظات صحية عامة',
+            labelText: 'ملاحظات صحية',
             prefixIcon: Icon(Icons.health_and_safety_rounded),
           ),
         ),
@@ -4349,7 +4357,7 @@ Wrap(
                   left: 16,
                   right: 16,
                   top: 16,
-                  bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+                  bottom: sheetBottomSafePadding(sheetContext),
                 ),
                 child: SingleChildScrollView(
                   child: Column(
@@ -4989,14 +4997,21 @@ Wrap(
   }
 
   Future<void> _openAddChildOptions() async {
-    await showModalBottomSheet<void>(
-      context: context,
-      useSafeArea: true,
-      builder: (sheetContext) {
-        return Directionality(
-          textDirection: TextDirection.rtl,
-          child: Padding(
-            padding: const EdgeInsets.all(16),
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (sheetContext) {
+      return Directionality(
+        textDirection: TextDirection.rtl,
+        child: Padding(
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            top: 16,
+            bottom: sheetBottomSafePadding(sheetContext),
+          ),
+          child: SingleChildScrollView(
             child: Wrap(
               children: [
                 ListTile(
@@ -5048,11 +5063,11 @@ Wrap(
               ],
             ),
           ),
-        );
-      },
-    );
-  }
-
+        ),
+      );
+    },
+  );
+}
 
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
       _loadOfficialParents() async {
@@ -5142,7 +5157,7 @@ Wrap(
                   left: 16,
                   right: 16,
                   top: 16,
-                  bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+                  bottom: sheetBottomSafePadding(sheetContext),
                 ),
                 child: SingleChildScrollView(
                   child: Column(
