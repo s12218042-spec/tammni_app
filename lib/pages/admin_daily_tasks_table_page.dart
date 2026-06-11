@@ -18,8 +18,16 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  bool isSaving = false;
   final ScrollController _scrollController = ScrollController();
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _staffStream;
+
+  bool isSaving = false;
+  bool _existingTasksLoadScheduled = false;
+
+  String _searchQuery = '';
 
   final List<Map<String, String>> taskTypes = const [
     {'key': 'cleaning', 'label': 'تنظيف'},
@@ -34,6 +42,13 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
 
   final Map<String, Map<String, bool>> selectedTasks = {};
 
+  @override
+  void initState() {
+    super.initState();
+
+    _staffStream = _firestore.collection('users').snapshots();
+  }
+
   DateTime get today {
     final now = DateTime.now();
     return DateTime(now.year, now.month, now.day);
@@ -44,11 +59,13 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
     final y = d.year;
     final m = d.month.toString().padLeft(2, '0');
     final day = d.day.toString().padLeft(2, '0');
+
     return '$y-$m-$day';
   }
 
   String _clean(dynamic value) {
     if (value == null) return '';
+
     return value.toString().trim();
   }
 
@@ -56,8 +73,67 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
     return value.trim().replaceAll(RegExp(r'[^a-zA-Z0-9_\-]'), '_');
   }
 
+  String _normalizeSearchText(dynamic value) {
+    return _clean(value)
+        .toLowerCase()
+        .replaceAll(RegExp(r'[\u064B-\u065F\u0670]'), '')
+        .replaceAll(RegExp(r'[أإآٱ]'), 'ا')
+        .replaceAll('ؤ', 'و')
+        .replaceAll('ئ', 'ي')
+        .replaceAll('ى', 'ي')
+        .replaceAll('ة', 'ه')
+        .replaceAll(RegExp(r'[^a-z0-9\u0600-\u06FF]+'), '');
+  }
+
+  String _mapText(
+    Map<String, dynamic> data,
+    String mapKey,
+    String fieldKey,
+  ) {
+    final rawMap = data[mapKey];
+
+    if (rawMap is Map<String, dynamic>) {
+      return _clean(rawMap[fieldKey]);
+    }
+
+    if (rawMap is Map) {
+      return _clean(rawMap[fieldKey]);
+    }
+
+    return '';
+  }
+
+  bool _matchesSearch(Map<String, dynamic> data) {
+    final query = _normalizeSearchText(_searchQuery);
+
+    if (query.isEmpty) return true;
+
+    final values = [
+      _staffName(data),
+      data['username'],
+      data['email'],
+      data['phone'],
+      data['alternatePhone'],
+      data['alternativePhone'],
+      data['displayName'],
+      data['name'],
+      data['fullName'],
+      _mapText(data, 'personalInfo', 'phone'),
+      _mapText(data, 'personalInfo', 'alternatePhone'),
+      _mapText(data, 'personalInfo', 'alternativePhone'),
+      _mapText(data, 'professionalInfo', 'jobTitle'),
+      _mapText(data, 'professionalInfo', 'specialization'),
+      _mapText(data, 'professionalInfo', 'employmentType'),
+    ];
+
+    return values.any((value) {
+      return _normalizeSearchText(value).contains(query);
+    });
+  }
+
   bool _isNurseryStaff(Map<String, dynamic> data) {
     final role = _clean(data['role']).toLowerCase();
+
     return role == 'nursery_staff' ||
         role == 'nursery staff' ||
         role == 'nursery';
@@ -73,6 +149,7 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
     if (name.isNotEmpty) return name;
     if (fullName.isNotEmpty) return fullName;
     if (username.isNotEmpty) return username;
+
     return 'موظف بدون اسم';
   }
 
@@ -80,6 +157,7 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
     final firstDay = DateTime(date.year, 1, 1);
     final diff = date.difference(firstDay).inDays;
     final week = ((diff + firstDay.weekday) / 7).ceil();
+
     return '${date.year}-W${week.toString().padLeft(2, '0')}';
   }
 
@@ -118,7 +196,9 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
                             ? _clean(data['username'])
                             : 'الإدارة')
             .trim(),
-        'role': (_clean(data['role']).isNotEmpty ? _clean(data['role']) : 'admin')
+        'role': (_clean(data['role']).isNotEmpty
+                ? _clean(data['role'])
+                : 'admin')
             .trim(),
       };
     } catch (_) {
@@ -143,6 +223,7 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
 
       final chosen = taskTypes.where((task) {
         final key = task['key'] ?? '';
+
         return selectedTasks[uid]?[key] == true;
       }).toList();
 
@@ -151,10 +232,12 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
         'name': _staffName(data),
         'username': _clean(data['username']),
         'tasks': chosen
-            .map((task) => {
-                  'taskKey': task['key'] ?? '',
-                  'taskLabel': task['label'] ?? '',
-                })
+            .map(
+              (task) => {
+                'taskKey': task['key'] ?? '',
+                'taskLabel': task['label'] ?? '',
+              },
+            )
             .where((task) => _clean(task['taskKey']).isNotEmpty)
             .toList(),
       });
@@ -179,10 +262,13 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
 
       for (final taskDoc in snapshot.docs) {
         final data = taskDoc.data();
+
         final staffUid = _clean(data['staffUid']);
-        final taskKey = _clean(data['taskType'].toString().isNotEmpty
-            ? data['taskType']
-            : data['taskKey']);
+
+        final storedTaskType = _clean(data['taskType']);
+        final taskKey = storedTaskType.isNotEmpty
+            ? storedTaskType
+            : _clean(data['taskKey']);
 
         if (staffUid.isEmpty || taskKey.isEmpty) continue;
 
@@ -193,8 +279,14 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
         }
       }
 
-      if (mounted) setState(() {});
-    } catch (_) {}
+      if (!mounted) return;
+
+      setState(() {});
+    } catch (e) {
+      debugPrint(
+        'AdminDailyTasksTablePage: تعذر تحميل مهام اليوم الحالية: $e',
+      );
+    }
   }
 
   Future<void> _saveTasks(
@@ -204,22 +296,29 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
 
     final hasAnyTask = rows.any((row) {
       final tasks = row['tasks'];
+
       return tasks is List && tasks.isNotEmpty;
     });
 
     if (!hasAnyTask) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('اختر مهمة واحدة على الأقل')),
+        const SnackBar(
+          content: Text('اختر مهمة واحدة على الأقل'),
+        ),
       );
+
       return;
     }
 
     if (isSaving) return;
 
-    setState(() => isSaving = true);
+    setState(() {
+      isSaving = true;
+    });
 
     try {
       final adminInfo = await _currentAdminInfo();
+
       final adminUid = _clean(adminInfo['uid']);
       final adminName = _clean(adminInfo['name']).isEmpty
           ? 'الإدارة'
@@ -238,6 +337,7 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
           .get();
 
       WriteBatch batch = _firestore.batch();
+
       int operationCount = 0;
 
       for (final oldDoc in oldTasks.docs) {
@@ -258,12 +358,14 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
 
         if (operationCount >= 450) {
           await batch.commit();
+
           batch = _firestore.batch();
           operationCount = 0;
         }
       }
 
       int totalTasks = 0;
+
       final notificationRows = <Map<String, dynamic>>[];
 
       for (final doc in staffDocs) {
@@ -276,6 +378,7 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
 
         final chosen = taskTypes.where((task) {
           final key = task['key'] ?? '';
+
           return selectedTasks[uid]?[key] == true;
         }).toList();
 
@@ -291,7 +394,9 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
 
           final safeDocId =
               '${_docSafe(dateKey)}_${_docSafe(uid)}_${_docSafe(taskKey)}';
+
           final ref = _firestore.collection('staff_tasks').doc(safeDocId);
+
           final oldTaskDoc = await ref.get();
           final taskAlreadyExists = oldTaskDoc.exists;
 
@@ -302,36 +407,29 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
             'staffName': name,
             'staffUsername': username,
             'staffRole': 'nursery_staff',
-
             'title': taskLabel,
             'taskTitle': taskLabel,
             'taskType': taskKey,
             'taskKey': taskKey,
             'taskLabel': taskLabel,
-
             'taskStatus': 'pending',
             'status': 'pending',
             'statusLabel': 'بانتظار اعتماد الإدارة',
-
             'assignedDate': Timestamp.fromDate(today),
             'date': Timestamp.fromDate(today),
             'dateKey': dateKey,
             'assignedWeekKey': _weekKey(today),
-
             'isActive': true,
             'removedFromSchedule': false,
-
             'createdByUid': adminUid,
             'createdByName': adminName,
             'createdByRole': adminRole,
             'assignedByUid': adminUid,
             'assignedByName': adminName,
             'assignedByRole': adminRole,
-
             'updatedByUid': adminUid,
             'updatedByName': adminName,
             'updatedByRole': adminRole,
-
             'updatedAt': FieldValue.serverTimestamp(),
           };
 
@@ -339,13 +437,20 @@ class _AdminDailyTasksTablePageState extends State<AdminDailyTasksTablePage> {
             taskData['createdAt'] = FieldValue.serverTimestamp();
           }
 
-batch.set(ref, taskData, SetOptions(merge: true));
+          batch.set(
+            ref,
+            taskData,
+            SetOptions(merge: true),
+          );
+
           labelsForNotification.add(taskLabel);
+
           operationCount++;
           totalTasks++;
 
           if (operationCount >= 450) {
             await batch.commit();
+
             batch = _firestore.batch();
             operationCount = 0;
           }
@@ -361,8 +466,9 @@ batch.set(ref, taskData, SetOptions(merge: true));
         }
       }
 
-      final scheduleRef =
-          _firestore.collection('daily_staff_task_schedules').doc(dateKey);
+      final scheduleRef = _firestore
+          .collection('daily_staff_task_schedules')
+          .doc(dateKey);
 
       final oldScheduleDoc = await scheduleRef.get();
       final scheduleAlreadyExists = oldScheduleDoc.exists;
@@ -387,7 +493,11 @@ batch.set(ref, taskData, SetOptions(merge: true));
         scheduleData['createdAt'] = FieldValue.serverTimestamp();
       }
 
-      batch.set(scheduleRef, scheduleData, SetOptions(merge: true));
+      batch.set(
+        scheduleRef,
+        scheduleData,
+        SetOptions(merge: true),
+      );
 
       await batch.commit();
 
@@ -397,6 +507,7 @@ batch.set(ref, taskData, SetOptions(merge: true));
         final staffUsername = _clean(row['staffUsername']);
 
         final rawTasks = row['tasks'];
+
         final taskLabels = rawTasks is List
             ? rawTasks
                 .map((e) => e.toString())
@@ -432,25 +543,33 @@ batch.set(ref, taskData, SetOptions(merge: true));
             },
           );
         } catch (e) {
-  debugPrint(
-    'AdminDailyTasksTablePage: فشل إرسال إشعار مهام اليوم للموظف $staffUid: $e',
-  );
-}
+          debugPrint(
+            'AdminDailyTasksTablePage: فشل إرسال إشعار مهام اليوم للموظف $staffUid: $e',
+          );
+        }
       }
 
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم حفظ المهام')),
+        const SnackBar(
+          content: Text('تم حفظ المهام'),
+        ),
       );
     } catch (e) {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذر حفظ المهام: $e')),
+        SnackBar(
+          content: Text('تعذر حفظ المهام: $e'),
+        ),
       );
     } finally {
-      if (mounted) setState(() => isSaving = false);
+      if (mounted) {
+        setState(() {
+          isSaving = false;
+        });
+      }
     }
   }
 
@@ -482,12 +601,14 @@ batch.set(ref, taskData, SetOptions(merge: true));
                   headers: ['الموظف', 'المهام'],
                   data: rows.map((row) {
                     final tasksList = row['tasks'];
+
                     final tasks = tasksList is List
                         ? tasksList
                             .map((item) {
                               if (item is Map) {
                                 return _clean(item['taskLabel']);
                               }
+
                               return _clean(item);
                             })
                             .where((e) => e.isNotEmpty)
@@ -507,16 +628,23 @@ batch.set(ref, taskData, SetOptions(merge: true));
       ),
     );
 
-    await Printing.layoutPdf(onLayout: (_) async => pdf.save());
+    await Printing.layoutPdf(
+      onLayout: (_) async => pdf.save(),
+    );
   }
 
   @override
   void dispose() {
     _scrollController.dispose();
+    _searchController.dispose();
+    _searchFocusNode.dispose();
+
     super.dispose();
   }
 
-  Widget _buildStaffCard(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+  Widget _buildStaffCard(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
     final data = doc.data();
     final uid = doc.id;
     final name = _staffName(data);
@@ -526,7 +654,9 @@ batch.set(ref, taskData, SetOptions(merge: true));
 
     return Card(
       margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
@@ -534,7 +664,9 @@ batch.set(ref, taskData, SetOptions(merge: true));
           children: [
             Row(
               children: [
-                const CircleAvatar(child: Icon(Icons.person)),
+                const CircleAvatar(
+                  child: Icon(Icons.person),
+                ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
@@ -552,7 +684,9 @@ batch.set(ref, taskData, SetOptions(merge: true));
                         Text(
                           '@$username',
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: Colors.grey),
+                          style: const TextStyle(
+                            color: Colors.grey,
+                          ),
                         ),
                     ],
                   ),
@@ -570,7 +704,9 @@ batch.set(ref, taskData, SetOptions(merge: true));
                 return FilterChip(
                   label: Text(
                     label,
-                    style: const TextStyle(height: 1.25),
+                    style: const TextStyle(
+                      height: 1.25,
+                    ),
                   ),
                   selected: selectedTasks[uid]?[key] ?? false,
                   onSelected: isSaving
@@ -594,7 +730,9 @@ batch.set(ref, taskData, SetOptions(merge: true));
   ) {
     return Card(
       margin: const EdgeInsets.all(12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
@@ -608,14 +746,20 @@ batch.set(ref, taskData, SetOptions(merge: true));
                   child: Text(
                     'مهام اليوم: $dateKey',
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 10),
             OutlinedButton.icon(
-              onPressed: isSaving ? null : () => _printTasks(staffDocs),
+              onPressed: isSaving
+                  ? null
+                  : () {
+                      _printTasks(staffDocs);
+                    },
               icon: const Icon(Icons.print),
               label: const Text('طباعة جدول اليوم'),
             ),
@@ -625,37 +769,104 @@ batch.set(ref, taskData, SetOptions(merge: true));
     );
   }
 
+  Widget _buildSearchSection({
+    required int totalStaffCount,
+    required int visibleStaffCount,
+  }) {
+    return Card(
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          children: [
+            TextField(
+              controller: _searchController,
+              focusNode: _searchFocusNode,
+              textAlign: TextAlign.right,
+              decoration: InputDecoration(
+                hintText: 'ابحث باسم الموظف أو اسم المستخدم أو رقم الهاتف',
+                prefixIcon: const Icon(Icons.search_rounded),
+                suffixIcon: _searchQuery.trim().isEmpty
+                    ? null
+                    : IconButton(
+                        onPressed: () {
+                          _searchController.clear();
+
+                          setState(() {
+                            _searchQuery = '';
+                          });
+
+                          _searchFocusNode.requestFocus();
+                        },
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              onChanged: (value) {
+                setState(() {
+                  _searchQuery = value;
+                });
+              },
+            ),
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerRight,
+              child: Text(
+                _searchQuery.trim().isEmpty
+                    ? 'عدد الموظفين: $totalStaffCount'
+                    : 'النتائج الظاهرة: $visibleStaffCount من $totalStaffCount',
+                style: const TextStyle(
+                  color: Colors.grey,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildSaveButton(
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> staffDocs,
-) {
-  return SafeArea(
-    top: false,
-    child: Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-      child: SizedBox(
-        width: double.infinity,
-        height: 58,
-        child: ElevatedButton.icon(
-          onPressed: isSaving ? null : () => _saveTasks(staffDocs),
-          icon: isSaving
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                )
-              : const Icon(Icons.save),
-          label: Text(
-            isSaving ? 'جاري الحفظ...' : 'حفظ مهام اليوم',
-            maxLines: 1,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> staffDocs,
+  ) {
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+        child: SizedBox(
+          width: double.infinity,
+          height: 58,
+          child: ElevatedButton.icon(
+            onPressed: isSaving
+                ? null
+                : () {
+                    _saveTasks(staffDocs);
+                  },
+            icon: isSaving
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.save),
+            label: Text(
+              isSaving ? 'جاري الحفظ...' : 'حفظ مهام اليوم',
+              maxLines: 1,
+            ),
           ),
         ),
       ),
-    ),
-  );
-}
+    );
+  }
 
   Widget _buildErrorState(Object? error) {
     return const Center(
@@ -685,27 +896,65 @@ batch.set(ref, taskData, SetOptions(merge: true));
     );
   }
 
-  Widget _buildContent(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> staffDocs,
-  ) {
+  Widget _buildNoSearchResultsState() {
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.search_off_rounded,
+              size: 42,
+              color: Colors.grey,
+            ),
+            SizedBox(height: 10),
+            Text(
+              'لا توجد نتائج مطابقة للبحث',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.grey,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildContent({
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> allStaffDocs,
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> visibleStaffDocs,
+  }) {
     return Column(
       children: [
-        _buildDateSection(staffDocs),
-        Expanded(
-          child: Scrollbar(
-            controller: _scrollController,
-            thumbVisibility: true,
-            child: ListView.builder(
-              controller: _scrollController,
-              padding: const EdgeInsets.only(bottom: 8),
-              itemCount: staffDocs.length,
-              itemBuilder: (context, index) {
-                return _buildStaffCard(staffDocs[index]);
-              },
-            ),
-          ),
+        _buildDateSection(allStaffDocs),
+        _buildSearchSection(
+          totalStaffCount: allStaffDocs.length,
+          visibleStaffCount: visibleStaffDocs.length,
         ),
-        _buildSaveButton(staffDocs),
+        Expanded(
+          child: visibleStaffDocs.isEmpty
+              ? _buildNoSearchResultsState()
+              : Scrollbar(
+                  controller: _scrollController,
+                  thumbVisibility: true,
+                  child: ListView.builder(
+                    controller: _scrollController,
+                    keyboardDismissBehavior:
+                        ScrollViewKeyboardDismissBehavior.onDrag,
+                    padding: const EdgeInsets.only(bottom: 8),
+                    itemCount: visibleStaffDocs.length,
+                    itemBuilder: (context, index) {
+                      return _buildStaffCard(
+                        visibleStaffDocs[index],
+                      );
+                    },
+                  ),
+                ),
+        ),
+        _buildSaveButton(allStaffDocs),
       ],
     );
   }
@@ -721,14 +970,17 @@ batch.set(ref, taskData, SetOptions(merge: true));
           centerTitle: true,
         ),
         body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: _firestore.collection('users').snapshots(),
+          stream: _staffStream,
           builder: (context, snapshot) {
             if (snapshot.hasError) {
               return _buildErrorState(snapshot.error);
             }
 
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
+            if (snapshot.connectionState == ConnectionState.waiting &&
+                !snapshot.hasData) {
+              return const Center(
+                child: CircularProgressIndicator(),
+              );
             }
 
             final docs = snapshot.data?.docs ?? [];
@@ -737,8 +989,10 @@ batch.set(ref, taskData, SetOptions(merge: true));
               final data = doc.data();
 
               final isActive = data['isActive'] != false;
-              final accountStatus = _clean(data['accountStatus']).toLowerCase();
-              final isLiveStreamStation = data['isLiveStreamStation'] == true;
+              final accountStatus =
+                  _clean(data['accountStatus']).toLowerCase();
+              final isLiveStreamStation =
+                  data['isLiveStreamStation'] == true;
 
               return isActive &&
                   accountStatus != 'archived' &&
@@ -749,6 +1003,7 @@ batch.set(ref, taskData, SetOptions(merge: true));
             staffDocs.sort((a, b) {
               final aName = _staffName(a.data());
               final bName = _staffName(b.data());
+
               return aName.compareTo(bName);
             });
 
@@ -756,13 +1011,24 @@ batch.set(ref, taskData, SetOptions(merge: true));
               return _buildEmptyStaffState();
             }
 
-            if (selectedTasks.isEmpty) {
+            if (!_existingTasksLoadScheduled) {
+              _existingTasksLoadScheduled = true;
+
               WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted) return;
+
                 _loadExistingTasks(staffDocs);
               });
             }
 
-            return _buildContent(staffDocs);
+            final visibleStaffDocs = staffDocs.where((doc) {
+              return _matchesSearch(doc.data());
+            }).toList();
+
+            return _buildContent(
+              allStaffDocs: staffDocs,
+              visibleStaffDocs: visibleStaffDocs,
+            );
           },
         ),
       ),

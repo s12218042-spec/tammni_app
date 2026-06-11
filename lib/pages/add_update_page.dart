@@ -611,14 +611,19 @@ Future<void> pickFromGallery(String mediaType) async {
 
   String buildNotificationBody() {
     final finalNote = buildFinalNote().trim();
+    final childName = widget.child.name.trim().isEmpty
+        ? 'الطفل'
+        : widget.child.name.trim();
 
     if (type == 'مستلزمات') {
       return finalNote.isEmpty
-          ? 'يرجى تزويد ${widget.child.name} بالمستلزمات المطلوبة.'
-          : 'يرجى تزويد ${widget.child.name} بـ: $finalNote';
+          ? 'الطفل: $childName - يرجى تزويده بالمستلزمات المطلوبة.'
+          : 'الطفل: $childName - المستلزمات المطلوبة: $finalNote';
     }
 
-    return finalNote;
+    return finalNote.isEmpty
+        ? 'الطفل: $childName - يوجد تحديث جديد.'
+        : 'الطفل: $childName - $finalNote';
   }
 
   bool _validateBeforeSave() {
@@ -911,8 +916,6 @@ if (canNotifyParent) {
         values: const [
           'تم التبديل',
           'تم التنظيف',
-          'يحتاج متابعة',
-          'تم التبديل مع ملاحظة',
         ],
         selectedValue: diaperStatus,
         onSelected: (value) {

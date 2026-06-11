@@ -40,12 +40,23 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
 
   final editNotesCtrl = TextEditingController();
   final TextEditingController _searchCtrl = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _usersStream;
 
   final Set<String> selectedRoleFilters = {};
   final Set<String> selectedStatusFilters = {};
   String searchText = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _usersStream = _firestore
+        .collection('users')
+        .orderBy('createdAt', descending: true)
+        .snapshots();
+  }
 
   @override
   void dispose() {
@@ -74,6 +85,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
 
     editNotesCtrl.dispose();
     _searchCtrl.dispose();
+    _searchFocusNode.dispose();
     super.dispose();
   }
 
@@ -543,13 +555,6 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
     final clean = value.replaceAll(' ', '');
     return RegExp(r'^(059|056|052)\d{7}$').hasMatch(clean) ||
         RegExp(r'^(\+97059|\+97056|\+97052)\d{7}$').hasMatch(clean);
-  }
-
-  Stream<QuerySnapshot<Map<String, dynamic>>> usersStream() {
-    return _firestore
-        .collection('users')
-        .orderBy('createdAt', descending: true)
-        .snapshots();
   }
 
   void toggleRoleFilter(String value) {
@@ -1980,6 +1985,7 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
           children: [
             TextField(
               controller: _searchCtrl,
+              focusNode: _searchFocusNode,
               textAlign: TextAlign.right,
               decoration: InputDecoration(
                 hintText: 'بحث',
@@ -2088,90 +2094,105 @@ class _ManageUsersPageState extends State<ManageUsersPage> {
   Widget build(BuildContext context) {
     return AppPageScaffold(
       title: 'إدارة المستخدمين',
-      child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: usersStream(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
+      child: Column(
+        children: [
+          buildFiltersCard(),
+          const SizedBox(height: 20),
+          Expanded(
+            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: _usersStream,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting &&
+                    !snapshot.hasData) {
+                  return const Center(
+                    child: CircularProgressIndicator(),
+                  );
+                }
 
-          if (snapshot.hasError) {
-            return Center(child: Text('حدث خطأ: ${snapshot.error}'));
-          }
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Text('حدث خطأ: ${snapshot.error}'),
+                  );
+                }
 
-          final docs = snapshot.data?.docs ?? [];
-          final filteredDocs = applyFilters(docs);
+                final docs = snapshot.data?.docs ?? [];
+                final filteredDocs = applyFilters(docs);
 
-          return ListView(
-            children: [
-              buildFiltersCard(),
-              const SizedBox(height: 20),
-              if (filteredDocs.isEmpty)
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Text(
-                      'لا توجد نتائج مطابقة حاليًا.',
-                      style: TextStyle(
-                        color: AppColors.textLight,
-                        fontSize: 15,
+                if (filteredDocs.isEmpty) {
+                  return const Card(
+                    child: Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Text(
+                        'لا توجد نتائج مطابقة حاليًا.',
+                        style: TextStyle(
+                          color: AppColors.textLight,
+                          fontSize: 15,
+                        ),
                       ),
                     ),
-                  ),
-                )
-              else
-                ...filteredDocs.map((doc) {
-                  final u = doc.data();
-                  final userRole = (u['role'] ?? '').toString();
-                  final name =
-                      (u['displayName'] ?? u['name'] ?? 'بدون اسم').toString();
-                  final username =
-                      (u['username'] ?? '').toString().trim().toLowerCase();
-                  final email = (u['email'] ?? '').toString();
-                  final phone = extractPhone(u);
-                  final statusText = accountStatusLabel(u);
-                  final isActive = (u['isActive'] ?? true) == true;
-
-                  return _UserCard(
-                    name: name,
-                    email: email,
-                    roleText: roleLabel(userRole),
-                    roleColor: roleColor(userRole),
-                    icon: roleIcon(userRole),
-                    username: username,
-                    phone: phone,
-                    statusText: statusText,
-                    statusColor: accountStatusColor(u),
-                    isActive: isActive,
-                    onViewDetails: () async {
-                      await openUserDetailsDialog(
-                        docId: doc.id,
-                        userData: u,
-                      );
-                    },
-                    onToggleActive: () async {
-                      await toggleUserActive(
-                        uid: doc.id,
-                        currentValue: isActive,
-                        userName: name,
-                        username: username,
-                        roleValue: userRole,
-                      );
-                    },
-                    onEdit: () async {
-                      await openEditDialog(
-                        docId: doc.id,
-                        userData: u,
-                      );
-                    },
                   );
-                }),
-            ],
-          );
-        },
+                }
+
+                return ListView.builder(
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
+                  itemCount: filteredDocs.length,
+                  itemBuilder: (context, index) {
+                    final doc = filteredDocs[index];
+                    final u = doc.data();
+                    final userRole = (u['role'] ?? '').toString();
+                    final name =
+                        (u['displayName'] ?? u['name'] ?? 'بدون اسم').toString();
+                    final username =
+                        (u['username'] ?? '').toString().trim().toLowerCase();
+                    final email = (u['email'] ?? '').toString();
+                    final phone = extractPhone(u);
+                    final statusText = accountStatusLabel(u);
+                    final isActive = (u['isActive'] ?? true) == true;
+
+                    return _UserCard(
+                      name: name,
+                      email: email,
+                      roleText: roleLabel(userRole),
+                      roleColor: roleColor(userRole),
+                      icon: roleIcon(userRole),
+                      username: username,
+                      phone: phone,
+                      statusText: statusText,
+                      statusColor: accountStatusColor(u),
+                      isActive: isActive,
+                      onViewDetails: () async {
+                        await openUserDetailsDialog(
+                          docId: doc.id,
+                          userData: u,
+                        );
+                      },
+                      onToggleActive: () async {
+                        await toggleUserActive(
+                          uid: doc.id,
+                          currentValue: isActive,
+                          userName: name,
+                          username: username,
+                          roleValue: userRole,
+                        );
+                      },
+                      onEdit: () async {
+                        await openEditDialog(
+                          docId: doc.id,
+                          userData: u,
+                        );
+                      },
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
+
 }
 
 class _UserCard extends StatelessWidget {

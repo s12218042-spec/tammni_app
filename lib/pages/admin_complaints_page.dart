@@ -18,6 +18,9 @@ class _AdminComplaintsPageState extends State<AdminComplaintsPage> {
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _complaintsStream;
 
   String _searchQuery = '';
   final Set<String> _selectedStatuses = {};
@@ -30,8 +33,18 @@ class _AdminComplaintsPageState extends State<AdminComplaintsPage> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _complaintsStream = _firestore
+        .collection('complaints')
+        .orderBy('createdAt', descending: true)
+        .snapshots();
+  }
+
+  @override
   void dispose() {
     _searchController.dispose();
+    _searchFocusNode.dispose();
     super.dispose();
   }
 
@@ -593,239 +606,262 @@ class _AdminComplaintsPageState extends State<AdminComplaintsPage> {
   Widget build(BuildContext context) {
     return AppPageScaffold(
       title: 'شكاوى أولياء الأمور',
-      child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: _firestore
-            .collection('complaints')
-            .orderBy('createdAt', descending: true)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(
-              child: CircularProgressIndicator(),
-            );
-          }
+      child: Column(
+        children: [
+          _buildSearchAndFilters(),
+          const SizedBox(height: 16),
+          Expanded(
+            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: _complaintsStream,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting &&
+                    !snapshot.hasData) {
+                  return const Center(
+                    child: CircularProgressIndicator(),
+                  );
+                }
 
-          if (snapshot.hasError) {
-            return Center(
-              child: Text('حدث خطأ أثناء تحميل الشكاوى: ${snapshot.error}'),
-            );
-          }
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Text(
+                      'حدث خطأ أثناء تحميل الشكاوى: ${snapshot.error}',
+                    ),
+                  );
+                }
 
-          final allDocs = snapshot.data?.docs ?? [];
-          final docs = _applyFilters(allDocs);
+                final allDocs = snapshot.data?.docs ?? [];
+                final docs = _applyFilters(allDocs);
 
-          return RefreshIndicator(
-            onRefresh: () async {
-              setState(() {});
-            },
-            child: ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              children: [
-                _buildTopSummary(allDocs, docs),
-                const SizedBox(height: 16),
-                _buildSearchAndFilters(),
-                const SizedBox(height: 16),
-                if (docs.isEmpty)
-                  _buildEmptyState()
-                else
-                  ...docs.map((doc) {
-                    final data = doc.data();
-                    final title =
-                        _safeText(data['title'], fallback: 'شكوى بدون عنوان');
-                    final message = _safeText(data['message']);
-                    final parentName = _safeText(
-                      data['parentName'],
-                      fallback: 'وليّ أمر غير محدد',
-                    );
-                    final parentUsername = _safeText(data['parentUsername']);
-                    final status =
-                        _safeText(data['status'], fallback: 'pending');
+                return RefreshIndicator(
+                  onRefresh: () async {
+                    setState(() {});
+                  },
+                  child: ListView(
+                    keyboardDismissBehavior:
+                        ScrollViewKeyboardDismissBehavior.onDrag,
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      _buildTopSummary(allDocs, docs),
+                      const SizedBox(height: 16),
+                      if (docs.isEmpty)
+                        _buildEmptyState()
+                      else
+                        ...docs.map((doc) {
+                          final data = doc.data();
+                          final title = _safeText(
+                            data['title'],
+                            fallback: 'شكوى بدون عنوان',
+                          );
+                          final message = _safeText(data['message']);
+                          final parentName = _safeText(
+                            data['parentName'],
+                            fallback: 'وليّ أمر غير محدد',
+                          );
+                          final parentUsername =
+                              _safeText(data['parentUsername']);
+                          final status =
+                              _safeText(data['status'], fallback: 'pending');
 
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(14),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  CircleAvatar(
-                                    backgroundColor:
-                                        _statusColor(status).withOpacity(0.12),
-                                    child: Icon(
-                                      _statusIcon(status),
-                                      color: _statusColor(status),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: Card(
+                              child: Padding(
+                                padding: const EdgeInsets.all(14),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
                                       children: [
-                                        Text(
-                                          title,
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.w800,
-                                            fontSize: 15.5,
-                                            color: AppColors.textDark,
+                                        CircleAvatar(
+                                          backgroundColor: _statusColor(status)
+                                              .withOpacity(0.12),
+                                          child: Icon(
+                                            _statusIcon(status),
+                                            color: _statusColor(status),
                                           ),
                                         ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          parentUsername.isNotEmpty
-                                              ? '$parentName • @$parentUsername'
-                                              : parentName,
-                                          style: const TextStyle(
-                                            color: AppColors.textLight,
-                                            fontWeight: FontWeight.w600,
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                title,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w800,
+                                                  fontSize: 15.5,
+                                                  color: AppColors.textDark,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                parentUsername.isNotEmpty
+                                                    ? '$parentName • @$parentUsername'
+                                                    : parentName,
+                                                style: const TextStyle(
+                                                  color: AppColors.textLight,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                            vertical: 6,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: _statusColor(status)
+                                                .withOpacity(0.10),
+                                            borderRadius:
+                                                BorderRadius.circular(12),
+                                          ),
+                                          child: Text(
+                                            _statusLabel(status),
+                                            style: TextStyle(
+                                              color: _statusColor(status),
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 12.5,
+                                            ),
                                           ),
                                         ),
                                       ],
                                     ),
-                                  ),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 6,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color:
-                                          _statusColor(status).withOpacity(0.10),
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: Text(
-                                      _statusLabel(status),
-                                      style: TextStyle(
-                                        color: _statusColor(status),
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 12.5,
+                                    const SizedBox(height: 12),
+                                    Container(
+                                      width: double.infinity,
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.background,
+                                        borderRadius:
+                                            BorderRadius.circular(14),
                                       ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 12),
-                              Container(
-                                width: double.infinity,
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: AppColors.background,
-                                  borderRadius: BorderRadius.circular(14),
-                                ),
-                                child: Text(
-                                  message.isEmpty
-                                      ? 'لا يوجد وصف مرفق للشكوى'
-                                      : message,
-                                  maxLines: 3,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: AppColors.textDark,
-                                    height: 1.5,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ),
-                              if (_safeText(data['adminReply']).isNotEmpty) ...[
-                                const SizedBox(height: 10),
-                                Container(
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.primary.withOpacity(0.06),
-                                    borderRadius: BorderRadius.circular(14),
-                                    border: Border.all(
-                                      color: AppColors.primary.withOpacity(0.12),
-                                    ),
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      const Text(
-                                        'آخر رد من الإدارة',
-                                        style: TextStyle(
-                                          color: AppColors.primary,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 6),
-                                      Text(
-                                        _safeText(data['adminReply']),
-                                        maxLines: 2,
+                                      child: Text(
+                                        message.isEmpty
+                                            ? 'لا يوجد وصف مرفق للشكوى'
+                                            : message,
+                                        maxLines: 3,
                                         overflow: TextOverflow.ellipsis,
                                         style: const TextStyle(
                                           color: AppColors.textDark,
-                                          height: 1.4,
+                                          height: 1.5,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ),
+                                    if (_safeText(data['adminReply'])
+                                        .isNotEmpty) ...[
+                                      const SizedBox(height: 10),
+                                      Container(
+                                        width: double.infinity,
+                                        padding: const EdgeInsets.all(12),
+                                        decoration: BoxDecoration(
+                                          color: AppColors.primary
+                                              .withOpacity(0.06),
+                                          borderRadius:
+                                              BorderRadius.circular(14),
+                                          border: Border.all(
+                                            color: AppColors.primary
+                                                .withOpacity(0.12),
+                                          ),
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            const Text(
+                                              'آخر رد من الإدارة',
+                                              style: TextStyle(
+                                                color: AppColors.primary,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 6),
+                                            Text(
+                                              _safeText(data['adminReply']),
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                color: AppColors.textDark,
+                                                height: 1.4,
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ),
                                     ],
-                                  ),
+                                    const SizedBox(height: 10),
+                                    Row(
+                                      children: [
+                                        const Icon(
+                                          Icons.access_time_rounded,
+                                          size: 16,
+                                          color: AppColors.textLight,
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          _formatDate(data['createdAt']),
+                                          style: const TextStyle(
+                                            color: AppColors.textLight,
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 12.5,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: OutlinedButton.icon(
+                                            onPressed: () {
+                                              _showComplaintDetails(
+                                                docId: doc.id,
+                                                data: data,
+                                              );
+                                            },
+                                            icon: const Icon(
+                                              Icons.visibility_outlined,
+                                            ),
+                                            label:
+                                                const Text('عرض التفاصيل'),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: ElevatedButton.icon(
+                                            onPressed: () {
+                                              _showComplaintDetails(
+                                                docId: doc.id,
+                                                data: data,
+                                              );
+                                            },
+                                            icon: const Icon(
+                                              Icons.edit_note_rounded,
+                                            ),
+                                            label:
+                                                const Text('مراجعة الشكوى'),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
                                 ),
-                              ],
-                              const SizedBox(height: 10),
-                              Row(
-                                children: [
-                                  const Icon(
-                                    Icons.access_time_rounded,
-                                    size: 16,
-                                    color: AppColors.textLight,
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    _formatDate(data['createdAt']),
-                                    style: const TextStyle(
-                                      color: AppColors.textLight,
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 12.5,
-                                    ),
-                                  ),
-                                ],
                               ),
-                              const SizedBox(height: 12),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: OutlinedButton.icon(
-                                      onPressed: () {
-                                        _showComplaintDetails(
-                                          docId: doc.id,
-                                          data: data,
-                                        );
-                                      },
-                                      icon:
-                                          const Icon(Icons.visibility_outlined),
-                                      label: const Text('عرض التفاصيل'),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: ElevatedButton.icon(
-                                      onPressed: () {
-                                        _showComplaintDetails(
-                                          docId: doc.id,
-                                          data: data,
-                                        );
-                                      },
-                                      icon: const Icon(Icons.edit_note_rounded),
-                                      label: const Text('مراجعة الشكوى'),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    );
-                  }),
-                const SizedBox(height: 12),
-              ],
+                            ),
+                          );
+                        }),
+                      const SizedBox(height: 12),
+                    ],
+                  ),
+                );
+              },
             ),
-          );
-        },
+          ),
+        ],
       ),
     );
   }
@@ -968,6 +1004,7 @@ class _AdminComplaintsPageState extends State<AdminComplaintsPage> {
           children: [
             TextField(
               controller: _searchController,
+              focusNode: _searchFocusNode,
               onChanged: (value) {
                 setState(() {
                   _searchQuery = value;

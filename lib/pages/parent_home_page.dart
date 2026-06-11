@@ -43,9 +43,38 @@ class _ParentHomePageState extends State<ParentHomePage> {
 
   int selectedIndex = 0;
 
+  late Future<List<ChildModel>> _childrenFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _childrenFuture = fetchChildren();
+  }
+
+  @override
+  void didUpdateWidget(covariant ParentHomePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.parentUsername.trim().toLowerCase() !=
+        widget.parentUsername.trim().toLowerCase()) {
+      _childrenFuture = fetchChildren();
+    }
+  }
+
   Future<void> _refreshPage() async {
+    final newFuture = fetchChildren();
+
     if (!mounted) return;
-    setState(() {});
+
+    setState(() {
+      _childrenFuture = newFuture;
+    });
+
+    try {
+      await newFuture;
+    } catch (_) {
+      // سيعرض FutureBuilder رسالة الخطأ داخل الصفحة.
+    }
   }
 
   String childAgeText(DateTime? birthDate) {
@@ -210,7 +239,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
     );
 
     if (!mounted) return;
-    setState(() {});
+    await _refreshPage();
   }
 
   Future<void> _openUpdates(ChildModel child) async {
@@ -220,7 +249,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
     );
 
     if (!mounted) return;
-    setState(() {});
+    await _refreshPage();
   }
 
   Future<void> _openChats(List<ChildModel> children) async {
@@ -243,7 +272,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
     );
 
     if (!mounted) return;
-    setState(() {});
+    await _refreshPage();
   }
 
   Future<void> _openAddChildRequest() async {
@@ -259,7 +288,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
     }
 
     if (!mounted) return;
-    setState(() {});
+    await _refreshPage();
   }
 
   Future<void> _openInvoices() async {
@@ -273,7 +302,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
     );
 
     if (!mounted) return;
-    setState(() {});
+    await _refreshPage();
   }
 
   Future<void> _openNotifications() async {
@@ -287,7 +316,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
     );
 
     if (!mounted) return;
-    setState(() {});
+    await _refreshPage();
   }
 
   Future<void> _openConsultations() async {
@@ -301,7 +330,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
     );
 
     if (!mounted) return;
-    setState(() {});
+    await _refreshPage();
   }
 
 
@@ -416,7 +445,7 @@ Future<void> _requestLiveStreamForChildren(
     );
 
     if (!mounted) return;
-    setState(() {});
+    await _refreshPage();
   }
 
   Future<void> _logout() async {
@@ -626,7 +655,10 @@ Future<void> _requestLiveStreamForChildren(
       );
     }
 
-    return ParentChatsPage(children: children);
+    return ParentChatsPage(
+      key: const ValueKey('parent_chats_tab'),
+      children: children,
+    );
   }
 
   Widget _buildSettingsTab(List<ChildModel> children) {
@@ -688,7 +720,7 @@ Future<void> _requestLiveStreamForChildren(
                   );
 
                   if (!mounted) return;
-                  setState(() {});
+                  await _refreshPage();
                 },
               );
             },
@@ -834,7 +866,7 @@ Future<void> _requestLiveStreamForChildren(
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<ChildModel>>(
-      future: fetchChildren(),
+      future: _childrenFuture,
       builder: (context, snapshot) {
         Widget child;
 

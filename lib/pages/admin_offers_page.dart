@@ -174,10 +174,6 @@ class _AdminOffersPageState extends State<AdminOffersPage> {
                             value: 'two_children_offer',
                             child: Text('عرض طفلين'),
                           ),
-                          DropdownMenuItem(
-                            value: 'custom_offer',
-                            child: Text('عرض مخصص'),
-                          ),
                         ],
                         onChanged: (value) {
                           setDialogState(() {
@@ -437,8 +433,6 @@ class _AdminOffersPageState extends State<AdminOffersPage> {
         return 'عرض خاص';
       case 'two_children_offer':
         return 'عرض طفلين';
-      case 'custom_offer':
-        return 'عرض مخصص';
       default:
         return 'عرض';
     }
@@ -452,8 +446,6 @@ class _AdminOffersPageState extends State<AdminOffersPage> {
         return Icons.local_offer_rounded;
       case 'two_children_offer':
         return Icons.family_restroom_rounded;
-      case 'custom_offer':
-        return Icons.card_giftcard_rounded;
       default:
         return Icons.local_offer_outlined;
     }

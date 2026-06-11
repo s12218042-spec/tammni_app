@@ -31,10 +31,49 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
       AccountSettingsService();
 
   int selectedIndex = 0;
-  
-  String searchQuery = '';
-  String selectedStatusFilter = 'all';
 
+  late Future<_NurseryHomeData> _homeDataFuture;
+  late Future<_StaffGroupInfo?> _staffGroupFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _resetHomeDataFutures();
+  }
+
+  void _resetHomeDataFutures() {
+    _staffGroupFuture = fetchCurrentStaffGroup();
+    _homeDataFuture = _fetchHomeData();
+  }
+
+  Future<void> _refreshHomeData() async {
+    setState(() {
+      _resetHomeDataFutures();
+    });
+
+    await _homeDataFuture;
+  }
+
+  Future<_NurseryHomeData> _fetchHomeData() async {
+    final nurseryChildren = await fetchNurseryChildren();
+
+    final results = await Future.wait<dynamic>([
+      fetchTodayStats(nurseryChildren),
+      getChildrenNeedingUpdate(nurseryChildren),
+      fetchRecentNurseryActivities(nurseryChildren),
+      fetchTodayUpdatesSummary(nurseryChildren),
+    ]);
+
+    return _NurseryHomeData(
+      nurseryChildren: nurseryChildren,
+      stats: results[0] as Map<String, dynamic>,
+      childrenNeedingUpdate: results[1] as List<ChildModel>,
+      activities: results[2] as List<Map<String, dynamic>>,
+      latestUpdateByChild:
+          results[3] as Map<String, Map<String, dynamic>>,
+    );
+  }
+  
   DateTime get _todayDateOnly {
     final now = DateTime.now();
     return DateTime(now.year, now.month, now.day);
@@ -235,184 +274,199 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
   Future<ChildModel?> pickChild(List<ChildModel> children) async {
     if (children.isEmpty) return null;
 
-    return showModalBottomSheet<ChildModel>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-      ),
-      builder: (context) {
-        String localSearch = '';
-        String selectedGroup = 'all';
+    final searchController = TextEditingController();
+    final searchFocusNode = FocusNode();
 
-        final groups = <String>{
-          'all',
-          ...children.map((c) => c.group.isEmpty ? 'بدون مجموعة' : c.group),
-        }.toList();
+    try {
+      return await showModalBottomSheet<ChildModel>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+        ),
+        builder: (context) {
+          String localSearch = '';
+          String selectedGroup = 'all';
 
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            final query = localSearch.trim().toLowerCase();
+          final groups = <String>{
+            'all',
+            ...children.map((c) => c.group.isEmpty ? 'بدون مجموعة' : c.group),
+          }.toList();
 
-            final filtered = children.where((child) {
-              final groupName =
-                  child.group.isEmpty ? 'بدون مجموعة' : child.group;
+          return StatefulBuilder(
+            builder: (context, setModalState) {
+              final query = localSearch.trim().toLowerCase();
 
-              final searchValues = [
-                child.name,
-                child.parentName,
-                child.parentUsername,
-                groupName,
-              ].join(' ').toLowerCase();
+              final filtered = children.where((child) {
+                final groupName =
+                    child.group.isEmpty ? 'بدون مجموعة' : child.group;
 
-              final matchesSearch =
-                  query.isEmpty || searchValues.contains(query);
-              final matchesGroup =
-                  selectedGroup == 'all' || groupName == selectedGroup;
+                final searchValues = [
+                  child.name,
+                  child.parentName,
+                  child.parentUsername,
+                  groupName,
+                ].join(' ').toLowerCase();
 
-              return matchesSearch && matchesGroup;
-            }).toList();
+                final matchesSearch =
+                    query.isEmpty || searchValues.contains(query);
+                final matchesGroup =
+                    selectedGroup == 'all' || groupName == selectedGroup;
 
-            return SizedBox(
-              height: MediaQuery.of(context).size.height * 0.78,
-              child: Padding(
-                padding: EdgeInsets.only(
-                  left: 16,
-                  right: 16,
-                  top: 16,
-                  bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-                ),
-                child: Column(
-                  children: [
-                    Container(
-                      width: 44,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: AppColors.border,
-                        borderRadius: BorderRadius.circular(99),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    const Text(
-                      'اختيار الطفل',
-                      style: TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      autofocus: false,
-                      decoration: InputDecoration(
-                        hintText: 'بحث',
-                        prefixIcon: const Icon(Icons.search_rounded),
-                        suffixIcon: localSearch.isEmpty
-                            ? null
-                            : IconButton(
-                                onPressed: () {
-                                  setModalState(() {
-                                    localSearch = '';
-                                  });
-                                },
-                                icon: const Icon(Icons.close_rounded),
-                              ),
-                        filled: true,
-                        fillColor: AppColors.background,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: BorderSide.none,
+                return matchesSearch && matchesGroup;
+              }).toList();
+
+              return SizedBox(
+                height: MediaQuery.of(context).size.height * 0.78,
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    left: 16,
+                    right: 16,
+                    top: 16,
+                    bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        width: 44,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: AppColors.border,
+                          borderRadius: BorderRadius.circular(99),
                         ),
                       ),
-                      onChanged: (val) {
-                        setModalState(() {
-                          localSearch = val;
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 10),
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: groups.map((group) {
-                          final isSelected = group == selectedGroup;
-
-                          return Padding(
-                            padding: const EdgeInsetsDirectional.only(end: 8),
-                            child: ChoiceChip(
-                              label: Text(group == 'all' ? 'الكل' : group),
-                              selected: isSelected,
-                              onSelected: (_) {
-                                setModalState(() {
-                                  selectedGroup = group;
-                                });
-                              },
-                            ),
-                          );
-                        }).toList(),
+                      const SizedBox(height: 14),
+                      const Text(
+                        'اختيار الطفل',
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 10),
-                    Expanded(
-                      child: filtered.isEmpty
-                          ? const Center(child: Text('لا يوجد نتائج'))
-                          : ListView.separated(
-                              keyboardDismissBehavior:
-                                  ScrollViewKeyboardDismissBehavior.onDrag,
-                              itemCount: filtered.length,
-                              separatorBuilder: (_, __) =>
-                                  const Divider(height: 1),
-                              itemBuilder: (context, index) {
-                                final child = filtered[index];
-                                final groupName = child.group.isEmpty
-                                    ? 'بدون مجموعة'
-                                    : child.group;
-                                final parentName = child.parentName.trim();
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: searchController,
+                        focusNode: searchFocusNode,
+                        autofocus: false,
+                        decoration: InputDecoration(
+                          hintText: 'بحث',
+                          prefixIcon: const Icon(Icons.search_rounded),
+                          suffixIcon: localSearch.isEmpty
+                              ? null
+                              : IconButton(
+                                  onPressed: () {
+                                    searchController.clear();
 
-                                return ListTile(
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 4,
-                                    vertical: 6,
-                                  ),
-                                  leading: CircleAvatar(
-                                    backgroundColor:
-                                        AppColors.primary.withOpacity(0.12),
-                                    child: const Icon(
-                                      Icons.child_care_rounded,
-                                      color: AppColors.primary,
-                                    ),
-                                  ),
-                                  title: Text(
-                                    child.name,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                                  subtitle: Text(
-                                    parentName.isEmpty
-                                        ? groupName
-                                        : '$parentName • $groupName',
-                                  ),
-                                  trailing: const Icon(
-                                    Icons.arrow_forward_ios_rounded,
-                                    size: 16,
-                                  ),
-                                  onTap: () {
-                                    FocusScope.of(context).unfocus();
-                                    Navigator.pop(context, child);
+                                    setModalState(() {
+                                      localSearch = '';
+                                    });
+
+                                    searchFocusNode.requestFocus();
                                   },
-                                );
-                              },
-                            ),
-                    ),
-                  ],
+                                  icon: const Icon(Icons.close_rounded),
+                                ),
+                          filled: true,
+                          fillColor: AppColors.background,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                        onChanged: (value) {
+                          setModalState(() {
+                            localSearch = value;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: groups.map((group) {
+                            final isSelected = group == selectedGroup;
+
+                            return Padding(
+                              padding:
+                                  const EdgeInsetsDirectional.only(end: 8),
+                              child: ChoiceChip(
+                                label: Text(group == 'all' ? 'الكل' : group),
+                                selected: isSelected,
+                                onSelected: (_) {
+                                  setModalState(() {
+                                    selectedGroup = group;
+                                  });
+                                },
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Expanded(
+                        child: filtered.isEmpty
+                            ? const Center(child: Text('لا يوجد نتائج'))
+                            : ListView.separated(
+                                keyboardDismissBehavior:
+                                    ScrollViewKeyboardDismissBehavior.onDrag,
+                                itemCount: filtered.length,
+                                separatorBuilder: (_, __) =>
+                                    const Divider(height: 1),
+                                itemBuilder: (context, index) {
+                                  final child = filtered[index];
+                                  final groupName = child.group.isEmpty
+                                      ? 'بدون مجموعة'
+                                      : child.group;
+                                  final parentName = child.parentName.trim();
+
+                                  return ListTile(
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 4,
+                                      vertical: 6,
+                                    ),
+                                    leading: CircleAvatar(
+                                      backgroundColor:
+                                          AppColors.primary.withOpacity(0.12),
+                                      child: const Icon(
+                                        Icons.child_care_rounded,
+                                        color: AppColors.primary,
+                                      ),
+                                    ),
+                                    title: Text(
+                                      child.name,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                    subtitle: Text(
+                                      parentName.isEmpty
+                                          ? groupName
+                                          : '$parentName • $groupName',
+                                    ),
+                                    trailing: const Icon(
+                                      Icons.arrow_forward_ios_rounded,
+                                      size: 16,
+                                    ),
+                                    onTap: () {
+                                      FocusScope.of(context).unfocus();
+                                      Navigator.pop(context, child);
+                                    },
+                                  );
+                                },
+                              ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            );
-          },
-        );
-      },
-    );
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      searchController.dispose();
+      searchFocusNode.dispose();
+    }
   }
 
   Future<void> openChildHandoffLog(ChildModel child) async {
@@ -435,7 +489,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
     );
 
     if (!mounted) return;
-    setState(() {});
+    await _refreshHomeData();
   }
 
   Future<void> openIncidentReport(ChildModel child) async {
@@ -445,7 +499,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
     );
 
     if (!mounted) return;
-    setState(() {});
+    await _refreshHomeData();
   }
 
   Future<Map<String, dynamic>> fetchTodayStats(List<ChildModel> children) async {
@@ -843,7 +897,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
     );
 
     if (res == true && mounted) {
-      setState(() {});
+      await _refreshHomeData();
     }
   }
 
@@ -854,7 +908,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
     );
 
     if (!mounted) return;
-    setState(() {});
+    await _refreshHomeData();
   }
 
   Future<void> _openNotificationsPage(List<ChildModel> children) async {
@@ -944,34 +998,6 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
     return '${d.year}/${d.month}/${d.day} - $hour:$minute';
   }
 
-  List<ChildModel> applyChildrenFilters(
-    List<ChildModel> children,
-    Map<String, Map<String, dynamic>> latestUpdateByChild,
-  ) {
-    final query = searchQuery.trim().toLowerCase();
-
-    return children.where((child) {
-      final searchValues = [
-        child.name,
-        child.parentName,
-        child.parentUsername,
-        child.group,
-      ].join(' ').toLowerCase();
-
-      final matchesSearch = query.isEmpty || searchValues.contains(query);
-      final hasUpdateToday = latestUpdateByChild.containsKey(child.id);
-
-      bool matchesStatus = true;
-
-      if (selectedStatusFilter == 'needUpdate') {
-        matchesStatus = !hasUpdateToday;
-      } else if (selectedStatusFilter == 'updatedToday') {
-        matchesStatus = hasUpdateToday;
-      }
-
-      return matchesSearch && matchesStatus;
-    }).toList();
-  }
 
   Widget _buildNotificationActionButton(List<ChildModel> children) {
     return FutureBuilder<int>(
@@ -1025,11 +1051,6 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
     required List<Map<String, dynamic>> activities,
     required Map<String, Map<String, dynamic>> latestUpdateByChild,
   }) {
-    final filteredChildren = applyChildrenFilters(
-      nurseryChildren,
-      latestUpdateByChild,
-    );
-
     switch (selectedIndex) {
       case 0:
         return _buildDashboardTab(
@@ -1041,7 +1062,6 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
       case 1:
         return _buildFollowUpTab(
           nurseryChildren: nurseryChildren,
-          filteredChildren: filteredChildren,
           latestUpdateByChild: latestUpdateByChild,
         );
       case 2:
@@ -1250,7 +1270,7 @@ final end = (data['weekEndDateKey'] ??
     required List<Map<String, dynamic>> activities,
   }) {
     return RefreshIndicator(
-      onRefresh: () async => setState(() {}),
+      onRefresh: _refreshHomeData,
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         children: [
@@ -1275,49 +1295,18 @@ final end = (data['weekEndDateKey'] ??
 
   Widget _buildFollowUpTab({
     required List<ChildModel> nurseryChildren,
-    required List<ChildModel> filteredChildren,
     required Map<String, Map<String, dynamic>> latestUpdateByChild,
   }) {
-    return RefreshIndicator(
-      onRefresh: () async => setState(() {}),
-      child: ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        children: [
-          _buildMyGroupCard(),
-          const SizedBox(height: 16),
-          _buildSearchAndFilterBar(),
-          const SizedBox(height: 16),
-          if (filteredChildren.isEmpty)
-            _buildEmptyChildrenState()
-          else
-            ...filteredChildren.map((child) {
-              final latestUpdate = latestUpdateByChild[child.id];
-              final hasUpdateToday = latestUpdate != null;
-
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: _NurseryChildDashboardCard(
-                  childModel: child,
-                  careStatusText:
-                      hasUpdateToday ? 'تمت متابعته اليوم' : 'يحتاج تحديث اليوم',
-                  careStatusColor:
-                      hasUpdateToday ? Colors.green : Colors.orange,
-                  careStatusIcon: hasUpdateToday
-                      ? Icons.check_circle_outline_rounded
-                      : Icons.warning_amber_rounded,
-                  hasUpdateToday: hasUpdateToday,
-                  latestUpdateType: (latestUpdate?['type'] ?? '').toString(),
-                  latestUpdateTime: latestUpdate?['time'] as Timestamp?,
-                  latestUpdateNote: (latestUpdate?['note'] ?? '').toString(),
-                  onAddUpdate: () => openAddUpdate(child),
-                  onCareLog: () => openCareLog(child),
-                  onHandoffLog: () => openChildHandoffLog(child),
-                  onIncidentReport: () => openIncidentReport(child),
-                ),
-              );
-            }),
-        ],
-      ),
+    return _NurseryFollowUpTab(
+      key: const ValueKey('nursery_follow_up_tab'),
+      nurseryChildren: nurseryChildren,
+      latestUpdateByChild: latestUpdateByChild,
+      buildMyGroupCard: _buildMyGroupCard,
+      onRefresh: _refreshHomeData,
+      onAddUpdate: openAddUpdate,
+      onCareLog: openCareLog,
+      onHandoffLog: openChildHandoffLog,
+      onIncidentReport: openIncidentReport,
     );
   }
 
@@ -1381,7 +1370,7 @@ final end = (data['weekEndDateKey'] ??
                   );
 
                   if (!mounted) return;
-                  setState(() {});
+                  await _refreshHomeData();
                 },
               );
             },
@@ -1460,10 +1449,11 @@ final end = (data['weekEndDateKey'] ??
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<ChildModel>>(
-      future: fetchNurseryChildren(),
-      builder: (context, childrenSnapshot) {
-        if (childrenSnapshot.connectionState == ConnectionState.waiting) {
+    return FutureBuilder<_NurseryHomeData>(
+      future: _homeDataFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
           return Scaffold(
             body: AppPageScaffold(
               title: _pageTitle,
@@ -1472,156 +1462,95 @@ final end = (data['weekEndDateKey'] ??
           );
         }
 
-        if (childrenSnapshot.hasError) {
+        if (snapshot.hasError) {
           return Scaffold(
             body: AppPageScaffold(
               title: _pageTitle,
               child: Center(
-                child: Text('حدث خطأ: ${childrenSnapshot.error}'),
+                child: Text('حدث خطأ أثناء تحميل الصفحة: ${snapshot.error}'),
               ),
             ),
           );
         }
 
-        final nurseryChildren = childrenSnapshot.data ?? [];
+        final data = snapshot.data;
 
-        return FutureBuilder<Map<String, dynamic>>(
-          future: fetchTodayStats(nurseryChildren),
-          builder: (context, statsSnapshot) {
-            if (statsSnapshot.connectionState == ConnectionState.waiting) {
-              return Scaffold(
-                body: AppPageScaffold(
+        if (data == null) {
+          return Scaffold(
+            body: AppPageScaffold(
+              title: _pageTitle,
+              child: const Center(child: CircularProgressIndicator()),
+            ),
+          );
+        }
+
+        final nurseryChildren = data.nurseryChildren;
+
+        final pageBody = _buildBody(
+          nurseryChildren: nurseryChildren,
+          stats: data.stats,
+          childrenNeedingUpdate: data.childrenNeedingUpdate,
+          activities: data.activities,
+          latestUpdateByChild: data.latestUpdateByChild,
+        );
+
+        return Scaffold(
+          body: selectedIndex == 2
+              ? pageBody
+              : AppPageScaffold(
                   title: _pageTitle,
-                  child: const Center(child: CircularProgressIndicator()),
+                  actions: selectedIndex == 0
+                      ? [
+                          _buildNotificationActionButton(nurseryChildren),
+                          IconButton(
+                            icon: const Icon(Icons.refresh_rounded),
+                            tooltip: 'تحديث الصفحة',
+                            onPressed: _refreshHomeData,
+                          ),
+                        ]
+                      : selectedIndex == 1
+                          ? [
+                              IconButton(
+                                icon: const Icon(Icons.refresh_rounded),
+                                tooltip: 'تحديث الصفحة',
+                                onPressed: _refreshHomeData,
+                              ),
+                            ]
+                          : [
+                              _buildNotificationActionButton(nurseryChildren),
+                            ],
+                  child: pageBody,
                 ),
-              );
-            }
-
-            if (statsSnapshot.hasError) {
-              return Scaffold(
-                body: AppPageScaffold(
-                  title: _pageTitle,
-                  child: const Center(
-                    child: Text('حدث خطأ أثناء تحميل الإحصائيات'),
-                  ),
-                ),
-              );
-            }
-
-            final stats = statsSnapshot.data ?? {};
-
-            return FutureBuilder<List<dynamic>>(
-              future: Future.wait([
-                getChildrenNeedingUpdate(nurseryChildren),
-                fetchRecentNurseryActivities(nurseryChildren),
-                fetchTodayUpdatesSummary(nurseryChildren),
-              ]),
-              builder: (context, extraSnapshot) {
-                if (extraSnapshot.connectionState == ConnectionState.waiting) {
-                  return Scaffold(
-                    body: AppPageScaffold(
-                      title: _pageTitle,
-                      child: const Center(child: CircularProgressIndicator()),
-                    ),
-                  );
-                }
-
-                if (extraSnapshot.hasError) {
-                  return Scaffold(
-                    body: AppPageScaffold(
-                      title: _pageTitle,
-                      child: const Center(
-                        child: Text('حدث خطأ أثناء تحميل بيانات الصفحة'),
-                      ),
-                    ),
-                  );
-                }
-
-                final childrenNeedingUpdate =
-                    (extraSnapshot.data?[0] as List<ChildModel>? ?? []);
-
-                final activities =
-                    (extraSnapshot.data?[1] as List<Map<String, dynamic>>? ??
-                        []);
-
-                final latestUpdateByChild =
-                    (extraSnapshot.data?[2]
-                            as Map<String, Map<String, dynamic>>? ??
-                        {});
-
-                final pageBody = _buildBody(
-                  nurseryChildren: nurseryChildren,
-                  stats: stats,
-                  childrenNeedingUpdate: childrenNeedingUpdate,
-                  activities: activities,
-                  latestUpdateByChild: latestUpdateByChild,
-                );
-
-                return Scaffold(
-                  body: selectedIndex == 2
-                      ? pageBody
-                      : AppPageScaffold(
-                          title: _pageTitle,
-                          actions: selectedIndex == 0
-                              ? [
-                                  _buildNotificationActionButton(
-                                    nurseryChildren,
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.refresh_rounded),
-                                    tooltip: 'تحديث الصفحة',
-                                    onPressed: () => setState(() {}),
-                                  ),
-                                ]
-                              : selectedIndex == 1
-                                  ? [
-                                      IconButton(
-                                        icon: const Icon(Icons.refresh_rounded),
-                                        tooltip: 'تحديث الصفحة',
-                                        onPressed: () => setState(() {}),
-                                      ),
-                                    ]
-                                  : [
-                                      _buildNotificationActionButton(
-                                        nurseryChildren,
-                                      ),
-                                    ],
-                          child: pageBody,
-                        ),
-                  bottomNavigationBar: NavigationBar(
-                    selectedIndex: selectedIndex,
-                    onDestinationSelected: (index) {
-                      setState(() {
-                        selectedIndex = index;
-                      });
-                    },
-                    destinations: const [
-                      NavigationDestination(
-                        icon: Icon(Icons.home_outlined),
-                        selectedIcon: Icon(Icons.home_rounded),
-                        label: 'الرئيسية',
-                      ),
-                      NavigationDestination(
-                        icon: Icon(Icons.fact_check_outlined),
-                        selectedIcon: Icon(Icons.fact_check_rounded),
-                        label: 'المتابعة',
-                      ),
-                      NavigationDestination(
-                        icon: Icon(Icons.chat_bubble_outline_rounded),
-                        selectedIcon: Icon(Icons.chat_bubble_rounded),
-                        label: 'الرسائل',
-                      ),
-                      NavigationDestination(
-                        icon: Icon(Icons.settings_outlined),
-                        selectedIcon: Icon(Icons.settings_rounded),
-                        label: 'الإعدادات',
-                      ),
-                    ],
-                  ),
-                );
-              },
-            );
-          },
+          bottomNavigationBar: NavigationBar(
+            selectedIndex: selectedIndex,
+            onDestinationSelected: (index) {
+              setState(() {
+                selectedIndex = index;
+              });
+            },
+            destinations: const [
+              NavigationDestination(
+                icon: Icon(Icons.home_outlined),
+                selectedIcon: Icon(Icons.home_rounded),
+                label: 'الرئيسية',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.fact_check_outlined),
+                selectedIcon: Icon(Icons.fact_check_rounded),
+                label: 'المتابعة',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.chat_bubble_outline_rounded),
+                selectedIcon: Icon(Icons.chat_bubble_rounded),
+                label: 'الرسائل',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.settings_outlined),
+                selectedIcon: Icon(Icons.settings_rounded),
+                label: 'الإعدادات',
+              ),
+            ],
+          ),
         );
       },
     );
@@ -1629,7 +1558,7 @@ final end = (data['weekEndDateKey'] ??
 
   Widget _buildMyGroupCard() {
     return FutureBuilder<_StaffGroupInfo?>(
-      future: fetchCurrentStaffGroup(),
+      future: _staffGroupFuture,
       builder: (context, snapshot) {
         final group = snapshot.data;
 
@@ -1891,7 +1820,7 @@ final end = (data['weekEndDateKey'] ??
               );
 
               if (!mounted) return;
-              setState(() {});
+              await _refreshHomeData();
             },
             icon: Icon(
               hasChildrenNeedUpdate
@@ -1946,7 +1875,7 @@ final end = (data['weekEndDateKey'] ??
   );
 
   if (res == true && mounted) {
-    setState(() {});
+    await _refreshHomeData();
   }
 }
 
@@ -1964,7 +1893,7 @@ final end = (data['weekEndDateKey'] ??
         );
 
         if (!mounted) return;
-        setState(() {});
+        await _refreshHomeData();
       },
     ),
     _QuickActionItem(
@@ -2063,69 +1992,6 @@ final end = (data['weekEndDateKey'] ??
     );
   }
 
-  Widget _buildSearchAndFilterBar() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          children: [
-            TextField(
-              decoration: InputDecoration(
-                hintText: 'بحث',
-                prefixIcon: const Icon(Icons.search),
-                filled: true,
-                fillColor: AppColors.background,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide.none,
-                ),
-              ),
-              onChanged: (val) {
-                setState(() {
-                  searchQuery = val;
-                });
-              },
-            ),
-            const SizedBox(height: 12),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  _FilterChipItem(
-                    label: 'الكل',
-                    isSelected: selectedStatusFilter == 'all',
-                    onTap: () {
-                      setState(() {
-                        selectedStatusFilter = 'all';
-                      });
-                    },
-                  ),
-                  _FilterChipItem(
-                    label: 'تم تحديثهم اليوم',
-                    isSelected: selectedStatusFilter == 'updatedToday',
-                    onTap: () {
-                      setState(() {
-                        selectedStatusFilter = 'updatedToday';
-                      });
-                    },
-                  ),
-                  _FilterChipItem(
-                    label: 'يحتاج تحديث',
-                    isSelected: selectedStatusFilter == 'needUpdate',
-                    onTap: () {
-                      setState(() {
-                        selectedStatusFilter = 'needUpdate';
-                      });
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
   Widget _buildRecentActivitiesSection(List<Map<String, dynamic>> activities) {
     return Container(
@@ -2198,6 +2064,187 @@ final end = (data['weekEndDateKey'] ??
     );
   }
 
+
+}
+
+class _NurseryHomeData {
+  final List<ChildModel> nurseryChildren;
+  final Map<String, dynamic> stats;
+  final List<ChildModel> childrenNeedingUpdate;
+  final List<Map<String, dynamic>> activities;
+  final Map<String, Map<String, dynamic>> latestUpdateByChild;
+
+  const _NurseryHomeData({
+    required this.nurseryChildren,
+    required this.stats,
+    required this.childrenNeedingUpdate,
+    required this.activities,
+    required this.latestUpdateByChild,
+  });
+}
+
+class _NurseryFollowUpTab extends StatefulWidget {
+  final List<ChildModel> nurseryChildren;
+  final Map<String, Map<String, dynamic>> latestUpdateByChild;
+  final Widget Function() buildMyGroupCard;
+  final Future<void> Function() onRefresh;
+  final Future<void> Function(ChildModel child) onAddUpdate;
+  final Future<void> Function(ChildModel child) onCareLog;
+  final Future<void> Function(ChildModel child) onHandoffLog;
+  final Future<void> Function(ChildModel child) onIncidentReport;
+
+  const _NurseryFollowUpTab({
+    super.key,
+    required this.nurseryChildren,
+    required this.latestUpdateByChild,
+    required this.buildMyGroupCard,
+    required this.onRefresh,
+    required this.onAddUpdate,
+    required this.onCareLog,
+    required this.onHandoffLog,
+    required this.onIncidentReport,
+  });
+
+  @override
+  State<_NurseryFollowUpTab> createState() => _NurseryFollowUpTabState();
+}
+
+class _NurseryFollowUpTabState extends State<_NurseryFollowUpTab> {
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+
+  String _searchQuery = '';
+  String _selectedStatusFilter = 'all';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _searchFocusNode.dispose();
+    super.dispose();
+  }
+
+  String _normalizeSearchText(dynamic value) {
+    var text = (value ?? '').toString().trim().toLowerCase();
+
+    return text
+        .replaceAll(RegExp(r'[\u064B-\u065F\u0670\u06D6-\u06ED]'), '')
+        .replaceAll('ـ', '')
+        .replaceAll(RegExp(r'[أإآٱ]'), 'ا')
+        .replaceAll('ؤ', 'و')
+        .replaceAll('ئ', 'ي')
+        .replaceAll('ى', 'ي')
+        .replaceAll('ة', 'ه')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+
+  List<ChildModel> _filteredChildren() {
+    final query = _normalizeSearchText(_searchQuery);
+
+    return widget.nurseryChildren.where((child) {
+      final values = [
+        child.name,
+        child.parentName,
+        child.parentUsername,
+        child.group,
+      ].map(_normalizeSearchText).join(' ');
+
+      final matchesSearch = query.isEmpty || values.contains(query);
+      final hasUpdateToday = widget.latestUpdateByChild.containsKey(child.id);
+
+      bool matchesStatus = true;
+
+      if (_selectedStatusFilter == 'needUpdate') {
+        matchesStatus = !hasUpdateToday;
+      } else if (_selectedStatusFilter == 'updatedToday') {
+        matchesStatus = hasUpdateToday;
+      }
+
+      return matchesSearch && matchesStatus;
+    }).toList();
+  }
+
+  Widget _buildSearchAndFilterBar() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          children: [
+            TextField(
+              controller: _searchController,
+              focusNode: _searchFocusNode,
+              textAlign: TextAlign.right,
+              decoration: InputDecoration(
+                hintText: 'بحث',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _searchQuery.trim().isEmpty
+                    ? null
+                    : IconButton(
+                        onPressed: () {
+                          _searchController.clear();
+
+                          setState(() {
+                            _searchQuery = '';
+                          });
+
+                          _searchFocusNode.requestFocus();
+                        },
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                filled: true,
+                fillColor: AppColors.background,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+              onChanged: (value) {
+                setState(() {
+                  _searchQuery = value;
+                });
+              },
+            ),
+            const SizedBox(height: 12),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _FilterChipItem(
+                    label: 'الكل',
+                    isSelected: _selectedStatusFilter == 'all',
+                    onTap: () {
+                      setState(() {
+                        _selectedStatusFilter = 'all';
+                      });
+                    },
+                  ),
+                  _FilterChipItem(
+                    label: 'تم تحديثهم اليوم',
+                    isSelected: _selectedStatusFilter == 'updatedToday',
+                    onTap: () {
+                      setState(() {
+                        _selectedStatusFilter = 'updatedToday';
+                      });
+                    },
+                  ),
+                  _FilterChipItem(
+                    label: 'يحتاج تحديث',
+                    isSelected: _selectedStatusFilter == 'needUpdate',
+                    onTap: () {
+                      setState(() {
+                        _selectedStatusFilter = 'needUpdate';
+                      });
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildEmptyChildrenState() {
     return Container(
       padding: const EdgeInsets.all(18),
@@ -2208,7 +2255,11 @@ final end = (data['weekEndDateKey'] ??
       ),
       child: const Column(
         children: [
-          Icon(Icons.search_off_rounded, size: 34, color: AppColors.textLight),
+          Icon(
+            Icons.search_off_rounded,
+            size: 34,
+            color: AppColors.textLight,
+          ),
           SizedBox(height: 10),
           Text(
             'لا توجد نتائج.',
@@ -2222,7 +2273,57 @@ final end = (data['weekEndDateKey'] ??
       ),
     );
   }
+
+  @override
+  Widget build(BuildContext context) {
+    final filteredChildren = _filteredChildren();
+
+    return RefreshIndicator(
+      onRefresh: widget.onRefresh,
+      child: ListView(
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: [
+          widget.buildMyGroupCard(),
+          const SizedBox(height: 16),
+          _buildSearchAndFilterBar(),
+          const SizedBox(height: 16),
+          if (filteredChildren.isEmpty)
+            _buildEmptyChildrenState()
+          else
+            ...filteredChildren.map((child) {
+              final latestUpdate = widget.latestUpdateByChild[child.id];
+              final hasUpdateToday = latestUpdate != null;
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _NurseryChildDashboardCard(
+                  childModel: child,
+                  careStatusText: hasUpdateToday
+                      ? 'تمت متابعته اليوم'
+                      : 'يحتاج تحديث اليوم',
+                  careStatusColor:
+                      hasUpdateToday ? Colors.green : Colors.orange,
+                  careStatusIcon: hasUpdateToday
+                      ? Icons.check_circle_outline_rounded
+                      : Icons.warning_amber_rounded,
+                  hasUpdateToday: hasUpdateToday,
+                  latestUpdateType: (latestUpdate?['type'] ?? '').toString(),
+                  latestUpdateTime: latestUpdate?['time'] as Timestamp?,
+                  latestUpdateNote: (latestUpdate?['note'] ?? '').toString(),
+                  onAddUpdate: () => widget.onAddUpdate(child),
+                  onCareLog: () => widget.onCareLog(child),
+                  onHandoffLog: () => widget.onHandoffLog(child),
+                  onIncidentReport: () => widget.onIncidentReport(child),
+                ),
+              );
+            }),
+        ],
+      ),
+    );
+  }
 }
+
 class ChildrenNeedUpdatePage extends StatelessWidget {
   final List<ChildModel> children;
 

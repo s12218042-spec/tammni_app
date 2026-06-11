@@ -24,12 +24,42 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final MessageService _messageService = MessageService();
   final TextEditingController searchCtrl = TextEditingController();
+  final FocusNode searchFocusNode = FocusNode();
+
+  late Future<List<Map<String, dynamic>>> _allowedPeopleFuture;
+  Stream<List<MessageModel>>? _latestChatsStream;
 
   String? get currentUserId => FirebaseAuth.instance.currentUser?.uid;
 
   @override
+  void initState() {
+    super.initState();
+    _allowedPeopleFuture = fetchAllowedPeople();
+
+    final uid = currentUserId;
+    if (uid != null && uid.trim().isNotEmpty) {
+      _latestChatsStream = _messageService.getLatestChatsForUser(
+        currentUserId: uid,
+      );
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant ParentChatsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    final oldIds = oldWidget.children.map((child) => child.id).toSet();
+    final newIds = widget.children.map((child) => child.id).toSet();
+
+    if (oldIds.length != newIds.length || !oldIds.containsAll(newIds)) {
+      _allowedPeopleFuture = fetchAllowedPeople();
+    }
+  }
+
+  @override
   void dispose() {
     searchCtrl.dispose();
+    searchFocusNode.dispose();
     super.dispose();
   }
 
@@ -272,7 +302,6 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
   Future<List<Map<String, dynamic>>> fetchAllowedPeople() async {
     if (activeChildren.isEmpty) return [];
 
-    final searchText = searchCtrl.text;
     final usersSnapshot = await _firestore.collection('users').get();
 
     Map<String, dynamic>? userDataById(String uid) {
@@ -345,20 +374,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
       });
     }
 
-    final filtered = people.where((person) {
-      return _matchesSearchQuery(
-        query: searchText,
-        values: [
-          person['displayName'],
-          person['username'],
-          person['email'],
-          person['childName'],
-          roleLabel((person['role'] ?? '').toString()),
-        ],
-      );
-    }).toList();
-
-    filtered.sort((a, b) {
+    people.sort((a, b) {
       final roleA = normalizeRole((a['role'] ?? '').toString());
       final roleB = normalizeRole((b['role'] ?? '').toString());
 
@@ -377,7 +393,25 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
       return nameA.compareTo(nameB);
     });
 
-    return filtered;
+    return people;
+  }
+
+  List<Map<String, dynamic>> filterAllowedPeople(
+    List<Map<String, dynamic>> people,
+    String query,
+  ) {
+    return people.where((person) {
+      return _matchesSearchQuery(
+        query: query,
+        values: [
+          person['displayName'],
+          person['username'],
+          person['email'],
+          person['childName'],
+          roleLabel((person['role'] ?? '').toString()),
+        ],
+      );
+    }).toList();
   }
 
   String contactKeyFromPerson(Map<String, dynamic> person) {
@@ -660,6 +694,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
   Widget buildSearchHeader() {
     return TextField(
       controller: searchCtrl,
+      focusNode: searchFocusNode,
       textAlign: TextAlign.right,
       onChanged: (_) => setState(() {}),
       decoration: InputDecoration(
@@ -671,6 +706,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
                 onPressed: () {
                   searchCtrl.clear();
                   setState(() {});
+                  searchFocusNode.requestFocus();
                 },
                 icon: const Icon(Icons.close_rounded),
               ),
@@ -679,16 +715,16 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
   }
 
   Widget buildRecentChatsTab() {
-    if (currentUserId == null) {
+    final latestChatsStream = _latestChatsStream;
+
+    if (latestChatsStream == null) {
       return const Center(
         child: Text('تعذر تحميل هوية المستخدم'),
       );
     }
 
     return StreamBuilder<List<MessageModel>>(
-      stream: _messageService.getLatestChatsForUser(
-        currentUserId: currentUserId!,
-      ),
+      stream: latestChatsStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(
@@ -752,9 +788,11 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
         final chatKeys = chats.map(contactKeyFromMessage).toSet();
 
         return FutureBuilder<List<Map<String, dynamic>>>(
-          future: fetchAllowedPeople(),
+          future: _allowedPeopleFuture,
           builder: (context, peopleSnapshot) {
-            final people = peopleSnapshot.data ?? [];
+            final allPeople = peopleSnapshot.data ?? [];
+            final people = filterAllowedPeople(allPeople, searchText);
+
             final extraPeople = people.where((person) {
               return !chatKeys.contains(contactKeyFromPerson(person));
             }).toList();
