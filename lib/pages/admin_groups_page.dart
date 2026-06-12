@@ -1267,7 +1267,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                                 )
                               : const Icon(Icons.verified_rounded),
                           label: Text(
-                            isSaving ? 'جاري الاعتماد...' : 'اعتماد كطفل دائم',
+                            isSaving ? 'جاري الاعتماد...' : 'تسجيل الطفل رسميًا',
                           ),
                         ),
                       ),
@@ -1351,7 +1351,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
 
       if (!mounted) return true;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم اعتماد الطفل كطفل دائم')),
+        const SnackBar(content: Text('تم تسجيل الطفل رسميًا في الحضانة')),
       );
 
       return true;
@@ -1421,7 +1421,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                       ),
                       const SizedBox(height: 18),
                       Text(
-                        'تحويل الطفل الزائر إلى دائم',
+                        'تسجيل الطفل الزائر رسميًا',
                         style: Theme.of(sheetContext)
                             .textTheme
                             .titleLarge
@@ -1508,7 +1508,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                           label: Text(
                             isSaving
                                 ? 'جاري التحويل...'
-                                : 'تحويل إلى طفل دائم',
+                                : 'تسجيل الطفل رسميًا',
                           ),
                         ),
                       ),
@@ -1605,7 +1605,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
 
       if (!mounted) return true;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم تحويل الطفل الزائر إلى طفل دائم')),
+        const SnackBar(content: Text('تم تسجيل الطفل الزائر رسميًا في الحضانة')),
       );
 
       return true;
@@ -1802,7 +1802,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
           value: linkWithSiblings,
-          title: const Text('ربط بإخوة مسجلن بنفس الكود'),
+          title: const Text('ربط بإخوة مسجلين بنفس الكود'),
           onChanged: onToggle,
         ),
         if (linkWithSiblings)
@@ -2054,14 +2054,14 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
 
     switch (childType.isNotEmpty ? childType : childStatus) {
       case 'temporary':
-        return 'زائر';
+        return 'طفل زائر';
       case 'trial':
-        return 'تجربة';
+        return 'طفل تجربة';
       case 'permanent':
       case 'active':
-        return 'دائم';
+        return 'طفل';
       default:
-        return 'دائم';
+        return 'طفل';
     }
   }
 
@@ -2932,7 +2932,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text(
-                'هذا الطفل مسجل كطفل دائم بالفعل، لا يمكن إضافته كزائر.',
+                'هذا الطفل مسجل بالفعل في الحضانة، لا يمكن إضافته كزائر.',
               ),
             ),
           );
@@ -3140,7 +3140,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text(
-                'هذا الطفل مسجل كطفل دائم بالفعل، لا يمكن إضافته كتجربة.',
+                'هذا الطفل مسجل بالفعل في الحضانة، لا يمكن إضافته كتجربة.',
               ),
             ),
           );
@@ -4736,7 +4736,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                     ),
                   ),
                   title: const Text(
-                    'ربط طفل دائم',
+                    'ربط طفل',
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
                   onTap: () {
@@ -4879,7 +4879,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                       if (isTrial) ...[
                         const PopupMenuItem(
                           value: 'approve_trial',
-                          child: Text('اعتماد كطفل دائم'),
+                          child: Text('تسجيل الطفل رسميًا'),
                         ),
                         const PopupMenuItem(
                           value: 'reject_trial',
@@ -4888,7 +4888,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                       ] else if (isTemporary) ...[
                         const PopupMenuItem(
                           value: 'convert_temporary',
-                          child: Text('تحويل إلى طفل دائم'),
+                          child: Text('تسجيل الطفل رسميًا'),
                         ),
                         const PopupMenuItem(
                           value: 'archive',
@@ -4902,7 +4902,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                     ] else if (isTrialPendingDecision) ...[
                       const PopupMenuItem(
                         value: 'approve_trial',
-                        child: Text('اعتماد كطفل دائم'),
+                        child: Text('تسجيل الطفل رسميًا'),
                       ),
                       const PopupMenuItem(
                         value: 'reject_trial',
@@ -4916,12 +4916,12 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                       if (canConvertTemporary)
                         const PopupMenuItem(
                           value: 'convert_temporary',
-                          child: Text('تحويل إلى طفل دائم'),
+                          child: Text('تسجيل الطفل رسميًا'),
                         ),
                     ] else if (canConvertTemporary) ...[
                       const PopupMenuItem(
                         value: 'convert_temporary',
-                        child: Text('تحويل إلى طفل دائم'),
+                        child: Text('تسجيل الطفل رسميًا'),
                       ),
                     ],
                   ];

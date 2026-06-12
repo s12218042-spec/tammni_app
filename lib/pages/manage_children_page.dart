@@ -60,11 +60,11 @@ String childTypeLabel(Map<String, dynamic> child) {
     case 'temporary':
       return 'طفل زائر';
     case 'trial':
-      return 'فترة تجربة';
+      return 'طفل تجربة';
     case 'permanent':
     case 'active':
     default:
-      return 'طفل دائم';
+      return 'طفل';
   }
 }
 
@@ -933,7 +933,7 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
     controller: temporaryNotesCtrl,
     maxLines: 2,
     decoration: const InputDecoration(
-      labelText: 'ملاحظات الطفل الزائر / التجربة',
+      labelText: 'ملاحظات الطفل الزائر / طفل التجربة',
       prefixIcon: Icon(Icons.notes_outlined),
     ),
   ),
@@ -1858,7 +1858,7 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
                         value: linkWithSiblings,
-                        title: const Text('ربط بإخوة مسجلن بنفس الكود'),
+                        title: const Text('ربط بإخوة مسجلين بنفس الكود'),
                         onChanged: (value) {
                           setSheetState(() {
                             linkWithSiblings = value;
@@ -2572,7 +2572,7 @@ String temporaryChildSummary(Map<String, dynamic> child) {
           builder: (dialogContext) => Directionality(
             textDirection: TextDirection.rtl,
             child: AlertDialog(
-              title: const Text('تحويل الطفل إلى دائم'),
+              title: const Text('تسجيل الطفل رسميًا'),
               content: const Text(
                 'سيتم تعطيل كود الدخول الزائر وربط الطفل بحساب ولي أمر رسمي مع الاحتفاظ بسجلاته السابقة.',
               ),
@@ -2728,7 +2728,7 @@ String temporaryChildSummary(Map<String, dynamic> child) {
                           label: Text(
                             isSaving
                                 ? 'جاري التحويل...'
-                                : 'تحويل إلى طفل دائم',
+                                : 'تسجيل الطفل رسميًا',
                           ),
                         ),
                       ),
@@ -2854,7 +2854,7 @@ String temporaryChildSummary(Map<String, dynamic> child) {
       setState(() {});
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم تحويل الطفل الزائر إلى طفل دائم')),
+        const SnackBar(content: Text('تم تسجيل الطفل الزائر رسميًا في الحضانة')),
       );
 
       return true;
@@ -2879,7 +2879,7 @@ String temporaryChildSummary(Map<String, dynamic> child) {
             child: AlertDialog(
               title: const Text('اعتماد طفل التجربة'),
               content: const Text(
-                'سيتم تحويل طفل التجربة إلى طفل دائم وربطه بحساب ولي أمر رسمي مع الاحتفاظ بسجلاته السابقة.',
+                'سيتم تسجيل طفل التجربة رسميًا في الحضانة وربطه بحساب ولي أمر رسمي مع الاحتفاظ بسجلاته السابقة.',
               ),
               actions: [
                 TextButton(
@@ -3032,7 +3032,7 @@ String temporaryChildSummary(Map<String, dynamic> child) {
                                 )
                               : const Icon(Icons.verified_rounded),
                           label: Text(
-                            isSaving ? 'جاري الاعتماد...' : 'اعتماد كطفل دائم',
+                            isSaving ? 'جاري الاعتماد...' : 'تسجيل الطفل رسميًا',
                           ),
                         ),
                       ),
@@ -3147,7 +3147,7 @@ String temporaryChildSummary(Map<String, dynamic> child) {
       setState(() {});
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم اعتماد الطفل كطفل دائم')),
+        const SnackBar(content: Text('تم تسجيل الطفل رسميًا في الحضانة')),
       );
 
       return true;
@@ -3415,7 +3415,7 @@ String temporaryChildSummary(Map<String, dynamic> child) {
            const SizedBox(height: 8),
           _infoRow(
            Icons.event_available_outlined,
-           'تفاصيل الزائر',
+           'تفاصيل الطفل الزائر',
            tempSummary,
            ),
           ],
@@ -3473,7 +3473,7 @@ String temporaryChildSummary(Map<String, dynamic> child) {
               child: ElevatedButton.icon(
                 onPressed: () => _openConvertTemporaryChildSheet(child),
                 icon: const Icon(Icons.sync_alt_rounded),
-                label: const Text('تحويل إلى طفل دائم'),
+                label: const Text('تسجيل الطفل رسميًا'),
               ),
             ),
           ],
@@ -3485,7 +3485,7 @@ String temporaryChildSummary(Map<String, dynamic> child) {
                   child: ElevatedButton.icon(
                     onPressed: () => _openApproveTrialChildSheet(child),
                     icon: const Icon(Icons.verified_rounded),
-                    label: const Text('اعتماد كطفل دائم'),
+                    label: const Text('تسجيل الطفل رسميًا'),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -3678,7 +3678,7 @@ Wrap(
       selectedColor: AppColors.primary,
     ),
     buildFilterChip(
-      label: 'دائم',
+      label: 'طفل',
       selected: selectedChildTypeFilter == 'permanent',
       onTap: () {
         setState(() {
@@ -3688,7 +3688,7 @@ Wrap(
       selectedColor: Colors.green,
     ),
     buildFilterChip(
-      label: 'زائر',
+      label: 'طفل زائر',
       selected: selectedChildTypeFilter == 'temporary',
       onTap: () {
         setState(() {
@@ -3698,7 +3698,7 @@ Wrap(
       selectedColor: Colors.deepPurple,
     ),
     buildFilterChip(
-      label: 'تجربة',
+      label: 'طفل تجربة',
       selected: selectedChildTypeFilter == 'trial',
       onTap: () {
         setState(() {
@@ -3861,7 +3861,7 @@ Wrap(
       builder: (dialogContext) => Directionality(
         textDirection: TextDirection.rtl,
         child: AlertDialog(
-          title: const Text('تم إنشاء الوصول الزائر'),
+          title: const Text('تم إنشاء وصول الطفل الزائر'),
           content: Text(
             'الطفل: $childName\n'
             'الكود: $accessCode\n'
@@ -4375,7 +4375,7 @@ Wrap(
                       ),
                       const SizedBox(height: 18),
                       Text(
-                        isTrial ? 'إضافة طفل لفترة تجربة' : 'إضافة طفل زائر',
+                        isTrial ? 'إضافة طفل تجربة' : 'إضافة طفل زائر',
                         style: Theme.of(sheetContext)
                             .textTheme
                             .titleLarge
@@ -4417,7 +4417,7 @@ Wrap(
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
                         value: linkWithSiblings,
-                        title: const Text('ربط بإخوة مسجلن بنفس الكود'),
+                        title: const Text('ربط بإخوة مسجلين بنفس الكود'),
                         onChanged: (value) {
                           setSheetState(() {
                             linkWithSiblings = value;
@@ -5019,7 +5019,7 @@ Wrap(
                     child: Icon(Icons.person_add_alt_1_rounded),
                   ),
                   title: const Text(
-                    'إضافة طفل دائم',
+                    'إضافة طفل',
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
                   subtitle: const Text('ربطه بحساب ولي أمر رسمي موجود'),
@@ -5175,7 +5175,7 @@ Wrap(
                       ),
                       const SizedBox(height: 18),
                       Text(
-                        'إضافة طفل دائم',
+                        'إضافة طفل',
                         style: Theme.of(sheetContext)
                             .textTheme
                             .titleLarge
@@ -5437,7 +5437,7 @@ Wrap(
         if (!mounted) return false;
 
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('هذا الطفل مسجل كطفل دائم بالفعل')),
+          const SnackBar(content: Text('هذا الطفل مسجل بالفعل في الحضانة')),
         );
         return false;
       }
@@ -5560,7 +5560,7 @@ Wrap(
       setState(() {});
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تمت إضافة الطفل الدائم بنجاح')),
+        const SnackBar(content: Text('تمت إضافة الطفل بنجاح')),
       );
 
       return true;
@@ -5568,7 +5568,7 @@ Wrap(
       if (!mounted) return false;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذر حفظ الطفل الدائم: $e')),
+        SnackBar(content: Text('تعذر حفظ الطفل: $e')),
       );
 
       return false;

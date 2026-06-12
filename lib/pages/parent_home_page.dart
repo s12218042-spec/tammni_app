@@ -252,29 +252,6 @@ class _ParentHomePageState extends State<ParentHomePage> {
     await _refreshPage();
   }
 
-  Future<void> _openChats(List<ChildModel> children) async {
-    if (children.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'لا توجد محادثات متاحة لأنه لا يوجد أطفال مرتبطون بهذا الحساب',
-          ),
-        ),
-      );
-      return;
-    }
-
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => ParentChatsPage(children: children),
-      ),
-    );
-
-    if (!mounted) return;
-    await _refreshPage();
-  }
-
   Future<void> _openAddChildRequest() async {
     final result = await Navigator.push(
       context,
@@ -483,6 +460,22 @@ Future<void> _requestLiveStreamForChildren(
     );
   }
 
+  List<Widget> _buildPageActions() {
+    return [
+      IconButton(
+        icon: const Icon(Icons.refresh_rounded),
+        tooltip: 'تحديث الصفحة',
+        onPressed: _refreshPage,
+      ),
+      if (selectedIndex == 0)
+        IconButton(
+          icon: const Icon(Icons.notifications_none_rounded),
+          tooltip: 'الإشعارات',
+          onPressed: _openNotifications,
+        ),
+    ];
+  }
+
   Widget _buildBody(List<ChildModel> children) {
     switch (selectedIndex) {
       case 0:
@@ -492,7 +485,7 @@ Future<void> _requestLiveStreamForChildren(
       case 2:
         return _buildMessagesTab(children);
       case 3:
-        return _buildSettingsTab(children);
+        return _buildSettingsTab();
       default:
         return _buildDashboardTab(children);
     }
@@ -661,7 +654,7 @@ Future<void> _requestLiveStreamForChildren(
     );
   }
 
-  Widget _buildSettingsTab(List<ChildModel> children) {
+  Widget _buildSettingsTab() {
     return ListView(
       children: [
         Card(
@@ -732,30 +725,6 @@ Future<void> _requestLiveStreamForChildren(
             children: [
               ListTile(
                 leading: CircleAvatar(
-                  backgroundColor: Colors.green.withValues(alpha: 0.12),
-                  child: const Icon(
-                    Icons.notifications_none_rounded,
-                    color: Colors.green,
-                  ),
-                ),
-                title: const Text('الإشعارات'),
-                onTap: _openNotifications,
-              ),
-              const Divider(height: 1),
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Colors.indigo.withValues(alpha: 0.12),
-                  child: const Icon(
-                    Icons.receipt_long_rounded,
-                    color: Colors.indigo,
-                  ),
-                ),
-                title: const Text('الفواتير'),
-                onTap: _openInvoices,
-              ),
-              const Divider(height: 1),
-              ListTile(
-                leading: CircleAvatar(
                   backgroundColor: Colors.deepPurple.withValues(alpha: 0.12),
                   child: const Icon(
                     Icons.psychology_alt_rounded,
@@ -764,30 +733,6 @@ Future<void> _requestLiveStreamForChildren(
                 ),
                 title: const Text('الاستشارات'),
                 onTap: _openConsultations,
-              ),
-              const Divider(height: 1),
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Colors.red.withValues(alpha: 0.12),
-                  child: const Icon(
-                    Icons.report_problem_outlined,
-                    color: Colors.red,
-                  ),
-                ),
-                title: const Text('الشكاوى والملاحظات'),
-                onTap: _openComplaints,
-              ),
-              const Divider(height: 1),
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Colors.blueGrey.withValues(alpha: 0.12),
-                  child: const Icon(
-                    Icons.chat_bubble_outline_rounded,
-                    color: Colors.blueGrey,
-                  ),
-                ),
-                title: const Text('الرسائل'),
-                onTap: () => _openChats(children),
               ),
               const Divider(height: 1),
               ListTile(
@@ -868,6 +813,7 @@ Future<void> _requestLiveStreamForChildren(
     return FutureBuilder<List<ChildModel>>(
       future: _childrenFuture,
       builder: (context, snapshot) {
+        final children = snapshot.data ?? <ChildModel>[];
         Widget child;
 
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -880,33 +826,13 @@ Future<void> _requestLiveStreamForChildren(
             ),
           );
         } else {
-          final children = snapshot.data ?? [];
           child = _buildBody(children);
         }
 
         return Scaffold(
           body: AppPageScaffold(
             title: _pageTitle,
-            actions: selectedIndex == 0
-                ? [
-                    IconButton(
-                      icon: const Icon(Icons.refresh_rounded),
-                      tooltip: 'تحديث الصفحة',
-                      onPressed: _refreshPage,
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.notifications_none_rounded),
-                      tooltip: 'الإشعارات',
-                      onPressed: _openNotifications,
-                    ),
-                  ]
-                : [
-                    IconButton(
-                      icon: const Icon(Icons.refresh_rounded),
-                      tooltip: 'تحديث الصفحة',
-                      onPressed: _refreshPage,
-                    ),
-                  ],
+            actions: _buildPageActions(),
             child: child,
           ),
           bottomNavigationBar: NavigationBar(

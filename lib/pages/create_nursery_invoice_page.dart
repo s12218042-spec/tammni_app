@@ -1436,7 +1436,7 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
                             border: Border.all(color: AppColors.border),
                           ),
                           child: const Text(
-                            'لا يوجد أطفال دائمون قابلون للفوترة الشهرية حاليًا',
+                            'لا يوجد أطفال قابلون للفوترة الشهرية حاليًا',
                           ),
                         )
                       else

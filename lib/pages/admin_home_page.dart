@@ -568,7 +568,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
               _DashboardStatCard(
                 title: 'الأطفال النشطون',
                 value: '${data.activeChildren}',
-                subtitle: 'أطفال الحضانة ${data.nurseryChildren}',
+                subtitle: '',
                 icon: Icons.child_care_rounded,
               ),
               _DashboardStatCard(
@@ -595,7 +595,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
                 title: 'شكاوى أولياء الأمور',
                 value: '${data.totalComplaints}',
                 subtitle:
-                    'مفتوحة ${data.pendingComplaints + data.inReviewComplaints} • محلولة ${data.resolvedComplaints}',
+                   'محلولة ${data.resolvedComplaints}',
                 icon: Icons.report_problem_outlined,
               ),
               

@@ -182,7 +182,7 @@ class _ParentConsultationsPageState extends State<ParentConsultationsPage> {
       return 'طفل زائر';
     }
 
-    return 'طفل دائم';
+    return '';
   }
 
   String invoiceLabel(Map<String, dynamic> data) {

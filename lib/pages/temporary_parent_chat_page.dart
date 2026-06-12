@@ -34,18 +34,53 @@ class TemporaryParentChatPage extends StatelessWidget {
   String _normalizeRole(String value) {
     final role = value.trim().toLowerCase();
 
-    if (role == 'nursery' ||
-        role == 'nursery staff' ||
-        role == 'nursery_staff' ||
-        role == 'staff' ||
-        role == 'employee' ||
-        role == 'teacher') {
-      return 'nursery_staff';
+    switch (role) {
+      case 'nursery':
+      case 'nursery staff':
+      case 'nursery_staff':
+      case 'staff':
+      case 'employee':
+      case 'teacher':
+      case 'موظفة':
+      case 'موظفة حضانة':
+      case 'حضانة':
+        return 'nursery_staff';
+
+      case 'admin':
+      case 'manager':
+      case 'مدير':
+      case 'مدير النظام':
+      case 'ادمن':
+      case 'أدمن':
+        return 'admin';
+
+      default:
+        return role;
     }
+  }
 
-    if (role == 'admin' || role == 'manager') return 'admin';
-
-    return role;
+  Widget _buildErrorPage(String message) {
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('المحادثة'),
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -53,24 +88,49 @@ class TemporaryParentChatPage extends StatelessWidget {
     final normalizedTargetRole = _normalizeRole(targetRole);
     final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
 
+    if (currentUid.isEmpty) {
+      return _buildErrorPage(
+        'تعذر تحميل هوية وليّ الأمر الزائر. سجّل الدخول بالكود مرة أخرى.',
+      );
+    }
+
+    if (normalizedTargetRole != 'admin' &&
+        normalizedTargetRole != 'nursery_staff') {
+      return _buildErrorPage(
+        'تعذر تحديد جهة المحادثة.',
+      );
+    }
+
+    final resolvedTargetUid = normalizedTargetRole == 'admin'
+        ? 'admin'
+        : targetUid.trim();
+
+    if (normalizedTargetRole == 'nursery_staff' &&
+        resolvedTargetUid.isEmpty) {
+      return _buildErrorPage(
+        'تعذر تحديد موظف الحضانة المستهدف.',
+      );
+    }
+
     final targetDisplayName = normalizedTargetRole == 'nursery_staff'
         ? (targetName.trim().isEmpty ? 'موظف الحضانة' : targetName.trim())
         : 'الإدارة';
 
     return TemporaryChatCorePage(
-      accessCodeId: accessCodeId,
-      accessCode: accessCode,
-      childId: childId,
-      childName: childName,
-      parentName: parentName,
-      parentPhone: parentPhone,
-      groupId: groupId,
-      groupName: groupName,
+      accessCodeId: accessCodeId.trim(),
+      accessCode: accessCode.trim(),
+      childId: childId.trim(),
+      childName: childName.trim(),
+      parentName: parentName.trim(),
+      parentPhone: parentPhone.trim(),
+      groupId: groupId.trim(),
+      groupName: groupName.trim(),
       currentRole: 'temporary_parent',
       currentUid: currentUid,
-      currentName: parentName.trim().isEmpty ? 'ولي أمر زائر' : parentName,
+      currentName:
+          parentName.trim().isEmpty ? 'ولي أمر زائر' : parentName.trim(),
       targetRole: normalizedTargetRole,
-      targetUid: targetUid,
+      targetUid: resolvedTargetUid,
       targetName: targetDisplayName,
       headerSubtitle:
           normalizedTargetRole == 'nursery_staff' ? 'موظف حضانة' : 'الإدارة',

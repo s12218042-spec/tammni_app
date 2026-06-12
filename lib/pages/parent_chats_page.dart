@@ -65,8 +65,6 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
 
   List<ChildModel> get activeChildren => widget.children;
 
-  List<ChildModel> get nurseryChildren => activeChildren;
-
   bool isNurseryRole(String role) {
     final value = role.trim().toLowerCase();
     return value == 'nursery' ||
@@ -194,52 +192,11 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
     return activeChildren.any((child) => child.id == cleanChildId);
   }
 
-  ChildModel pickChildForPerson(Map<String, dynamic> person) {
-    final role = normalizeRole((person['role'] ?? '').toString());
-
-    if (role == 'admin') {
-      return activeChildren.first;
-    }
-
-    final childId = (person['childId'] ?? '').toString().trim();
-
-    for (final child in nurseryChildren) {
-      if (child.id == childId) {
-        return child;
-      }
-    }
-
-    if (nurseryChildren.isNotEmpty) {
-      return nurseryChildren.first;
-    }
-
-    return activeChildren.first;
-  }
-
   ChildModel pickChildForMessage(MessageModel message) {
     for (final child in activeChildren) {
       if (child.id == message.childId) {
         return child;
       }
-    }
-
-    return activeChildren.first;
-  }
-
-  ChildModel resolveChildForConversation({
-    required MessageModel message,
-    required bool isAdminChat,
-  }) {
-    if (activeChildren.isEmpty) {
-      throw StateError('لا يوجد أطفال مرتبطون بحساب ولي الأمر');
-    }
-
-    if (isAdminChat) {
-      return activeChildren.first;
-    }
-
-    if (childBelongsToCurrentParent(message.childId)) {
-      return pickChildForMessage(message);
     }
 
     return activeChildren.first;
@@ -468,11 +425,6 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
       name: targetUserName,
     );
 
-    final childForChat = resolveChildForConversation(
-      message: message,
-      isAdminChat: isAdminChat,
-    );
-
     const targetSection = 'Nursery';
     final color = sectionColor();
 
@@ -509,7 +461,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
             context,
             MaterialPageRoute(
               builder: (_) => MessagesPage(
-                child: isAdminChat ? null : childForChat,
+                child: activeChildren.first,
                 targetRole: isAdminChat ? 'admin' : targetRole,
                 targetUserId: targetUserId,
                 targetUserName: displayName,
@@ -556,7 +508,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
                     ),
                   if (subtitle.trim().isNotEmpty) const SizedBox(height: 6),
                   Text(
-                    message.text,
+                    message.displayText,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -602,12 +554,12 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
     const section = 'Nursery';
 
     final color = sectionColor();
-    final childForChat = pickChildForPerson(person);
     final isAdmin = role == 'admin';
+    final displayName =
+        name.isEmpty ? (isAdmin ? 'الإدارة' : 'بدون اسم') : name;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(24),
@@ -619,74 +571,70 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
           ),
         ],
       ),
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 25,
-            backgroundColor: color.withValues(alpha: 0.14),
-            child: Icon(
-              roleIcon(role),
-              color: color,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(24),
+        onTap: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => MessagesPage(
+                child: activeChildren.first,
+                targetRole: isAdmin ? 'admin' : role,
+                targetUserId: (person['id'] ?? '').toString(),
+                targetUserName: displayName,
+                targetSection: section,
+              ),
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  name.isEmpty ? (isAdmin ? 'الإدارة' : 'بدون اسم') : name,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.textDark,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  isAdmin ? 'الإدارة' : 'موظف حضانة',
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: AppColors.textLight,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          GestureDetector(
-            onTap: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => MessagesPage(
-                    child: isAdmin ? null : childForChat,
-                    targetRole: isAdmin ? 'admin' : role,
-                    targetUserId: (person['id'] ?? '').toString(),
-                    targetUserName:
-                        name.isEmpty ? (isAdmin ? 'الإدارة' : 'بدون اسم') : name,
-                    targetSection: section,
-                  ),
-                ),
-              );
+          );
 
-              if (!mounted) return;
-              setState(() {});
-            },
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppColors.secondary,
-                borderRadius: BorderRadius.circular(18),
+          if (!mounted) return;
+          setState(() {});
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 25,
+                backgroundColor: color.withValues(alpha: 0.14),
+                child: Icon(
+                  roleIcon(role),
+                  color: color,
+                ),
               ),
-              child: const Icon(
-                Icons.send_outlined,
-                color: Colors.white,
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      displayName,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.textDark,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      isAdmin ? 'الإدارة' : 'موظف حضانة',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppColors.textLight,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
+              const SizedBox(width: 10),
+              const Icon(
+                Icons.chevron_left_rounded,
+                color: AppColors.textLight,
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -698,7 +646,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
       textAlign: TextAlign.right,
       onChanged: (_) => setState(() {}),
       decoration: InputDecoration(
-        hintText: 'ابحث بالاسم أو اسم المستخدم أو اسم الطفل أو نص الرسالة',
+        hintText: 'ابحث',
         prefixIcon: const Icon(Icons.search_rounded),
         suffixIcon: searchCtrl.text.trim().isEmpty
             ? null
@@ -767,15 +715,17 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
 
           if (!allowedOtherRole) return false;
 
-          final childName = childBelongsToCurrentParent(message.childId)
-              ? pickChildForMessage(message).name
-              : '';
+          if (!childBelongsToCurrentParent(message.childId)) {
+            return false;
+          }
+
+          final childName = pickChildForMessage(message).name;
 
           return _matchesSearchQuery(
             query: searchText,
             values: [
               otherName,
-              message.text,
+              message.displayText,
               childName,
               roleLabel(otherRole),
               message.senderName,

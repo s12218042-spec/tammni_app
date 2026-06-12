@@ -351,7 +351,7 @@ if (parentUid.isNotEmpty || parentUsername.isNotEmpty || childId.isNotEmpty) {
                       if (snapshot.connectionState == ConnectionState.waiting)
                         const Center(child: CircularProgressIndicator())
                       else if (children.isEmpty)
-                        const Text('لا يوجد أطفال دائمون متاحون لإضافة ساعات إضافية.')
+                        const Text('لا يوجد أطفال متاحون لإضافة ساعات إضافية.')
                       else
                         DropdownButtonFormField<String>(
                           value: selectedChild?['id']?.toString(),

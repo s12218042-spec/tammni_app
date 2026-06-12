@@ -28,7 +28,6 @@ class MediaUploadResult {
       'path': path,
       'mediaPath': path,
 
-      // الرابط الدائم للعرض داخل التطبيق
       'publicUrl': publicUrl,
       'mediaUrl': publicUrl,
       'url': publicUrl,

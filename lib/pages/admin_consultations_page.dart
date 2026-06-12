@@ -81,17 +81,16 @@ String childTypeLabel(String value) {
     case 'temp':
     case 'temporary_child':
     case 'مؤقت':
-      return 'طفل مؤقت';
+    case 'طفل مؤقت':
+    case 'زائر':
+    case 'طفل زائر':
+      return 'طفل زائر';
     case 'trial':
     case 'تجربة':
+    case 'طفل تجربة':
       return 'طفل تجربة';
-    case 'permanent':
-    case 'regular':
-    case 'active':
-    case 'دائم':
-      return 'طفل دائم';
     default:
-      return 'طفل دائم';
+      return '';
   }
 }
 
@@ -581,9 +580,15 @@ Future<List<Map<String, dynamic>>> fetchChildren() async {
             final title = (data['title'] ?? 'استشارة').toString();
             final childName = (data['childName'] ?? '').toString();
             final parentName = (data['parentName'] ?? '').toString();
-            final childType =
-                (data['childTypeLabel'] ?? childTypeLabel(data['childType'] ?? ''))
-                    .toString();
+            final savedChildType =
+                (data['childType'] ?? '').toString().trim();
+            final savedChildTypeLabel =
+                (data['childTypeLabel'] ?? '').toString().trim();
+            final childType = childTypeLabel(
+              savedChildType.isNotEmpty
+                  ? savedChildType
+                  : savedChildTypeLabel,
+            );
 
             final approval =
                 (data['parentApprovalStatus'] ?? 'pending').toString();

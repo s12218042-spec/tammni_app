@@ -23,6 +23,7 @@ class MessagesPage extends StatefulWidget {
   final String targetUserId;
   final String targetUserName;
   final String targetSection;
+  final String? conversationKey;
 
   const MessagesPage({
     super.key,
@@ -31,6 +32,7 @@ class MessagesPage extends StatefulWidget {
     required this.targetUserId,
     required this.targetUserName,
     required this.targetSection,
+    this.conversationKey,
   });
 
   @override
@@ -119,20 +121,54 @@ class _MessagesPageState extends State<MessagesPage> {
     return widget.targetUserName.trim().isEmpty ? 'بدون اسم' : widget.targetUserName;
   }
 
-  String get conversationChildId {
+  String get messageContextChildId {
     if (hasChildContext) return widget.child!.id;
-
-    final ids = [
-      currentUserId ?? '',
-      widget.targetUserId,
-    ]..sort();
-
-    return 'direct_${ids.join('_')}';
+    return '';
   }
 
-  String get conversationChildName {
+  String get messageContextChildName {
     if (hasChildContext) return widget.child!.name;
-    return isAdminConversation ? 'محادثة الإدارة' : 'محادثة مباشرة';
+    return '';
+  }
+
+  String get activeConversationKey {
+    final providedKey = (widget.conversationKey ?? '').trim();
+    if (providedKey.isNotEmpty) return providedKey;
+
+    final myUid = (currentUserId ?? '').trim();
+    final targetUid = widget.targetUserId.trim();
+    final myRole = normalizeRole(currentUserRole);
+    final targetRole = normalizeRole(widget.targetRole);
+
+    if (myUid.isEmpty || targetUid.isEmpty) return '';
+
+    if (myRole == 'parent') {
+      return _messageService.buildOfficialConversationKey(
+        parentUid: myUid,
+        targetUid: targetUid,
+        targetRole: targetRole,
+      );
+    }
+
+    if (targetRole == 'parent') {
+      return _messageService.buildOfficialConversationKey(
+        parentUid: targetUid,
+        targetUid: myUid,
+        targetRole: myRole,
+      );
+    }
+
+    final ids = <String>[myUid, targetUid]..sort();
+    return ids.join('__direct__');
+  }
+
+  String get audioStorageFolder {
+    final key = activeConversationKey.trim();
+
+    if (key.isEmpty) return 'messages_audio/direct';
+
+    final safeKey = key.replaceAll(RegExp(r'[^a-zA-Z0-9_\-]'), '_');
+    return 'messages_audio/$safeKey';
   }
 
   @override
@@ -255,6 +291,130 @@ class _MessagesPageState extends State<MessagesPage> {
     return roleLabel(targetRole);
   }
 
+  Stream<List<MessageModel>> buildUnifiedConversationStream({
+    required String currentUserId,
+    required String targetUserId,
+  }) {
+    late final StreamController<List<MessageModel>> controller;
+
+    final latestDocsByQuery =
+        List<List<QueryDocumentSnapshot<Map<String, dynamic>>>>.generate(
+      2,
+      (_) => <QueryDocumentSnapshot<Map<String, dynamic>>>[],
+    );
+
+    final subscriptions =
+        <StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>[];
+
+    void emitMessages() {
+      final uniqueById = <String, MessageModel>{};
+
+      for (final docs in latestDocsByQuery) {
+        for (final doc in docs) {
+          final data = doc.data();
+          final senderId = (data['senderId'] ?? '').toString().trim();
+          final receiverId = (data['receiverId'] ?? '').toString().trim();
+
+          final belongsToConversation =
+              (senderId == currentUserId && receiverId == targetUserId) ||
+                  (senderId == targetUserId &&
+                      receiverId == currentUserId);
+
+          if (!belongsToConversation) continue;
+
+          final deletedForUserIds =
+              (data['deletedForUserIds'] as List<dynamic>? ?? [])
+                  .map((value) => value.toString())
+                  .toList();
+
+          if (deletedForUserIds.contains(currentUserId)) continue;
+
+          uniqueById[doc.id] = MessageModel.fromMap(doc.id, data);
+        }
+      }
+
+      final messages = uniqueById.values.toList()
+        ..sort((a, b) => a.sentAt.compareTo(b.sentAt));
+
+      controller.add(messages);
+    }
+
+    controller = StreamController<List<MessageModel>>(
+      onListen: () {
+        final queries = [
+          FirebaseFirestore.instance
+              .collection('messages')
+              .where('senderId', isEqualTo: currentUserId),
+          FirebaseFirestore.instance
+              .collection('messages')
+              .where('receiverId', isEqualTo: currentUserId),
+        ];
+
+        for (int index = 0; index < queries.length; index++) {
+          final subscription = queries[index].snapshots().listen(
+            (snapshot) {
+              latestDocsByQuery[index] = snapshot.docs;
+              emitMessages();
+            },
+            onError: controller.addError,
+          );
+
+          subscriptions.add(subscription);
+        }
+      },
+      onCancel: () async {
+        for (final subscription in subscriptions) {
+          await subscription.cancel();
+        }
+      },
+    );
+
+    return controller.stream;
+  }
+
+  Future<void> markUnifiedConversationAsRead({
+    required String currentUserId,
+    required String targetUserId,
+  }) async {
+    final snapshot = await FirebaseFirestore.instance
+        .collection('messages')
+        .where('receiverId', isEqualTo: currentUserId)
+        .get();
+
+    final docsToUpdate = snapshot.docs.where((doc) {
+      final data = doc.data();
+      final senderId = (data['senderId'] ?? '').toString().trim();
+      final isRead = data['isRead'] == true;
+
+      final deletedForUserIds =
+          (data['deletedForUserIds'] as List<dynamic>? ?? [])
+              .map((value) => value.toString())
+              .toList();
+
+      return senderId == targetUserId &&
+          !isRead &&
+          !deletedForUserIds.contains(currentUserId);
+    }).toList();
+
+    for (int start = 0; start < docsToUpdate.length; start += 450) {
+      final end = (start + 450 < docsToUpdate.length)
+          ? start + 450
+          : docsToUpdate.length;
+
+      final batch = FirebaseFirestore.instance.batch();
+
+      for (final doc in docsToUpdate.sublist(start, end)) {
+        batch.update(doc.reference, {
+          'isRead': true,
+          'readAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+
+      await batch.commit();
+    }
+  }
+
   Future<void> loadCurrentUserIdentity() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
@@ -286,14 +446,12 @@ class _MessagesPageState extends State<MessagesPage> {
       currentUserName = loadedUserName;
       currentUserRole = loadedUserRole;
 
-      _messagesStream = _messageService.getConversationMessages(
-        childId: conversationChildId,
+      _messagesStream = buildUnifiedConversationStream(
         currentUserId: loadedUserId,
         targetUserId: widget.targetUserId,
       );
 
-      await _messageService.markConversationAsRead(
-        childId: conversationChildId,
+      await markUnifiedConversationAsRead(
         currentUserId: loadedUserId,
         targetUserId: widget.targetUserId,
       );
@@ -497,7 +655,7 @@ class _MessagesPageState extends State<MessagesPage> {
 
       final uploaded = await MediaStorageService.instance.uploadAudio(
         file: XFile(path),
-        folder: 'messages_audio/$conversationChildId',
+        folder: audioStorageFolder,
         fileNameWithoutExtension:
             'voice_${DateTime.now().millisecondsSinceEpoch}',
       );
@@ -507,8 +665,9 @@ class _MessagesPageState extends State<MessagesPage> {
       );
 
       await _messageService.sendAudioMessage(
-        childId: conversationChildId,
-        childName: conversationChildName,
+        childId: messageContextChildId,
+        childName: messageContextChildName,
+        conversationKey: activeConversationKey,
         senderId: currentUserId!,
         senderName: currentUserName,
         senderRole: normalizeRole(currentUserRole),
@@ -629,8 +788,9 @@ class _MessagesPageState extends State<MessagesPage> {
 
     try {
       await _messageService.sendMessage(
-        childId: conversationChildId,
-        childName: conversationChildName,
+        childId: messageContextChildId,
+        childName: messageContextChildName,
+        conversationKey: activeConversationKey,
         senderId: currentUserId!,
         senderName: currentUserName,
         senderRole: normalizeRole(currentUserRole),

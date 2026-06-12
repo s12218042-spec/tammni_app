@@ -3,6 +3,22 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class MessageModel {
   final String id;
 
+  /// مفتاح المحادثة الثابت الجديد.
+  /// يبقى فارغًا للرسائل القديمة التي لم تكن تحفظه.
+  final String conversationKey;
+  final String conversationType;
+
+  /// الطرف المقابل للمحادثة كما حُفظ عند الإرسال.
+  /// يفيد في التوافق مع النظام الجديد، مع إبقاء sender/receiver كما هما.
+  final String targetUid;
+  final String targetRole;
+
+  /// معلومات اختيارية لدعم الأشقاء بدون تقسيم المحادثة.
+  final String accessCodeId;
+  final List<String> childrenIds;
+  final List<String> childrenNames;
+
+  /// يبقيان للتوافق مع الرسائل القديمة، وللإشارة الاختيارية لطفل محدد.
   final String childId;
   final String childName;
 
@@ -46,6 +62,13 @@ class MessageModel {
 
   const MessageModel({
     required this.id,
+    required this.conversationKey,
+    required this.conversationType,
+    required this.targetUid,
+    required this.targetRole,
+    required this.accessCodeId,
+    required this.childrenIds,
+    required this.childrenNames,
     required this.childId,
     required this.childName,
     required this.senderId,
@@ -223,7 +246,7 @@ class MessageModel {
     return participants.toList();
   }
 
-  static List<String> _parseDeletedFor(dynamic raw) {
+  static List<String> _parseStringList(dynamic raw) {
     if (raw is List) {
       return raw
           .map((e) => e.toString().trim())
@@ -233,6 +256,10 @@ class MessageModel {
     }
 
     return <String>[];
+  }
+
+  static List<String> _parseDeletedFor(dynamic raw) {
+    return _parseStringList(raw);
   }
 
   bool get isAudioMessage => messageType.trim().toLowerCase() == 'audio';
@@ -280,6 +307,12 @@ class MessageModel {
     return text;
   }
 
+  String get childrenDisplayText {
+    if (childrenNames.isNotEmpty) return childrenNames.join('، ');
+    if (childName.trim().isNotEmpty) return childName.trim();
+    return '';
+  }
+
   String otherUserId(String currentUserId) {
     if (senderId == currentUserId) return receiverId;
     if (receiverId == currentUserId) return senderId;
@@ -303,10 +336,15 @@ class MessageModel {
         : normalizedSenderRole;
   }
 
-  /// مفتاح مباشر لمنع تكرار بطاقات المحادثات.
-  /// لا يعتمد على childId حتى لا تظهر الموظفة أو الإدارة أكثر من مرة
-  /// إذا كان لولي الأمر أكثر من طفل.
+  /// المفتاح الجديد له الأولوية.
+  /// إذا كانت الرسالة قديمة ولا تحتوي عليه، نرجع للمنطق القديم المتوافق.
   String conversationKeyFor(String currentUserId) {
+    final storedKey = conversationKey.trim();
+
+    if (storedKey.isNotEmpty) {
+      return storedKey;
+    }
+
     final otherId = otherUserId(currentUserId).trim();
     final otherRole = otherUserRole(currentUserId).trim();
 
@@ -372,6 +410,13 @@ class MessageModel {
 
     return MessageModel(
       id: id,
+      conversationKey: _string(data['conversationKey']),
+      conversationType: _string(data['conversationType']),
+      targetUid: _string(data['targetUid']),
+      targetRole: normalizeRole(data['targetRole']),
+      accessCodeId: _string(data['accessCodeId']),
+      childrenIds: _parseStringList(data['childrenIds']),
+      childrenNames: _parseStringList(data['childrenNames']),
       childId: _string(data['childId']),
       childName: _string(data['childName']),
       senderId: senderId,
@@ -441,6 +486,13 @@ class MessageModel {
 
   Map<String, dynamic> toMap() {
     final data = <String, dynamic>{
+      'conversationKey': conversationKey,
+      'conversationType': conversationType,
+      'targetUid': targetUid,
+      'targetRole': normalizeRole(targetRole),
+      'accessCodeId': accessCodeId,
+      'childrenIds': childrenIds,
+      'childrenNames': childrenNames,
       'childId': childId,
       'childName': childName,
       'senderId': senderId,
@@ -500,6 +552,13 @@ class MessageModel {
 
   MessageModel copyWith({
     String? id,
+    String? conversationKey,
+    String? conversationType,
+    String? targetUid,
+    String? targetRole,
+    String? accessCodeId,
+    List<String>? childrenIds,
+    List<String>? childrenNames,
     String? childId,
     String? childName,
     String? senderId,
@@ -534,6 +593,14 @@ class MessageModel {
   }) {
     return MessageModel(
       id: id ?? this.id,
+      conversationKey: conversationKey ?? this.conversationKey,
+      conversationType: conversationType ?? this.conversationType,
+      targetUid: targetUid ?? this.targetUid,
+      targetRole:
+          targetRole == null ? this.targetRole : normalizeRole(targetRole),
+      accessCodeId: accessCodeId ?? this.accessCodeId,
+      childrenIds: childrenIds ?? this.childrenIds,
+      childrenNames: childrenNames ?? this.childrenNames,
       childId: childId ?? this.childId,
       childName: childName ?? this.childName,
       senderId: senderId ?? this.senderId,

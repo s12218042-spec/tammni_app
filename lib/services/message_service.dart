@@ -73,6 +73,182 @@ class MessageService {
     return '${clean.substring(0, 80)}...';
   }
 
+  String _cleanKeyPart(String value) {
+    return value.trim();
+  }
+
+  String _conversationTargetUid({
+    required String senderId,
+    required String senderRole,
+    required String receiverId,
+    required String receiverRole,
+  }) {
+    final normalizedSenderRole = _normalizeRole(senderRole);
+    final normalizedReceiverRole = _normalizeRole(receiverRole);
+
+    if (normalizedSenderRole == 'parent') return receiverId.trim();
+    if (normalizedReceiverRole == 'parent') return senderId.trim();
+
+    return receiverId.trim();
+  }
+
+  String _conversationTargetRole({
+    required String senderRole,
+    required String receiverRole,
+  }) {
+    final normalizedSenderRole = _normalizeRole(senderRole);
+    final normalizedReceiverRole = _normalizeRole(receiverRole);
+
+    if (normalizedSenderRole == 'parent') return normalizedReceiverRole;
+    if (normalizedReceiverRole == 'parent') return normalizedSenderRole;
+
+    return normalizedReceiverRole;
+  }
+
+  String _conversationParentUid({
+    required String senderId,
+    required String senderRole,
+    required String receiverId,
+    required String receiverRole,
+  }) {
+    final normalizedSenderRole = _normalizeRole(senderRole);
+    final normalizedReceiverRole = _normalizeRole(receiverRole);
+
+    if (normalizedSenderRole == 'parent') return senderId.trim();
+    if (normalizedReceiverRole == 'parent') return receiverId.trim();
+
+    return '';
+  }
+
+  String buildOfficialConversationKey({
+  required String parentUid,
+  required String targetUid,
+  required String targetRole,
+}) {
+  final cleanParentUid = _cleanKeyPart(parentUid);
+  final cleanTargetUid = _cleanKeyPart(targetUid);
+  final normalizedTargetRole = _normalizeRole(targetRole);
+
+  if (cleanParentUid.isEmpty) return '';
+
+  if (normalizedTargetRole == 'admin') {
+    return '${cleanParentUid}__admin';
+  }
+
+  if (normalizedTargetRole == 'nursery_staff' &&
+      cleanTargetUid.isNotEmpty) {
+    return '${cleanParentUid}__staff__$cleanTargetUid';
+  }
+
+  if (cleanTargetUid.isNotEmpty) {
+    return '${cleanParentUid}__${normalizedTargetRole}__$cleanTargetUid';
+  }
+
+  return cleanParentUid;
+}
+
+String buildTemporaryConversationKey({
+  required String accessCodeId,
+  required String targetUid,
+  required String targetRole,
+}) {
+  final cleanAccessCodeId = _cleanKeyPart(accessCodeId);
+  final cleanTargetUid = _cleanKeyPart(targetUid);
+  final normalizedTargetRole = _normalizeRole(targetRole);
+
+  if (cleanAccessCodeId.isEmpty) return '';
+
+  if (normalizedTargetRole == 'admin') {
+    return '${cleanAccessCodeId}__admin';
+  }
+
+  if (normalizedTargetRole == 'nursery_staff' &&
+      cleanTargetUid.isNotEmpty) {
+    return '${cleanAccessCodeId}__staff__$cleanTargetUid';
+  }
+
+  if (cleanTargetUid.isNotEmpty) {
+    return '${cleanAccessCodeId}__${normalizedTargetRole}__$cleanTargetUid';
+  }
+
+  return cleanAccessCodeId;
+}
+  String _buildConversationKey({
+    required String senderId,
+    required String senderRole,
+    required String receiverId,
+    required String receiverRole,
+    String? conversationKey,
+    String? accessCodeId,
+  }) {
+    final cleanConversationKey = (conversationKey ?? '').trim();
+    if (cleanConversationKey.isNotEmpty) return cleanConversationKey;
+
+    final cleanAccessCodeId = (accessCodeId ?? '').trim();
+
+    final targetUid = _conversationTargetUid(
+      senderId: senderId,
+      senderRole: senderRole,
+      receiverId: receiverId,
+      receiverRole: receiverRole,
+    );
+
+    final targetRole = _conversationTargetRole(
+      senderRole: senderRole,
+      receiverRole: receiverRole,
+    );
+
+    if (cleanAccessCodeId.isNotEmpty) {
+      return buildTemporaryConversationKey(
+        accessCodeId: cleanAccessCodeId,
+        targetUid: targetUid,
+        targetRole: targetRole,
+      );
+    }
+
+    final parentUid = _conversationParentUid(
+      senderId: senderId,
+      senderRole: senderRole,
+      receiverId: receiverId,
+      receiverRole: receiverRole,
+    );
+
+    final officialKey = buildOfficialConversationKey(
+      parentUid: parentUid,
+      targetUid: targetUid,
+      targetRole: targetRole,
+    );
+
+    if (officialKey.isNotEmpty) return officialKey;
+
+    final ids = <String>[
+      senderId.trim(),
+      receiverId.trim(),
+    ]..sort();
+
+    return ids.where((id) => id.isNotEmpty).join('__direct__');
+  }
+
+  String _conversationType({
+    required String senderRole,
+    required String receiverRole,
+    String? accessCodeId,
+  }) {
+    if ((accessCodeId ?? '').trim().isNotEmpty) {
+      return 'temporary';
+    }
+
+    final normalizedSenderRole = _normalizeRole(senderRole);
+    final normalizedReceiverRole = _normalizeRole(receiverRole);
+
+    if (normalizedSenderRole == 'parent' ||
+        normalizedReceiverRole == 'parent') {
+      return 'official';
+    }
+
+    return 'direct';
+  }
+
   List<String> _participants({
     required String senderId,
     required String receiverId,
@@ -83,12 +259,20 @@ class MessageService {
     }.where((value) => value.isNotEmpty).toList();
   }
 
+  List<String> _cleanStringList(List<String>? values) {
+    return (values ?? <String>[])
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .toList();
+  }
 
-  Stream<List<MessageModel>> _mergeMessageQueries({
+  Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      _mergeMessageDocumentQueries({
     required List<Query<Map<String, dynamic>>> queries,
-    required List<MessageModel> Function(List<MessageModel>) transform,
   }) {
-    late final StreamController<List<MessageModel>> controller;
+    late final StreamController<
+        List<QueryDocumentSnapshot<Map<String, dynamic>>>> controller;
 
     final latestDocsByQuery =
         List<List<QueryDocumentSnapshot<Map<String, dynamic>>>>.generate(
@@ -99,25 +283,26 @@ class MessageService {
     final subscriptions =
         <StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>[];
 
-    void emitMergedMessages() {
-      final uniqueById = <String, MessageModel>{};
+    void emitMergedDocs() {
+      final uniqueById = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
 
       for (final docs in latestDocsByQuery) {
         for (final doc in docs) {
-          uniqueById[doc.id] = MessageModel.fromMap(doc.id, doc.data());
+          uniqueById[doc.id] = doc;
         }
       }
 
-      controller.add(transform(uniqueById.values.toList()));
+      controller.add(uniqueById.values.toList());
     }
 
-    controller = StreamController<List<MessageModel>>(
+    controller =
+        StreamController<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
       onListen: () {
         for (int index = 0; index < queries.length; index++) {
           final subscription = queries[index].snapshots().listen(
             (snapshot) {
               latestDocsByQuery[index] = snapshot.docs;
-              emitMergedMessages();
+              emitMergedDocs();
             },
             onError: controller.addError,
           );
@@ -133,6 +318,21 @@ class MessageService {
     );
 
     return controller.stream;
+  }
+
+  Stream<List<MessageModel>> _mergeMessageQueries({
+    required List<Query<Map<String, dynamic>>> queries,
+    required List<MessageModel> Function(List<MessageModel>) transform,
+  }) {
+    return _mergeMessageDocumentQueries(queries: queries).map((docs) {
+      final uniqueById = <String, MessageModel>{};
+
+      for (final doc in docs) {
+        uniqueById[doc.id] = MessageModel.fromMap(doc.id, doc.data());
+      }
+
+      return transform(uniqueById.values.toList());
+    });
   }
 
   Future<Map<String, String>> _fetchUserInfo(String uid) async {
@@ -182,6 +382,7 @@ class MessageService {
     required String text,
     required String messageId,
     String messageType = 'text',
+    String conversationKey = '',
   }) async {
     if (senderId.trim().isEmpty || receiverId.trim().isEmpty) return;
     if (senderId == receiverId) return;
@@ -218,6 +419,7 @@ class MessageService {
       extraData: {
         'messageId': messageId,
         'messageType': messageType,
+        'conversationKey': conversationKey,
         'conversationChildId': childId,
         'senderId': senderId,
         'senderName': senderName,
@@ -241,6 +443,7 @@ class MessageService {
     required String reactedByName,
     required String reactedByRole,
     required String emoji,
+    String conversationKey = '',
   }) async {
     if (messageOwnerId.trim().isEmpty || reactedByUid.trim().isEmpty) return;
     if (messageOwnerId == reactedByUid) return;
@@ -269,6 +472,7 @@ class MessageService {
       createdByRole: normalizedReactorRole,
       extraData: {
         'messageId': messageId,
+        'conversationKey': conversationKey,
         'conversationChildId': childId,
         'emoji': emoji,
         'reactedByUid': reactedByUid,
@@ -293,6 +497,7 @@ class MessageService {
     required String receiverRole,
     required String text,
     required String messageType,
+    required String conversationKey,
   }) async {
     try {
       await _createMessageNotification(
@@ -307,6 +512,7 @@ class MessageService {
         text: text,
         messageId: messageRef.id,
         messageType: messageType,
+        conversationKey: conversationKey,
       );
 
       try {
@@ -331,7 +537,37 @@ class MessageService {
     required String childId,
     required String currentUserId,
     required String targetUserId,
+    String? conversationKey,
   }) {
+    final cleanConversationKey = (conversationKey ?? '').trim();
+
+    if (cleanConversationKey.isNotEmpty) {
+      final conversationMessages = _messagesRef.where(
+        'conversationKey',
+        isEqualTo: cleanConversationKey,
+      );
+
+      return _mergeMessageQueries(
+        queries: [conversationMessages],
+        transform: (rawMessages) {
+          final messages = rawMessages.where((message) {
+            final belongsToCurrentConversation =
+                targetUserId.trim().isEmpty ||
+                    message.senderId == targetUserId ||
+                    message.receiverId == targetUserId;
+
+            final hiddenForCurrentUser =
+                message.deletedForUserIds.contains(currentUserId);
+
+            return belongsToCurrentConversation && !hiddenForCurrentUser;
+          }).toList();
+
+          messages.sort((a, b) => a.sentAt.compareTo(b.sentAt));
+          return messages;
+        },
+      );
+    }
+
     final sentByCurrentUser = _messagesRef
         .where('childId', isEqualTo: childId)
         .where('senderId', isEqualTo: currentUserId);
@@ -372,31 +608,43 @@ class MessageService {
     final receivedByCurrentUser =
         _messagesRef.where('receiverId', isEqualTo: currentUserId);
 
-    return _mergeMessageQueries(
+    return _mergeMessageDocumentQueries(
       queries: [
         sentByCurrentUser,
         receivedByCurrentUser,
       ],
-      transform: (rawMessages) {
-        final allMessages = rawMessages
-            .where(
-              (message) =>
-                  !message.deletedForUserIds.contains(currentUserId),
+    ).map((docs) {
+      final allMessages = docs
+          .map((doc) => MessageModel.fromMap(doc.id, doc.data()))
+          .where(
+            (message) => !message.deletedForUserIds.contains(currentUserId),
+          )
+          .toList()
+        ..sort((a, b) => b.sentAt.compareTo(a.sentAt));
+
+      final latestByChat = <String, MessageModel>{};
+
+      for (final message in allMessages) {
+        final data = docs
+            .firstWhere(
+              (doc) => doc.id == message.id,
+              orElse: () => docs.first,
             )
-            .toList()
-          ..sort((a, b) => b.sentAt.compareTo(a.sentAt));
+            .data();
 
-        final latestByChat = <String, MessageModel>{};
+        final storedConversationKey =
+            (data['conversationKey'] ?? '').toString().trim();
 
-        for (final message in allMessages) {
-          final key = message.conversationKeyFor(currentUserId);
-          latestByChat.putIfAbsent(key, () => message);
-        }
+        final key = storedConversationKey.isNotEmpty
+            ? storedConversationKey
+            : message.conversationKeyFor(currentUserId);
 
-        return latestByChat.values.toList()
-          ..sort((a, b) => b.sentAt.compareTo(a.sentAt));
-      },
-    );
+        latestByChat.putIfAbsent(key, () => message);
+      }
+
+      return latestByChat.values.toList()
+        ..sort((a, b) => b.sentAt.compareTo(a.sentAt));
+    });
   }
 
   Stream<int> getUnreadMessagesCountForUser({
@@ -431,6 +679,10 @@ class MessageService {
     required String receiverName,
     required String receiverRole,
     required String text,
+    String? conversationKey,
+    String? accessCodeId,
+    List<String>? childrenIds,
+    List<String>? childrenNames,
     String? replyToMessageId,
     String? replyToText,
     String? replyToSenderId,
@@ -442,9 +694,41 @@ class MessageService {
     final normalizedSenderRole = _normalizeRole(senderRole);
     final normalizedReceiverRole = _normalizeRole(receiverRole);
 
+    final cleanConversationKey = _buildConversationKey(
+      senderId: senderId,
+      senderRole: normalizedSenderRole,
+      receiverId: receiverId,
+      receiverRole: normalizedReceiverRole,
+      conversationKey: conversationKey,
+      accessCodeId: accessCodeId,
+    );
+
+    final targetUid = _conversationTargetUid(
+      senderId: senderId,
+      senderRole: normalizedSenderRole,
+      receiverId: receiverId,
+      receiverRole: normalizedReceiverRole,
+    );
+
+    final targetRole = _conversationTargetRole(
+      senderRole: normalizedSenderRole,
+      receiverRole: normalizedReceiverRole,
+    );
+
     final docRef = await _messagesRef.add({
+      'conversationKey': cleanConversationKey,
+      'conversationType': _conversationType(
+        senderRole: normalizedSenderRole,
+        receiverRole: normalizedReceiverRole,
+        accessCodeId: accessCodeId,
+      ),
+      'targetUid': targetUid,
+      'targetRole': targetRole,
+      'accessCodeId': (accessCodeId ?? '').trim(),
       'childId': childId,
       'childName': childName,
+      'childrenIds': _cleanStringList(childrenIds),
+      'childrenNames': _cleanStringList(childrenNames),
       'senderId': senderId,
       'senderName': senderName,
       'senderRole': normalizedSenderRole,
@@ -491,6 +775,7 @@ class MessageService {
       receiverRole: normalizedReceiverRole,
       text: cleanText,
       messageType: 'text',
+      conversationKey: cleanConversationKey,
     );
   }
 
@@ -510,6 +795,10 @@ class MessageService {
     required int audioSizeBytes,
     required String audioBucket,
     required String audioStorageProvider,
+    String? conversationKey,
+    String? accessCodeId,
+    List<String>? childrenIds,
+    List<String>? childrenNames,
     String? replyToMessageId,
     String? replyToText,
     String? replyToSenderId,
@@ -523,9 +812,41 @@ class MessageService {
     final normalizedSenderRole = _normalizeRole(senderRole);
     final normalizedReceiverRole = _normalizeRole(receiverRole);
 
+    final cleanConversationKey = _buildConversationKey(
+      senderId: senderId,
+      senderRole: normalizedSenderRole,
+      receiverId: receiverId,
+      receiverRole: normalizedReceiverRole,
+      conversationKey: conversationKey,
+      accessCodeId: accessCodeId,
+    );
+
+    final targetUid = _conversationTargetUid(
+      senderId: senderId,
+      senderRole: normalizedSenderRole,
+      receiverId: receiverId,
+      receiverRole: normalizedReceiverRole,
+    );
+
+    final targetRole = _conversationTargetRole(
+      senderRole: normalizedSenderRole,
+      receiverRole: normalizedReceiverRole,
+    );
+
     final docRef = await _messagesRef.add({
+      'conversationKey': cleanConversationKey,
+      'conversationType': _conversationType(
+        senderRole: normalizedSenderRole,
+        receiverRole: normalizedReceiverRole,
+        accessCodeId: accessCodeId,
+      ),
+      'targetUid': targetUid,
+      'targetRole': targetRole,
+      'accessCodeId': (accessCodeId ?? '').trim(),
       'childId': childId,
       'childName': childName,
+      'childrenIds': _cleanStringList(childrenIds),
+      'childrenNames': _cleanStringList(childrenNames),
       'senderId': senderId,
       'senderName': senderName,
       'senderRole': normalizedSenderRole,
@@ -572,6 +893,7 @@ class MessageService {
       receiverRole: normalizedReceiverRole,
       text: 'رسالة صوتية',
       messageType: 'audio',
+      conversationKey: cleanConversationKey,
     );
   }
 
@@ -579,11 +901,23 @@ class MessageService {
     required String childId,
     required String currentUserId,
     required String targetUserId,
+    String? conversationKey,
   }) async {
-    final snapshot = await _messagesRef
-        .where('childId', isEqualTo: childId)
-        .where('receiverId', isEqualTo: currentUserId)
-        .get();
+    final cleanConversationKey = (conversationKey ?? '').trim();
+
+    final QuerySnapshot<Map<String, dynamic>> snapshot;
+
+    if (cleanConversationKey.isNotEmpty) {
+      snapshot = await _messagesRef
+          .where('conversationKey', isEqualTo: cleanConversationKey)
+          .where('receiverId', isEqualTo: currentUserId)
+          .get();
+    } else {
+      snapshot = await _messagesRef
+          .where('childId', isEqualTo: childId)
+          .where('receiverId', isEqualTo: currentUserId)
+          .get();
+    }
 
     final docsToUpdate = snapshot.docs.where((doc) {
       final data = doc.data();
@@ -596,8 +930,11 @@ class MessageService {
               .map((e) => e.toString())
               .toList();
 
+      final isTargetMessage =
+          targetUserId.trim().isEmpty || senderId == targetUserId;
+
       return receiverId == currentUserId &&
-          senderId == targetUserId &&
+          isTargetMessage &&
           isRead == false &&
           !deletedForUserIds.contains(currentUserId);
     }).toList();
@@ -624,6 +961,7 @@ class MessageService {
     String childName = '';
     String messageOwnerId = '';
     String messageOwnerRole = '';
+    String conversationKey = '';
 
     await _firestore.runTransaction((transaction) async {
       final snapshot = await transaction.get(docRef);
@@ -678,6 +1016,7 @@ class MessageService {
 
           childId = (data['childId'] ?? '').toString();
           childName = (data['childName'] ?? '').toString();
+          conversationKey = (data['conversationKey'] ?? '').toString();
         }
       }
 
@@ -703,6 +1042,7 @@ class MessageService {
         reactedByName: reactorInfo['name'] ?? 'مستخدم',
         reactedByRole: reactorInfo['role'] ?? '',
         emoji: emoji,
+        conversationKey: conversationKey,
       );
     } catch (e) {
       debugPrint(

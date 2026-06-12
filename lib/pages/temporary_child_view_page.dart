@@ -2469,6 +2469,22 @@ Widget _buildConsultationsCard() {
     required String targetUid,
     required String targetName,
   }) async {
+    final cleanTargetRole = targetRole.trim().toLowerCase();
+    final resolvedTargetUid =
+        cleanTargetRole == 'admin' ? 'admin' : targetUid.trim();
+
+    if (cleanTargetRole == 'nursery_staff' && resolvedTargetUid.isEmpty) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('لم يتم تحديد موظف الحضانة المسؤول بعد'),
+        ),
+      );
+
+      return;
+    }
+
     await Navigator.push(
       context,
       MaterialPageRoute(
@@ -2481,8 +2497,8 @@ Widget _buildConsultationsCard() {
           parentPhone: _parentPhone(),
           groupId: _cleanText(_childData['groupId']),
           groupName: _groupName(),
-          targetRole: targetRole,
-          targetUid: targetUid,
+          targetRole: cleanTargetRole,
+          targetUid: resolvedTargetUid,
           targetName: targetName,
         ),
       ),
@@ -2492,33 +2508,95 @@ Widget _buildConsultationsCard() {
     setState(() {});
   }
 
+  String _conversationKeyForChatTarget({
+    required String targetRole,
+    required String targetUid,
+  }) {
+    final cleanAccessCodeId = widget.accessCodeId.trim();
+    final cleanTargetRole = targetRole.trim().toLowerCase();
+    final cleanTargetUid = targetUid.trim();
+
+    if (cleanAccessCodeId.isEmpty) {
+      return '';
+    }
+
+    if (cleanTargetRole == 'admin') {
+      return '${cleanAccessCodeId}__admin';
+    }
+
+    if (cleanTargetRole == 'nursery_staff' && cleanTargetUid.isNotEmpty) {
+      return '${cleanAccessCodeId}__staff__$cleanTargetUid';
+    }
+
+    return '';
+  }
+
   bool _isMessageForChatTarget(
     Map<String, dynamic> data, {
     required String targetRole,
     required String targetUid,
   }) {
-    final fromRole = _cleanText(data['fromRole']).toLowerCase();
-    final messageTargetRole = _cleanText(data['targetRole']).toLowerCase();
-    final messageTargetUid = _cleanText(data['targetUid']);
-
     final cleanTargetRole = targetRole.trim().toLowerCase();
-    final cleanTargetUid = targetUid.trim();
+    final cleanTargetUid =
+        cleanTargetRole == 'admin' ? 'admin' : targetUid.trim();
 
-    final fromTemporaryToTarget =
-        fromRole == 'temporary_parent' && messageTargetRole == cleanTargetRole;
+    final expectedConversationKey = _conversationKeyForChatTarget(
+      targetRole: cleanTargetRole,
+      targetUid: cleanTargetUid,
+    );
 
-    final fromTargetToTemporary =
-        fromRole == cleanTargetRole && messageTargetRole == 'temporary_parent';
+    final storedConversationKey = _cleanText(data['conversationKey']);
 
-    if (!fromTemporaryToTarget && !fromTargetToTemporary) {
+    if (storedConversationKey.isNotEmpty) {
+      return expectedConversationKey.isNotEmpty &&
+          storedConversationKey == expectedConversationKey;
+    }
+
+    final storedAccessCodeId = _cleanText(data['accessCodeId']);
+
+    if (widget.accessCodeId.trim().isNotEmpty &&
+        storedAccessCodeId.isNotEmpty &&
+        storedAccessCodeId != widget.accessCodeId.trim()) {
       return false;
     }
 
-    if (cleanTargetUid.isEmpty || cleanTargetUid == 'admin') {
-      return true;
+    if (storedAccessCodeId.isEmpty &&
+        _cleanText(data['childId']) != _currentChildId) {
+      return false;
     }
 
-    return messageTargetUid.isEmpty || messageTargetUid == cleanTargetUid;
+    final fromRole = _cleanText(data['fromRole']).toLowerCase();
+    final messageTargetRole = _cleanText(data['targetRole']).toLowerCase();
+    final fromUid = _cleanText(data['fromUid']);
+    final messageTargetUid = _cleanText(data['targetUid']);
+
+    if (cleanTargetRole == 'admin') {
+      final fromTemporaryToAdmin =
+          fromRole == 'temporary_parent' && messageTargetRole == 'admin';
+
+      final fromAdminToTemporary =
+          fromRole == 'admin' && messageTargetRole == 'temporary_parent';
+
+      return fromTemporaryToAdmin || fromAdminToTemporary;
+    }
+
+    if (cleanTargetRole == 'nursery_staff') {
+      if (cleanTargetUid.isEmpty) return false;
+
+      final fromTemporaryToStaff =
+          fromRole == 'temporary_parent' &&
+          messageTargetRole == 'nursery_staff' &&
+          messageTargetUid == cleanTargetUid;
+
+      final fromStaffToTemporary =
+          fromRole == 'nursery_staff' &&
+          fromUid == cleanTargetUid &&
+          messageTargetRole == 'temporary_parent';
+
+      return fromTemporaryToStaff || fromStaffToTemporary;
+    }
+
+    return false;
   }
 
   Map<String, dynamic>? _latestMessageForChatTarget(
@@ -2551,6 +2629,12 @@ Widget _buildConsultationsCard() {
   String _messagePreview(Map<String, dynamic>? data) {
     if (data == null) return '';
 
+    final isAudio = _cleanText(data['messageType']).toLowerCase() == 'audio' ||
+        _cleanText(data['audioPath']).isNotEmpty ||
+        _cleanText(data['audioUrl']).isNotEmpty;
+
+    if (isAudio) return 'رسالة صوتية';
+
     final text = _cleanText(
       data['message'] ?? data['text'] ?? data['body'],
     );
@@ -2562,12 +2646,128 @@ Widget _buildConsultationsCard() {
     return '${text.substring(0, 45)}...';
   }
 
-  Stream<QuerySnapshot<Map<String, dynamic>>> _temporaryMessagesStream() {
-    return _firestore
-        .collection('temporary_messages')
-        .where('childId', isEqualTo: _currentChildId)
-        .limit(200)
-        .snapshots();
+  List<Query<Map<String, dynamic>>> _temporaryMessageQueriesForTarget({
+    required String targetRole,
+    required String targetUid,
+  }) {
+    final ref = _firestore.collection('temporary_messages');
+    final queries = <Query<Map<String, dynamic>>>[];
+
+    final cleanTargetRole = targetRole.trim().toLowerCase();
+    final cleanTargetUid =
+        cleanTargetRole == 'admin' ? 'admin' : targetUid.trim();
+
+    final conversationKey = _conversationKeyForChatTarget(
+      targetRole: cleanTargetRole,
+      targetUid: cleanTargetUid,
+    );
+
+    if (conversationKey.isNotEmpty) {
+      queries.add(
+        ref.where('conversationKey', isEqualTo: conversationKey).limit(300),
+      );
+    }
+
+    final accessCodeId = widget.accessCodeId.trim();
+
+    if (accessCodeId.isNotEmpty) {
+      if (cleanTargetRole == 'admin') {
+        queries.add(
+          ref
+              .where('accessCodeId', isEqualTo: accessCodeId)
+              .where('targetRole', isEqualTo: 'admin')
+              .limit(300),
+        );
+
+        queries.add(
+          ref
+              .where('accessCodeId', isEqualTo: accessCodeId)
+              .where('fromRole', isEqualTo: 'admin')
+              .limit(300),
+        );
+      } else if (cleanTargetRole == 'nursery_staff' &&
+          cleanTargetUid.isNotEmpty) {
+        queries.add(
+          ref
+              .where('accessCodeId', isEqualTo: accessCodeId)
+              .where('targetUid', isEqualTo: cleanTargetUid)
+              .limit(300),
+        );
+
+        queries.add(
+          ref
+              .where('accessCodeId', isEqualTo: accessCodeId)
+              .where('fromUid', isEqualTo: cleanTargetUid)
+              .limit(300),
+        );
+      }
+    }
+
+    queries.add(
+      ref.where('childId', isEqualTo: _currentChildId).limit(300),
+    );
+
+    return queries;
+  }
+
+  Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      _temporaryMessagesStreamForTarget({
+    required String targetRole,
+    required String targetUid,
+  }) {
+    final queries = _temporaryMessageQueriesForTarget(
+      targetRole: targetRole,
+      targetUid: targetUid,
+    );
+
+    late final StreamController<
+        List<QueryDocumentSnapshot<Map<String, dynamic>>>> controller;
+
+    final latestDocsByQuery =
+        List<List<QueryDocumentSnapshot<Map<String, dynamic>>>>.generate(
+      queries.length,
+      (_) => <QueryDocumentSnapshot<Map<String, dynamic>>>[],
+    );
+
+    final subscriptions =
+        <StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>[];
+
+    void emitMergedDocs() {
+      final uniqueDocs =
+          <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+
+      for (final docs in latestDocsByQuery) {
+        for (final doc in docs) {
+          uniqueDocs[doc.id] = doc;
+        }
+      }
+
+      controller.add(uniqueDocs.values.toList());
+    }
+
+    controller =
+        StreamController<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+      onListen: () {
+        for (int index = 0; index < queries.length; index++) {
+          final subscription = queries[index].snapshots().listen(
+            (snapshot) {
+              latestDocsByQuery[index] = snapshot.docs;
+              emitMergedDocs();
+            },
+            onError: controller.addError,
+          );
+
+          subscriptions.add(subscription);
+        }
+      },
+      onCancel: () async {
+        for (final subscription in subscriptions) {
+          await subscription.cancel();
+        }
+      },
+    );
+
+    return controller.stream;
   }
 
   Widget _buildChatOptionCard({
@@ -2637,11 +2837,15 @@ Widget _buildConsultationsCard() {
       );
     }
 
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: _temporaryMessagesStream(),
+    return StreamBuilder<
+        List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+      stream: _temporaryMessagesStreamForTarget(
+        targetRole: targetRole,
+        targetUid: targetUid,
+      ),
       builder: (context, snapshot) {
         final latest = _latestMessageForChatTarget(
-          snapshot.data?.docs ?? [],
+          snapshot.data ?? [],
           targetRole: targetRole,
           targetUid: targetUid,
         );

@@ -145,19 +145,6 @@ class _AdminChatsPageState extends State<AdminChatsPage> {
     return value.isEmpty ? 'و' : value.substring(0, 1);
   }
 
-  String childrenCountLabel(int count) {
-    if (count == 1) return 'طفل واحد';
-    if (count == 2) return 'طفلان';
-    if (count >= 3 && count <= 10) return '$count أطفال';
-    return '$count طفل';
-  }
-
-  String childTypeLabel(ChildModel child) {
-    if (child.isTrialChild) return 'طفل تجربة';
-    if (child.isTemporaryChild) return 'طفل زائر';
-    return 'طفل دائم';
-  }
-
   String formatTime(Timestamp timestamp) {
     final date = timestamp.toDate();
     final now = DateTime.now();
@@ -426,11 +413,28 @@ class _AdminChatsPageState extends State<AdminChatsPage> {
       final children = contact['children'] as List<ChildModel>;
       children.sort((a, b) => a.displayName.compareTo(b.displayName));
 
-      contact['subtitle'] = children.isEmpty
-          ? 'ولي أمر'
+      final childrenNames = children
+          .map((child) => child.displayName.trim())
+          .where((name) => name.isNotEmpty)
+          .join('، ');
+
+      final officialUids = contact['officialUids'] is Set<String>
+          ? contact['officialUids'] as Set<String>
+          : <String>{};
+
+      final isVisitorParent = officialUids.isEmpty &&
+          children.isNotEmpty &&
+          children.every(
+            (child) => child.isTemporaryChild || child.isTrialChild,
+          );
+
+      final parentLabel = isVisitorParent ? 'ولي أمر زائر' : 'ولي أمر';
+
+      contact['subtitle'] = childrenNames.isEmpty
+          ? parentLabel
           : children.length == 1
-              ? 'ولي أمر'
-              : 'ولي أمر • ${childrenCountLabel(children.length)}';
+              ? '$parentLabel • الطفل: $childrenNames'
+              : '$parentLabel • الأطفال: $childrenNames';
     }
 
     final contacts = <Map<String, dynamic>>[
@@ -620,19 +624,65 @@ class _AdminChatsPageState extends State<AdminChatsPage> {
     setState(() {});
   }
 
-  Future<void> openTemporaryChildChat(
-    ChildModel child,
+  bool contactHasOfficialConversation(
+    Map<String, dynamic> contact,
+  ) {
+    final officialUids = contact['officialUids'] is Set<String>
+        ? contact['officialUids'] as Set<String>
+        : <String>{};
+
+    if (officialUids.isNotEmpty) return true;
+
+    final children = contact['children'] is List<ChildModel>
+        ? contact['children'] as List<ChildModel>
+        : <ChildModel>[];
+
+    return children.any((child) {
+      return !child.isTemporaryChild && !child.isTrialChild;
+    });
+  }
+
+  List<ChildModel> temporaryChildrenForContact(
+    Map<String, dynamic> contact,
+  ) {
+    final children = contact['children'] is List<ChildModel>
+        ? contact['children'] as List<ChildModel>
+        : <ChildModel>[];
+
+    return children.where((child) {
+      return child.isTemporaryChild || child.isTrialChild;
+    }).toList();
+  }
+
+  Future<void> openTemporaryParentChat(
+    Map<String, dynamic> contact,
   ) async {
+    final children = temporaryChildrenForContact(contact);
+
+    if (children.isEmpty) {
+      showMessage('لا توجد محادثة متاحة لولي الأمر');
+      return;
+    }
+
+    final child = children.first;
     final access = await loadTemporaryAccessData(child);
 
     if (!mounted) return;
+
+    final accessCodeId = access['accessCodeId'] ?? '';
+    final accessCode = access['accessCode'] ?? '';
+
+    if (accessCodeId.trim().isEmpty || accessCode.trim().isEmpty) {
+      showMessage('تعذر العثور على رمز دخول ولي الأمر');
+      return;
+    }
 
     await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => TemporaryStaffChatPage(
-          accessCodeId: access['accessCodeId'] ?? '',
-          accessCode: access['accessCode'] ?? '',
+          accessCodeId: accessCodeId,
+          accessCode: accessCode,
           childId: child.id,
           childName: child.displayName,
           parentName: child.displayParentName,
@@ -647,171 +697,15 @@ class _AdminChatsPageState extends State<AdminChatsPage> {
     setState(() {});
   }
 
-  List<Map<String, dynamic>> parentConversationRoutes(
-    Map<String, dynamic> contact,
-  ) {
-    final routes = <Map<String, dynamic>>[];
-
-    final officialUids = contact['officialUids'] is Set<String>
-        ? contact['officialUids'] as Set<String>
-        : <String>{};
-
-    final children = contact['children'] is List<ChildModel>
-        ? contact['children'] as List<ChildModel>
-        : <ChildModel>[];
-
-    final hasPermanentChild = children.any((child) {
-      return !child.isTemporaryChild && !child.isTrialChild;
-    });
-
-    if (officialUids.isNotEmpty || hasPermanentChild) {
-      routes.add({
-        'kind': 'official_parent',
-        'title': 'المحادثة الرسمية',
-        'subtitle': 'ولي الأمر',
-      });
-    }
-
-    for (final child in children) {
-      if (!child.isTemporaryChild && !child.isTrialChild) continue;
-
-      routes.add({
-        'kind': 'temporary_child',
-        'title': child.displayName,
-        'subtitle': '${childTypeLabel(child)} • ${child.displayGroup}',
-        'child': child,
-      });
-    }
-
-    return routes;
-  }
-
   Future<void> openParentContact(
     Map<String, dynamic> contact,
   ) async {
-    final routes = parentConversationRoutes(contact);
-
-    if (routes.isEmpty) {
-      showMessage('لا توجد محادثة متاحة لولي الأمر');
+    if (contactHasOfficialConversation(contact)) {
+      await openOfficialParentChat(contact);
       return;
     }
 
-    if (routes.length == 1) {
-      final route = routes.first;
-
-      if (route['kind'] == 'official_parent') {
-        await openOfficialParentChat(contact);
-      } else {
-        await openTemporaryChildChat(route['child'] as ChildModel);
-      }
-
-      return;
-    }
-
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) {
-        return Directionality(
-          textDirection: TextDirection.rtl,
-          child: SafeArea(
-            top: false,
-            child: Container(
-              padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(
-                  top: Radius.circular(26),
-                ),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 42,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: AppColors.border,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    cleanText(contact['name']).isEmpty
-                        ? 'ولي الأمر'
-                        : cleanText(contact['name']),
-                    style: const TextStyle(
-                      color: AppColors.textDark,
-                      fontSize: 17,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'اختر المحادثة التي تريد فتحها',
-                    style: TextStyle(
-                      color: AppColors.textLight,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  ...routes.map((route) {
-                    final isOfficial =
-                        route['kind'] == 'official_parent';
-
-                    return ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: CircleAvatar(
-                        backgroundColor:
-                            AppColors.primary.withOpacity(0.10),
-                        child: Icon(
-                          isOfficial
-                              ? Icons.person_outline_rounded
-                              : Icons.child_care_rounded,
-                          color: AppColors.primary,
-                        ),
-                      ),
-                      title: Text(
-                        cleanText(route['title']),
-                        style: const TextStyle(
-                          color: AppColors.textDark,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      subtitle: Text(
-                        cleanText(route['subtitle']),
-                        style: const TextStyle(
-                          color: AppColors.textLight,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      trailing: const Icon(
-                        Icons.chevron_left_rounded,
-                        color: AppColors.textLight,
-                      ),
-                      onTap: () async {
-                        Navigator.pop(sheetContext);
-
-                        if (isOfficial) {
-                          await openOfficialParentChat(contact);
-                        } else {
-                          await openTemporaryChildChat(
-                            route['child'] as ChildModel,
-                          );
-                        }
-                      },
-                    );
-                  }),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
+    await openTemporaryParentChat(contact);
   }
 
   Future<void> openStaffChat(
@@ -861,28 +755,66 @@ class _AdminChatsPageState extends State<AdminChatsPage> {
   }
 
   bool isTemporaryMessageForAdmin(Map<String, dynamic> data) {
-    final uid = currentUserId ?? '';
     final fromRole = normalizeRole(data['fromRole']);
     final targetRole = normalizeRole(data['targetRole']);
-    final fromUid = cleanText(data['fromUid']);
-    final targetUid = cleanText(data['targetUid']);
 
     final fromParent =
-        fromRole == 'temporary_parent' &&
-        targetRole == 'admin' &&
-        (targetUid.isEmpty ||
-            targetUid == uid ||
-            targetUid.toLowerCase() == 'admin');
+        fromRole == 'temporary_parent' && targetRole == 'admin';
 
     final fromAdmin =
-        fromRole == 'admin' &&
-        targetRole == 'temporary_parent' &&
-        (fromUid.isEmpty || fromUid == uid);
+        fromRole == 'admin' && targetRole == 'temporary_parent';
 
     return fromParent || fromAdmin;
   }
 
-  Map<String, Map<String, dynamic>> latestTemporaryMessagesByChildId(
+  String temporaryConversationKeyFromMessage(
+    Map<String, dynamic> data,
+  ) {
+    final storedConversationKey = cleanText(data['conversationKey']);
+
+    if (storedConversationKey.isNotEmpty) {
+      return storedConversationKey;
+    }
+
+    final accessCodeId = firstNonEmpty([
+      data['accessCodeId'],
+      data['temporaryAccessCodeId'],
+      data['sharedAccessCodeId'],
+    ]);
+
+    if (accessCodeId.isNotEmpty) {
+      return '${accessCodeId}__admin';
+    }
+
+    final childId = cleanText(data['childId']);
+
+    if (childId.isNotEmpty) {
+      return 'legacy_child__$childId';
+    }
+
+    return '';
+  }
+
+  Set<String> temporaryConversationKeysForChild(
+    ChildModel child,
+  ) {
+    final keys = <String>{};
+
+    final accessCodeId = child.temporaryAccessCodeId.trim();
+
+    if (accessCodeId.isNotEmpty) {
+      keys.add('${accessCodeId}__admin');
+    }
+
+    if (child.id.trim().isNotEmpty) {
+      keys.add('legacy_child__${child.id.trim()}');
+    }
+
+    return keys;
+  }
+
+  Map<String, Map<String, dynamic>>
+      latestTemporaryMessagesByConversationKey(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
     final result = <String, Map<String, dynamic>>{};
@@ -892,11 +824,11 @@ class _AdminChatsPageState extends State<AdminChatsPage> {
 
       if (!isTemporaryMessageForAdmin(data)) continue;
 
-      final childId = cleanText(data['childId']);
+      final conversationKey = temporaryConversationKeyFromMessage(data);
 
-      if (childId.isEmpty) continue;
+      if (conversationKey.isEmpty) continue;
 
-      final old = result[childId];
+      final old = result[conversationKey];
 
       final currentDate = timestampFromDynamic(
             data['createdAt'] ??
@@ -913,7 +845,7 @@ class _AdminChatsPageState extends State<AdminChatsPage> {
           Timestamp.fromMillisecondsSinceEpoch(0);
 
       if (old == null || currentDate.compareTo(oldDate) > 0) {
-        result[childId] = data;
+        result[conversationKey] = data;
       }
     }
 
@@ -963,36 +895,41 @@ class _AdminChatsPageState extends State<AdminChatsPage> {
 
   Map<String, dynamic>? latestTemporaryMessageForContact({
     required Map<String, dynamic> contact,
-    required Map<String, Map<String, dynamic>> temporaryMessagesByChildId,
+    required Map<String, Map<String, dynamic>>
+        temporaryMessagesByConversationKey,
   }) {
     if (cleanText(contact['kind']) != 'parent_group') return null;
 
-    final children = contact['children'] is List<ChildModel>
-        ? contact['children'] as List<ChildModel>
-        : <ChildModel>[];
+    if (contactHasOfficialConversation(contact)) {
+      return null;
+    }
+
+    final children = temporaryChildrenForContact(contact);
 
     Map<String, dynamic>? latest;
     Timestamp? latestTime;
 
     for (final child in children) {
-      if (!child.isTemporaryChild && !child.isTrialChild) continue;
+      final keys = temporaryConversationKeysForChild(child);
 
-      final message = temporaryMessagesByChildId[child.id];
+      for (final key in keys) {
+        final message = temporaryMessagesByConversationKey[key];
 
-      if (message == null) continue;
+        if (message == null) continue;
 
-      final time = timestampFromDynamic(
-            message['createdAt'] ??
-                message['sentAt'] ??
-                message['time'],
-          ) ??
-          Timestamp.fromMillisecondsSinceEpoch(0);
+        final time = timestampFromDynamic(
+              message['createdAt'] ??
+                  message['sentAt'] ??
+                  message['time'],
+            ) ??
+            Timestamp.fromMillisecondsSinceEpoch(0);
 
-      if (latest == null ||
-          latestTime == null ||
-          time.compareTo(latestTime) > 0) {
-        latest = message;
-        latestTime = time;
+        if (latest == null ||
+            latestTime == null ||
+            time.compareTo(latestTime) > 0) {
+          latest = message;
+          latestTime = time;
+        }
       }
     }
 
@@ -1031,11 +968,16 @@ class _AdminChatsPageState extends State<AdminChatsPage> {
           temporaryMessage?['time'],
     );
 
-    final temporaryPreview = cleanText(
-      temporaryMessage?['message'] ??
-          temporaryMessage?['text'] ??
-          temporaryMessage?['body'],
-    );
+    final temporaryMessageType =
+        normalizeLower(temporaryMessage?['messageType']);
+
+    final temporaryPreview = temporaryMessageType == 'audio'
+        ? 'رسالة صوتية'
+        : cleanText(
+            temporaryMessage?['message'] ??
+                temporaryMessage?['text'] ??
+                temporaryMessage?['body'],
+          );
 
     if (officialTime == null) return temporaryPreview;
 
@@ -1051,7 +993,8 @@ class _AdminChatsPageState extends State<AdminChatsPage> {
   List<Map<String, dynamic>> sortedContacts({
     required List<Map<String, dynamic>> contacts,
     required List<MessageModel> officialMessages,
-    required Map<String, Map<String, dynamic>> temporaryMessagesByChildId,
+    required Map<String, Map<String, dynamic>>
+        temporaryMessagesByConversationKey,
   }) {
     final sorted = [...contacts];
 
@@ -1063,7 +1006,8 @@ class _AdminChatsPageState extends State<AdminChatsPage> {
 
       final aTemporary = latestTemporaryMessageForContact(
         contact: a,
-        temporaryMessagesByChildId: temporaryMessagesByChildId,
+        temporaryMessagesByConversationKey:
+            temporaryMessagesByConversationKey,
       );
 
       final bOfficial = latestOfficialMessageForContact(
@@ -1073,7 +1017,8 @@ class _AdminChatsPageState extends State<AdminChatsPage> {
 
       final bTemporary = latestTemporaryMessageForContact(
         contact: b,
-        temporaryMessagesByChildId: temporaryMessagesByChildId,
+        temporaryMessagesByConversationKey:
+            temporaryMessagesByConversationKey,
       );
 
       final aTime = latestContactTime(
@@ -1109,7 +1054,7 @@ class _AdminChatsPageState extends State<AdminChatsPage> {
               controller: searchCtrl,
               textAlign: TextAlign.right,
               decoration: InputDecoration(
-                hintText: 'بحث',
+                hintText: 'ابحث',
                 prefixIcon: const Icon(Icons.search_rounded),
                 suffixIcon: searchText.trim().isEmpty
                     ? null
@@ -1393,15 +1338,16 @@ class _AdminChatsPageState extends State<AdminChatsPage> {
 
                 final officialMessages = officialSnapshot.data ?? [];
 
-                final temporaryMessagesByChildId =
-                    latestTemporaryMessagesByChildId(
+                final temporaryMessagesByConversationKey =
+                    latestTemporaryMessagesByConversationKey(
                   temporarySnapshot.data?.docs ?? [],
                 );
 
                 final sorted = sortedContacts(
                   contacts: contacts,
                   officialMessages: officialMessages,
-                  temporaryMessagesByChildId: temporaryMessagesByChildId,
+                  temporaryMessagesByConversationKey:
+                      temporaryMessagesByConversationKey,
                 );
 
                 if (sorted.isEmpty) {
@@ -1421,8 +1367,8 @@ class _AdminChatsPageState extends State<AdminChatsPage> {
                     final temporaryMessage =
                         latestTemporaryMessageForContact(
                       contact: contact,
-                      temporaryMessagesByChildId:
-                          temporaryMessagesByChildId,
+                      temporaryMessagesByConversationKey:
+                          temporaryMessagesByConversationKey,
                     );
 
                     return buildContactCard(

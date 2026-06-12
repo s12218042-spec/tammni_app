@@ -131,13 +131,11 @@ class ChildModel {
   final DateTime? archivedAt;
   final DateTime? reactivatedAt;
 
-  /// permanent / temporary / trial
+
   final String childType;
 
-  /// Mirrors childType for compatibility with Firestore records and older pages.
   final String enrollmentType;
 
-  /// active / temporary / trial / trial_pending_decision / pending / rejected_after_trial / withdrawn / archived
   final String status;
   final String childStatus;
 
@@ -310,15 +308,19 @@ class ChildModel {
       case 'temp':
       case 'temporary_child':
       case 'مؤقت':
+      case 'زائر':
+      case 'طفل زائر':
         return 'temporary';
       case 'trial':
       case 'تجربة':
       case 'فترة تجربة':
+      case 'طفل تجربة':
         return 'trial';
       case 'permanent':
       case 'regular':
       case 'active':
       case 'دائم':
+      case 'طفل دائم':
         return 'permanent';
       default:
         return type.isEmpty ? 'permanent' : type;
@@ -942,8 +944,8 @@ class ChildModel {
 
   String get displayChildType {
     if (isTemporaryChild) return 'طفل زائر';
-    if (isTrial) return 'فترة تجربة';
-    return 'طفل دائم';
+    if (isTrial) return 'طفل تجربة';
+    return '';
   }
 
   String get displayStatus {
@@ -955,7 +957,7 @@ class ChildModel {
       case 'pending':
         return 'قيد المراجعة';
       case 'trial':
-        return 'فترة تجربة';
+        return 'طفل تجربة';
       case 'trial_pending_decision':
         return 'بانتظار قرار التجربة';
       case 'temporary':

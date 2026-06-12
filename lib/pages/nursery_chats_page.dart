@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -327,12 +329,6 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
     return parentName.isEmpty ? 'child_${child.id}' : 'legacy_name_$parentName';
   }
 
-  String _childKindLabel(ChildModel child) {
-    if (child.isTrialChild) return 'طفل تجربة';
-    if (child.isTemporaryChild) return 'طفل زائر';
-    return 'طفل دائم';
-  }
-
   String _childrenCountLabel(int count) {
     if (count == 1) return 'طفل واحد';
     if (count == 2) return 'طفلان';
@@ -399,8 +395,14 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
                 ? 'ولي أمر زائر'
                 : 'ولي الأمر';
       } else {
-        contact['subtitle'] =
-            'ولي الأمر • ${_childrenCountLabel(children.length)}';
+        final childrenNames = children
+            .map((child) => child.name.trim())
+            .where((name) => name.isNotEmpty)
+            .join('، ');
+
+        contact['subtitle'] = childrenNames.isEmpty
+            ? 'ولي الأمر • ${_childrenCountLabel(children.length)}'
+            : 'ولي الأمر • الأطفال: $childrenNames';
       }
     }
 
@@ -462,7 +464,9 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
       final data = childDoc.data() ?? <String, dynamic>{};
 
       accessCodeId = _clean(
-        data['temporaryAccessCodeId'] ?? data['accessCodeId'],
+        data['temporaryAccessCodeId'] ??
+            data['sharedAccessCodeId'] ??
+            data['accessCodeId'],
       );
 
       accessCode = _clean(
@@ -517,7 +521,7 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
       context,
       MaterialPageRoute(
         builder: (_) => MessagesPage(
-          child: child,
+          child: null,
           targetRole: 'parent',
           targetUserId: parentUid,
           targetUserName: parentName,
@@ -589,119 +593,6 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
     );
   }
 
-  Future<void> _showChildrenPicker(
-    Map<String, dynamic> contact,
-  ) async {
-    final children = List<ChildModel>.from(
-      contact['children'] as List<ChildModel>,
-    );
-
-    final rawChildren = Map<String, Map<String, dynamic>>.from(
-      contact['rawChildren'] as Map<String, Map<String, dynamic>>,
-    );
-
-    final parentName = _clean(contact['name']).isEmpty
-        ? 'ولي الأمر'
-        : _clean(contact['name']);
-
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) {
-        return Directionality(
-          textDirection: TextDirection.rtl,
-          child: Container(
-            padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(
-                top: Radius.circular(26),
-              ),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 42,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: AppColors.border,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  parentName,
-                  style: const TextStyle(
-                    color: AppColors.textDark,
-                    fontSize: 17,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                const Text(
-                  'اختر الطفل لفتح المحادثة',
-                  style: TextStyle(
-                    color: AppColors.textLight,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                ...children.map((child) {
-                  final raw =
-                      rawChildren[child.id] ?? <String, dynamic>{};
-
-                  return ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: CircleAvatar(
-                      backgroundColor:
-                          AppColors.primary.withOpacity(0.10),
-                      child: const Icon(
-                        Icons.child_care_rounded,
-                        color: AppColors.primary,
-                      ),
-                    ),
-                    title: Text(
-                      child.name,
-                      style: const TextStyle(
-                        color: AppColors.textDark,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    subtitle: Text(
-                      '${_childKindLabel(child)}'
-                      '${child.displayGroup.trim().isEmpty ? '' : ' • ${child.displayGroup}'}',
-                      style: const TextStyle(
-                        color: AppColors.textLight,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    trailing: const Icon(
-                      Icons.chevron_left_rounded,
-                      color: AppColors.textLight,
-                    ),
-                    onTap: () async {
-                      Navigator.pop(sheetContext);
-
-                      await _openParentChild(
-                        child: child,
-                        raw: raw,
-                        parentName: parentName,
-                      );
-                    },
-                  );
-                }),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
   Future<void> _openContact(Map<String, dynamic> contact) async {
     final kind = _clean(contact['kind']);
 
@@ -747,20 +638,26 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
       return;
     }
 
-    if (children.length > 1) {
-      await _showChildrenPicker(contact);
-      return;
+    final parentName = _clean(contact['name']).isEmpty
+        ? 'ولي الأمر'
+        : _clean(contact['name']);
+
+    ChildModel? officialChild;
+
+    for (final child in children) {
+      if (!child.isTemporaryChild && !child.isTrialChild) {
+        officialChild = child;
+        break;
+      }
     }
 
-    final child = children.first;
-    final raw = rawChildren[child.id] ?? <String, dynamic>{};
+    final selectedChild = officialChild ?? children.first;
+    final raw = rawChildren[selectedChild.id] ?? <String, dynamic>{};
 
     await _openParentChild(
-      child: child,
+      child: selectedChild,
       raw: raw,
-      parentName: _clean(contact['name']).isEmpty
-          ? 'ولي الأمر'
-          : _clean(contact['name']),
+      parentName: parentName,
     );
   }
 
@@ -772,13 +669,101 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
     );
   }
 
-  Stream<QuerySnapshot<Map<String, dynamic>>>? _temporaryMessagesStream() {
-    if (temporaryChildren.isEmpty) return null;
+  Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>?
+      _temporaryMessagesStream() {
+    final uid = currentUserId;
 
-    return _firestore
+    if (temporaryChildren.isEmpty || uid == null || uid.trim().isEmpty) {
+      return null;
+    }
+
+    final receivedByCurrentStaff = _firestore
         .collection('temporary_messages')
-        .limit(500)
-        .snapshots();
+        .where('targetUid', isEqualTo: uid)
+        .limit(500);
+
+    final sentByCurrentStaff = _firestore
+        .collection('temporary_messages')
+        .where('fromUid', isEqualTo: uid)
+        .limit(500);
+
+    late final StreamController<
+        List<QueryDocumentSnapshot<Map<String, dynamic>>>> controller;
+
+    final latestByQuery =
+        List<List<QueryDocumentSnapshot<Map<String, dynamic>>>>.generate(
+      2,
+      (_) => <QueryDocumentSnapshot<Map<String, dynamic>>>[],
+    );
+
+    final subscriptions =
+        <StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>[];
+
+    void emitMergedDocs() {
+      final uniqueById =
+          <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+
+      for (final docs in latestByQuery) {
+        for (final doc in docs) {
+          uniqueById[doc.id] = doc;
+        }
+      }
+
+      controller.add(uniqueById.values.toList());
+    }
+
+    controller =
+        StreamController<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+      onListen: () {
+        final queries = [
+          receivedByCurrentStaff,
+          sentByCurrentStaff,
+        ];
+
+        for (int index = 0; index < queries.length; index++) {
+          subscriptions.add(
+            queries[index].snapshots().listen(
+              (snapshot) {
+                latestByQuery[index] = snapshot.docs;
+                emitMergedDocs();
+              },
+              onError: controller.addError,
+            ),
+          );
+        }
+      },
+      onCancel: () async {
+        for (final subscription in subscriptions) {
+          await subscription.cancel();
+        }
+      },
+    );
+
+    return controller.stream;
+  }
+
+  bool _isTemporaryMessageForCurrentStaff(
+    Map<String, dynamic> data,
+  ) {
+    final uid = currentUserId ?? '';
+    if (uid.isEmpty) return false;
+
+    final fromRole = _normalizeRole(_clean(data['fromRole']));
+    final targetRole = _normalizeRole(_clean(data['targetRole']));
+    final fromUid = _clean(data['fromUid']);
+    final targetUid = _clean(data['targetUid']);
+
+    final receivedByCurrentStaff =
+        fromRole == 'temporary_parent' &&
+        targetRole == 'nursery_staff' &&
+        targetUid == uid;
+
+    final sentByCurrentStaff =
+        fromRole == 'nursery_staff' &&
+        fromUid == uid &&
+        targetRole == 'temporary_parent';
+
+    return receivedByCurrentStaff || sentByCurrentStaff;
   }
 
   Map<String, Map<String, dynamic>> _latestTemporaryMessagesByChildId(
@@ -791,6 +776,11 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
 
     for (final doc in docs) {
       final data = doc.data();
+
+      if (!_isTemporaryMessageForCurrentStaff(data)) {
+        continue;
+      }
+
       final childId = _clean(data['childId']);
 
       if (childId.isEmpty || !allowedChildIds.contains(childId)) {
@@ -853,15 +843,46 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
       contact['children'] as List<ChildModel>,
     );
 
+    final rawChildren = contact['rawChildren']
+            is Map<String, Map<String, dynamic>>
+        ? contact['rawChildren'] as Map<String, Map<String, dynamic>>
+        : <String, Map<String, dynamic>>{};
+
     final officialChildIds = children
         .where((child) => !child.isTemporaryChild && !child.isTrialChild)
         .map((child) => child.id)
         .toSet();
 
-    if (officialChildIds.isEmpty) return null;
+    final parentUids = <String>{};
+
+    for (final child in children) {
+      if (child.isTemporaryChild || child.isTrialChild) continue;
+
+      final raw = rawChildren[child.id] ?? <String, dynamic>{};
+      final parentUid = _firstNonEmpty([
+        raw['_resolvedParentUid'],
+        raw['parentUid'],
+        child.parentUid,
+      ]);
+
+      if (parentUid.isNotEmpty) {
+        parentUids.add(parentUid);
+      }
+    }
+
+    if (officialChildIds.isEmpty && parentUids.isEmpty) return null;
 
     for (final message in messages) {
-      if (!officialChildIds.contains(message.childId)) continue;
+      final belongsToParent =
+          (message.senderId == myUid &&
+                  parentUids.contains(message.receiverId)) ||
+              (message.receiverId == myUid &&
+                  parentUids.contains(message.senderId));
+
+      final belongsToLegacyChild =
+          officialChildIds.contains(message.childId);
+
+      if (!belongsToParent && !belongsToLegacyChild) continue;
 
       if (latest == null || message.sentAt.compareTo(latest.sentAt) > 0) {
         latest = message;
@@ -1282,7 +1303,8 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
                   );
                 }
 
-                return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                return StreamBuilder<
+                    List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
                   stream: temporaryStream,
                   builder: (context, temporarySnapshot) {
                     if (temporarySnapshot.connectionState ==
@@ -1306,7 +1328,7 @@ class _NurseryChatsPageState extends State<NurseryChatsPage> {
 
                     final temporaryMessagesByChildId =
                         _latestTemporaryMessagesByChildId(
-                      temporarySnapshot.data?.docs ?? [],
+                      temporarySnapshot.data ?? [],
                     );
 
                     final contacts = _sortedContacts(

@@ -187,7 +187,7 @@ class _TemporaryStaffChatPageState extends State<TemporaryStaffChatPage> {
       targetRole: 'temporary_parent',
       targetUid: '',
       targetName: parentDisplayName,
-      headerSubtitle: 'ولي أمر زائر • ${widget.childName}',
+      headerSubtitle: 'ولي أمر زائر',
       headerIcon: Icons.person_outline_rounded,
       headerColor: const Color(0xFFEFA7C8),
     );
