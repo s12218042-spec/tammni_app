@@ -626,7 +626,7 @@ Future<void> _requestLiveStreamForChildren(
                 ),
                 const SizedBox(height: 12),
                 const _SectionTitle(
-                  title: 'التحديثات',
+                  title: 'سجلات المتابعة اليومية',
                   icon: Icons.calendar_month_rounded,
                 ),
                 const SizedBox(height: 12),
@@ -1215,7 +1215,10 @@ class _ChildFollowUpCard extends StatelessWidget {
                   child: OutlinedButton.icon(
                     onPressed: onOpenUpdates,
                     icon: const Icon(Icons.notifications_none_outlined),
-                    label: const Text('التحديثات'),
+                    label: const FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text('سجلات المتابعة اليومية'),
+                    ),
                     style: OutlinedButton.styleFrom(
                       minimumSize: const Size(double.infinity, 50),
                       shape: RoundedRectangleBorder(
@@ -1293,7 +1296,7 @@ class _AllChildrenUpdatesList extends StatelessWidget {
         if (updates.isEmpty) {
           return const _EmptyStateBox(
             icon: Icons.notifications_none_outlined,
-            title: 'لا توجد تحديثات',
+            title: 'لا توجد سجلات متابعة يومية',
             subtitle: '',
           );
         }

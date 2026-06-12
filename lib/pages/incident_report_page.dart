@@ -58,8 +58,7 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
     'سقوط بسيط',
     'اصطدام',
     'جرح',
-    'وعكة صحية',
-    'حادث آخر',
+    'متابعة أخرى',
   ];
 
   @override
@@ -94,6 +93,10 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
     return incidentPlace;
   }
 
+
+  String incidentTypeLabel(String value) {
+    return value.trim();
+  }
 
   String riskLabel(String value) {
     switch (value) {
@@ -306,7 +309,7 @@ class _IncidentReportPageState extends State<IncidentReportPage> {
               ),
               const SizedBox(height: 16),
               const Text(
-                'إضافة صورة الحادث',
+                'إضافة صورة الموقف',
                 style: TextStyle(
                   fontSize: 17,
                   fontWeight: FontWeight.w900,
@@ -414,7 +417,7 @@ Future<Map<String, dynamic>> _uploadIncidentImageIfNeeded() async {
   );
 
   if (uploaded == null) {
-    throw Exception('فشل رفع صورة الحادث');
+    throw Exception('فشل رفع صورة الموقف');
   }
 
   return {
@@ -441,9 +444,9 @@ Future<Map<String, dynamic>> _uploadIncidentImageIfNeeded() async {
   final action = actionCtrl.text.trim();
 
   final parts = <String>[
-    'نوع الحادث: $incidentType',
+    'نوع الموقف: ${incidentTypeLabel(incidentType)}',
     'المكان: $finalIncidentPlace',
-    'درجة الخطورة: ${riskLabel(priority)}',
+    'درجة الأهمية: ${riskLabel(priority)}',
     if (details.isNotEmpty) 'التفاصيل: $details',
     if (action.isNotEmpty) 'الإجراء المتخذ: $action',
   ];
@@ -456,12 +459,12 @@ Future<Map<String, dynamic>> _uploadIncidentImageIfNeeded() async {
     final action = actionCtrl.text.trim();
 
     if (details.isEmpty) {
-      _showSnack('يرجى كتابة تفاصيل الحادث');
+      _showSnack('يرجى كتابة تفاصيل الموقف');
       return false;
     }
 
     if (details.length < 5) {
-      _showSnack('تفاصيل الحادث قصيرة جدًا');
+      _showSnack('تفاصيل الموقف قصيرة جدًا');
       return false;
     }
 
@@ -471,7 +474,7 @@ Future<Map<String, dynamic>> _uploadIncidentImageIfNeeded() async {
     }
 
     if (incidentPlace == 'مكان آخر' && otherLocationCtrl.text.trim().isEmpty) {
-      _showSnack('يرجى تحديد مكان الحادث');
+      _showSnack('يرجى تحديد مكان الموقف');
       return false;
     }
 
@@ -516,7 +519,7 @@ Future<Map<String, dynamic>> _uploadIncidentImageIfNeeded() async {
         'parentName': parentName,
         'section': 'Nursery',
         'group': widget.child.group,
-        'title': 'تقرير حادث',
+        'title': 'تقرير متابعة',
         'type': 'incident_report',
         'reportType': 'incident_report',
         'category': 'incident_report',
@@ -556,7 +559,7 @@ Future<Map<String, dynamic>> _uploadIncidentImageIfNeeded() async {
   if (canNotifyParent) {
   try {
     debugPrint(
-      'IncidentReportPage: سيتم إرسال إشعار حادث إلى parentUid=$parentUid parentUsername=$parentUsername childId=${widget.child.id}',
+      'IncidentReportPage: سيتم إرسال إشعار متابعة إلى parentUid=$parentUid parentUsername=$parentUsername childId=${widget.child.id}',
     );
 
     await AppNotificationService.instance.notifyChildParent(
@@ -564,8 +567,8 @@ Future<Map<String, dynamic>> _uploadIncidentImageIfNeeded() async {
       parentUsername: parentUsername,
       parentName: parentName,
       title: autoRisk == 'urgent' || priority == 'urgent'
-          ? 'تنبيه عاجل بخصوص حادث'
-          : 'تقرير حادث جديد',
+          ? 'تنبيه عاجل بخصوص متابعة'
+          : 'تقرير متابعة جديد',
       body: finalSummary,
       type: 'incident_report',
       childId: widget.child.id,
@@ -604,7 +607,7 @@ Future<Map<String, dynamic>> _uploadIncidentImageIfNeeded() async {
       },
     );
   } catch (e) {
-    debugPrint('IncidentReportPage: فشل إرسال إشعار الحادث: $e');
+    debugPrint('IncidentReportPage: فشل إرسال إشعار المتابعة: $e');
   }
 } else {
   debugPrint(
@@ -738,16 +741,16 @@ Future<Map<String, dynamic>> _uploadIncidentImageIfNeeded() async {
   @override
   Widget build(BuildContext context) {
     return AppPageScaffold(
-      title: 'تقرير حادث',
+      title: 'تقرير متابعة',
       child: ListView(
         children: [
           _card(
-            'درجة الخطورة',
+            'درجة الأهمية',
             Icons.warning_amber_rounded,
             child: DropdownButtonFormField<String>(
               value: priority,
               decoration: _inputDecoration(
-                hint: 'اختر درجة الخطورة',
+                hint: 'اختر درجة الأهمية',
               ),
               items: const [
                 DropdownMenuItem(value: 'normal', child: Text('عادي')),
@@ -764,14 +767,14 @@ Future<Map<String, dynamic>> _uploadIncidentImageIfNeeded() async {
             ),
           ),
           _card(
-            'مكان الحادث',
+            'مكان الموقف',
             Icons.location_on_outlined,
             child: Column(
               children: [
                 DropdownButtonFormField<String>(
                   value: incidentPlace,
                   decoration: _inputDecoration(
-                    hint: 'اختر مكان الحادث',
+                    hint: 'اختر مكان الموقف',
                   ),
                   items: placeOptions
                       .map(
@@ -799,7 +802,7 @@ Future<Map<String, dynamic>> _uploadIncidentImageIfNeeded() async {
                     controller: otherLocationCtrl,
                     decoration: _inputDecoration(
                       label: 'تحديد المكان',
-                      hint: 'اكتب مكان الحادث',
+                      hint: 'اكتب مكان الموقف',
                       icon: Icons.edit_location_alt_outlined,
                     ),
                   ),
@@ -808,7 +811,7 @@ Future<Map<String, dynamic>> _uploadIncidentImageIfNeeded() async {
             ),
           ),
           _card(
-            'صورة الحادث',
+            'صورة الموقف',
             Icons.camera_alt_outlined,
             child: Column(
               children: [
@@ -841,18 +844,18 @@ Future<Map<String, dynamic>> _uploadIncidentImageIfNeeded() async {
             ),
           ),
           _card(
-            'نوع الحادث',
+            'نوع الموقف',
             Icons.report_problem_outlined,
             child: DropdownButtonFormField<String>(
               value: incidentType,
               decoration: _inputDecoration(
-                hint: 'اختر نوع الحادث',
+                hint: 'اختر نوع الموقف',
               ),
               items: incidentTypes
                   .map(
                     (type) => DropdownMenuItem<String>(
                       value: type,
-                      child: Text(type),
+                      child: Text(incidentTypeLabel(type)),
                     ),
                   )
                   .toList(),
@@ -866,7 +869,7 @@ Future<Map<String, dynamic>> _uploadIncidentImageIfNeeded() async {
             ),
           ),
           _card(
-            'تفاصيل الحادث',
+            'تفاصيل الموقف',
             Icons.description_outlined,
             child: TextField(
               controller: detailsCtrl,

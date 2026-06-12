@@ -120,8 +120,9 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
           final currentName = (currentData?['name'] ?? child.name).toString();
 
           final birthDateRaw = currentData?['birthDate'];
-          final currentBirthDate =
-              birthDateRaw is Timestamp ? birthDateRaw.toDate() : child.birthDate;
+          final currentBirthDate = birthDateRaw is Timestamp
+              ? birthDateRaw.toDate()
+              : child.birthDate;
 
           return ListView(
             children: [
@@ -187,21 +188,21 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
               const SizedBox(height: 20),
               _ProfileNavigationCard(
                 title: 'متابعة الطفل',
-                subtitle: 'عرض الأنشطة والتحديثات اليومية',
+                subtitle: '',
                 icon: Icons.notifications_none_outlined,
                 onTap: openUpdatesPage,
               ),
               const SizedBox(height: 12),
               _ProfileNavigationCard(
-                title: 'بلاغات الحوادث',
-                subtitle: 'مراجعة البلاغات المسجلة للطفل',
+                title: 'تقارير المتابعة',
+                subtitle: '',
                 icon: Icons.report_problem_outlined,
                 onTap: openIncidentReportsPage,
               ),
               const SizedBox(height: 12),
               _ProfileNavigationCard(
                 title: 'الاستلام والتسليم',
-                subtitle: 'متابعة عمليات استلام وتسليم الطفل',
+                subtitle: '',
                 icon: Icons.how_to_reg_outlined,
                 onTap: openHandoffLogPage,
               ),

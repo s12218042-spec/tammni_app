@@ -1943,7 +1943,7 @@ final end = (data['weekEndDateKey'] ??
       ),
       _QuickActionItem(
         icon: Icons.report_problem_outlined,
-        label: 'حادث',
+        label: 'إضافة تقرير متابعة',
         onTap: () async {
           final child = await pickChild(children);
           if (child != null) openIncidentReport(child);
@@ -2620,7 +2620,7 @@ class _NurseryChildDashboardCard extends StatelessWidget {
                 ),
                 _ChildActionMiniCard(
                   icon: Icons.report_problem_outlined,
-                  label: 'حادث/ملاحظة',
+                  label: 'إضافة تقرير متابعة',
                   onTap: onIncidentReport,
                 ),
               ],

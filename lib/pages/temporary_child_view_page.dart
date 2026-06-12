@@ -2324,7 +2324,7 @@ Widget _buildConsultationsCard() {
           if (snapshot.hasError) {
             return const _SimpleEmptyBox(
               icon: Icons.error_outline_rounded,
-              title: 'تعذر تحميل التحديثات',
+              title: 'تعذر تحميل سجلات المتابعة اليومية',
             );
           }
 
@@ -2445,14 +2445,14 @@ Widget _buildConsultationsCard() {
               ],
               const SizedBox(height: 16),
               _sectionTitle(
-                title: 'كل التحديثات',
+                title: 'سجلات المتابعة اليومية',
                 icon: Icons.notifications_none_outlined,
               ),
               const SizedBox(height: 12),
               if (docs.isEmpty)
                 const _SimpleEmptyBox(
                   icon: Icons.assignment_outlined,
-                  title: 'لا توجد تحديثات',
+                  title: 'لا توجد سجلات متابعة يومية',
                 )
               else
                 ...docs.map((doc) => _buildUpdateCard(doc.data())),

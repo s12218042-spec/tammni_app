@@ -108,28 +108,24 @@ class ParentIncidentReportsPage extends StatelessWidget {
       case 'behavior':
         return 'سلوك';
       case 'accident':
-        return 'حادث';
+        return 'موقف';
       case 'incident':
       case 'incident_report':
-        return 'تقرير حادث';
+        return 'تقرير متابعة';
       case 'سقوط بسيط':
         return 'سقوط بسيط';
       case 'اصطدام':
         return 'اصطدام';
       case 'جرح':
         return 'جرح';
-      case 'وعكة صحية':
-        return 'وعكة صحية';
       case 'حادث آخر':
-        return 'حادث آخر';
+        return 'موقف آخر';
       case 'إصابة':
         return 'إصابة';
-      case 'حادث':
-        return 'حادث';
       case 'ملاحظة':
         return 'ملاحظة';
       default:
-        return type.trim().isEmpty ? 'تقرير حادث' : type;
+        return type.trim().isEmpty ? 'تقرير متابعة' : type;
     }
   }
 
@@ -166,12 +162,18 @@ class ParentIncidentReportsPage extends StatelessWidget {
   }
 
   String _resolveIncidentType(Map<String, dynamic> data) {
+    final title = (data['title'] ?? '').toString().trim();
+
     return _firstNonEmpty([
       data['incidentType'],
       data['incidentLabel'],
       data['type'] == 'incident_report' ? '' : data['type'],
       data['reportType'] == 'incident_report' ? '' : data['reportType'],
-      data['title'] == 'تقرير حادث' ? '' : data['title'],
+      title == 'تقرير حادث' ||
+              title == 'تقرير موقف' ||
+              title == 'تقرير متابعة'
+          ? ''
+          : title,
     ]);
   }
 
@@ -448,7 +450,7 @@ class ParentIncidentReportsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AppPageScaffold(
-      title: 'تقارير الحوادث',
+      title: 'تقارير المتابعة',
       child: Column(
         children: [
           Container(
@@ -773,7 +775,7 @@ class _BrokenIncidentImageBox extends StatelessWidget {
         border: Border.all(color: Colors.grey.shade300),
       ),
       child: Text(
-        'تعذر عرض صورة الحادث',
+        'تعذر عرض صورة التقرير',
         style: TextStyle(
           color: Colors.grey.shade600,
           fontWeight: FontWeight.w600,

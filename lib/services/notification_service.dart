@@ -29,7 +29,7 @@ class NotificationService {
   static const String _channelId = 'tammni_high_importance_channel';
   static const String _channelName = 'إشعارات حضانتي';
   static const String _channelDescription =
-      'إشعارات مهمة من تطبيق حضانتي مثل تحديثات الأطفال والرسائل';
+      'إشعارات مهمة من تطبيق حضانتي مثل سجلات المتابعة اليومية والرسائل';
 
   Future<void> init() async {
     if (_initialized) return;
@@ -52,8 +52,6 @@ class NotificationService {
     _initialized = true;
   }
 
-  /// استدعي هذه الدالة بعد تسجيل الدخول مباشرة.
-  /// تنظّف التوكن من أي حساب قديم، ثم تحفظه للحساب الحالي.
   Future<void> setupForCurrentUser() async {
     await init();
     await saveCurrentUserToken();

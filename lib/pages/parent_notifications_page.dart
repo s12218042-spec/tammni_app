@@ -722,9 +722,7 @@ setState(() {});
                                     children: [
                                       Expanded(
                                         child: Text(
-                                          title.isEmpty
-                                              ? _defaultTitle(type)
-                                              : title,
+                                          _displayTitle(title, type),
                                           style: TextStyle(
                                             fontWeight: FontWeight.bold,
                                             fontSize: 15,
@@ -937,6 +935,28 @@ setState(() {});
     );
   }
 
+  static String _displayTitle(String rawTitle, String type) {
+    final cleanTitle = rawTitle.trim();
+    final cleanType = type.trim().toLowerCase();
+
+    if (cleanType != 'incident_report') {
+      return cleanTitle.isEmpty ? _defaultTitle(type) : cleanTitle;
+    }
+
+    switch (cleanTitle) {
+      case 'تقرير حادث جديد':
+      case 'تقرير موقف جديد':
+      case 'تقرير متابعة جديد':
+        return 'تقرير متابعة جديد';
+      case 'تنبيه عاجل بخصوص حادث':
+      case 'تنبيه عاجل بخصوص موقف':
+      case 'تنبيه عاجل بخصوص متابعة':
+        return 'تنبيه عاجل بخصوص متابعة';
+      default:
+        return cleanTitle.isEmpty ? 'تقرير متابعة جديد' : cleanTitle;
+    }
+  }
+
   static String _senderLabel(String createdByName, String createdByRole) {
     final role = createdByRole.trim().toLowerCase();
 
@@ -1125,7 +1145,7 @@ setState(() {});
       case 'account_updated':
         return 'تحديث الحساب';
       case 'incident_report':
-        return 'تقرير حادث';
+        return 'تقرير متابعة';
       case 'child_handoff':
         return 'تسليم/استلام';
       case 'child_handoff_updated':
@@ -1188,7 +1208,7 @@ setState(() {});
       case 'account_updated':
         return 'تم تحديث بيانات الحساب';
       case 'incident_report':
-        return 'تقرير حادث جديد';
+        return 'تقرير متابعة جديد';
       case 'child_handoff':
         return 'تم تسجيل تسليم/استلام الطفل';
       case 'child_handoff_updated':

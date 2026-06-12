@@ -204,6 +204,7 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
       int children = 0;
       for (final doc in childrenSnapshot.docs) {
         final data = doc.data();
+
         if (isActiveChild(data) && isNurseryChild(data)) {
           children++;
         }
@@ -224,9 +225,11 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
       }
 
       int activeGroups = 0;
+
       for (final doc in groupsSnapshot.docs) {
         final data = doc.data();
         final status = (data['status'] ?? '').toString().trim().toLowerCase();
+
         final isActive = data['isActive'] != false &&
             data['active'] != false &&
             status != 'inactive' &&
@@ -309,6 +312,7 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
 
       for (final doc in consultationsSnapshot.docs) {
         final data = doc.data();
+
         consultationCount++;
         consultationTotal += numValue(data['totalAmount']);
       }
@@ -324,6 +328,7 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
       }
 
       int todayUpdates = 0;
+
       try {
         final updatesSnapshot = await _firestore
             .collection('updates')
@@ -348,6 +353,7 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
       }
 
       int monthIncidents = 0;
+
       try {
         final incidentsSnapshot = await _firestore
             .collection('incident_reports')
@@ -798,12 +804,12 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
                       ),
                       statsGrid([
                         statCard(
-                          title: 'تحديثات اليوم',
+                          title: 'سجلات اليوم',
                           value: updatesTodayCount.toString(),
                           icon: Icons.update_rounded,
                         ),
                         statCard(
-                          title: 'حوادث هذا الشهر',
+                          title: 'تقارير المتابعة هذا الشهر',
                           value: incidentsThisMonthCount.toString(),
                           icon: Icons.report_problem_outlined,
                         ),
@@ -815,4 +821,3 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
     );
   }
 }
-

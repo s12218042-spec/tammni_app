@@ -519,7 +519,7 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
   Widget build(BuildContext context) {
     final child = widget.child;
     return AppPageScaffold(
-      title: 'تحديثات الطفل',
+      title: 'سجلات المتابعة اليومية',
       child: RefreshIndicator(
         onRefresh: _refreshPage,
         child: FutureBuilder<List<Map<String, dynamic>>>(
@@ -538,7 +538,7 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
                   const SizedBox(height: 100),
                   Center(
                     child: Text(
-                      'حدث خطأ أثناء تحميل التحديثات: ${updatesSnapshot.error}',
+                      'حدث خطأ أثناء تحميل سجلات المتابعة اليومية: ${updatesSnapshot.error}',
                       textAlign: TextAlign.center,
                     ),
                   ),
@@ -643,7 +643,7 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
                       padding: EdgeInsets.all(20),
                       child: Center(
                         child: Text(
-                          'لا توجد تحديثات',
+                          'لا توجد سجلات متابعة يومية',
                           style: TextStyle(
                             color: AppColors.textLight,
                             fontWeight: FontWeight.bold,
@@ -658,7 +658,7 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
                       padding: EdgeInsets.all(20),
                       child: Center(
                         child: Text(
-                          'لا توجد تحديثات في هذا التاريخ',
+                          'لا توجد سجلات متابعة يومية في هذا التاريخ',
                           style: TextStyle(
                             color: AppColors.textLight,
                             fontWeight: FontWeight.bold,

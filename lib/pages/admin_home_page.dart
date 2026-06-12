@@ -932,7 +932,7 @@ _AdminActionCard(
 
         _AdminActionCard(
           icon: Icons.dynamic_feed_rounded,
-          title: 'سجل التحديثات الإداري',
+          title: 'سجل المتابعة الإداري',
           subtitle: ' ',
           onTap: () async {
             await Navigator.push(
