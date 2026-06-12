@@ -159,7 +159,7 @@ Widget buildSectionTitle(String title, String subtitle) {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'إضافة أدمن',
+                  'إضافة مسؤول',
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w800,
                         color: AppColors.textDark,
@@ -516,7 +516,7 @@ Widget buildSectionTitle(String title, String subtitle) {
   @override
   Widget build(BuildContext context) {
     return AppPageScaffold(
-      title: 'إضافة أدمن',
+      title: 'إضافة مسؤول',
       child: Form(
         key: _formKey,
         child: ListView(

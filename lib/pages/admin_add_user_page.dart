@@ -44,7 +44,7 @@ class AdminAddUserPage extends StatelessWidget {
 },
           ),
           _AccountTypeCard(
-            title: 'إضافة أدمن',
+            title: 'إضافة مسؤول',
             subtitle:
                 '',
             icon: Icons.admin_panel_settings_rounded,
