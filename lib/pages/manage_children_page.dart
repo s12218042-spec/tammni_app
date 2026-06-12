@@ -61,10 +61,8 @@ String childTypeLabel(Map<String, dynamic> child) {
       return 'طفل زائر';
     case 'trial':
       return 'طفل تجربة';
-    case 'permanent':
-    case 'active':
     default:
-      return 'طفل';
+      return '';
   }
 }
 
@@ -884,7 +882,7 @@ String formatOptionalDate(dynamic raw) {
 Align(
   alignment: Alignment.centerRight,
   child: Text(
-    'نوع الطفل',
+    'نوع التسجيل',
     style: Theme.of(context).textTheme.titleSmall?.copyWith(
           fontWeight: FontWeight.w800,
           color: AppColors.textDark,
@@ -894,7 +892,7 @@ Align(
 const SizedBox(height: 8),
 InputDecorator(
   decoration: const InputDecoration(
-    labelText: 'نوع الطفل',
+    labelText: 'نوع التسجيل',
     prefixIcon: Icon(Icons.flag_outlined),
   ),
   child: Text(childTypeLabel(child)),
@@ -3362,22 +3360,24 @@ String temporaryChildSummary(Map<String, dynamic> child) {
         ),
       ),
     ),
-    const SizedBox(height: 6),
-    Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-      decoration: BoxDecoration(
-        color: typeColor.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Text(
-        typeLabel,
-        style: TextStyle(
-          color: typeColor,
-          fontWeight: FontWeight.w800,
-          fontSize: 12.5,
+    if (typeLabel.isNotEmpty) ...[
+      const SizedBox(height: 6),
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: typeColor.withOpacity(0.12),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Text(
+          typeLabel,
+          style: TextStyle(
+            color: typeColor,
+            fontWeight: FontWeight.w800,
+            fontSize: 12.5,
+          ),
         ),
       ),
-    ),
+    ],
   ],
 ),
             ],
@@ -3404,12 +3404,14 @@ String temporaryChildSummary(Map<String, dynamic> child) {
             healthSummary(child),
           ),
 
-          const SizedBox(height: 8),
-          _infoRow(
-            Icons.flag_outlined,
-            'نوع الطفل',
-            typeLabel,
-          ),
+          if (typeLabel.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            _infoRow(
+              Icons.flag_outlined,
+              'نوع التسجيل',
+              typeLabel,
+            ),
+          ],
 
           if (tempSummary.isNotEmpty) ...[
            const SizedBox(height: 8),
@@ -3655,7 +3657,7 @@ String temporaryChildSummary(Map<String, dynamic> child) {
 
         const SizedBox(height: 14),
 const Text(
-  'نوع الطفل',
+  'نوع التسجيل',
   style: TextStyle(
     fontSize: 13,
     fontWeight: FontWeight.w800,
@@ -3678,7 +3680,7 @@ Wrap(
       selectedColor: AppColors.primary,
     ),
     buildFilterChip(
-      label: 'طفل',
+      label: 'مسجلون',
       selected: selectedChildTypeFilter == 'permanent',
       onTap: () {
         setState(() {
@@ -3688,7 +3690,7 @@ Wrap(
       selectedColor: Colors.green,
     ),
     buildFilterChip(
-      label: 'طفل زائر',
+      label: 'زائرون',
       selected: selectedChildTypeFilter == 'temporary',
       onTap: () {
         setState(() {
@@ -3698,7 +3700,7 @@ Wrap(
       selectedColor: Colors.deepPurple,
     ),
     buildFilterChip(
-      label: 'طفل تجربة',
+      label: 'تجربة',
       selected: selectedChildTypeFilter == 'trial',
       onTap: () {
         setState(() {

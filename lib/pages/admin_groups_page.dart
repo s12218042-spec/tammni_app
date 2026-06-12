@@ -2047,7 +2047,11 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
     if (childStatus == 'trial_pending_decision') {
       return 'بانتظار قرار التجربة';
     }
-    if (childStatus == 'rejected_after_trial') return 'مؤرشف بعد التجربة';
+
+    if (childStatus == 'rejected_after_trial') {
+      return 'مؤرشف بعد التجربة';
+    }
+
     if (childStatus == 'archived' || accountStatus == 'archived') {
       return 'مؤرشف';
     }
@@ -2057,11 +2061,8 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
         return 'طفل زائر';
       case 'trial':
         return 'طفل تجربة';
-      case 'permanent':
-      case 'active':
-        return 'طفل';
       default:
-        return 'طفل';
+        return '';
     }
   }
 
@@ -4804,6 +4805,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
         isTemporary && !isTrial && data['permanentDeleted'] != true;
     final canDecideTrial =
         isTrial && (!isArchived || isTrialPendingDecision);
+    final childTypeLabel = _childTypeLabel(data);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
@@ -4836,7 +4838,9 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         subtitle: Text(
-          '${_parentName(data)} • ${_childTypeLabel(data)}',
+          childTypeLabel.isEmpty
+              ? _parentName(data)
+              : '${_parentName(data)} • $childTypeLabel',
           style: const TextStyle(height: 1.4),
         ),
         trailing: isArchived &&

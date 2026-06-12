@@ -1,4 +1,3 @@
-// VERSION: TEMP_CHAT_CORE_V7_CONVERSATION_KEY_2026_06_11
 import 'dart:async';
 
 import 'package:audioplayers/audioplayers.dart';
@@ -71,11 +70,7 @@ class _TemporaryChatCorePageState extends State<TemporaryChatCorePage> {
   final AudioRecorder _audioRecorder = AudioRecorder();
   final AudioPlayer _audioPlayer = AudioPlayer();
 
-  late final Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
-      _messagesStream;
-
-  List<String> _conversationChildrenIds = <String>[];
-  List<String> _conversationChildrenNames = <String>[];
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _messagesStream;
 
   StreamSubscription<void>? _audioCompleteSubscription;
   StreamSubscription<Duration>? _audioPositionSubscription;
@@ -136,266 +131,15 @@ class _TemporaryChatCorePageState extends State<TemporaryChatCorePage> {
 
   String get _targetName => _safeName(widget.targetName, 'مستخدم');
 
-  String get _resolvedAccessCodeId {
-    final directId = widget.accessCodeId.trim();
-    if (directId.isNotEmpty) return directId;
-
-    final childId = widget.childId.trim();
-    if (childId.isNotEmpty) return 'legacy_child__$childId';
-
-    final accessCode = widget.accessCode.trim();
-    if (accessCode.isNotEmpty && accessCode != '-') {
-      return 'legacy_code__$accessCode';
-    }
-
-    return 'legacy_temporary_chat';
-  }
-
-  String get _conversationPartyRole {
-    if (_currentRole == 'temporary_parent') {
-      return _targetRole;
-    }
-
-    return _currentRole;
-  }
-
-  String get _conversationPartyUid {
-    if (_conversationPartyRole == 'admin') {
-      return 'admin';
-    }
-
-    if (_conversationPartyRole == 'nursery_staff') {
-      if (_currentRole == 'nursery_staff') {
-        return _currentUid;
-      }
-
-      return widget.targetUid.trim();
-    }
-
-    return widget.targetUid.trim();
-  }
-
-  String get _conversationKey {
-    final cleanAccessCodeId = _resolvedAccessCodeId;
-
-    if (cleanAccessCodeId.isEmpty) {
-      final cleanChildId = widget.childId.trim();
-      return cleanChildId.isEmpty
-          ? 'temporary_chat'
-          : 'legacy_child__$cleanChildId';
-    }
-
-    if (_conversationPartyRole == 'admin') {
-      return '${cleanAccessCodeId}__admin';
-    }
-
-    if (_conversationPartyRole == 'nursery_staff' &&
-        _conversationPartyUid.isNotEmpty) {
-      return '${cleanAccessCodeId}__staff__$_conversationPartyUid';
-    }
-
-    return '${cleanAccessCodeId}__${_conversationPartyRole}__$_conversationPartyUid';
-  }
-
-  String get _safeStorageConversationKey {
-    return _conversationKey.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
-  }
-
-  String get _headerChildrenLine {
-    final names = _conversationChildrenNames
-        .map((name) => name.trim())
-        .where((name) => name.isNotEmpty)
-        .toSet()
-        .toList();
-
-    if (names.isEmpty) return '';
-    return 'الأطفال: ${names.join('، ')}';
-  }
-
-  List<Query<Map<String, dynamic>>> _buildConversationQueries() {
-    final ref = _firestore.collection('temporary_messages');
-
-    // مع القواعد القديمة: وليّ الأمر الزائر يقرأ حسب childId فقط.
-    if (_currentRole == 'temporary_parent') {
-      final cleanChildId = widget.childId.trim();
-
-      if (cleanChildId.isEmpty) {
-        return [
-          ref.where('childId', isEqualTo: '__missing_child__').limit(1),
-        ];
-      }
-
-      return [
-        ref.where('childId', isEqualTo: cleanChildId).limit(300),
-      ];
-    }
-
-    final queries = <Query<Map<String, dynamic>>>[
-      ref.where('conversationKey', isEqualTo: _conversationKey).limit(300),
-    ];
-
-    final cleanAccessCodeId = _resolvedAccessCodeId;
-
-    if (_conversationPartyRole == 'admin') {
-      queries.add(
-        ref
-            .where('accessCodeId', isEqualTo: cleanAccessCodeId)
-            .where('targetRole', isEqualTo: 'admin')
-            .limit(300),
-      );
-
-      queries.add(
-        ref
-            .where('accessCodeId', isEqualTo: cleanAccessCodeId)
-            .where('fromRole', isEqualTo: 'admin')
-            .limit(300),
-      );
-
-      return queries;
-    }
-
-    if (_conversationPartyRole == 'nursery_staff' &&
-        _conversationPartyUid.isNotEmpty) {
-      queries.add(
-        ref
-            .where('accessCodeId', isEqualTo: cleanAccessCodeId)
-            .where('targetUid', isEqualTo: _conversationPartyUid)
-            .limit(300),
-      );
-
-      queries.add(
-        ref
-            .where('accessCodeId', isEqualTo: cleanAccessCodeId)
-            .where('fromUid', isEqualTo: _conversationPartyUid)
-            .limit(300),
-      );
-    }
-
-    return queries;
-  }
-
-  Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
-      _mergeMessageQueries(
-    List<Query<Map<String, dynamic>>> queries,
-  ) {
-    late final StreamController<
-        List<QueryDocumentSnapshot<Map<String, dynamic>>>> controller;
-
-    final latestDocsByQuery =
-        List<List<QueryDocumentSnapshot<Map<String, dynamic>>>>.generate(
-      queries.length,
-      (_) => <QueryDocumentSnapshot<Map<String, dynamic>>>[],
-    );
-
-    final subscriptions =
-        <StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>[];
-
-    void emitMergedDocs() {
-      final uniqueDocs =
-          <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
-
-      for (final docs in latestDocsByQuery) {
-        for (final doc in docs) {
-          uniqueDocs[doc.id] = doc;
-        }
-      }
-
-      controller.add(uniqueDocs.values.toList());
-    }
-
-    controller =
-        StreamController<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
-      onListen: () {
-        for (int index = 0; index < queries.length; index++) {
-          final subscription = queries[index].snapshots().listen(
-            (snapshot) {
-              latestDocsByQuery[index] = snapshot.docs;
-              emitMergedDocs();
-            },
-            onError: controller.addError,
-          );
-
-          subscriptions.add(subscription);
-        }
-      },
-      onCancel: () async {
-        for (final subscription in subscriptions) {
-          await subscription.cancel();
-        }
-      },
-    );
-
-    return controller.stream;
-  }
-
-  Future<void> _loadConversationChildren() async {
-    final accessCodeId = widget.accessCodeId.trim();
-
-    if (accessCodeId.isEmpty) return;
-
-    final ids = <String>{
-      ..._conversationChildrenIds,
-    };
-
-    final names = <String>{
-      ..._conversationChildrenNames,
-    };
-
-    final fields = <String>[
-      'temporaryAccessCodeId',
-      'sharedAccessCodeId',
-      'accessCodeId',
-    ];
-
-    for (final field in fields) {
-      try {
-        final snapshot = await _firestore
-            .collection('children')
-            .where(field, isEqualTo: accessCodeId)
-            .get();
-
-        for (final doc in snapshot.docs) {
-          final data = doc.data();
-          final name = _cleanText(
-            data['displayName'] ??
-                data['name'] ??
-                data['fullName'],
-          );
-
-          ids.add(doc.id);
-
-          if (name.isNotEmpty) {
-            names.add(name);
-          }
-        }
-      } catch (_) {}
-    }
-
-    if (!mounted) return;
-
-    setState(() {
-      _conversationChildrenIds = ids.toList();
-      _conversationChildrenNames = names.toList();
-    });
-  }
-
   @override
   void initState() {
     super.initState();
 
-    _conversationChildrenIds = <String>[
-      if (widget.childId.trim().isNotEmpty) widget.childId.trim(),
-    ];
-
-    _conversationChildrenNames = <String>[
-      if (widget.childName.trim().isNotEmpty) widget.childName.trim(),
-    ];
-
-    _messagesStream = _mergeMessageQueries(
-      _buildConversationQueries(),
-    );
-
-    _loadConversationChildren();
+    _messagesStream = _firestore
+        .collection('temporary_messages')
+        .where('childId', isEqualTo: widget.childId)
+        .limit(200)
+        .snapshots();
 
     messageCtrl.addListener(_handleMessageTextChanged);
 
@@ -547,62 +291,30 @@ class _TemporaryChatCorePageState extends State<TemporaryChatCorePage> {
   }
 
   bool _isMessageForThisConversation(Map<String, dynamic> data) {
-    final storedConversationKey = _cleanText(data['conversationKey']);
-
-    if (storedConversationKey.isNotEmpty) {
-      return storedConversationKey == _conversationKey;
-    }
-
-    final storedAccessCodeId = _cleanText(data['accessCodeId']);
-    final expectedAccessCodeId = widget.accessCodeId.trim();
-
-    if (expectedAccessCodeId.isNotEmpty &&
-        storedAccessCodeId.isNotEmpty &&
-        storedAccessCodeId != expectedAccessCodeId) {
-      return false;
-    }
-
-    if (storedAccessCodeId.isEmpty &&
-        _cleanText(data['childId']) != widget.childId.trim()) {
-      return false;
-    }
-
     final fromRole = _normalizeRole(data['fromRole']);
     final messageTargetRole = _normalizeRole(data['targetRole']);
-    final fromUid = _cleanText(data['fromUid']);
     final messageTargetUid = _cleanText(data['targetUid']);
 
-    if (_conversationPartyRole == 'admin') {
-      final outgoingFromParent =
-          fromRole == 'temporary_parent' &&
-          messageTargetRole == 'admin';
+    final outgoing =
+        fromRole == _currentRole &&
+        messageTargetRole == _targetRole;
 
-      final outgoingFromAdmin =
-          fromRole == 'admin' &&
-          messageTargetRole == 'temporary_parent';
+    final incoming =
+        fromRole == _targetRole &&
+        messageTargetRole == _currentRole;
 
-      return outgoingFromParent || outgoingFromAdmin;
+    if (!outgoing && !incoming) {
+      return false;
     }
 
-    if (_conversationPartyRole == 'nursery_staff') {
-      final staffUid = _conversationPartyUid;
+    final expectedTargetUid = widget.targetUid.trim();
 
-      if (staffUid.isEmpty) return false;
-
-      final outgoingFromParent =
-          fromRole == 'temporary_parent' &&
-          messageTargetRole == 'nursery_staff' &&
-          messageTargetUid == staffUid;
-
-      final outgoingFromStaff =
-          fromRole == 'nursery_staff' &&
-          fromUid == staffUid &&
-          messageTargetRole == 'temporary_parent';
-
-      return outgoingFromParent || outgoingFromStaff;
+    if (expectedTargetUid.isEmpty || expectedTargetUid == 'admin') {
+      return true;
     }
 
-    return false;
+    return messageTargetUid.isEmpty ||
+        messageTargetUid == expectedTargetUid;
   }
 
   List<_TemporaryMessageData> _conversationMessages(
@@ -646,16 +358,10 @@ class _TemporaryChatCorePageState extends State<TemporaryChatCorePage> {
 
   Map<String, dynamic> _baseMessageData() {
     return {
-      'conversationKey': _conversationKey,
-      'conversationType': 'temporary',
-      'conversationTargetRole': _conversationPartyRole,
-      'conversationTargetUid': _conversationPartyUid,
-      'accessCodeId': _resolvedAccessCodeId,
+      'accessCodeId': widget.accessCodeId,
       'accessCode': widget.accessCode,
       'childId': widget.childId,
       'childName': widget.childName,
-      'childrenIds': _conversationChildrenIds,
-      'childrenNames': _conversationChildrenNames,
       'parentName': widget.parentName,
       'parentPhone': widget.parentPhone,
       'groupId': widget.groupId,
@@ -728,9 +434,7 @@ class _TemporaryChatCorePageState extends State<TemporaryChatCorePage> {
       });
 
       await _scrollToBottom();
-    } catch (e, st) {
-      debugPrint('TEMP MESSAGE SEND ERROR: $e');
-      debugPrint('$st');
+    } catch (_) {
       _showSnack('تعذر إرسال الرسالة');
     } finally {
       if (!mounted) return;
@@ -840,7 +544,7 @@ class _TemporaryChatCorePageState extends State<TemporaryChatCorePage> {
 
       final uploaded = await MediaStorageService.instance.uploadAudio(
         file: XFile(path),
-        folder: 'temporary_messages_audio/$_safeStorageConversationKey',
+        folder: 'temporary_messages_audio/${widget.childId}',
         fileNameWithoutExtension:
             'voice_${DateTime.now().millisecondsSinceEpoch}',
       );
@@ -1607,7 +1311,7 @@ class _TemporaryChatCorePageState extends State<TemporaryChatCorePage> {
   }
 
   Widget _buildMessagesList() {
-    return StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: _messagesStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting &&
@@ -1624,7 +1328,7 @@ class _TemporaryChatCorePageState extends State<TemporaryChatCorePage> {
           );
         }
 
-        final messages = _conversationMessages(snapshot.data ?? []);
+        final messages = _conversationMessages(snapshot.data?.docs ?? []);
 
         if (messages.isNotEmpty) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1677,14 +1381,10 @@ class _TemporaryChatCorePageState extends State<TemporaryChatCorePage> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  [
-                    widget.headerSubtitle.trim(),
-                    _headerChildrenLine,
-                  ].where((line) => line.isNotEmpty).join('\n'),
+                  widget.headerSubtitle,
                   style: const TextStyle(
                     color: AppColors.textLight,
                     fontWeight: FontWeight.w600,
-                    height: 1.4,
                   ),
                 ),
               ],
