@@ -263,7 +263,7 @@ class _StartLiveStreamPageState extends State<StartLiveStreamPage>
           child: AlertDialog(
             title: const Text('إيقاف البث؟'),
             content: const Text(
-              'سيتم إيقاف البث الحالي للمشاهدن.',
+              'سيتم إيقاف البث الحالي للمشاهدين.',
             ),
             actions: [
               TextButton(

@@ -61,6 +61,8 @@ class _LiveStreamViewerPageState extends State<LiveStreamViewerPage> {
     _clockTimer?.cancel();
     _joinRetryTimer?.cancel();
 
+    _liveStreamService.onRemoteStream = null;
+
     unawaited(_requestSubscription?.cancel());
     unawaited(_cleanupOnExit());
     unawaited(_remoteRenderer.dispose());
@@ -68,9 +70,54 @@ class _LiveStreamViewerPageState extends State<LiveStreamViewerPage> {
     super.dispose();
   }
 
+  Future<void> _handleRemoteStream(MediaStream stream) async {
+    if (!mounted) return;
+
+    final videoTracks = stream.getVideoTracks();
+
+  
+    if (videoTracks.isEmpty) return;
+
+    final videoTrack = videoTracks.first;
+    videoTrack.enabled = true;
+
+    try {
+ 
+      _remoteRenderer.srcObject = null;
+      await Future<void>.delayed(
+        const Duration(milliseconds: 80),
+      );
+
+      if (!mounted) return;
+
+      _remoteRenderer.srcObject = stream;
+
+      debugPrint(
+        'Viewer renderer attached: '
+        'stream=${stream.id}, '
+        'videoTrack=${videoTrack.id}, '
+        'videoTracks=${videoTracks.length}',
+      );
+
+      setState(() {});
+    } catch (e) {
+      debugPrint('Viewer renderer attach error: $e');
+
+      if (!mounted) return;
+
+      setState(() {
+        _errorMessage = 'تعذر عرض فيديو البث على الجهاز.';
+      });
+    }
+  }
+
   Future<void> _initializePage() async {
     try {
       await _remoteRenderer.initialize();
+
+      _liveStreamService.onRemoteStream = (stream) {
+        unawaited(_handleRemoteStream(stream));
+      };
 
       _listenToRequest();
 
@@ -276,7 +323,11 @@ class _LiveStreamViewerPageState extends State<LiveStreamViewerPage> {
         roomId: widget.roomId,
       );
 
-      _remoteRenderer.srcObject = _liveStreamService.remoteStream;
+      final remoteStream = _liveStreamService.remoteStream;
+
+      if (remoteStream != null) {
+        await _handleRemoteStream(remoteStream);
+      }
 
       if (!mounted) return;
 

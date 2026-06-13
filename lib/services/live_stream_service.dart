@@ -46,6 +46,10 @@ class LiveStreamService {
   final Map<String, StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>
       _hostCandidateSubscriptions = {};
 
+  final List<RTCIceCandidate> _pendingViewerHostCandidates = [];
+
+  void Function(MediaStream stream)? onRemoteStream;
+
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
       _roomSubscription;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _queueSubscription;
@@ -91,6 +95,7 @@ class LiveStreamService {
       _mainRoomRef.collection('viewers');
 
   final Map<String, dynamic> _rtcConfiguration = {
+    'sdpSemantics': 'unified-plan',
     'iceServers': [
       {
         'urls': [
@@ -206,11 +211,82 @@ class LiveStreamService {
 
     pc.onTrack = (RTCTrackEvent event) {
       if (event.streams.isNotEmpty) {
-        _remoteStream = event.streams.first;
+        _publishRemoteStream(event.streams.first);
       }
     };
 
     return pc;
+  }
+
+  void _publishRemoteStream(MediaStream stream) {
+    _remoteStream = stream;
+    onRemoteStream?.call(stream);
+  }
+
+  Future<void> _addViewerReceiveTransceivers(
+    RTCPeerConnection peerConnection,
+  ) async {
+    await peerConnection.addTransceiver(
+      kind: RTCRtpMediaType.RTCRtpMediaTypeVideo,
+      init: RTCRtpTransceiverInit(
+        direction: TransceiverDirection.RecvOnly,
+      ),
+    );
+
+    await peerConnection.addTransceiver(
+      kind: RTCRtpMediaType.RTCRtpMediaTypeAudio,
+      init: RTCRtpTransceiverInit(
+        direction: TransceiverDirection.RecvOnly,
+      ),
+    );
+  }
+
+  Future<void> _addViewerHostCandidateOrQueue(
+    RTCIceCandidate candidate,
+  ) async {
+    final peerConnection = _peerConnection;
+
+    if (_isDisposed || peerConnection == null) return;
+
+    final remoteDescription = await peerConnection.getRemoteDescription();
+
+    if (remoteDescription == null) {
+      _pendingViewerHostCandidates.add(candidate);
+      return;
+    }
+
+    try {
+      await peerConnection.addCandidate(candidate);
+    } catch (e) {
+      debugPrint('viewer add host candidate error: $e');
+      _pendingViewerHostCandidates.add(candidate);
+    }
+  }
+
+  Future<void> _flushPendingViewerHostCandidates() async {
+    final peerConnection = _peerConnection;
+
+    if (_isDisposed || peerConnection == null) return;
+
+    final remoteDescription = await peerConnection.getRemoteDescription();
+
+    if (remoteDescription == null || _pendingViewerHostCandidates.isEmpty) {
+      return;
+    }
+
+    final candidates = List<RTCIceCandidate>.from(
+      _pendingViewerHostCandidates,
+    );
+
+    _pendingViewerHostCandidates.clear();
+
+    for (final candidate in candidates) {
+      try {
+        await peerConnection.addCandidate(candidate);
+      } catch (e) {
+        debugPrint('viewer flush host candidate error: $e');
+      }
+    }
   }
 
   int _readSdpMLineIndex(dynamic value) {
@@ -980,23 +1056,76 @@ class LiveStreamService {
       _currentRequestId = requestId;
       _currentViewerId = requestId;
 
+      _pendingViewerHostCandidates.clear();
+
       _peerConnection = await _createPeerConnection();
       _remoteStream = await createLocalMediaStream('remoteStream');
 
+      
+      await _addViewerReceiveTransceivers(_peerConnection!);
+
+      _peerConnection!.onAddStream = (MediaStream stream) {
+        debugPrint(
+          'viewer onAddStream: '
+          'stream=${stream.id}, '
+          'videoTracks=${stream.getVideoTracks().length}, '
+          'audioTracks=${stream.getAudioTracks().length}',
+        );
+        _publishRemoteStream(stream);
+      };
+
+      _peerConnection!.onAddTrack = (
+        MediaStream stream,
+        MediaStreamTrack track,
+      ) {
+        if (track.kind != 'video' && track.kind != 'audio') return;
+
+        debugPrint(
+          'viewer onAddTrack: '
+          'kind=${track.kind}, '
+          'stream=${stream.id}',
+        );
+        _publishRemoteStream(stream);
+      };
+
       _peerConnection!.onTrack = (RTCTrackEvent event) {
-        if (event.track.kind == 'video' || event.track.kind == 'audio') {
-          _remoteStream?.addTrack(event.track);
+        if (event.track.kind != 'video' && event.track.kind != 'audio') {
+          return;
         }
+
+        debugPrint(
+          'viewer onTrack: '
+          'kind=${event.track.kind}, '
+          'streams=${event.streams.length}',
+        );
+
+        if (event.streams.isNotEmpty) {
+          _publishRemoteStream(event.streams.first);
+          return;
+        }
+
+        final remoteStream = _remoteStream;
+
+        if (remoteStream == null) return;
+
+        remoteStream.addTrack(event.track);
+        _publishRemoteStream(remoteStream);
       };
 
       final viewerRef = _viewersRef.doc(requestId);
       final viewerCandidatesRef = viewerRef.collection('viewerCandidates');
 
       _peerConnection!.onIceCandidate = (RTCIceCandidate candidate) async {
-        if (_isDisposed) return;
+        final candidateText = candidate.candidate;
+
+        if (_isDisposed ||
+            candidateText == null ||
+            candidateText.trim().isEmpty) {
+          return;
+        }
 
         await viewerCandidatesRef.add({
-          'candidate': candidate.candidate,
+          'candidate': candidateText,
           'sdpMid': candidate.sdpMid,
           'sdpMLineIndex': candidate.sdpMLineIndex,
           'createdAt': FieldValue.serverTimestamp(),
@@ -1007,6 +1136,12 @@ class LiveStreamService {
         'offerToReceiveAudio': true,
         'offerToReceiveVideo': true,
       });
+
+      debugPrint(
+        'viewer offer SDP: '
+        'hasVideo=${offer.sdp?.contains('m=video') == true}, '
+        'hasAudio=${offer.sdp?.contains('m=audio') == true}',
+      );
 
       await _peerConnection!.setLocalDescription(offer);
 
@@ -1149,10 +1284,16 @@ class LiveStreamService {
       final hostCandidatesRef = viewerRef.collection('hostCandidates');
 
       pc.onIceCandidate = (RTCIceCandidate candidate) async {
-        if (_isDisposed) return;
+        final candidateText = candidate.candidate;
+
+        if (_isDisposed ||
+            candidateText == null ||
+            candidateText.trim().isEmpty) {
+          return;
+        }
 
         await hostCandidatesRef.add({
-          'candidate': candidate.candidate,
+          'candidate': candidateText,
           'sdpMid': candidate.sdpMid,
           'sdpMLineIndex': candidate.sdpMLineIndex,
           'createdAt': FieldValue.serverTimestamp(),
@@ -1169,6 +1310,12 @@ class LiveStreamService {
 
       final answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
+
+      debugPrint(
+        'station answer SDP for viewer $viewerId: '
+        'hasVideo=${answer.sdp?.contains('m=video') == true}, '
+        'hasAudio=${answer.sdp?.contains('m=audio') == true}',
+      );
 
       await viewerRef.set({
         'answer': {
@@ -1187,6 +1334,7 @@ class LiveStreamService {
       );
     } catch (e) {
       debugPrint('answer viewer error: $e');
+      await _closeHostViewerConnection(viewerId);
     }
   }
 
@@ -1213,7 +1361,11 @@ class LiveStreamService {
         final candidate = _buildIceCandidateFromData(data);
         if (candidate == null) continue;
 
-        await peerConnection.addCandidate(candidate);
+        try {
+          await peerConnection.addCandidate(candidate);
+        } catch (e) {
+          debugPrint('host add viewer candidate error: $e');
+        }
       }
     });
   }
@@ -1250,6 +1402,7 @@ class LiveStreamService {
       );
 
       await _peerConnection!.setRemoteDescription(rtcAnswer);
+      await _flushPendingViewerHostCandidates();
     });
   }
 
@@ -1274,7 +1427,7 @@ class LiveStreamService {
         final candidate = _buildIceCandidateFromData(data);
         if (candidate == null) continue;
 
-        await _peerConnection!.addCandidate(candidate);
+        await _addViewerHostCandidateOrQueue(candidate);
       }
     });
   }
@@ -1340,6 +1493,7 @@ class LiveStreamService {
       _viewerDocSubscription = null;
       _viewerEntitlementSubscription = null;
       _viewerHostCandidatesSubscription = null;
+      _pendingViewerHostCandidates.clear();
 
       try {
         final senders = await _peerConnection?.getSenders();
@@ -1511,6 +1665,7 @@ class LiveStreamService {
 
   Future<void> dispose() async {
     _isDisposed = true;
+    onRemoteStream = null;
 
     _stationHeartbeatTimer?.cancel();
     _stationMaintenanceTimer?.cancel();
