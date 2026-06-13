@@ -673,39 +673,78 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
     return activities.take(6).toList();
   }
 
+  String _notificationTargetUid(Map<String, dynamic> data) {
+    return (data['targetUid'] ??
+            data['receiverUid'] ??
+            data['userUid'] ??
+            data['toUid'] ??
+            '')
+        .toString()
+        .trim();
+  }
+
+  String _notificationTargetRole(Map<String, dynamic> data) {
+    return (data['targetRole'] ??
+            data['receiverRole'] ??
+            data['roleTarget'] ??
+            data['notificationFor'] ??
+            '')
+        .toString()
+        .trim();
+  }
+
+  String _notificationCreatedByUid(Map<String, dynamic> data) {
+    return (data['createdByUid'] ??
+            data['senderUid'] ??
+            data['senderId'] ??
+            data['byUid'] ??
+            '')
+        .toString()
+        .trim();
+  }
+
+  bool _isNotificationVisibleForCurrentStaff(
+    Map<String, dynamic> data, {
+    required String currentUid,
+    bool includeSentByCurrentStaff = true,
+  }) {
+    final targetUid = _notificationTargetUid(data);
+    final targetRole = _notificationTargetRole(data);
+    final createdByUid = _notificationCreatedByUid(data);
+
+    if (includeSentByCurrentStaff &&
+        currentUid.isNotEmpty &&
+        createdByUid == currentUid) {
+      return true;
+    }
+
+    if (targetUid.isNotEmpty) {
+      return currentUid.isNotEmpty && targetUid == currentUid;
+    }
+
+    return _isNurseryRole(targetRole);
+  }
+
   Future<int> fetchUnreadNurseryNotificationsCount() async {
     final userInfo = await fetchCurrentUserInfo();
-    final currentUid = (userInfo['uid'] ?? '').toString();
+    final currentUid = (userInfo['uid'] ?? '').toString().trim();
 
     final docs = await _fetchNurseryNotificationDocs(limit: 80);
 
     return docs.where((doc) {
       final data = doc.data();
+
       final isRead = data['isRead'] == true ||
           data['read'] == true ||
           data['seen'] == true;
 
       if (isRead) return false;
 
-      final targetUid = (data['targetUid'] ??
-              data['receiverUid'] ??
-              data['userUid'] ??
-              data['toUid'] ??
-              '')
-          .toString()
-          .trim();
-
-      final targetRole = (data['targetRole'] ??
-              data['receiverRole'] ??
-              data['roleTarget'] ??
-              data['notificationFor'] ??
-              '')
-          .toString();
-
-      if (currentUid.isNotEmpty && targetUid == currentUid) return true;
-      if (_isNurseryRole(targetRole)) return true;
-
-      return false;
+      return _isNotificationVisibleForCurrentStaff(
+        data,
+        currentUid: currentUid,
+        includeSentByCurrentStaff: false,
+      );
     }).length;
   }
 
@@ -752,13 +791,15 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
       await addQuery(
         _firestore
             .collection('notifications')
-            .where('targetRole', isEqualTo: role),
+            .where('targetRole', isEqualTo: role)
+            .where('targetUid', isEqualTo: ''),
       );
 
       await addQuery(
         _firestore
             .collection('notifications')
-            .where('notificationFor', isEqualTo: role),
+            .where('notificationFor', isEqualTo: role)
+            .where('targetUid', isEqualTo: ''),
       );
     }
 
@@ -766,9 +807,18 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
     final unique = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
 
     for (final doc in allDocs) {
-      if (seen.add(doc.id)) {
-        unique.add(doc);
+      if (!seen.add(doc.id)) continue;
+
+      final data = doc.data();
+
+      if (!_isNotificationVisibleForCurrentStaff(
+        data,
+        currentUid: currentUid,
+      )) {
+        continue;
       }
+
+      unique.add(doc);
     }
 
     unique.sort((a, b) {
@@ -798,30 +848,22 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
       final createdByRole = (data['createdByRole'] ?? '').toString();
       final byRole = (data['byRole'] ?? '').toString();
 
-      final targetUid = (data['targetUid'] ??
-              data['receiverUid'] ??
-              data['userUid'] ??
-              data['toUid'] ??
-              '')
-          .toString()
-          .trim();
+      final createdByUid = _notificationCreatedByUid(data);
+      final targetUid = _notificationTargetUid(data);
+      final targetRole = _notificationTargetRole(data);
 
-      final targetRole = (data['targetRole'] ??
-              data['receiverRole'] ??
-              data['roleTarget'] ??
-              data['notificationFor'] ??
-              '')
-          .toString();
-
-      final isSentByNursery =
-          _isNurseryRole(createdByRole) || _isNurseryRole(byRole);
+      final isSentByCurrentStaff =
+          currentUid.isNotEmpty && createdByUid == currentUid;
 
       final isForCurrentStaff =
           currentUid.isNotEmpty && targetUid == currentUid;
 
-      final isForNurseryRole = _isNurseryRole(targetRole);
+      final isForNurseryRoleBroadcast =
+          targetUid.isEmpty && _isNurseryRole(targetRole);
 
-      if (!isSentByNursery && !isForCurrentStaff && !isForNurseryRole) {
+      if (!isSentByCurrentStaff &&
+          !isForCurrentStaff &&
+          !isForNurseryRoleBroadcast) {
         continue;
       }
 
@@ -855,7 +897,7 @@ class _NurseryStaffHomePageState extends State<NurseryStaffHomePage> {
                 '')
             .toString(),
         'createdByRole': createdByRole.isNotEmpty ? createdByRole : byRole,
-        'direction': isSentByNursery ? 'sent' : 'received',
+        'direction': isSentByCurrentStaff ? 'sent' : 'received',
       });
     }
 

@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../services/account_settings_service.dart';
@@ -456,7 +457,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
                         );
                       }
                     : null,
-                icon: const Icon(Icons.notifications_none_rounded),
+                icon: const _AdminNotificationsBell(),
               ),
             ],
             child: _buildBody(snapshot),
@@ -1449,7 +1450,86 @@ class _ActivityCard extends StatelessWidget {
   }
 }
 
-class _AdminNotificationsPage extends StatelessWidget {
+class _AdminNotificationsBell extends StatelessWidget {
+  const _AdminNotificationsBell();
+
+  String _clean(dynamic value) => (value ?? '').toString().trim();
+
+  bool _isUnread(Map<String, dynamic> data) {
+    final isRead = data['isRead'];
+    final read = data['read'];
+    final seen = data['seen'];
+
+    if (isRead is bool) return !isRead;
+    if (read is bool) return !read;
+    if (seen is bool) return !seen;
+
+    return true;
+  }
+
+  bool _isVisibleForCurrentAdmin(Map<String, dynamic> data) {
+    final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    final targetUid = _clean(data['targetUid']);
+
+    if (targetUid.isEmpty) return true;
+
+    return currentUid.isNotEmpty && targetUid == currentUid;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('notifications')
+          .where('notificationFor', isEqualTo: 'admin')
+          .snapshots(),
+      builder: (context, snapshot) {
+        final docs = snapshot.data?.docs ?? const [];
+
+        final unreadCount = docs.where((doc) {
+          final data = doc.data();
+
+          return _isVisibleForCurrentAdmin(data) && _isUnread(data);
+        }).length;
+
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            const Icon(Icons.notifications_none_rounded),
+            if (unreadCount > 0)
+              Positioned(
+                top: -7,
+                right: -8,
+                child: Container(
+                  constraints: const BoxConstraints(
+                    minWidth: 17,
+                    minHeight: 17,
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.redAccent,
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: Colors.white, width: 1.2),
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    unreadCount > 99 ? '99+' : '$unreadCount',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _AdminNotificationsPage extends StatefulWidget {
   final List<_AdminAlertItem> alerts;
 
   const _AdminNotificationsPage({
@@ -1457,20 +1537,662 @@ class _AdminNotificationsPage extends StatelessWidget {
   });
 
   @override
+  State<_AdminNotificationsPage> createState() =>
+      _AdminNotificationsPageState();
+}
+
+class _AdminNotificationsPageState extends State<_AdminNotificationsPage> {
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  bool _markingAllRead = false;
+
+  String _clean(dynamic value) => (value ?? '').toString().trim();
+
+  String _normalizeRole(dynamic value) {
+    final role = _clean(value).toLowerCase();
+
+    if (role == 'nursery' ||
+        role == 'nursery staff' ||
+        role == 'staff' ||
+        role == 'employee' ||
+        role == 'teacher') {
+      return 'nursery_staff';
+    }
+
+    return role;
+  }
+
+  String _firstNonEmpty(List<dynamic> values) {
+    for (final value in values) {
+      final cleanValue = _clean(value);
+
+      if (cleanValue.isNotEmpty) return cleanValue;
+    }
+
+    return '';
+  }
+
+  bool _firstBool(List<dynamic> values, {bool fallback = false}) {
+    for (final value in values) {
+      if (value is bool) return value;
+    }
+
+    return fallback;
+  }
+
+  DateTime _firstDate(List<dynamic> values) {
+    for (final value in values) {
+      if (value is Timestamp) return value.toDate();
+      if (value is DateTime) return value;
+
+      if (value is String) {
+        final parsed = DateTime.tryParse(value);
+
+        if (parsed != null) return parsed;
+      }
+    }
+
+    return DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
+  bool _isVisibleForCurrentAdmin(Map<String, dynamic> data) {
+    final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+
+    final notificationFor = _normalizeRole(
+      _firstNonEmpty([
+        data['notificationFor'],
+        data['targetRole'],
+      ]),
+    );
+
+    final targetRole = _normalizeRole(
+      _firstNonEmpty([
+        data['targetRole'],
+        data['notificationFor'],
+      ]),
+    );
+
+    final isAdminNotification =
+        notificationFor == 'admin' || targetRole == 'admin';
+
+    if (!isAdminNotification) return false;
+
+    final targetUid = _firstNonEmpty([
+      data['targetUid'],
+      data['receiverId'],
+    ]);
+
+    if (targetUid.isEmpty) return true;
+
+    return currentUid.isNotEmpty && targetUid == currentUid;
+  }
+
+  Future<List<_AdminNotificationItem>> _loadNotifications() async {
+    final docsById =
+        <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+
+    Future<void> collect(
+      Query<Map<String, dynamic>> query,
+    ) async {
+      try {
+        final snapshot = await query.limit(300).get();
+
+        for (final doc in snapshot.docs) {
+          docsById[doc.id] = doc;
+        }
+      } catch (_) {
+      }
+    }
+
+    await collect(
+      _firestore
+          .collection('notifications')
+          .where('notificationFor', isEqualTo: 'admin'),
+    );
+
+    await collect(
+      _firestore
+          .collection('notifications')
+          .where('targetRole', isEqualTo: 'admin'),
+    );
+
+    final items = docsById.values
+        .where((doc) => _isVisibleForCurrentAdmin(doc.data()))
+        .map((doc) {
+      final data = doc.data();
+
+      return _AdminNotificationItem(
+        id: doc.id,
+        title: _firstNonEmpty([
+          data['title'],
+          data['subject'],
+          data['notificationTitle'],
+          'إشعار جديد',
+        ]),
+        body: _firstNonEmpty([
+          data['body'],
+          data['message'],
+          data['text'],
+          data['description'],
+        ]),
+        type: _firstNonEmpty([
+          data['type'],
+          data['notificationType'],
+          data['category'],
+          'general',
+        ]),
+        childName: _firstNonEmpty([
+          data['childName'],
+        ]),
+        parentName: _firstNonEmpty([
+          data['parentName'],
+        ]),
+        createdByName: _firstNonEmpty([
+          data['createdByName'],
+          data['senderName'],
+          data['byName'],
+        ]),
+        createdByRole: _normalizeRole(
+          _firstNonEmpty([
+            data['createdByRole'],
+            data['senderRole'],
+            data['byRole'],
+          ]),
+        ),
+        priority: _firstNonEmpty([
+          data['priority'],
+          data['importance'],
+        ]),
+        isRead: _firstBool([
+          data['isRead'],
+          data['read'],
+          data['seen'],
+        ]),
+        time: _firstDate([
+          data['createdAt'],
+          data['time'],
+          data['timestamp'],
+          data['updatedAt'],
+        ]),
+      );
+    }).toList()
+      ..sort((a, b) => b.time.compareTo(a.time));
+
+    return items;
+  }
+
+  Future<void> _markAsRead(String id) async {
+    if (id.trim().isEmpty) return;
+
+    try {
+      await _firestore.collection('notifications').doc(id).set({
+        'isRead': true,
+        'read': true,
+        'seen': true,
+        'readAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      if (!mounted) return;
+      setState(() {});
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذر تعليم الإشعار كمقروء: $e')),
+      );
+    }
+  }
+
+  Future<void> _markAllAsRead(
+    List<_AdminNotificationItem> notifications,
+  ) async {
+    if (_markingAllRead) return;
+
+    final unreadItems =
+        notifications.where((item) => !item.isRead).toList();
+
+    if (unreadItems.isEmpty) return;
+
+    setState(() {
+      _markingAllRead = true;
+    });
+
+    try {
+      final batch = _firestore.batch();
+
+      for (final item in unreadItems) {
+        final ref = _firestore.collection('notifications').doc(item.id);
+
+        batch.set(
+          ref,
+          {
+            'isRead': true,
+            'read': true,
+            'seen': true,
+            'readAt': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      }
+
+      await batch.commit();
+
+      if (!mounted) return;
+      setState(() {});
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذر تعليم الإشعارات كمقروءة: $e')),
+      );
+    } finally {
+      if (!mounted) return;
+
+      setState(() {
+        _markingAllRead = false;
+      });
+    }
+  }
+
+  String _formatDateTime(DateTime date) {
+    if (date.millisecondsSinceEpoch == 0) return 'بدون وقت';
+
+    final day = date.day.toString().padLeft(2, '0');
+    final month = date.month.toString().padLeft(2, '0');
+    final year = date.year.toString();
+
+    final hour = date.hour > 12
+        ? date.hour - 12
+        : (date.hour == 0 ? 12 : date.hour);
+
+    final minute = date.minute.toString().padLeft(2, '0');
+    final period = date.hour >= 12 ? 'م' : 'ص';
+
+    return '$year/$month/$day - $hour:$minute $period';
+  }
+
+  Widget _buildSummary(List<_AdminNotificationItem> notifications) {
+    final unreadCount =
+        notifications.where((item) => !item.isRead).length;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            CircleAvatar(
+              backgroundColor: AppColors.primary.withOpacity(0.12),
+              child: const Icon(
+                Icons.notifications_active_outlined,
+                color: AppColors.primary,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                unreadCount > 0
+                    ? 'يوجد $unreadCount إشعار غير مقروء'
+                    : 'كل إشعارات النظام مقروءة',
+                style: const TextStyle(
+                  color: AppColors.textDark,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            if (unreadCount > 0)
+              TextButton.icon(
+                onPressed: _markingAllRead
+                    ? null
+                    : () => _markAllAsRead(notifications),
+                icon: _markingAllRead
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.done_all_rounded, size: 18),
+                label: const Text('قراءة الكل'),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     return AppPageScaffold(
       title: 'الإشعارات',
-      child: alerts.isEmpty
-          ? const _EmptyDashboardBox(
-              icon: Icons.notifications_off_rounded,
-              title: 'لا توجد إشعارات حالياً',
-              subtitle: ' ',
-            )
-          : ListView(
-              children: alerts.map((alert) => _AlertCard(item: alert)).toList(),
+      child: FutureBuilder<List<_AdminNotificationItem>>(
+        future: _loadNotifications(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          if (snapshot.hasError) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Text(
+                  'حدث خطأ أثناء تحميل الإشعارات:\n${snapshot.error}',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            );
+          }
+
+          final notifications = snapshot.data ?? const [];
+          final alerts = widget.alerts;
+
+          return RefreshIndicator(
+            onRefresh: () async {
+              setState(() {});
+            },
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.only(bottom: 24),
+              children: [
+                if (notifications.isEmpty && alerts.isEmpty)
+                  const _EmptyDashboardBox(
+                    icon: Icons.notifications_off_rounded,
+                    title: 'لا توجد إشعارات حالياً',
+                    subtitle: ' ',
+                  ),
+                if (notifications.isNotEmpty) ...[
+                  _buildSummary(notifications),
+                  const SizedBox(height: 18),
+                  const _SectionTitle(
+                    title: 'إشعارات النظام',
+                    icon: Icons.notifications_active_rounded,
+                  ),
+                  const SizedBox(height: 10),
+                  ...notifications.map(
+                    (item) => _AdminNotificationCard(
+                      item: item,
+                      formattedTime: _formatDateTime(item.time),
+                      onTap: () => _markAsRead(item.id),
+                    ),
+                  ),
+                ],
+                if (alerts.isNotEmpty) ...[
+                  if (notifications.isNotEmpty) const SizedBox(height: 18),
+                  const _SectionTitle(
+                    title: 'تنبيهات لوحة التحكم',
+                    icon: Icons.warning_amber_rounded,
+                  ),
+                  const SizedBox(height: 10),
+                  ...alerts.map((alert) => _AlertCard(item: alert)),
+                ],
+              ],
             ),
+          );
+        },
+      ),
     );
   }
+}
+
+class _AdminNotificationCard extends StatelessWidget {
+  final _AdminNotificationItem item;
+  final String formattedTime;
+  final VoidCallback onTap;
+
+  const _AdminNotificationCard({
+    required this.item,
+    required this.formattedTime,
+    required this.onTap,
+  });
+
+  IconData _iconForType(String type) {
+    switch (type.trim().toLowerCase()) {
+      case 'consultation_approved':
+        return Icons.check_circle_outline_rounded;
+      case 'consultation_rejected':
+        return Icons.cancel_outlined;
+      case 'complaint_created':
+        return Icons.report_problem_outlined;
+      case 'registration_request':
+      case 'parent_registration_request':
+        return Icons.how_to_reg_rounded;
+      case 'add_child_request':
+        return Icons.person_add_alt_1_rounded;
+      default:
+        return Icons.notifications_none_rounded;
+    }
+  }
+
+  Color _colorForType(String type) {
+    switch (type.trim().toLowerCase()) {
+      case 'consultation_approved':
+        return Colors.green;
+      case 'consultation_rejected':
+        return Colors.redAccent;
+      case 'complaint_created':
+        return Colors.deepPurple;
+      case 'registration_request':
+      case 'parent_registration_request':
+        return Colors.teal;
+      case 'add_child_request':
+        return Colors.indigo;
+      default:
+        return AppColors.primary;
+    }
+  }
+
+  String _typeLabel(String type) {
+    switch (type.trim().toLowerCase()) {
+      case 'consultation_approved':
+        return 'موافقة استشارة';
+      case 'consultation_rejected':
+        return 'رفض استشارة';
+      case 'complaint_created':
+        return 'شكوى جديدة';
+      case 'registration_request':
+      case 'parent_registration_request':
+        return 'طلب تسجيل';
+      case 'add_child_request':
+        return 'طلب إضافة طفل';
+      default:
+        return type.trim().isEmpty ? 'إشعار' : type;
+    }
+  }
+
+  String _senderLabel() {
+    final name = item.createdByName.trim();
+    final role = item.createdByRole.trim().toLowerCase();
+
+    String roleLabel;
+
+    switch (role) {
+      case 'parent':
+        roleLabel = 'وليّ الأمر';
+        break;
+      case 'temporary_parent':
+        roleLabel = 'وليّ أمر زائر';
+        break;
+      case 'admin':
+        roleLabel = 'الإدارة';
+        break;
+      case 'nursery_staff':
+        roleLabel = 'موظف الحضانة';
+        break;
+      default:
+        roleLabel = item.createdByRole.trim();
+    }
+
+    if (name.isNotEmpty && roleLabel.isNotEmpty) {
+      return '$name - $roleLabel';
+    }
+
+    if (name.isNotEmpty) return name;
+    if (roleLabel.isNotEmpty) return roleLabel;
+
+    return '';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _colorForType(item.type);
+    final sender = _senderLabel();
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      elevation: item.isRead ? 1 : 2,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CircleAvatar(
+                backgroundColor: color.withOpacity(0.12),
+                child: Icon(
+                  _iconForType(item.type),
+                  color: color,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            item.title,
+                            style: TextStyle(
+                              color: item.isRead
+                                  ? AppColors.textLight
+                                  : AppColors.textDark,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ),
+                        if (!item.isRead)
+                          Container(
+                            width: 9,
+                            height: 9,
+                            decoration: const BoxDecoration(
+                              color: AppColors.primary,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                      ],
+                    ),
+                    if (item.body.trim().isNotEmpty) ...[
+                      const SizedBox(height: 7),
+                      Text(
+                        item.body,
+                        style: const TextStyle(
+                          color: AppColors.textDark,
+                          height: 1.45,
+                        ),
+                      ),
+                    ],
+                    if (item.parentName.trim().isNotEmpty) ...[
+                      const SizedBox(height: 7),
+                      Text(
+                        'ولي الأمر: ${item.parentName}',
+                        style: const TextStyle(
+                          color: AppColors.textLight,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12.5,
+                        ),
+                      ),
+                    ],
+                    if (item.childName.trim().isNotEmpty) ...[
+                      const SizedBox(height: 5),
+                      Text(
+                        'الطفل: ${item.childName}',
+                        style: const TextStyle(
+                          color: AppColors.textLight,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12.5,
+                        ),
+                      ),
+                    ],
+                    if (sender.isNotEmpty) ...[
+                      const SizedBox(height: 5),
+                      Text(
+                        'من: $sender',
+                        style: const TextStyle(
+                          color: AppColors.textLight,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12.5,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 7),
+                    Text(
+                      formattedTime,
+                      style: const TextStyle(
+                        color: AppColors.textLight,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 9,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  _typeLabel(item.type),
+                  style: TextStyle(
+                    color: color,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 11.5,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AdminNotificationItem {
+  final String id;
+  final String title;
+  final String body;
+  final String type;
+  final String childName;
+  final String parentName;
+  final String createdByName;
+  final String createdByRole;
+  final String priority;
+  final bool isRead;
+  final DateTime time;
+
+  const _AdminNotificationItem({
+    required this.id,
+    required this.title,
+    required this.body,
+    required this.type,
+    required this.childName,
+    required this.parentName,
+    required this.createdByName,
+    required this.createdByRole,
+    required this.priority,
+    required this.isRead,
+    required this.time,
+  });
 }
 
 class _AdminActivitiesPage extends StatelessWidget {

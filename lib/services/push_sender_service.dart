@@ -40,6 +40,18 @@ class PushSenderService {
     }
   }
 
+  bool _isInactiveAccount(Map<String, dynamic> data) {
+    if (data['isActive'] == false) return true;
+
+    final accountStatus =
+        (data['accountStatus'] ?? 'active').toString().trim().toLowerCase();
+
+    return accountStatus == 'archived' ||
+        accountStatus == 'inactive' ||
+        accountStatus == 'expired' ||
+        accountStatus == 'disabled';
+  }
+
   List<String> _extractTokens(Map<String, dynamic> data) {
     final tokens = <String>{};
 
@@ -310,9 +322,8 @@ class PushSenderService {
       if (!doc.exists) return [];
 
       final data = doc.data() ?? <String, dynamic>{};
-      final isActive = (data['isActive'] ?? true) == true;
 
-      if (!isActive) return [];
+      if (_isInactiveAccount(data)) return [];
 
       return _extractTokens(data);
     } catch (e) {
@@ -336,9 +347,8 @@ class PushSenderService {
       if (snapshot.docs.isEmpty) return [];
 
       final data = snapshot.docs.first.data();
-      final isActive = (data['isActive'] ?? true) == true;
 
-      if (!isActive) return [];
+      if (_isInactiveAccount(data)) return [];
 
       return _extractTokens(data);
     } catch (e) {
@@ -442,11 +452,16 @@ class PushSenderService {
         final snapshot = await _firestore
             .collection('users')
             .where('role', isEqualTo: roleValue)
-            .where('isActive', isEqualTo: true)
             .get();
 
         for (final doc in snapshot.docs) {
-          tokens.addAll(_extractTokens(doc.data()));
+          final data = doc.data();
+
+          // ندعم السجلات القديمة التي لا تحتوي isActive:
+          // الغياب يُعامل كنشط، والقيمة false فقط تمنع الإرسال.
+          if (_isInactiveAccount(data)) continue;
+
+          tokens.addAll(_extractTokens(data));
         }
       }
 
@@ -665,7 +680,12 @@ class PushSenderService {
     }
 
     final type = (notificationData['type'] ?? 'general').toString().trim();
-    final screen = _screenForType(type);
+
+    final requestedScreen =
+        (notificationData['screen'] ?? '').toString().trim();
+
+    final screen =
+        requestedScreen.isEmpty ? _screenForType(type) : requestedScreen;
 
     final targetUid = (notificationData['targetUid'] ?? '').toString().trim();
 
@@ -695,39 +715,59 @@ class PushSenderService {
             .toString()
             .trim();
 
-        final extraPayload = {
-          'status': (notificationData['status'] ?? '').toString(),
-          'priority': (notificationData['priority'] ??
-                  notificationData['importance'] ??
-                  '')
-              .toString(),
-          'createdByUid': (notificationData['createdByUid'] ?? '').toString(),
-          'createdByName': (notificationData['createdByName'] ?? '').toString(),
-          'createdByRole': (notificationData['createdByRole'] ?? '').toString(),
-          'messageId': (notificationData['messageId'] ?? '').toString(),
-          'conversationChildId':
-              (notificationData['conversationChildId'] ?? '').toString(),
-          'emoji': (notificationData['emoji'] ?? '').toString(),
-          'invoiceId': (notificationData['invoiceId'] ?? '').toString(),
-          'invoiceStatus': (notificationData['invoiceStatus'] ?? '').toString(),
-          'paymentStatus': (notificationData['paymentStatus'] ?? '').toString(),
-
-          'updateId': (notificationData['updateId'] ?? '').toString(),
-          'category': (notificationData['category'] ?? '').toString(),
-          'templateType': (notificationData['templateType'] ?? '').toString(),
-          'importanceLabel':
-              (notificationData['importanceLabel'] ?? '').toString(),
-          'groupId': (notificationData['groupId'] ?? '').toString(),
-          'groupName': (notificationData['groupName'] ?? '').toString(),
-          'childType': (notificationData['childType'] ?? '').toString(),
-        };
+    final extraPayload = {
+      'status': (notificationData['status'] ?? '').toString(),
+      'priority': (notificationData['priority'] ??
+              notificationData['importance'] ??
+              '')
+          .toString(),
+      'createdByUid': (notificationData['createdByUid'] ?? '').toString(),
+      'createdByName': (notificationData['createdByName'] ?? '').toString(),
+      'createdByRole': (notificationData['createdByRole'] ?? '').toString(),
+      'messageId': (notificationData['messageId'] ?? '').toString(),
+      'conversationChildId':
+          (notificationData['conversationChildId'] ?? '').toString(),
+      'emoji': (notificationData['emoji'] ?? '').toString(),
+      'invoiceId': (notificationData['invoiceId'] ?? '').toString(),
+      'invoiceStatus': (notificationData['invoiceStatus'] ?? '').toString(),
+      'paymentStatus': (notificationData['paymentStatus'] ?? '').toString(),
+      'updateId': (notificationData['updateId'] ?? '').toString(),
+      'category': (notificationData['category'] ?? '').toString(),
+      'templateType': (notificationData['templateType'] ?? '').toString(),
+      'importanceLabel':
+          (notificationData['importanceLabel'] ?? '').toString(),
+      'groupId': (notificationData['groupId'] ?? '').toString(),
+      'groupName': (notificationData['groupName'] ?? '').toString(),
+      'childType': (notificationData['childType'] ?? '').toString(),
+      'consultationId':
+          (notificationData['consultationId'] ?? '').toString(),
+      'consultationStatus':
+          (notificationData['consultationStatus'] ?? '').toString(),
+      'parentApprovalStatus':
+          (notificationData['parentApprovalStatus'] ?? '').toString(),
+      'route': (notificationData['route'] ?? '').toString(),
+      'relatedCollection':
+          (notificationData['relatedCollection'] ?? '').toString(),
+      'relatedDocId': (notificationData['relatedDocId'] ?? '').toString(),
+    };
 
     int sentCount = 0;
 
     final explicitlyTemporaryParent = targetRole == 'temporary_parent';
 
-    if (explicitlyTemporaryParent && childId.isNotEmpty) {
-      sentCount = await sendToTemporaryParentDevices(
+    final roleBroadcastTarget = targetRole.isNotEmpty &&
+        targetRole != 'parent' &&
+        targetRole != 'temporary_parent';
+
+    if (explicitlyTemporaryParent) {
+      if (childId.isEmpty) {
+        lastError =
+            'targetRole=temporary_parent لكن childId فارغ notificationId=$notificationId';
+        debugPrint('PushSenderService: $lastError');
+        return 0;
+      }
+
+      return sendToTemporaryParentDevices(
         childId: childId,
         title: title,
         body: body,
@@ -739,8 +779,6 @@ class PushSenderService {
         liveStreamId: liveStreamId,
         extraData: extraPayload,
       );
-
-      if (sentCount > 0) return sentCount;
     }
 
     if (targetUid.isNotEmpty) {
@@ -764,8 +802,46 @@ class PushSenderService {
       if (sentCount > 0) return sentCount;
 
       debugPrint(
-        'PushSenderService: لم يتم العثور على token عبر targetUid، سيتم تجربة parentUid/parentUsername',
+        'PushSenderService: لم يتم العثور على token عبر targetUid=$targetUid',
       );
+
+      // الإشعار الفردي الخاص بموظفة أو أدمن لا يتحول إلى إشعار جماعي
+      // إذا لم يكن جهاز المستلم المحدد مسجلًا أو لا يحتوي token صالحًا.
+      if (roleBroadcastTarget) {
+        if (lastError.isEmpty) {
+          lastError =
+              'تعذر إرسال الإشعار للمستخدم المحدد targetUid=$targetUid '
+              'targetRole=$targetRole notificationId=$notificationId';
+        }
+
+        debugPrint('PushSenderService: $lastError');
+        return 0;
+      }
+    }
+
+    // الإرسال حسب الدور يستخدم فقط عندما لا يوجد targetUid محدد.
+    // هذا مناسب للتنبيهات الجماعية للإدارة أو لجميع الموظفات.
+    // وجود parentUid داخل إشعار الإدارة لا يعني أن ولي الأمر هو المستلم.
+    if (roleBroadcastTarget) {
+      sentCount = await sendToRole(
+        role: targetRole,
+        title: title,
+        body: body,
+        type: type,
+        screen: screen,
+        notificationId: notificationId,
+        extraData: extraPayload,
+      );
+
+      if (sentCount > 0) return sentCount;
+
+      if (lastError.isEmpty) {
+        lastError =
+            'لا يوجد token صالح للدور $targetRole notificationId=$notificationId';
+      }
+
+      debugPrint('PushSenderService: $lastError');
+      return 0;
     }
 
     if (parentUid.isNotEmpty || parentUsername.isNotEmpty) {
@@ -802,22 +878,6 @@ class PushSenderService {
         notificationId: notificationId,
         roomId: roomId,
         liveStreamId: liveStreamId,
-        extraData: extraPayload,
-      );
-
-      if (sentCount > 0) return sentCount;
-    }
-
-    if (targetRole.isNotEmpty &&
-        targetRole != 'parent' &&
-        targetRole != 'temporary_parent') {
-      sentCount = await sendToRole(
-        role: targetRole,
-        title: title,
-        body: body,
-        type: type,
-        screen: screen,
-        notificationId: notificationId,
         extraData: extraPayload,
       );
 

@@ -935,13 +935,6 @@ class _AdminComplaintsPageState extends State<AdminComplaintsPage> {
             color: AppColors.background,
             borderRadius: BorderRadius.circular(16),
           ),
-          child: Text(
-            'عدد الشكاوى الظاهرة بعد الفلترة: ${filteredDocs.length}',
-            style: const TextStyle(
-              color: AppColors.textDark,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
         ),
       ],
     );

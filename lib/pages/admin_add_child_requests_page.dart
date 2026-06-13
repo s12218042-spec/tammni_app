@@ -278,40 +278,77 @@ Future<void> _createParentNotification({
     });
   }
 
-  Future<bool> _childAlreadyExistsForParent({
-    required String parentUid,
+  String _cleanText(dynamic value) {
+    if (value == null) return '';
+    return value.toString().trim();
+  }
+
+  String _normalizeName(dynamic value) {
+    return _cleanText(value)
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .toLowerCase();
+  }
+
+  String _normalizeIdentityNumber(dynamic value) {
+    return _cleanText(value).replaceAll(RegExp(r'[^0-9]'), '');
+  }
+
+  DateTime? _dateFromValue(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+
+    final raw = _cleanText(value);
+    if (raw.isEmpty) return null;
+
+    return DateTime.tryParse(raw);
+  }
+
+  bool _isSameCalendarDay(DateTime first, DateTime second) {
+    return first.year == second.year &&
+        first.month == second.month &&
+        first.day == second.day;
+  }
+
+  Future<DocumentSnapshot<Map<String, dynamic>>?> _findExistingChildRecord({
     required String childName,
     required DateTime birthDate,
+    required String identityNumber,
   }) async {
-    final snapshot = await _firestore
-        .collection('children')
-        .where('parentUid', isEqualTo: parentUid)
-        .where('isActive', isEqualTo: true)
-        .get();
+    final snapshot = await _firestore.collection('children').get();
+
+    final normalizedRequestedName = _normalizeName(childName);
+    final normalizedRequestedIdentity =
+        _normalizeIdentityNumber(identityNumber);
 
     for (final doc in snapshot.docs) {
       final data = doc.data();
 
-      final existingName =
-          (data['fullName'] ?? data['name'] ?? '').toString().trim();
-      final existingBirthDate = data['birthDate'];
+      final normalizedExistingIdentity = _normalizeIdentityNumber(
+        data['identityNumber'],
+      );
 
-      DateTime? existingDate;
-
-      if (existingBirthDate is Timestamp) {
-        existingDate = existingBirthDate.toDate();
+      if (normalizedRequestedIdentity.isNotEmpty &&
+          normalizedExistingIdentity.isNotEmpty &&
+          normalizedRequestedIdentity == normalizedExistingIdentity) {
+        return doc;
       }
 
-      if (existingName == childName.trim() &&
-          existingDate != null &&
-          existingDate.year == birthDate.year &&
-          existingDate.month == birthDate.month &&
-          existingDate.day == birthDate.day) {
-        return true;
+      final existingDate = _dateFromValue(data['birthDate']);
+
+      if (existingDate == null) continue;
+
+      final normalizedExistingName = _normalizeName(
+        data['fullName'] ?? data['name'] ?? data['childName'],
+      );
+
+      if (normalizedRequestedName.isNotEmpty &&
+          normalizedExistingName == normalizedRequestedName &&
+          _isSameCalendarDay(existingDate, birthDate)) {
+        return doc;
       }
     }
 
-    return false;
+    return null;
   }
 
   Future<void> _approveRequest(Map<String, dynamic> item) async {
@@ -334,6 +371,8 @@ Future<void> _createParentNotification({
 
     final childName =
         (childInfo['fullName'] ?? childInfo['name'] ?? '').toString().trim();
+    final childIdentityNumber =
+        _normalizeIdentityNumber(childInfo['identityNumber']);
     final childBirthDate = _parseBirthDate(childInfo['birthDate']);
 
     if (parentUid.isEmpty || parentUsername.isEmpty || childName.isEmpty) {
@@ -350,21 +389,32 @@ Future<void> _createParentNotification({
 
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (_) => Directionality(
+      builder: (dialogContext) => Directionality(
         textDirection: TextDirection.rtl,
         child: AlertDialog(
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(22),
           ),
-          title: const Text('الموافقة على طلب إضافة الطفل'),
+          title: const Text('الموافقة وبدء فترة التجربة'),
+          content: TextField(
+            controller: noteController,
+            maxLines: 3,
+            textAlign: TextAlign.right,
+            decoration: InputDecoration(
+              labelText: 'ملاحظة اختيارية',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+          ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context, false),
+              onPressed: () => Navigator.pop(dialogContext, false),
               child: const Text('إلغاء'),
             ),
             ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('موافقة'),
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('بدء التجربة'),
             ),
           ],
         ),
@@ -390,14 +440,16 @@ Future<void> _createParentNotification({
         return;
       }
 
-      final alreadyExists = await _childAlreadyExistsForParent(
-        parentUid: parentUid,
+      final existingChildDoc = await _findExistingChildRecord(
         childName: childName,
         birthDate: childBirthDate,
+        identityNumber: childIdentityNumber,
       );
 
-      if (alreadyExists) {
-        _showSnack('هذا الطفل مرتبط بالفعل بحساب ولي الأمر');
+      if (existingChildDoc != null) {
+        _showSnack(
+          'يوجد سجل سابق لهذا الطفل في النظام. استخدم نفس السجل من إدارة الأطفال بدل إنشاء تجربة جديدة.',
+        );
         return;
       }
 
@@ -409,27 +461,55 @@ Future<void> _createParentNotification({
       final requestRef =
           _firestore.collection('add_child_requests').doc(requestId);
 
+      final trialStartAt = DateTime.now();
+      final trialEndAt = DateTime(
+        trialStartAt.year,
+        trialStartAt.month,
+        trialStartAt.day + 2,
+        23,
+        59,
+        59,
+      );
+
       await _firestore.runTransaction((transaction) async {
+        final freshRequestDoc = await transaction.get(requestRef);
+        final freshRequestStatus =
+            (freshRequestDoc.data()?['status'] ?? 'pending')
+                .toString()
+                .trim()
+                .toLowerCase();
+
+        if (freshRequestStatus != 'pending') {
+          throw StateError('request_already_processed');
+        }
+
         transaction.set(childDocRef, {
+          'id': childDocRef.id,
           'name': childName,
           'fullName': childName,
-          'identityNumber':
-              (childInfo['identityNumber'] ?? '').toString().trim(),
+          'identityNumber': childIdentityNumber,
           'gender': (childInfo['gender'] ?? '').toString().trim(),
           'birthDate': Timestamp.fromDate(childBirthDate),
           'section': 'Nursery',
           'group': '',
           'status': 'active',
+          'accountStatus': 'active',
           'isActive': true,
           'childId': childDocRef.id,
           'childName': childName,
-          'childType': 'permanent',
-          'enrollmentType': 'permanent',
-          'childStatus': 'active',
+          'childType': 'trial',
+          'enrollmentType': 'trial',
+          'childStatus': 'trial',
           'isTemporaryChild': false,
-          'isTrialChild': false,
-          'isBillable': true,
-          'excludeFromMonthlyInvoice': false,
+          'isTrialChild': true,
+          'isBillable': false,
+          'excludeFromMonthlyInvoice': true,
+          'trialStartAt': Timestamp.fromDate(trialStartAt),
+          'trialEndAt': Timestamp.fromDate(trialEndAt),
+          'trialDays': 3,
+          'trialIsFree': true,
+          'trialUsed': true,
+          'canStartNewTrial': false,
           'canReactivate': true,
           'permanentDeleted': false,
           'hasChronicDiseases':
@@ -455,6 +535,8 @@ Future<void> _createParentNotification({
           'parentUid': parentUid,
           'parentUsername': parentUsername.trim().toLowerCase(),
           'parentName': parentName,
+          if (_cleanText(item['parentPhone']).isNotEmpty)
+            'parentPhone': _cleanText(item['parentPhone']),
           'createdAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
           'createdByUid': adminUid,
@@ -473,6 +555,11 @@ Future<void> _createParentNotification({
           'updatedAt': FieldValue.serverTimestamp(),
           'createdChildId': childDocRef.id,
           'approvalSection': 'Nursery',
+          'approvalChildType': 'trial',
+          'trialStartAt': Timestamp.fromDate(trialStartAt),
+          'trialEndAt': Timestamp.fromDate(trialEndAt),
+          'trialDays': 3,
+          'trialIsFree': true,
           'processedToChildDoc': true,
           'linkedChildId': childDocRef.id,
         });
@@ -482,8 +569,9 @@ Future<void> _createParentNotification({
         parentUid: parentUid,
         parentUsername: parentUsername,
         parentName: parentName,
-        title: 'تمت الموافقة على طلب إضافة الطفل',
-        body: 'تمت إضافة الطفل $childName إلى حسابك بنجاح.',
+        title: 'تمت الموافقة وبدء فترة التجربة',
+        body:
+            'تمت إضافة الطفل $childName إلى حسابك وبدأت فترة التجربة المجانية لمدة 3 أيام.',
         requestId: requestId,
         childName: childName,
         status: 'approved',
@@ -502,10 +590,14 @@ Future<void> _createParentNotification({
 
       if (!mounted) return;
 
-      _showSnack('تمت الموافقة على الطلب وإضافة الطفل بنجاح');
+      _showSnack('تمت الموافقة وبدء فترة التجربة المجانية لمدة 3 أيام');
       setState(() {});
     } catch (e) {
-      _showSnack('حدث خطأ أثناء تنفيذ الموافقة: $e');
+      if (e.toString().contains('request_already_processed')) {
+        _showSnack('تمت معالجة هذا الطلب مسبقًا. حدّث الصفحة للتحقق من حالته.');
+      } else {
+        _showSnack('حدث خطأ أثناء تنفيذ الموافقة: $e');
+      }
     } finally {
       noteController.dispose();
 
@@ -811,6 +903,10 @@ Future<void> _createParentNotification({
                           'رقم الطفل المنشأ',
                           createdChildId.isEmpty ? '-' : createdChildId,
                         ),
+                        const _InfoRow(
+                          'نوع الإضافة',
+                          'طفل تجربة لمدة 3 أيام',
+                        ),
                         if (reviewNote.trim().isNotEmpty)
                           _InfoRow('ملاحظة المراجعة', reviewNote),
                       ],
@@ -839,7 +935,7 @@ Future<void> _createParentNotification({
                                     _approveRequest(item);
                                   },
                             icon: const Icon(Icons.check_circle_outline),
-                            label: const Text('موافقة'),
+                            label: const Text('بدء التجربة'),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.green,
                               minimumSize: const Size.fromHeight(52),
@@ -1092,7 +1188,7 @@ Future<void> _createParentNotification({
                         onPressed:
                             isProcessing ? null : () => _approveRequest(item),
                         icon: const Icon(Icons.check_circle_outline),
-                        label: const Text('موافقة'),
+                        label: const Text('بدء التجربة'),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.green,
                           minimumSize: const Size.fromHeight(48),

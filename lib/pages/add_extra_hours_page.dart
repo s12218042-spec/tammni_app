@@ -22,12 +22,20 @@ class _AddExtraHoursPageState extends State<AddExtraHoursPage> {
   final hoursCtrl = TextEditingController();
   final notesCtrl = TextEditingController();
 
+  late Future<List<Map<String, dynamic>>> _childrenFuture;
+
   Map<String, dynamic>? selectedChild;
   DateTime selectedDate = DateTime.now();
 
   bool isLoading = false;
 
   static const double hourlyPrice = 10;
+
+  @override
+  void initState() {
+    super.initState();
+    _childrenFuture = fetchChildren();
+  }
 
   double get hours {
     return double.tryParse(hoursCtrl.text.trim()) ?? 0;
@@ -44,93 +52,132 @@ class _AddExtraHoursPageState extends State<AddExtraHoursPage> {
     super.dispose();
   }
 
-Future<List<Map<String, dynamic>>> fetchChildren() async {
-  final snapshot = await _firestore.collection('children').get();
+  String _cleanText(dynamic value) {
+    if (value == null) return '';
+    return value.toString().trim();
+  }
 
-  final children = snapshot.docs.map((doc) {
-    final data = doc.data();
+  bool _isEligibleForExtraHours(Map<String, dynamic> data) {
+    final status = _cleanText(data['status']).toLowerCase();
+    final childStatus = _cleanText(data['childStatus']).toLowerCase();
+    final accountStatus = _cleanText(data['accountStatus']).toLowerCase();
 
-    final status = (data['status'] ?? data['childStatus'] ?? '')
-        .toString()
-        .trim()
-        .toLowerCase();
+    final childType = _cleanText(
+      data['childType'] ??
+          data['enrollmentType'] ??
+          data['type'] ??
+          data['childStatus'],
+    ).toLowerCase();
 
-    final childType = (data['childType'] ??
-            data['enrollmentType'] ??
-            data['type'] ??
-            data['childStatus'] ??
-            '')
-        .toString()
-        .trim()
-        .toLowerCase();
+    final enrollmentType =
+        _cleanText(data['enrollmentType']).toLowerCase();
 
     final isActiveValue = data['isActive'];
+
     final isActive = isActiveValue == null
         ? status != 'inactive' &&
             status != 'withdrawn' &&
-            status != 'rejected_after_trial' &&
-            status != 'archived'
+            status != 'archived' &&
+            childStatus != 'rejected_after_trial' &&
+            childStatus != 'trial_pending_decision' &&
+            accountStatus != 'archived' &&
+            accountStatus != 'pending_decision'
         : isActiveValue == true;
 
     final isTrial = childType == 'trial' ||
-        status == 'trial' ||
+        enrollmentType == 'trial' ||
+        childStatus == 'trial' ||
+        childStatus == 'trial_pending_decision' ||
         data['isTrialChild'] == true;
 
     final isTemporary = childType == 'temporary' ||
+        enrollmentType == 'temporary' ||
         childType == 'temp' ||
         childType == 'temporary_child' ||
         childType == 'مؤقت' ||
-        status == 'temporary' ||
+        childStatus == 'temporary' ||
         data['isTemporaryChild'] == true;
 
-    final excludedFromMonthly =
-        data['excludeFromMonthlyInvoice'] == true || data['isBillable'] == false;
+    final excludedFromMonthly = data['excludeFromMonthlyInvoice'] == true ||
+        data['isBillable'] == false;
+
+    return isActive &&
+        !isTrial &&
+        !isTemporary &&
+        !excludedFromMonthly;
+  }
+
+  Map<String, dynamic> _mapChild(
+    String childId,
+    Map<String, dynamic> data,
+  ) {
+    final childType = _cleanText(
+      data['childType'] ??
+          data['enrollmentType'] ??
+          data['type'] ??
+          data['childStatus'],
+    ).toLowerCase();
+
+    final childStatus =
+        _cleanText(data['childStatus'] ?? data['status']).toLowerCase();
 
     return {
-      'id': doc.id,
+      'id': childId,
       'name': (data['name'] ??
               data['childName'] ??
               data['fullName'] ??
               'طفل بدون اسم')
           .toString(),
-      'parentUid': (data['parentUid'] ?? '').toString(),
-      'parentUsername': (data['parentUsername'] ?? '').toString(),
-      'parentName': (data['parentName'] ?? '').toString(),
-      'group': (data['groupName'] ?? data['group'] ?? '').toString(),
-      'section': (data['section'] ?? 'Nursery').toString(),
+      'parentUid': _cleanText(data['parentUid']),
+      'parentUsername': _cleanText(data['parentUsername']),
+      'parentName': _cleanText(data['parentName']),
+      'group': _cleanText(data['groupName'] ?? data['group']),
+      'section': _cleanText(data['section']).isEmpty
+          ? 'Nursery'
+          : _cleanText(data['section']),
       'childType': childType,
-      'childStatus': status,
-      'isTrialChild': isTrial,
-      'isTemporaryChild': isTemporary,
-      'excludeFromMonthlyInvoice': excludedFromMonthly,
+      'enrollmentType': _cleanText(data['enrollmentType']).toLowerCase(),
+      'childStatus': childStatus,
+      'isTrialChild': data['isTrialChild'] == true,
+      'isTemporaryChild': data['isTemporaryChild'] == true,
+      'excludeFromMonthlyInvoice':
+          data['excludeFromMonthlyInvoice'] == true,
       'isBillable': data['isBillable'],
-      'isActive': isActive,
+      'isActive': data['isActive'] == true,
     };
-  }).where((child) {
-    final name = (child['name'] ?? '').toString().trim();
-    final isActive = child['isActive'] == true;
-    final isTrial = child['isTrialChild'] == true;
-    final isTemporary = child['isTemporaryChild'] == true;
-    final excludedFromMonthly = child['excludeFromMonthlyInvoice'] == true;
-    final notBillable = child['isBillable'] == false;
+  }
 
-    return name.isNotEmpty &&
-        isActive &&
-        !isTrial &&
-        !isTemporary &&
-        !excludedFromMonthly &&
-        !notBillable;
-  }).toList();
+  Future<List<Map<String, dynamic>>> fetchChildren() async {
+    final snapshot = await _firestore.collection('children').get();
 
-  children.sort(
-    (a, b) => (a['name'] as String).compareTo(b['name'] as String),
-  );
+    final children = snapshot.docs
+        .where((doc) => _isEligibleForExtraHours(doc.data()))
+        .map((doc) => _mapChild(doc.id, doc.data()))
+        .where((child) {
+      final name = _cleanText(child['name']);
+      return name.isNotEmpty;
+    }).toList();
 
-  return children;
-}
+    children.sort(
+      (a, b) => _cleanText(a['name']).compareTo(_cleanText(b['name'])),
+    );
+
+    return children;
+  }
+
+  void _reloadChildren({bool clearSelection = false}) {
+    setState(() {
+      if (clearSelection) {
+        selectedChild = null;
+      }
+
+      _childrenFuture = fetchChildren();
+    });
+  }
 
   Future<Map<String, String>> getCurrentUserInfo() async {
     final user = _auth.currentUser;
+
     if (user == null) {
       return {'uid': '', 'name': 'مستخدم', 'role': ''};
     }
@@ -151,11 +198,13 @@ Future<List<Map<String, dynamic>>> fetchChildren() async {
   }
 
   Future<void> pickDate() async {
+    final today = DateTime.now();
+
     final picked = await showDatePicker(
       context: context,
-      initialDate: selectedDate,
+      initialDate: selectedDate.isAfter(today) ? today : selectedDate,
       firstDate: DateTime(2024),
-      lastDate: DateTime(2035),
+      lastDate: today,
     );
 
     if (picked == null) return;
@@ -167,6 +216,15 @@ Future<List<Map<String, dynamic>>> fetchChildren() async {
 
   String formatDate(DateTime date) {
     return '${date.year}/${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}';
+  }
+
+  bool _isFutureDate(DateTime value) {
+    final today = DateTime.now();
+
+    final selectedDay = DateTime(value.year, value.month, value.day);
+    final currentDay = DateTime(today.year, today.month, today.day);
+
+    return selectedDay.isAfter(currentDay);
   }
 
   Future<void> saveExtraHours() async {
@@ -182,6 +240,11 @@ Future<List<Map<String, dynamic>>> fetchChildren() async {
       return;
     }
 
+    if (_isFutureDate(selectedDate)) {
+      _showSnack('لا يمكن تسجيل ساعات إضافية بتاريخ مستقبلي');
+      return;
+    }
+
     setState(() {
       isLoading = true;
     });
@@ -194,18 +257,53 @@ Future<List<Map<String, dynamic>>> fetchChildren() async {
         return;
       }
 
+      final selectedChildId = _cleanText(selectedChild!['id']);
+
+      if (selectedChildId.isEmpty) {
+        _showSnack('بيانات الطفل غير مكتملة');
+        return;
+      }
+
+      final freshChildDoc =
+          await _firestore.collection('children').doc(selectedChildId).get();
+
+      if (!freshChildDoc.exists || freshChildDoc.data() == null) {
+        _showSnack('لم يعد سجل الطفل موجودًا');
+        _reloadChildren(clearSelection: true);
+        return;
+      }
+
+      final freshChildData = freshChildDoc.data()!;
+
+      if (!_isEligibleForExtraHours(freshChildData)) {
+        _showSnack(
+          'لا يمكن تسجيل ساعات إضافية لطفل تجربة أو طفل زائر قبل اعتماده رسميًا',
+        );
+        _reloadChildren(clearSelection: true);
+        return;
+      }
+
+      final freshChild = _mapChild(freshChildDoc.id, freshChildData);
+
       final now = DateTime.now();
       final docRef = _firestore.collection('extra_child_hours').doc();
 
       await docRef.set({
         'id': docRef.id,
-        'childId': selectedChild!['id'] ?? '',
-        'childName': selectedChild!['name'] ?? '',
-        'parentUid': selectedChild!['parentUid'] ?? '',
-        'parentUsername': selectedChild!['parentUsername'] ?? '',
-        'parentName': selectedChild!['parentName'] ?? '',
-        'group': selectedChild!['group'] ?? '',
-        'section': selectedChild!['section'] ?? 'Nursery',
+        'childId': freshChild['id'] ?? '',
+        'childName': freshChild['name'] ?? '',
+        'parentUid': freshChild['parentUid'] ?? '',
+        'parentUsername': freshChild['parentUsername'] ?? '',
+        'parentName': freshChild['parentName'] ?? '',
+        'group': freshChild['group'] ?? '',
+        'section': freshChild['section'] ?? 'Nursery',
+        'childType': freshChild['childType'] ?? '',
+        'enrollmentType': freshChild['enrollmentType'] ?? '',
+        'childStatus': freshChild['childStatus'] ?? '',
+        'isTrialChild': false,
+        'isTemporaryChild': false,
+        'isBillable': true,
+        'excludeFromMonthlyInvoice': false,
         'date': Timestamp.fromDate(selectedDate),
         'hours': hours,
         'hourlyPrice': hourlyPrice,
@@ -220,51 +318,53 @@ Future<List<Map<String, dynamic>>> fetchChildren() async {
         'updatedAt': Timestamp.fromDate(now),
       });
 
-    final parentUid = (selectedChild!['parentUid'] ?? '').toString().trim();
-final parentUsername =
-    (selectedChild!['parentUsername'] ?? '').toString().trim().toLowerCase();
-final parentName = (selectedChild!['parentName'] ?? '').toString().trim();
-final childId = (selectedChild!['id'] ?? '').toString().trim();
-final childName = (selectedChild!['name'] ?? '').toString().trim();
+      final parentUid = _cleanText(freshChild['parentUid']);
+      final parentUsername =
+          _cleanText(freshChild['parentUsername']).toLowerCase();
+      final parentName = _cleanText(freshChild['parentName']);
+      final childId = _cleanText(freshChild['id']);
+      final childName = _cleanText(freshChild['name']);
 
-if (parentUid.isNotEmpty || parentUsername.isNotEmpty || childId.isNotEmpty) {
- try {
-  if (parentUid.isNotEmpty || parentUsername.isNotEmpty || childId.isNotEmpty) {
-    await AppNotificationService.instance.notifyChildParent(
-      parentUid: parentUid,
-      parentUsername: parentUsername,
-      parentName: parentName,
-      title: 'تم تسجيل ساعات إضافية',
-      body:
-          'تم تسجيل ${hours.toStringAsFixed(2)} ساعة إضافية للطفل $childName بقيمة ${totalAmount.toStringAsFixed(0)} شيكل، وسيتم إضافتها إلى الفاتورة.',
-      type: 'extra_hours',
-      childId: childId,
-      childName: childName,
-      section: selectedChild!['section'] ?? 'Nursery',
-      group: selectedChild!['group'] ?? '',
-      priority: 'normal',
-      createdByUid: currentUser['uid'] ?? '',
-      createdByName: currentUser['name'] ?? 'الإدارة',
-      createdByRole: currentUser['role'] ?? 'admin',
-      extraData: {
-        'extraHoursId': docRef.id,
-        'hours': hours,
-        'hourlyPrice': hourlyPrice,
-        'totalAmount': totalAmount,
-        'date': Timestamp.fromDate(selectedDate),
-        'status': 'pending_invoice',
-        'category': 'extra_hours',
-        'notificationType': 'extra_hours',
-        'screen': 'invoices',
-        'route': 'parent_invoices',
-        'relatedCollection': 'extra_child_hours',
-      },
-    );
-  }
-} catch (e) {
-  debugPrint('AddExtraHoursPage: فشل إرسال إشعار الساعات الإضافية: $e');
-}
-}
+      if (parentUid.isNotEmpty ||
+          parentUsername.isNotEmpty ||
+          childId.isNotEmpty) {
+        try {
+          await AppNotificationService.instance.notifyChildParent(
+            parentUid: parentUid,
+            parentUsername: parentUsername,
+            parentName: parentName,
+            title: 'تم تسجيل ساعات إضافية',
+            body:
+                'تم تسجيل ${hours.toStringAsFixed(2)} ساعة إضافية للطفل $childName بقيمة ${totalAmount.toStringAsFixed(0)} شيكل، وسيتم إضافتها إلى الفاتورة.',
+            type: 'extra_hours',
+            childId: childId,
+            childName: childName,
+            section: (freshChild['section'] ?? 'Nursery').toString(),
+            group: (freshChild['group'] ?? '').toString(),
+            priority: 'normal',
+            createdByUid: currentUser['uid'] ?? '',
+            createdByName: currentUser['name'] ?? 'الإدارة',
+            createdByRole: currentUser['role'] ?? 'admin',
+            extraData: {
+              'extraHoursId': docRef.id,
+              'hours': hours,
+              'hourlyPrice': hourlyPrice,
+              'totalAmount': totalAmount,
+              'date': Timestamp.fromDate(selectedDate),
+              'status': 'pending_invoice',
+              'category': 'extra_hours',
+              'notificationType': 'extra_hours',
+              'screen': 'invoices',
+              'route': 'parent_invoices',
+              'relatedCollection': 'extra_child_hours',
+            },
+          );
+        } catch (e) {
+          debugPrint(
+            'AddExtraHoursPage: فشل إرسال إشعار الساعات الإضافية: $e',
+          );
+        }
+      }
 
       if (!mounted) return;
 
@@ -286,6 +386,7 @@ if (parentUid.isNotEmpty || parentUsername.isNotEmpty || childId.isNotEmpty) {
 
   void _showSnack(String message) {
     if (!mounted) return;
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message)),
     );
@@ -313,8 +414,8 @@ if (parentUid.isNotEmpty || parentUsername.isNotEmpty || childId.isNotEmpty) {
   }
 
   String childLabel(Map<String, dynamic> child) {
-    final group = (child['group'] ?? '').toString();
-    final parent = (child['parentName'] ?? '').toString();
+    final group = _cleanText(child['group']);
+    final parent = _cleanText(child['parentName']);
 
     return [
       child['name'] ?? 'طفل بدون اسم',
@@ -330,9 +431,17 @@ if (parentUid.isNotEmpty || parentUsername.isNotEmpty || childId.isNotEmpty) {
       child: Form(
         key: _formKey,
         child: FutureBuilder<List<Map<String, dynamic>>>(
-          future: fetchChildren(),
+          future: _childrenFuture,
           builder: (context, snapshot) {
             final children = snapshot.data ?? [];
+
+            if (snapshot.hasData &&
+                selectedChild != null &&
+                !children.any(
+                  (child) => child['id'] == selectedChild!['id'],
+                )) {
+              selectedChild = null;
+            }
 
             return ListView(
               children: [
@@ -351,7 +460,9 @@ if (parentUid.isNotEmpty || parentUsername.isNotEmpty || childId.isNotEmpty) {
                       if (snapshot.connectionState == ConnectionState.waiting)
                         const Center(child: CircularProgressIndicator())
                       else if (children.isEmpty)
-                        const Text('لا يوجد أطفال متاحون لإضافة ساعات إضافية.')
+                        const Text(
+                          'لا يوجد أطفال مسجلون رسميًا متاحون لإضافة ساعات إضافية.',
+                        )
                       else
                         DropdownButtonFormField<String>(
                           value: selectedChild?['id']?.toString(),
@@ -361,7 +472,6 @@ if (parentUid.isNotEmpty || parentUsername.isNotEmpty || childId.isNotEmpty) {
                             label: 'الطفل',
                             icon: Icons.child_care_rounded,
                           ),
-
                           items: children.map((child) {
                             return DropdownMenuItem<String>(
                               value: child['id'].toString(),
@@ -373,7 +483,6 @@ if (parentUid.isNotEmpty || parentUsername.isNotEmpty || childId.isNotEmpty) {
                               ),
                             );
                           }).toList(),
-
                           selectedItemBuilder: (context) {
                             return children.map((child) {
                               return Align(
@@ -387,7 +496,6 @@ if (parentUid.isNotEmpty || parentUsername.isNotEmpty || childId.isNotEmpty) {
                               );
                             }).toList();
                           },
-
                           onChanged: (value) {
                             if (value == null) return;
 
@@ -397,11 +505,11 @@ if (parentUid.isNotEmpty || parentUsername.isNotEmpty || childId.isNotEmpty) {
                               );
                             });
                           },
-
                           validator: (value) {
                             if (value == null || value.isEmpty) {
                               return 'اختر الطفل';
                             }
+
                             return null;
                           },
                         ),
@@ -432,9 +540,11 @@ if (parentUid.isNotEmpty || parentUsername.isNotEmpty || childId.isNotEmpty) {
                         onChanged: (_) => setState(() {}),
                         validator: (value) {
                           final val = double.tryParse(value?.trim() ?? '');
+
                           if (val == null || val <= 0) {
                             return 'أدخل عدد ساعات صحيح';
                           }
+
                           return null;
                         },
                       ),

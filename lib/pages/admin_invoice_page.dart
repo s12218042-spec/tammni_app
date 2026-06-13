@@ -26,6 +26,8 @@ class _AdminInvoicesPageState extends State<AdminInvoicesPage> {
   bool isSyncingConsultations = false;
   bool didRunInitialConsultationsSync = false;
 
+  final Map<String, Future<double>> _extraHoursCountFutures = {};
+
   @override
   void initState() {
     super.initState();
@@ -66,6 +68,89 @@ class _AdminInvoicesPageState extends State<AdminInvoicesPage> {
     if (value is num) return value.toDouble();
 
     return double.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  Future<double> resolveExtraHoursCount(Map<String, dynamic> data) async {
+    final stored = numValue(
+      data['extraHoursCount'] ??
+          data['extraHours'],
+    );
+
+    if (stored > 0) return stored;
+
+    final rawIds = data['extraHoursIds'];
+
+    if (rawIds is! List || rawIds.isEmpty) {
+      return 0;
+    }
+
+    double total = 0;
+
+    for (final rawId in rawIds) {
+      final id = rawId.toString().trim();
+
+      if (id.isEmpty) continue;
+
+      try {
+        final doc = await _firestore
+            .collection('extra_child_hours')
+            .doc(id)
+            .get();
+
+        final extraHoursData = doc.data() ?? <String, dynamic>{};
+
+        total += numValue(
+          extraHoursData['hours'] ??
+              extraHoursData['hoursCount'] ??
+              extraHoursData['extraHours'] ??
+              extraHoursData['quantity'],
+        );
+      } catch (_) {
+      }
+    }
+
+    return total;
+  }
+
+  Future<double> extraHoursCountFuture(
+    String invoiceId,
+    Map<String, dynamic> data,
+  ) {
+    final cacheKey = [
+      invoiceId,
+      data['extraHoursCount'],
+      data['extraHours'],
+      data['extraHoursAmount'],
+      data['extraHoursIds'],
+    ].join('|');
+
+    return _extraHoursCountFutures.putIfAbsent(
+      cacheKey,
+      () => resolveExtraHoursCount(data),
+    );
+  }
+
+  Widget buildExtraHoursInvoiceTile({
+    required String invoiceId,
+    required Map<String, dynamic> data,
+    required String amount,
+  }) {
+    return FutureBuilder<double>(
+      future: extraHoursCountFuture(invoiceId, data),
+      builder: (context, snapshot) {
+        final hours = snapshot.data ?? 0;
+
+        final value = hours > 0
+            ? '${formatAmount(hours)} ساعات - $amount شيكل'
+            : '$amount شيكل';
+
+        return _InvoiceInfoTile(
+          icon: Icons.access_time_filled_rounded,
+          title: 'الساعات الإضافية',
+          value: value,
+        );
+      },
+    );
   }
 
   String normalizeStatus(dynamic value) {
@@ -1674,22 +1759,6 @@ class _AdminInvoicesPageState extends State<AdminInvoicesPage> {
       data['consultationsAmount'] ?? 0,
     );
 
-    final consultationIds =
-        data['consultationIds'];
-
-    final extraHoursIds =
-        data['extraHoursIds'];
-
-    final consultationsCount =
-        consultationIds is List
-            ? consultationIds.length
-            : 0;
-
-    final extraHoursCount =
-        extraHoursIds is List
-            ? extraHoursIds.length
-            : 0;
-
     final billingMonthKey =
         (data['billingMonthKey'] ?? '')
             .toString()
@@ -1842,21 +1911,16 @@ class _AdminInvoicesPageState extends State<AdminInvoicesPage> {
               value: '$subtotalAmount شيكل',
             ),
             const SizedBox(height: 8),
-            _InvoiceInfoTile(
-              icon:
-                  Icons.access_time_filled_rounded,
-              title: extraHoursCount > 0
-                  ? 'الساعات الإضافية ($extraHoursCount)'
-                  : 'الساعات الإضافية',
-              value: '$extraHoursAmount شيكل',
+            buildExtraHoursInvoiceTile(
+              invoiceId: doc.id,
+              data: data,
+              amount: extraHoursAmount,
             ),
             const SizedBox(height: 8),
             _InvoiceInfoTile(
               icon:
                   Icons.psychology_alt_outlined,
-              title: consultationsCount > 0
-                  ? 'الاستشارات ($consultationsCount)'
-                  : 'الاستشارات',
+              title: 'الاستشارات',
               value:
                   '$consultationsAmount شيكل',
             ),

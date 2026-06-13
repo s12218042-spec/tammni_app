@@ -167,8 +167,13 @@ class ChildModel {
   final String trialDecision;
   final String trialNote;
   final DateTime? trialApprovedAt;
+  final int trialDays;
+  final bool trialIsFree;
+  final bool trialUsed;
+  final bool canStartNewTrial;
 
   final String convertedFromChildType;
+  final DateTime? temporaryConvertedToTrialAt;
   final DateTime? convertedToPermanentAt;
   final String previousTemporaryAccessCodeId;
   final String previousTemporaryParentName;
@@ -263,7 +268,12 @@ class ChildModel {
     this.trialDecision = '',
     this.trialNote = '',
     this.trialApprovedAt,
+    this.trialDays = 0,
+    this.trialIsFree = false,
+    this.trialUsed = false,
+    this.canStartNewTrial = true,
     this.convertedFromChildType = '',
+    this.temporaryConvertedToTrialAt,
     this.convertedToPermanentAt,
     this.previousTemporaryAccessCodeId = '',
     this.previousTemporaryParentName = '',
@@ -393,10 +403,20 @@ class ChildModel {
     final defaultExcludeFromMonthlyInvoice =
         resolvedType == 'temporary' || resolvedType == 'trial';
 
-    final defaultCanReactivate = !(resolvedType == 'trial' &&
-        (resolvedStatus == 'trial_pending_decision' ||
-            resolvedStatus == 'archived' ||
-            resolvedStatus == 'rejected_after_trial'));
+    final defaultCanReactivate = true;
+
+    final inferredTrialUsed = resolvedType == 'trial' ||
+        data['trialStartAt'] != null ||
+        data['trialApprovedAt'] != null ||
+        _string(data['trialDecision']).isNotEmpty;
+
+    final resolvedAccountStatus =
+        resolvedStatus == 'trial_pending_decision'
+            ? 'archived'
+            : _firstNonEmpty([
+                data['accountStatus'],
+                data['isActive'] == false ? 'archived' : 'active',
+              ]);
 
     return ChildModel(
       id: _firstNonEmpty([
@@ -456,10 +476,7 @@ class ChildModel {
       ]),
       birthDate: _parseDate(data['birthDate']),
       isActive: _boolValue(data['isActive'], defaultValue: true),
-      accountStatus: _firstNonEmpty([
-        data['accountStatus'],
-        data['isActive'] == false ? 'archived' : 'active',
-      ]),
+      accountStatus: resolvedAccountStatus,
       canReactivate: _boolValue(
         data['canReactivate'],
         defaultValue: defaultCanReactivate,
@@ -512,7 +529,25 @@ class ChildModel {
       trialDecision: _string(data['trialDecision']),
       trialNote: _string(data['trialNote']),
       trialApprovedAt: _parseDate(data['trialApprovedAt']),
+      trialDays: _intValue(
+        data['trialDays'],
+        fallback: resolvedType == 'trial' ? 3 : 0,
+      ),
+      trialIsFree: _boolValue(
+        data['trialIsFree'],
+        defaultValue: resolvedType == 'trial',
+      ),
+      trialUsed: _boolValue(
+        data['trialUsed'],
+        defaultValue: inferredTrialUsed,
+      ),
+      canStartNewTrial: _boolValue(
+        data['canStartNewTrial'],
+        defaultValue: !inferredTrialUsed,
+      ),
       convertedFromChildType: _string(data['convertedFromChildType']),
+      temporaryConvertedToTrialAt:
+          _parseDate(data['temporaryConvertedToTrialAt']),
       convertedToPermanentAt: _parseDate(data['convertedToPermanentAt']),
       previousTemporaryAccessCodeId:
           _string(data['previousTemporaryAccessCodeId']),
@@ -614,20 +649,18 @@ class ChildModel {
       'temporaryParentPhone': temporaryParentPhone,
       'temporaryParentProfileId': temporaryParentProfileId,
       'isActive': isActive,
-      'accountStatus': accountStatus,
-      'canReactivate': resolvedType == 'trial' &&
-              (resolvedStatus == 'trial_pending_decision' ||
-                  resolvedStatus == 'archived' ||
-                  resolvedStatus == 'rejected_after_trial')
-          ? false
-          : canReactivate,
+      'accountStatus': resolvedStatus == 'trial_pending_decision'
+          ? 'archived'
+          : accountStatus,
+      'canReactivate': canReactivate,
       'permanentDeleted': permanentDeleted,
       'archiveReason': archiveReason,
       'childType': resolvedType,
       'enrollmentType': resolvedType,
       'isTemporaryChild': resolvedType == 'temporary',
       'isTrialChild': resolvedType == 'trial',
-      'status': resolvedStatus,
+      'status':
+          resolvedStatus == 'trial_pending_decision' ? 'archived' : resolvedStatus,
       'childStatus': resolvedStatus,
       'temporaryReason': temporaryReason,
       'temporaryNote': temporaryNote,
@@ -647,6 +680,11 @@ class ChildModel {
       'hasConsultation': hasConsultation,
       'trialDecision': trialDecision,
       'trialNote': trialNote,
+      'trialDays': resolvedType == 'trial' && trialDays <= 0 ? 3 : trialDays,
+      'trialIsFree': trialIsFree || resolvedType == 'trial',
+      'trialUsed': trialUsed || resolvedType == 'trial',
+      'canStartNewTrial':
+          resolvedType == 'trial' || trialUsed ? false : canStartNewTrial,
       'convertedFromChildType': convertedFromChildType,
       'previousTemporaryAccessCodeId': previousTemporaryAccessCodeId,
       'previousTemporaryParentName': previousTemporaryParentName,
@@ -708,6 +746,11 @@ class ChildModel {
 
     if (trialApprovedAt != null) {
       data['trialApprovedAt'] = Timestamp.fromDate(trialApprovedAt!);
+    }
+
+    if (temporaryConvertedToTrialAt != null) {
+      data['temporaryConvertedToTrialAt'] =
+          Timestamp.fromDate(temporaryConvertedToTrialAt!);
     }
 
     if (convertedToPermanentAt != null) {
@@ -797,10 +840,30 @@ class ChildModel {
   bool get isArchived {
     return childStatus == 'archived' ||
         status == 'archived' ||
+        childStatus == 'trial_pending_decision' ||
         childStatus == 'rejected_after_trial' ||
         status == 'rejected_after_trial' ||
         accountStatus == 'archived' ||
         !isActive;
+  }
+
+  bool get isArchivedOrPendingDecision {
+    return isArchived || isTrialPendingDecision;
+  }
+
+  bool get usesCodeBasedTrialAccess {
+    if (!isTrial) return false;
+
+    return temporaryAccessCode.trim().isNotEmpty ||
+        temporaryAccessCodeId.trim().isNotEmpty ||
+        sharedAccessCodeId.trim().isNotEmpty;
+  }
+
+  bool get isOfficialParentTrial {
+    if (!isTrial) return false;
+
+    return parentUid.trim().isNotEmpty &&
+        !usesCodeBasedTrialAccess;
   }
 
   bool get hasSharedTemporaryAccessCode {
@@ -808,7 +871,9 @@ class ChildModel {
   }
 
   bool get canBeReactivated {
-    return isArchived && canReactivate && !isTrial;
+    return isArchived &&
+        canReactivate &&
+        (!isTrial || isTrialPendingDecision);
   }
 
   bool get hasGroup {
@@ -1034,7 +1099,12 @@ class ChildModel {
     String? trialDecision,
     String? trialNote,
     DateTime? trialApprovedAt,
+    int? trialDays,
+    bool? trialIsFree,
+    bool? trialUsed,
+    bool? canStartNewTrial,
     String? convertedFromChildType,
+    DateTime? temporaryConvertedToTrialAt,
     DateTime? convertedToPermanentAt,
     String? previousTemporaryAccessCodeId,
     String? previousTemporaryParentName,
@@ -1130,8 +1200,14 @@ class ChildModel {
       trialDecision: trialDecision ?? this.trialDecision,
       trialNote: trialNote ?? this.trialNote,
       trialApprovedAt: trialApprovedAt ?? this.trialApprovedAt,
+      trialDays: trialDays ?? this.trialDays,
+      trialIsFree: trialIsFree ?? this.trialIsFree,
+      trialUsed: trialUsed ?? this.trialUsed,
+      canStartNewTrial: canStartNewTrial ?? this.canStartNewTrial,
       convertedFromChildType:
           convertedFromChildType ?? this.convertedFromChildType,
+      temporaryConvertedToTrialAt:
+          temporaryConvertedToTrialAt ?? this.temporaryConvertedToTrialAt,
       convertedToPermanentAt:
           convertedToPermanentAt ?? this.convertedToPermanentAt,
       previousTemporaryAccessCodeId:
@@ -1191,6 +1267,13 @@ num _numValue(dynamic value, {num fallback = 0}) {
 
   final text = _string(value).replaceAll(',', '.');
   return num.tryParse(text) ?? fallback;
+}
+
+int _intValue(dynamic value, {int fallback = 0}) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+
+  return int.tryParse(_string(value)) ?? fallback;
 }
 
 DateTime? _parseDate(dynamic value) {

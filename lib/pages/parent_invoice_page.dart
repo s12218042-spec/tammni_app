@@ -22,6 +22,8 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
 
   String selectedStatus = 'all';
 
+  final Map<String, Future<double>> _extraHoursCountFutures = {};
+
   String _cleanUsername() => widget.parentUsername.trim().toLowerCase();
 
   String _firstNonEmpty(List<dynamic> values) {
@@ -292,6 +294,89 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
           data['extraHoursTotal'] ??
           data['extraHoursFee'] ??
           0,
+    );
+  }
+
+  Future<double> resolveExtraHoursCount(Map<String, dynamic> data) async {
+    final stored = _numValue(
+      data['extraHoursCount'] ??
+          data['extraHours'],
+    );
+
+    if (stored > 0) return stored;
+
+    final rawIds = data['extraHoursIds'];
+
+    if (rawIds is! List || rawIds.isEmpty) {
+      return 0;
+    }
+
+    double total = 0;
+
+    for (final rawId in rawIds) {
+      final id = rawId.toString().trim();
+
+      if (id.isEmpty) continue;
+
+      try {
+        final doc = await _firestore
+            .collection('extra_child_hours')
+            .doc(id)
+            .get();
+
+        final extraHoursData = doc.data() ?? <String, dynamic>{};
+
+        total += _numValue(
+          extraHoursData['hours'] ??
+              extraHoursData['hoursCount'] ??
+              extraHoursData['extraHours'] ??
+              extraHoursData['quantity'],
+        );
+      } catch (_) {
+      }
+    }
+
+    return total;
+  }
+
+  Future<double> extraHoursCountFuture(
+    String invoiceId,
+    Map<String, dynamic> data,
+  ) {
+    final cacheKey = [
+      invoiceId,
+      data['extraHoursCount'],
+      data['extraHours'],
+      data['extraHoursAmount'],
+      data['extraHoursIds'],
+    ].join('|');
+
+    return _extraHoursCountFutures.putIfAbsent(
+      cacheKey,
+      () => resolveExtraHoursCount(data),
+    );
+  }
+
+  Widget buildExtraHoursInvoiceRow({
+    required String invoiceId,
+    required Map<String, dynamic> data,
+    required double amount,
+  }) {
+    return FutureBuilder<double>(
+      future: extraHoursCountFuture(invoiceId, data),
+      builder: (context, snapshot) {
+        final hours = snapshot.data ?? 0;
+
+        final value = hours > 0
+            ? '${formatMoney(hours)} ساعات - ${formatMoney(amount)} شيكل'
+            : '${formatMoney(amount)} شيكل';
+
+        return _InvoiceInfoRow(
+          icon: Icons.access_time_filled_rounded,
+          label: 'الساعات الإضافية',
+          value: value,
+        );
+      },
     );
   }
 
@@ -607,9 +692,6 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
     final showExtraHours = hasExtraHours(data);
     final showConsultations = hasConsultations(data);
 
-    final extraHoursCount = resolveListCount(data['extraHoursIds']);
-    final consultationsCount = resolveListCount(data['consultationIds']);
-
     final paymentMethod = paymentMethodLabel();
 
     final hourlyInvoice = isHourlyInvoice(data);
@@ -746,21 +828,17 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
             ],
             if (showExtraHours) ...[
               const SizedBox(height: 6),
-              _InvoiceInfoRow(
-                icon: Icons.access_time_filled_rounded,
-                label: extraHoursCount > 0
-                    ? 'الساعات الإضافية ($extraHoursCount)'
-                    : 'الساعات الإضافية',
-                value: '${formatMoney(extraHoursAmount)} شيكل',
+              buildExtraHoursInvoiceRow(
+                invoiceId: doc.id,
+                data: data,
+                amount: extraHoursAmount,
               ),
             ],
             if (showConsultations) ...[
               const SizedBox(height: 6),
               _InvoiceInfoRow(
                 icon: Icons.psychology_alt_outlined,
-                label: consultationsCount > 0
-                    ? 'الاستشارات ($consultationsCount)'
-                    : 'الاستشارات',
+                label: 'الاستشارات',
                 value: '${formatMoney(consultationsAmount)} شيكل',
               ),
             ],

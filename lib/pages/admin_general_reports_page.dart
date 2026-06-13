@@ -38,7 +38,6 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
   int activeLiveStreamsCount = 0;
 
   int updatesTodayCount = 0;
-  int incidentsThisMonthCount = 0;
 
   String? errorMessage;
 
@@ -199,7 +198,6 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
       }
 
       final today = startOfToday();
-      final monthStart = startOfMonth();
 
       int children = 0;
       for (final doc in childrenSnapshot.docs) {
@@ -352,32 +350,7 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
         }
       }
 
-      int monthIncidents = 0;
-
-      try {
-        final incidentsSnapshot = await _firestore
-            .collection('incident_reports')
-            .where(
-              'createdAt',
-              isGreaterThanOrEqualTo: Timestamp.fromDate(monthStart),
-            )
-            .get();
-
-        monthIncidents = incidentsSnapshot.docs.length;
-      } catch (_) {
-        final incidentsSnapshot =
-            await _firestore.collection('incident_reports').get();
-
-        for (final doc in incidentsSnapshot.docs) {
-          final data = doc.data();
-          final value = data['createdAt'] ?? data['time'] ?? data['timestamp'];
-
-          if (value is Timestamp && value.toDate().isAfter(monthStart)) {
-            monthIncidents++;
-          }
-        }
-      }
-
+   
       if (!mounted) return;
 
       setState(() {
@@ -402,7 +375,6 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
         activeLiveStreamsCount = activeStreams;
 
         updatesTodayCount = todayUpdates;
-        incidentsThisMonthCount = monthIncidents;
 
         isLoading = false;
       });
@@ -807,11 +779,6 @@ class _AdminGeneralReportsPageState extends State<AdminGeneralReportsPage> {
                           title: 'سجلات اليوم',
                           value: updatesTodayCount.toString(),
                           icon: Icons.update_rounded,
-                        ),
-                        statCard(
-                          title: 'تقارير المتابعة هذا الشهر',
-                          value: incidentsThisMonthCount.toString(),
-                          icon: Icons.report_problem_outlined,
                         ),
                       ]),
                       const SizedBox(height: 90),

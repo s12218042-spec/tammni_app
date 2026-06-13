@@ -3,22 +3,18 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class MessageModel {
   final String id;
 
-  /// مفتاح المحادثة الثابت الجديد.
-  /// يبقى فارغًا للرسائل القديمة التي لم تكن تحفظه.
   final String conversationKey;
   final String conversationType;
 
-  /// الطرف المقابل للمحادثة كما حُفظ عند الإرسال.
-  /// يفيد في التوافق مع النظام الجديد، مع إبقاء sender/receiver كما هما.
+ 
   final String targetUid;
   final String targetRole;
 
-  /// معلومات اختيارية لدعم الأشقاء بدون تقسيم المحادثة.
+ 
   final String accessCodeId;
   final List<String> childrenIds;
   final List<String> childrenNames;
 
-  /// يبقيان للتوافق مع الرسائل القديمة، وللإشارة الاختيارية لطفل محدد.
   final String childId;
   final String childName;
 
@@ -336,8 +332,6 @@ class MessageModel {
         : normalizedSenderRole;
   }
 
-  /// المفتاح الجديد له الأولوية.
-  /// إذا كانت الرسالة قديمة ولا تحتوي عليه، نرجع للمنطق القديم المتوافق.
   String conversationKeyFor(String currentUserId) {
     final storedKey = conversationKey.trim();
 
@@ -363,7 +357,7 @@ class MessageModel {
     return '${otherRole}_$otherId';
   }
 
-  /// للتوافق فقط مع أي منطق قديم كان يفصل المحادثة حسب الطفل.
+
   String legacyConversationKeyFor(String currentUserId) {
     final otherId = otherUserId(currentUserId).trim();
     final otherRole = otherUserRole(currentUserId).trim();

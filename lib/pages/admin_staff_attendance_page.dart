@@ -88,8 +88,6 @@ class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
         role == 'nursery';
   }
 
-  /// محطة البث حساب تقني فقط وليست موظفة حضانة.
-  /// نستخدم أكثر من شرط حتى نستبعد السجلات القديمة أيضًا.
   bool _isLiveStreamStation(Map<String, dynamic> data) {
     final username = _clean(data['username']).toLowerCase();
     final email = _clean(data['email']).toLowerCase();
@@ -535,7 +533,6 @@ class _AdminStaffAttendancePageState extends State<AdminStaffAttendancePage> {
         final uid = staffDoc.id;
         final data = staffDoc.data();
 
-        /// حماية إضافية تمنع إنشاء سجل دوام لمحطة البث.
         if (_isLiveStreamStation(data)) continue;
 
         _prepareStaff(uid);

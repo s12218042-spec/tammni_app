@@ -538,9 +538,7 @@ class _SendGroupUpdatePageState extends State<SendGroupUpdatePage> {
     });
 
     try {
-      // لا نعتمد على section داخل الاستعلام؛ لأن بعض السجلات القديمة قد لا
-      // تحتوي على section أو قد تحمل قيمة مختلفة رغم أن الطفل ما زال نشطًا.
-      // نجلب السجلات ثم نفلتر الأطفال النشطين داخل Flutter حتى لا يختفي أي طفل.
+    
       final snapshot = await _firestore.collection('children').get();
 
       final children = snapshot.docs.where((doc) {

@@ -83,22 +83,36 @@ class _TemporaryChildViewPageState extends State<TemporaryChildViewPage> {
     return value.toString().trim();
   }
 
+  String _normalizeNotificationRole(dynamic value) {
+    final role = _cleanText(value).toLowerCase();
+
+    if (role == 'temporary parent' ||
+        role == 'temporary_parent' ||
+        role == 'temp_parent') {
+      return 'temporary_parent';
+    }
+
+    if (role == 'nursery' ||
+        role == 'nursery staff' ||
+        role == 'nursery_staff' ||
+        role == 'staff' ||
+        role == 'employee' ||
+        role == 'teacher') {
+      return 'nursery_staff';
+    }
+
+    return role;
+  }
+
   bool _isVisibleTemporaryParentNotification(Map<String, dynamic> data) {
-    final targetRole = _cleanText(data['targetRole']).toLowerCase();
+    final targetRole = _normalizeNotificationRole(data['targetRole']);
     final notificationFor =
-        _cleanText(data['notificationFor']).toLowerCase();
+        _normalizeNotificationRole(data['notificationFor']);
 
-    const blockedRoles = <String>{
-      'admin',
-      'nursery',
-      'nursery_staff',
-      'nursery staff',
-      'staff',
-      'employee',
-    };
-
-    return !blockedRoles.contains(targetRole) &&
-        !blockedRoles.contains(notificationFor);
+    return targetRole == 'parent' ||
+        targetRole == 'temporary_parent' ||
+        notificationFor == 'parent' ||
+        notificationFor == 'temporary_parent';
   }
 
   num _toNum(dynamic value) {
@@ -3047,6 +3061,7 @@ Widget _buildConsultationsCard() {
     return _firestore
         .collection('notifications')
         .where('childId', isEqualTo: _currentChildId)
+        .where('notificationFor', isEqualTo: 'parent')
         .limit(100)
         .snapshots();
   }

@@ -190,7 +190,6 @@ class UserModel {
       case 'بالساعة':
         return 'hourly';
 
-      // يبقى للقراءة من السجلات القديمة فقط.
       case 'monthly':
         return 'monthly';
 

@@ -73,7 +73,7 @@ class _ParentHomePageState extends State<ParentHomePage> {
     try {
       await newFuture;
     } catch (_) {
-      // سيعرض FutureBuilder رسالة الخطأ داخل الصفحة.
+   
     }
   }
 
@@ -460,6 +460,240 @@ Future<void> _requestLiveStreamForChildren(
     );
   }
 
+  String _cleanNotificationValue(dynamic value) {
+    return (value ?? '').toString().trim();
+  }
+
+  String _normalizeNotificationRole(dynamic value) {
+    final role = _cleanNotificationValue(value).toLowerCase();
+
+    if (role == 'temporary parent' ||
+        role == 'temporary_parent' ||
+        role == 'temp_parent') {
+      return 'temporary_parent';
+    }
+
+    if (role == 'nursery' ||
+        role == 'nursery staff' ||
+        role == 'nursery_staff' ||
+        role == 'staff' ||
+        role == 'employee' ||
+        role == 'teacher') {
+      return 'nursery_staff';
+    }
+
+    return role;
+  }
+
+  String _firstNonEmptyNotificationValue(List<dynamic> values) {
+    for (final value in values) {
+      final cleanValue = _cleanNotificationValue(value);
+
+      if (cleanValue.isNotEmpty) return cleanValue;
+    }
+
+    return '';
+  }
+
+  bool _isParentNotificationVisible(
+    Map<String, dynamic> data, {
+    required String currentUid,
+    required String cleanParentUsername,
+  }) {
+    final notificationFor = _normalizeNotificationRole(
+      _firstNonEmptyNotificationValue([
+        data['notificationFor'],
+        data['targetRole'],
+      ]),
+    );
+
+    final targetRole = _normalizeNotificationRole(
+      _firstNonEmptyNotificationValue([
+        data['targetRole'],
+        data['notificationFor'],
+      ]),
+    );
+
+    final isParentNotification =
+        notificationFor == 'parent' || targetRole == 'parent';
+
+    if (!isParentNotification) return false;
+
+    final targetUid = _firstNonEmptyNotificationValue([
+      data['targetUid'],
+      data['receiverUid'],
+      data['receiverId'],
+      data['userUid'],
+      data['toUid'],
+    ]);
+
+    if (targetUid.isNotEmpty) {
+      return currentUid.isNotEmpty && targetUid == currentUid;
+    }
+
+    final targetUsername = _firstNonEmptyNotificationValue([
+      data['targetUsername'],
+      data['receiverUsername'],
+    ]).toLowerCase();
+
+    if (targetUsername.isNotEmpty) {
+      return cleanParentUsername.isNotEmpty &&
+          targetUsername == cleanParentUsername;
+    }
+
+    final parentUid = _firstNonEmptyNotificationValue([
+      data['parentUid'],
+    ]);
+
+    if (parentUid.isNotEmpty) {
+      return currentUid.isNotEmpty && parentUid == currentUid;
+    }
+
+    final parentUsername = _firstNonEmptyNotificationValue([
+      data['parentUsername'],
+    ]).toLowerCase();
+
+    if (parentUsername.isNotEmpty) {
+      return cleanParentUsername.isNotEmpty &&
+          parentUsername == cleanParentUsername;
+    }
+
+    return false;
+  }
+
+  Future<int> _fetchUnreadParentNotificationsCount() async {
+    final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    final cleanParentUsername =
+        widget.parentUsername.trim().toLowerCase();
+
+    final docsById =
+        <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+
+    Future<void> collect(Query<Map<String, dynamic>> query) async {
+      try {
+        final snapshot = await query.limit(120).get();
+
+        for (final doc in snapshot.docs) {
+          docsById[doc.id] = doc;
+        }
+      } catch (_) {
+      }
+    }
+
+    if (currentUid.isNotEmpty) {
+      await collect(
+        _firestore
+            .collection('notifications')
+            .where('targetUid', isEqualTo: currentUid),
+      );
+
+      await collect(
+        _firestore
+            .collection('notifications')
+            .where('parentUid', isEqualTo: currentUid)
+            .where('notificationFor', isEqualTo: 'parent'),
+      );
+
+      await collect(
+        _firestore
+            .collection('notifications')
+            .where('parentUid', isEqualTo: currentUid)
+            .where('targetRole', isEqualTo: 'parent'),
+      );
+    }
+
+    if (cleanParentUsername.isNotEmpty) {
+      await collect(
+        _firestore
+            .collection('notifications')
+            .where('targetUsername', isEqualTo: cleanParentUsername)
+            .where('notificationFor', isEqualTo: 'parent'),
+      );
+
+      await collect(
+        _firestore
+            .collection('notifications')
+            .where('targetUsername', isEqualTo: cleanParentUsername)
+            .where('targetRole', isEqualTo: 'parent'),
+      );
+
+      await collect(
+        _firestore
+            .collection('notifications')
+            .where('parentUsername', isEqualTo: cleanParentUsername)
+            .where('notificationFor', isEqualTo: 'parent'),
+      );
+
+      await collect(
+        _firestore
+            .collection('notifications')
+            .where('parentUsername', isEqualTo: cleanParentUsername)
+            .where('targetRole', isEqualTo: 'parent'),
+      );
+    }
+
+    return docsById.values.where((doc) {
+      final data = doc.data();
+
+      final isRead = data['isRead'] == true ||
+          data['read'] == true ||
+          data['seen'] == true;
+
+      if (isRead) return false;
+
+      return _isParentNotificationVisible(
+        data,
+        currentUid: currentUid,
+        cleanParentUsername: cleanParentUsername,
+      );
+    }).length;
+  }
+
+  Widget _buildNotificationActionButton() {
+    return FutureBuilder<int>(
+      future: _fetchUnreadParentNotificationsCount(),
+      builder: (context, snapshot) {
+        final count = snapshot.data ?? 0;
+
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.notifications_none_rounded),
+              tooltip: 'الإشعارات',
+              onPressed: _openNotifications,
+            ),
+            if (count > 0)
+              PositionedDirectional(
+                top: 6,
+                end: 6,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 5,
+                    vertical: 2,
+                  ),
+                  constraints: const BoxConstraints(minWidth: 18),
+                  decoration: BoxDecoration(
+                    color: Colors.red,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    count > 99 ? '99+' : '$count',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
   List<Widget> _buildPageActions() {
     return [
       IconButton(
@@ -467,12 +701,7 @@ Future<void> _requestLiveStreamForChildren(
         tooltip: 'تحديث الصفحة',
         onPressed: _refreshPage,
       ),
-      if (selectedIndex == 0)
-        IconButton(
-          icon: const Icon(Icons.notifications_none_rounded),
-          tooltip: 'الإشعارات',
-          onPressed: _openNotifications,
-        ),
+      if (selectedIndex == 0) _buildNotificationActionButton(),
     ];
   }
 
@@ -581,6 +810,12 @@ Future<void> _requestLiveStreamForChildren(
                 title: 'الشكاوى',
                 subtitle: '',
                 onTap: _openComplaints,
+              ),
+              _QuickActionCard(
+                icon: Icons.psychology_alt_rounded,
+                title: 'الاستشارات',
+                subtitle: '',
+                onTap: _openConsultations,
               ),
             ],
           ),
@@ -723,18 +958,6 @@ Future<void> _requestLiveStreamForChildren(
         Card(
           child: Column(
             children: [
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Colors.deepPurple.withValues(alpha: 0.12),
-                  child: const Icon(
-                    Icons.psychology_alt_rounded,
-                    color: Colors.deepPurple,
-                  ),
-                ),
-                title: const Text('الاستشارات'),
-                onTap: _openConsultations,
-              ),
-              const Divider(height: 1),
               ListTile(
                 leading: CircleAvatar(
                   backgroundColor: Colors.teal.withValues(alpha: 0.12),
@@ -1208,23 +1431,6 @@ class _ChildFollowUpCard extends StatelessWidget {
                     onPressed: onOpenProfile,
                     icon: const Icon(Icons.person_outline),
                     label: const Text('ملف الطفل'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: onOpenUpdates,
-                    icon: const Icon(Icons.notifications_none_outlined),
-                    label: const FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Text('سجلات المتابعة اليومية'),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size(double.infinity, 50),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                    ),
                   ),
                 ),
               ],

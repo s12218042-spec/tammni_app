@@ -20,7 +20,8 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
-
+  late Future<List<Map<String, dynamic>>> _nurseryChildrenFuture;
+  late Future<List<Map<String, dynamic>>> _activeOffersFuture;
 
   final paidAmountCtrl = TextEditingController(text: '0');
   final manualDiscountCtrl = TextEditingController(text: '0');
@@ -33,6 +34,7 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
   Map<String, dynamic>? selectedOffer;
 
   double extraHoursAmount = 0;
+  double extraHoursCount = 0;
   List<String> linkedExtraHoursIds = [];
 
   double consultationsAmount = 0;
@@ -41,6 +43,17 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
 
 
   bool isLoading = false;
+  bool isLoadingLinkedCharges = false;
+
+  int _linkedChargesRequestId = 0;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _nurseryChildrenFuture = fetchNurseryChildren();
+    _activeOffersFuture = fetchActiveOffers();
+  }
 
   @override
   void dispose() {
@@ -121,16 +134,14 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
   }
 
   bool _isBillableMonthlyChild(Map<String, dynamic> data) {
-    final status = (data['status'] ?? data['childStatus'] ?? '')
-        .toString()
-        .trim()
-        .toLowerCase();
+    final status = (data['status'] ?? '').toString().trim().toLowerCase();
+    final childStatus =
+        (data['childStatus'] ?? status).toString().trim().toLowerCase();
 
     final childType = (data['childType'] ??
             data['enrollmentType'] ??
             data['type'] ??
-            data['childStatus'] ??
-            '')
+            childStatus)
         .toString()
         .trim()
         .toLowerCase();
@@ -140,11 +151,18 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
         ? status != 'inactive' &&
             status != 'withdrawn' &&
             status != 'rejected_after_trial' &&
-            status != 'archived'
+            status != 'trial_pending_decision' &&
+            status != 'archived' &&
+            childStatus != 'rejected_after_trial' &&
+            childStatus != 'trial_pending_decision' &&
+            childStatus != 'archived'
         : isActiveValue == true;
 
     final isTrial = childType == 'trial' ||
         status == 'trial' ||
+        status == 'trial_pending_decision' ||
+        childStatus == 'trial' ||
+        childStatus == 'trial_pending_decision' ||
         data['isTrialChild'] == true;
 
     final isTemporary = childType == 'temporary' ||
@@ -152,12 +170,123 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
         childType == 'temporary_child' ||
         childType == 'مؤقت' ||
         status == 'temporary' ||
+        childStatus == 'temporary' ||
         data['isTemporaryChild'] == true;
 
     final excludedFromMonthly =
         data['excludeFromMonthlyInvoice'] == true || data['isBillable'] == false;
 
     return isActive && !isTrial && !isTemporary && !excludedFromMonthly;
+  }
+
+  bool _isBillableMonthlyExtraHoursRecord(Map<String, dynamic> data) {
+    final status = (data['status'] ?? '').toString().trim().toLowerCase();
+    final childStatus =
+        (data['childStatus'] ?? '').toString().trim().toLowerCase();
+
+    final childType = (data['childType'] ??
+            data['enrollmentType'] ??
+            data['type'] ??
+            childStatus)
+        .toString()
+        .trim()
+        .toLowerCase();
+
+    final isTrial = childType == 'trial' ||
+        status == 'trial' ||
+        status == 'trial_pending_decision' ||
+        childStatus == 'trial' ||
+        childStatus == 'trial_pending_decision' ||
+        data['isTrialChild'] == true;
+
+    final isTemporary = childType == 'temporary' ||
+        childType == 'temp' ||
+        childType == 'temporary_child' ||
+        childType == 'مؤقت' ||
+        status == 'temporary' ||
+        childStatus == 'temporary' ||
+        data['isTemporaryChild'] == true;
+
+    final excludedFromMonthly =
+        data['excludeFromMonthlyInvoice'] == true || data['isBillable'] == false;
+
+    return !isTrial && !isTemporary && !excludedFromMonthly;
+  }
+
+  Future<String?> _selectedInvoiceChildrenValidationError() async {
+    final invoiceChildren = selectedInvoiceChildren();
+
+    if (invoiceChildren.isEmpty) {
+      return 'اختر الطفل أولًا';
+    }
+
+    String firstParentUid = '';
+    String firstParentUsername = '';
+
+    for (final child in invoiceChildren) {
+      final childId = (child['id'] ?? '').toString().trim();
+
+      if (childId.isEmpty) {
+        return 'بيانات الطفل المختار غير مكتملة';
+      }
+
+      final freshDoc =
+          await _firestore.collection('children').doc(childId).get();
+
+      if (!freshDoc.exists) {
+        return 'تعذر العثور على بيانات الطفل المختار';
+      }
+
+      final freshData = freshDoc.data() ?? <String, dynamic>{};
+
+      if (!_isBillableMonthlyChild(freshData)) {
+        return 'لا يمكن إنشاء فاتورة شهرية لطفل تجربة أو طفل زائر قبل اعتماده رسميًا';
+      }
+
+      final section = (freshData['section'] ??
+              freshData['childSection'] ??
+              freshData['nurserySection'] ??
+              'Nursery')
+          .toString()
+          .trim()
+          .toLowerCase();
+
+      final isNurseryLike = section.isEmpty ||
+          section == 'nursery' ||
+          section == 'حضانة' ||
+          section == 'nursery_section';
+
+      if (!isNurseryLike) {
+        return 'الفاتورة الشهرية في هذه الصفحة مخصصة لأطفال الحضانة فقط';
+      }
+
+      final parentUid = (freshData['parentUid'] ?? '').toString().trim();
+      final parentUsername =
+          (freshData['parentUsername'] ?? '').toString().trim().toLowerCase();
+
+      if (parentUid.isEmpty && parentUsername.isEmpty) {
+        return 'الطفل المختار غير مرتبط بحساب ولي أمر رسمي';
+      }
+
+      if (firstParentUid.isEmpty && firstParentUsername.isEmpty) {
+        firstParentUid = parentUid;
+        firstParentUsername = parentUsername;
+        continue;
+      }
+
+      final sameParent = (firstParentUid.isNotEmpty &&
+              parentUid.isNotEmpty &&
+              firstParentUid == parentUid) ||
+          (firstParentUsername.isNotEmpty &&
+              parentUsername.isNotEmpty &&
+              firstParentUsername == parentUsername);
+
+      if (!sameParent) {
+        return 'يجب أن يكون الطفلان مرتبطين بحساب ولي الأمر نفسه';
+      }
+    }
+
+    return null;
   }
 
   String formatMoney(dynamic value) {
@@ -497,6 +626,162 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
     return list;
   }
 
+  void _resetLinkedChargesPreview() {
+    extraHoursAmount = 0;
+    extraHoursCount = 0;
+    linkedExtraHoursIds = [];
+
+    consultationsAmount = 0;
+    linkedConsultationIds = [];
+    selectedConsultations = [];
+  }
+
+  Future<void> _refreshLinkedChargesPreview() async {
+    final requestId = ++_linkedChargesRequestId;
+    final invoiceChildren = selectedInvoiceChildren();
+
+    if (invoiceChildren.isEmpty || selectedChild == null) {
+      if (!mounted) return;
+
+      setState(() {
+        _resetLinkedChargesPreview();
+        isLoadingLinkedCharges = false;
+      });
+
+      return;
+    }
+
+    final childrenIds = invoiceChildren
+        .map((child) => (child['id'] ?? '').toString().trim())
+        .where((id) => id.isNotEmpty)
+        .toList();
+
+    if (childrenIds.isEmpty) {
+      if (!mounted) return;
+
+      setState(() {
+        _resetLinkedChargesPreview();
+        isLoadingLinkedCharges = false;
+      });
+
+      return;
+    }
+
+    setState(() {
+      _resetLinkedChargesPreview();
+      isLoadingLinkedCharges = true;
+    });
+
+    try {
+      final parentUid = (selectedChild!['parentUid'] ?? '').toString().trim();
+      final parentUsername =
+          (selectedChild!['parentUsername'] ?? '').toString().trim().toLowerCase();
+
+      final sameParentInvoices = await fetchSameParentMonthlyInvoices(
+        parentUid: parentUid,
+        parentUsername: parentUsername,
+        billingMonthKey: _monthKey(DateTime.now()),
+      );
+
+      
+      final existingInvoiceData = sameParentInvoices.isNotEmpty
+          ? sameParentInvoices.first.data()
+          : <String, dynamic>{};
+
+      final existingExtraHoursIds =
+          _readStringList(existingInvoiceData['extraHoursIds']);
+
+      final existingConsultationIds =
+          _readStringList(existingInvoiceData['consultationIds']);
+
+      final extraHoursDocs = (await fetchPendingExtraHoursDocs(childrenIds))
+          .where((doc) => !existingExtraHoursIds.contains(doc.id))
+          .toList();
+
+      final consultationDocs =
+          (await fetchPendingConsultationsDocs(childrenIds))
+              .where((doc) => !existingConsultationIds.contains(doc.id))
+              .toList();
+
+      final previewExtraHoursAmount =
+          _numValue(existingInvoiceData['extraHoursAmount'] ??
+                  existingInvoiceData['extraHoursTotal']) +
+              calculateExtraHoursTotal(extraHoursDocs);
+
+      final previewExtraHoursCount =
+          _numValue(existingInvoiceData['extraHoursCount'] ??
+                  existingInvoiceData['extraHours']) +
+              calculateExtraHoursCount(extraHoursDocs);
+
+      final previewConsultationsAmount =
+          _numValue(existingInvoiceData['consultationsAmount']) +
+              calculateConsultationsTotal(consultationDocs);
+
+      final previousConsultations =
+          _readMapList(existingInvoiceData['consultations']);
+
+      final previousConsultationIds = previousConsultations
+          .map((item) => (item['consultationId'] ?? '').toString())
+          .where((id) => id.isNotEmpty)
+          .toSet();
+
+      final previewConsultations = [
+        ...previousConsultations,
+        ...consultationDocs.where((doc) {
+          return !previousConsultationIds.contains(doc.id);
+        }).map((doc) {
+          final data = doc.data();
+
+          return {
+            'consultationId': doc.id,
+            'title': data['title'] ?? '',
+            'childId': data['childId'] ?? '',
+            'childName': data['childName'] ?? '',
+            'hours': data['hours'] ?? 1,
+            'hourlyPrice': data['hourlyPrice'] ?? 50,
+            'totalAmount': data['totalAmount'] ?? 0,
+            'childType': data['childType'] ?? '',
+            'isTemporaryChild': data['isTemporaryChild'] == true,
+            'isTrialChild': data['isTrialChild'] == true,
+          };
+        }),
+      ];
+
+      if (!mounted || requestId != _linkedChargesRequestId) return;
+
+      setState(() {
+        extraHoursAmount = previewExtraHoursAmount;
+        extraHoursCount = previewExtraHoursCount;
+        linkedExtraHoursIds = <String>{
+          ...existingExtraHoursIds,
+          ...extraHoursDocs.map((doc) => doc.id),
+        }.toList();
+
+        consultationsAmount = previewConsultationsAmount;
+        linkedConsultationIds = <String>{
+          ...existingConsultationIds,
+          ...consultationDocs.map((doc) => doc.id),
+        }.toList();
+
+        selectedConsultations = previewConsultations;
+        isLoadingLinkedCharges = false;
+      });
+    } catch (e) {
+      debugPrint(
+        'CreateNurseryInvoicePage: تعذر تحميل الساعات الإضافية والاستشارات للمعاينة: $e',
+      );
+
+      if (!mounted || requestId != _linkedChargesRequestId) return;
+
+      setState(() {
+        _resetLinkedChargesPreview();
+        isLoadingLinkedCharges = false;
+      });
+
+      _showSnack('تعذر تحميل الساعات الإضافية والاستشارات، حاول مرة أخرى');
+    }
+  }
+
   Future<List<Map<String, dynamic>>> fetchNurseryChildren() async {
     final snapshot = await _firestore.collection('children').get();
 
@@ -510,16 +795,14 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
           .toString();
 
       final isActiveValue = data['isActive'];
-      final status = (data['status'] ?? data['childStatus'] ?? '')
-          .toString()
-          .trim()
-          .toLowerCase();
+      final status = (data['status'] ?? '').toString().trim().toLowerCase();
+      final childStatus =
+          (data['childStatus'] ?? status).toString().trim().toLowerCase();
 
       final childType = (data['childType'] ??
               data['enrollmentType'] ??
               data['type'] ??
-              data['childStatus'] ??
-              '')
+              childStatus)
           .toString()
           .trim()
           .toLowerCase();
@@ -529,10 +812,14 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
           childType == 'temporary_child' ||
           childType == 'مؤقت' ||
           status == 'temporary' ||
+          childStatus == 'temporary' ||
           data['isTemporaryChild'] == true;
 
       final isTrial = childType == 'trial' ||
           status == 'trial' ||
+          status == 'trial_pending_decision' ||
+          childStatus == 'trial' ||
+          childStatus == 'trial_pending_decision' ||
           data['isTrialChild'] == true;
 
       final excludedFromMonthly =
@@ -543,7 +830,11 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
           ? status != 'inactive' &&
               status != 'withdrawn' &&
               status != 'rejected_after_trial' &&
-              status != 'archived'
+              status != 'trial_pending_decision' &&
+              status != 'archived' &&
+              childStatus != 'rejected_after_trial' &&
+              childStatus != 'trial_pending_decision' &&
+              childStatus != 'archived'
           : isActiveValue == true;
 
       return {
@@ -559,7 +850,7 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
         'parentUsername': (data['parentUsername'] ?? '').toString(),
         'parentUid': (data['parentUid'] ?? '').toString(),
         'childType': childType,
-        'childStatus': status,
+        'childStatus': childStatus,
         'isTemporaryChild': isTemporary,
         'isTrialChild': isTrial,
         'isBillable': data['isBillable'],
@@ -628,10 +919,10 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
           if (!isActive) continue;
 
           allOffers.add({
+            ...data,
             'id': doc.id,
             'dropdownValue': '$collectionName/${doc.id}',
             'collectionName': collectionName,
-            ...data,
             'isActive': true,
           });
         }
@@ -685,13 +976,25 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
       ]);
     }
 
-    allOffers.sort((a, b) {
+    final uniqueOffersByValue = <String, Map<String, dynamic>>{};
+
+    for (final offer in allOffers) {
+      final dropdownValue = (offer['dropdownValue'] ?? '').toString().trim();
+
+      if (dropdownValue.isEmpty) continue;
+
+      uniqueOffersByValue[dropdownValue] = offer;
+    }
+
+    final uniqueOffers = uniqueOffersByValue.values.toList();
+
+    uniqueOffers.sort((a, b) {
       final aName = (a['title'] ?? a['name'] ?? '').toString();
       final bName = (b['title'] ?? b['name'] ?? '').toString();
       return aName.compareTo(bName);
     });
 
-    return allOffers;
+    return uniqueOffers;
   }
 
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
@@ -715,6 +1018,12 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
           .get();
 
       for (final doc in snapshot.docs) {
+        final data = doc.data();
+
+        if (!_isBillableMonthlyExtraHoursRecord(data)) {
+          continue;
+        }
+
         if (seenIds.add(doc.id)) {
           docs.add(doc);
         }
@@ -796,6 +1105,25 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
 
     for (final doc in docs) {
       total += _numValue(doc.data()['totalAmount']);
+    }
+
+    return total;
+  }
+
+  double calculateExtraHoursCount(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    double total = 0;
+
+    for (final doc in docs) {
+      final data = doc.data();
+
+      total += _numValue(
+        data['hours'] ??
+            data['hoursCount'] ??
+            data['extraHours'] ??
+            data['quantity'],
+      );
     }
 
     return total;
@@ -926,6 +1254,22 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
       }
     }
 
+    final selectedChildrenValidationError =
+        await _selectedInvoiceChildrenValidationError();
+
+    if (selectedChildrenValidationError != null) {
+      _showSnack(selectedChildrenValidationError);
+
+      setState(() {
+        selectedChild = null;
+        selectedSecondChild = null;
+        _resetLinkedChargesPreview();
+        _nurseryChildrenFuture = fetchNurseryChildren();
+      });
+
+      return;
+    }
+
     if (!isTwoChildrenOffer) {
       final parentChildren =
           await fetchActiveChildrenForSameParent(selectedChild!);
@@ -1001,6 +1345,11 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
           _numValue(existingInvoiceData['extraHoursAmount'] ??
                   existingInvoiceData['extraHoursTotal']) +
               calculateExtraHoursTotal(extraHoursDocs);
+
+      extraHoursCount =
+          _numValue(existingInvoiceData['extraHoursCount'] ??
+                  existingInvoiceData['extraHours']) +
+              calculateExtraHoursCount(extraHoursDocs);
 
       consultationsAmount =
           _numValue(existingInvoiceData['consultationsAmount']) +
@@ -1117,6 +1466,8 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
         'subtotalAmount': subtotalAmount,
         'extraHoursAmount': extraHoursAmount,
         'extraHoursTotal': extraHoursAmount,
+        'extraHours': extraHoursCount,
+        'extraHoursCount': extraHoursCount,
         'extraHoursIds': linkedExtraHoursIds,
         'consultationsAmount': consultationsAmount,
         'consultationIds': linkedConsultationIds,
@@ -1351,7 +1702,8 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
                   'الإجمالي قبل الخصم: ${formatMoney(subtotalAmount)} شيكل\n'
                   'خصم العرض: ${formatMoney(offerDiscount)} شيكل\n'
                   'خصم إضافي: ${formatMoney(manualDiscount)} شيكل\n'
-                  'الساعات الإضافية: ${formatMoney(extraHoursAmount)} شيكل\n'
+                  'الساعات الإضافية: ${extraHoursCount > 0 ? '${formatMoney(extraHoursCount)} ساعات - ' : ''}${formatMoney(extraHoursAmount)} شيكل\n'
+                  'الاستشارات: ${formatMoney(consultationsAmount)} شيكل\n'
                   'الإجمالي النهائي: ${formatMoney(totalAmount)} شيكل\n'
                   'المدفوع: ${formatMoney(paidAmount)} شيكل\n'
                   'المتبقي: ${formatMoney(remainingAmount)} شيكل\n'
@@ -1364,13 +1716,26 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
               ),
             ],
           ),
+          if (isLoadingLinkedCharges) ...[
+            const SizedBox(height: 14),
+            const LinearProgressIndicator(),
+            const SizedBox(height: 8),
+            const Text(
+              'جارٍ تحميل الساعات الإضافية والاستشارات...',
+              style: TextStyle(
+                color: AppColors.textLight,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
           const SizedBox(height: 16),
           SizedBox(
             width: double.infinity,
             height: 52,
             child: ElevatedButton.icon(
-              onPressed: isLoading ? null : saveInvoice,
-              icon: isLoading
+              onPressed:
+                  isLoading || isLoadingLinkedCharges ? null : saveInvoice,
+              icon: isLoading || isLoadingLinkedCharges
                   ? const SizedBox(
                       width: 18,
                       height: 18,
@@ -1381,7 +1746,11 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
                     )
                   : const Icon(Icons.save_outlined),
               label: Text(
-                isLoading ? 'جارٍ حفظ الفاتورة...' : 'حفظ الفاتورة',
+                isLoading
+                    ? 'جارٍ حفظ الفاتورة...'
+                    : isLoadingLinkedCharges
+                        ? 'جارٍ تحميل البنود...'
+                        : 'حفظ الفاتورة',
               ),
             ),
           ),
@@ -1397,22 +1766,26 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
       child: Form(
         key: _formKey,
         child: FutureBuilder<List<Map<String, dynamic>>>(
-          future: fetchNurseryChildren(),
+          future: _nurseryChildrenFuture,
           builder: (context, snapshot) {
             final children = snapshot.data ?? [];
             final secondOptions = secondChildrenOptions(children);
 
-            if (selectedSecondChild != null &&
-                !secondOptions.any(
-                  (child) => child['id'] == selectedSecondChild!['id'],
-                )) {
-              selectedSecondChild = null;
-            }
+            if (snapshot.hasData) {
+              if (selectedSecondChild != null &&
+                  !secondOptions.any(
+                    (child) => child['id'] == selectedSecondChild!['id'],
+                  )) {
+                selectedSecondChild = null;
+              }
 
-            if (selectedChild != null &&
-                !children.any((child) => child['id'] == selectedChild!['id'])) {
-              selectedChild = null;
-              selectedSecondChild = null;
+              if (selectedChild != null &&
+                  !children.any(
+                    (child) => child['id'] == selectedChild!['id'],
+                  )) {
+                selectedChild = null;
+                selectedSecondChild = null;
+              }
             }
 
             return ListView(
@@ -1472,7 +1845,7 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
                               );
                             }).toList();
                           },
-                          onChanged: (value) {
+                          onChanged: (value) async {
                             if (value == null) return;
 
                             setState(() {
@@ -1481,6 +1854,8 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
                               );
                               selectedSecondChild = null;
                             });
+
+                            await _refreshLinkedChargesPreview();
                           },
                           validator: (value) {
                             if (value == null || value.isEmpty) {
@@ -1499,9 +1874,22 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
                 const SizedBox(height: 14),
                 mainCard(
                     child: FutureBuilder<List<Map<String, dynamic>>>(
-                      future: fetchActiveOffers(),
+                      future: _activeOffersFuture,
                       builder: (context, offerSnapshot) {
                         final offers = offerSnapshot.data ?? [];
+
+                        final selectedOfferValue =
+                            selectedOffer?['dropdownValue']?.toString();
+
+                        final validSelectedOfferValue =
+                            selectedOfferValue != null &&
+                                    offers.any(
+                                      (offer) =>
+                                          offer['dropdownValue'].toString() ==
+                                          selectedOfferValue,
+                                    )
+                                ? selectedOfferValue
+                                : null;
 
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1515,7 +1903,7 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
                               const Text('لا توجد عروض فعالة حاليًا')
                             else
                               DropdownButtonFormField<String>(
-                                value: selectedOffer?['dropdownValue']?.toString(),
+                                value: validSelectedOfferValue,
                                 isExpanded: true,
                                 menuMaxHeight: 360,
                                 decoration: customDecoration(
@@ -1523,14 +1911,6 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
                                   icon: Icons.local_offer_outlined,
                                 ),
                                 items: [
-                                  const DropdownMenuItem<String>(
-                                    value: '',
-                                    child: Text(
-                                      'بدون عرض',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
                                   ...offers.map((offer) {
                                     return DropdownMenuItem<String>(
                                       value: offer['dropdownValue'].toString(),
@@ -1543,7 +1923,7 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
                                     );
                                   }),
                                 ],
-                                onChanged: (value) {
+                                onChanged: (value) async {
                                   setState(() {
                                     if (value == null || value.isEmpty) {
                                       selectedOffer = null;
@@ -1558,6 +1938,8 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
                                       }
                                     }
                                   });
+
+                                  await _refreshLinkedChargesPreview();
                                 },
                               ),
                             if (isTwoChildrenOffer) ...[
@@ -1599,7 +1981,7 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
                                       );
                                     }).toList();
                                   },
-                                  onChanged: (value) {
+                                  onChanged: (value) async {
                                     if (value == null) return;
 
                                     setState(() {
@@ -1607,6 +1989,8 @@ class _CreateNurseryInvoicePageState extends State<CreateNurseryInvoicePage> {
                                         (child) => child['id'].toString() == value,
                                       );
                                     });
+
+                                    await _refreshLinkedChargesPreview();
                                   },
                                   validator: (value) {
                                     if (isTwoChildrenOffer &&

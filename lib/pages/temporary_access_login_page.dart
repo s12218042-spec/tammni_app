@@ -455,8 +455,6 @@ class _TemporaryAccessLoginPageState extends State<TemporaryAccessLoginPage> {
       if (doc.exists) docsById[doc.id] = doc;
     }
 
-    // لا ننفذ استعلامات إضافية عند توفر childIds داخل سجل الكود المشترك.
-    // هذا يحافظ على التوافق مع Firestore Rules ويقلل القراءة غير الضرورية.
     if (docsById.isEmpty && accessCodeId.isNotEmpty) {
       final snapshot = await _firestore
           .collection('children')
@@ -597,9 +595,6 @@ class _TemporaryAccessLoginPageState extends State<TemporaryAccessLoginPage> {
       final accessData =
           Map<String, dynamic>.from(accessResult['accessData'] as Map);
 
-      // نسجل أن جلسة Anonymous الحالية هي التي أدخلت الكود بنجاح.
-      // تستخدم Firestore Rules هذه البصمة للسماح بقراءة الأطفال المرتبطين
-      // بالكود فقط أثناء مرحلة الدخول الأولى قبل إنشاء device sessions.
       await _saveAccessLoginMetadata(
         authUser: authUser,
         token: '',

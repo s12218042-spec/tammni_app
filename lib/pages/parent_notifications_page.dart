@@ -61,6 +61,66 @@ class _ParentNotificationsPageState extends State<ParentNotificationsPage> {
     return role;
   }
 
+  String _cleanUsernameValue(dynamic value) {
+    return value?.toString().trim().toLowerCase() ?? '';
+  }
+
+  bool _isNotificationForCurrentParent({
+    required Map<String, dynamic> data,
+    required String currentUid,
+    required String parentUsername,
+  }) {
+    final notificationFor = _normalizeRole(_firstNonEmpty([
+      data['notificationFor'],
+    ]));
+
+    final targetRole = _normalizeRole(_firstNonEmpty([
+      data['targetRole'],
+      data['receiverRole'],
+    ]));
+
+    if (notificationFor == 'admin' || targetRole == 'admin') {
+      return false;
+    }
+
+    if (notificationFor.isNotEmpty && notificationFor != 'parent') {
+      return false;
+    }
+
+    if (targetRole.isNotEmpty && targetRole != 'parent') {
+      return false;
+    }
+
+    final targetUid = _firstNonEmpty([
+      data['targetUid'],
+      data['receiverId'],
+    ]);
+
+    final targetUsername = _cleanUsernameValue(_firstNonEmpty([
+      data['targetUsername'],
+      data['receiverUsername'],
+    ]));
+
+    final savedParentUid = _firstNonEmpty([
+      data['parentUid'],
+    ]);
+
+    final savedParentUsername = _cleanUsernameValue(_firstNonEmpty([
+      data['parentUsername'],
+    ]));
+
+    final matchesDirectTarget =
+        (currentUid.isNotEmpty && targetUid == currentUid) ||
+            (parentUsername.isNotEmpty &&
+                targetUsername == parentUsername);
+
+    if (matchesDirectTarget) return true;
+
+    return (currentUid.isNotEmpty && savedParentUid == currentUid) ||
+        (parentUsername.isNotEmpty &&
+            savedParentUsername == parentUsername);
+  }
+
   Future<List<Map<String, dynamic>>> _fetchNotifications() async {
     final currentUid = FirebaseAuth.instance.currentUser?.uid;
     final cleanParentUsername = _cleanParentUsername();
@@ -78,18 +138,52 @@ class _ParentNotificationsPageState extends State<ParentNotificationsPage> {
       final byParentUidSnapshot = await _firestore
           .collection('notifications')
           .where('parentUid', isEqualTo: currentUid)
+          .where('notificationFor', isEqualTo: 'parent')
           .get();
 
       allDocs.addAll(byParentUidSnapshot.docs);
+
+      final legacyByParentUidSnapshot = await _firestore
+          .collection('notifications')
+          .where('parentUid', isEqualTo: currentUid)
+          .where('targetRole', isEqualTo: 'parent')
+          .get();
+
+      allDocs.addAll(legacyByParentUidSnapshot.docs);
     }
 
     if (cleanParentUsername.isNotEmpty) {
-      final byUsernameSnapshot = await _firestore
+      final byTargetUsernameSnapshot = await _firestore
           .collection('notifications')
-          .where('parentUsername', isEqualTo: cleanParentUsername)
+          .where('targetUsername', isEqualTo: cleanParentUsername)
+          .where('notificationFor', isEqualTo: 'parent')
           .get();
 
-      allDocs.addAll(byUsernameSnapshot.docs);
+      allDocs.addAll(byTargetUsernameSnapshot.docs);
+
+      final legacyByTargetUsernameSnapshot = await _firestore
+          .collection('notifications')
+          .where('targetUsername', isEqualTo: cleanParentUsername)
+          .where('targetRole', isEqualTo: 'parent')
+          .get();
+
+      allDocs.addAll(legacyByTargetUsernameSnapshot.docs);
+
+      final byParentUsernameSnapshot = await _firestore
+          .collection('notifications')
+          .where('parentUsername', isEqualTo: cleanParentUsername)
+          .where('notificationFor', isEqualTo: 'parent')
+          .get();
+
+      allDocs.addAll(byParentUsernameSnapshot.docs);
+
+      final legacyByParentUsernameSnapshot = await _firestore
+          .collection('notifications')
+          .where('parentUsername', isEqualTo: cleanParentUsername)
+          .where('targetRole', isEqualTo: 'parent')
+          .get();
+
+      allDocs.addAll(legacyByParentUsernameSnapshot.docs);
     }
 
     final seenIds = <String>{};
@@ -101,9 +195,17 @@ class _ParentNotificationsPageState extends State<ParentNotificationsPage> {
       }
     }
 
+    final visibleDocs = uniqueDocs.where((doc) {
+      return _isNotificationForCurrentParent(
+        data: doc.data(),
+        currentUid: currentUid?.trim() ?? '',
+        parentUsername: cleanParentUsername,
+      );
+    }).toList();
+
     final childNamesById = <String, String>{};
 
-    for (final doc in uniqueDocs) {
+    for (final doc in visibleDocs) {
       final data = doc.data();
       final childId = _firstNonEmpty([
         data['childId'],
@@ -119,7 +221,7 @@ class _ParentNotificationsPageState extends State<ParentNotificationsPage> {
       }
     }
 
-    final missingChildIds = uniqueDocs
+    final missingChildIds = visibleDocs
         .map((doc) {
           final data = doc.data();
           return _firstNonEmpty([
@@ -149,11 +251,10 @@ class _ParentNotificationsPageState extends State<ParentNotificationsPage> {
           childNamesById[childId] = resolvedChildName;
         }
       } catch (_) {
-        // يبقى الإشعار ظاهرًا حتى لو تعذر استرجاع اسم الطفل.
       }
     }
 
-    final items = uniqueDocs.map((doc) {
+    final items = visibleDocs.map((doc) {
       final data = doc.data();
       final childId = _firstNonEmpty([
         data['childId'],
@@ -318,7 +419,6 @@ class _ParentNotificationsPageState extends State<ParentNotificationsPage> {
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
     } catch (_) {
-      // لا نوقف الصفحة بسبب فشل بسيط في تحديث القراءة
     }
   }
 
