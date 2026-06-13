@@ -63,7 +63,11 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
     super.dispose();
   }
 
-  List<ChildModel> get activeChildren => widget.children;
+  List<ChildModel> get activeChildren {
+    return widget.children.where((child) {
+      return child.isActiveChild && !child.isArchived;
+    }).toList();
+  }
 
   bool isNurseryRole(String role) {
     final value = role.trim().toLowerCase();
@@ -91,6 +95,20 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
     if (value == 'parent') return 'parent';
 
     return value;
+  }
+
+  String _cleanText(dynamic value) {
+    if (value == null) return '';
+    return value.toString().trim();
+  }
+
+  bool _isLiveStreamStationUser(Map<String, dynamic> data) {
+    final username = _cleanText(data['username']).toLowerCase();
+    final email = _cleanText(data['email']).toLowerCase();
+
+    return data['isLiveStreamStation'] == true ||
+        username == 'stream_station' ||
+        email == 'stream.station@tammni.com';
   }
 
   String _normalizeSearchText(dynamic value) {
@@ -265,6 +283,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
       for (final doc in usersSnapshot.docs) {
         if (doc.id == uid) return doc.data();
       }
+
       return null;
     }
 
@@ -278,6 +297,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
       if (!isActive) continue;
       if (doc.id == currentUserId) continue;
       if (role != 'admin') continue;
+      if (_isLiveStreamStationUser(data)) continue;
 
       people.add({
         'id': doc.id,
@@ -304,6 +324,12 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
       addedStaffKeys.add(key);
 
       final staffData = userDataById(staffUid) ?? <String, dynamic>{};
+
+      if (staffData.isNotEmpty) {
+        final isActive = (staffData['isActive'] ?? true) == true;
+        if (!isActive) continue;
+        if (_isLiveStreamStationUser(staffData)) continue;
+      }
 
       final childStaffName = child.assignedStaffName.trim();
       final staffName = childStaffName.isNotEmpty
@@ -339,11 +365,6 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
         if (roleA == 'admin') return -1;
         if (roleB == 'admin') return 1;
       }
-
-      final childA = (a['childName'] ?? '').toString();
-      final childB = (b['childName'] ?? '').toString();
-      final childCompare = childA.compareTo(childB);
-      if (childCompare != 0) return childCompare;
 
       final nameA = (a['displayName'] ?? '').toString();
       final nameB = (b['displayName'] ?? '').toString();
@@ -440,6 +461,8 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
       isAdminChat: isAdminChat,
     );
 
+    final selectedChild = pickChildForMessage(message);
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
@@ -461,7 +484,7 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
             context,
             MaterialPageRoute(
               builder: (_) => MessagesPage(
-                child: activeChildren.first,
+                child: selectedChild,
                 targetRole: isAdminChat ? 'admin' : targetRole,
                 targetUserId: targetUserId,
                 targetUserName: displayName,
@@ -703,7 +726,8 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
           if (activeChildren.isEmpty) return false;
 
           final otherRole = senderIsParent ? receiverRole : senderRole;
-          final otherName = senderIsParent ? message.receiverName : message.senderName;
+          final otherName =
+              senderIsParent ? message.receiverName : message.senderName;
 
           final isAdminChat = looksLikeAdminChat(
             role: otherRole,
@@ -781,6 +805,22 @@ class _ParentChatsPageState extends State<ParentChatsPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (activeChildren.isEmpty) {
+      return const Directionality(
+        textDirection: TextDirection.rtl,
+        child: Center(
+          child: Text(
+            'لا يوجد أطفال نشطون للتواصل حاليًا',
+            style: TextStyle(
+              color: AppColors.textLight,
+              fontWeight: FontWeight.w700,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    }
+
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Padding(

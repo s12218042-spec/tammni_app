@@ -1585,8 +1585,8 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
           if (resolvedParentPhone.isNotEmpty) 'parentPhone': resolvedParentPhone,
           'restoredAt': FieldValue.serverTimestamp(),
           'reactivatedAt': FieldValue.serverTimestamp(),
-          'archiveReason': FieldValue.delete(),
-          'archivedAt': FieldValue.delete(),
+          'archiveReason': '',
+          'archivedAt': '',
           'updatedAt': FieldValue.serverTimestamp(),
         },
         SetOptions(merge: true),
@@ -2248,10 +2248,89 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
                                 )
                               : const Icon(Icons.restore_rounded),
                           label: Text(
-                            isSaving ? 'جاري الاستعادة...' : 'استعادة',
+                            isSaving
+                                ? 'جاري الاستعادة...'
+                                : 'استعادة كطفل زائر',
                           ),
                         ),
                       ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: isSaving
+                              ? null
+                              : () async {
+                                  final parentName =
+                                      parentNameCtrl.text.trim();
+
+                                  final parentPhone = _normalizePhone(
+                                    parentPhoneCtrl.text,
+                                  );
+
+                                  if (selectedGroupId.isEmpty) {
+                                    await _showValidationError(
+                                      'اختر المجموعة',
+                                    );
+                                    return;
+                                  }
+
+                                  if (parentName.isEmpty ||
+                                      !_isValidPalestinianMobile(parentPhone)) {
+                                    await _showValidationError(
+                                      'تأكد من اسم ولي الأمر ورقم الجوال',
+                                    );
+                                    return;
+                                  }
+
+                                  if (linkWithSiblings &&
+                                      selectedSharedAccessCodeId.isEmpty) {
+                                    await _showValidationError(
+                                      'اختر كود الإخوة',
+                                    );
+                                    return;
+                                  }
+
+                                  setSheetState(() {
+                                    isSaving = true;
+                                  });
+
+                                  final saved =
+                                      await _restoreTemporaryChildAsTrialDirect(
+                                    child: {
+                                      ...freshChildData,
+                                      'id': childId,
+                                    },
+                                    childId: childId,
+                                    childName: childName,
+                                    parentName: parentName,
+                                    parentPhone: parentPhone,
+                                    groupDoc: groups.firstWhere(
+                                      (doc) => doc.id == selectedGroupId,
+                                    ),
+                                    sharedAccessCodeId:
+                                        selectedSharedAccessCodeId,
+                                  );
+
+                                  if (!sheetContext.mounted) return;
+
+                                  if (saved) {
+                                    Navigator.pop(sheetContext);
+                                  } else {
+                                    setSheetState(() {
+                                      isSaving = false;
+                                    });
+                                  }
+                                },
+                          icon: const Icon(Icons.volunteer_activism_outlined),
+                          label: Text(
+                            isSaving
+                                ? 'جاري الحفظ...'
+                                : 'استعادة وبدء تجربة 3 أيام',
+                          ),
+                        ),
+                      ),
+
                     ],
                   ),
                 ),
@@ -2267,6 +2346,204 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
     hoursCtrl.dispose();
     hourlyRateCtrl.dispose();
     paidCtrl.dispose();
+  }
+
+  Future<bool> _restoreTemporaryChildAsTrialDirect({
+    required Map<String, dynamic> child,
+    required String childId,
+    required String childName,
+    required String parentName,
+    required String parentPhone,
+    required QueryDocumentSnapshot<Map<String, dynamic>> groupDoc,
+    required String sharedAccessCodeId,
+  }) async {
+    try {
+      if (child['trialUsed'] == true || child['canStartNewTrial'] == false) {
+        _showSnack('لا يمكن منح الطفل فترة تجربة مجانية ثانية.');
+        return false;
+      }
+
+      if (!_groupHasCapacity(groupDoc)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('المجموعة ممتلئة')),
+          );
+        }
+        return false;
+      }
+
+      final childRef = _firestore.collection('children').doc(childId);
+      final batch = _firestore.batch();
+      final adminUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+      final groupData = groupDoc.data();
+      final trialStartAt = DateTime.now();
+      final trialEndAt = DateTime(
+        trialStartAt.year,
+        trialStartAt.month,
+        trialStartAt.day + 2,
+        23,
+        59,
+        59,
+      );
+
+      final officialParent = await _findActiveOfficialParentAccount(
+        parentUid: _cleanText(child['parentUid']),
+        parentUsername: _cleanText(child['parentUsername']),
+        parentPhone: parentPhone,
+      );
+
+      _PreparedTemporaryAccessCode? preparedCode;
+
+      if (officialParent != null) {
+        await _updateAccessCodesAfterChildRemoval(
+          batch: batch,
+          childId: childId,
+          childData: child,
+          archiveReason: 'restored_as_trial_linked_to_official_parent',
+          automated: false,
+        );
+      } else {
+        preparedCode = await _prepareDirectTemporaryAccessCode(
+          batch: batch,
+          childRef: childRef,
+          childName: childName,
+          childType: 'trial',
+          parentName: parentName,
+          parentPhone: parentPhone,
+          groupDoc: groupDoc,
+          start: trialStartAt,
+          end: trialEndAt,
+          sharedAccessCodeId: sharedAccessCodeId,
+          adminUid: adminUid,
+        );
+
+        if (preparedCode == null) return false;
+      }
+
+      final String resolvedParentName;
+      final String resolvedParentPhone;
+      final Map<String, dynamic> accessFields;
+
+      if (officialParent != null) {
+        resolvedParentName = officialParent.name;
+        resolvedParentPhone =
+            officialParent.phone.isNotEmpty ? officialParent.phone : parentPhone;
+
+        accessFields = {
+          'parentUid': officialParent.uid,
+          'parentUsername': officialParent.username,
+          'parentName': resolvedParentName,
+          'parentPhone': resolvedParentPhone,
+          'temporaryParentName': '',
+          'temporaryParentPhone': '',
+          'accessMode': 'parent_account',
+          'usesTemporaryAccessCode': false,
+          'temporaryAccessCodeId': '',
+          'sharedAccessCodeId': '',
+          'temporaryAccessCode': '',
+          'usesSharedAccessCode': false,
+        };
+      } else {
+        final code = preparedCode;
+        if (code == null) return false;
+
+        resolvedParentName = code.parentName;
+        resolvedParentPhone = code.parentPhone;
+
+        accessFields = {
+          'parentUid': '',
+          'parentUsername': '',
+          'parentName': resolvedParentName,
+          'parentPhone': resolvedParentPhone,
+          'temporaryParentName': resolvedParentName,
+          'temporaryParentPhone': resolvedParentPhone,
+          'accessMode': 'temporary_code',
+          'usesTemporaryAccessCode': true,
+          'temporaryAccessCodeId': code.id,
+          'sharedAccessCodeId': code.id,
+          'temporaryAccessCode': code.code,
+          'usesSharedAccessCode': code.usesSharedAccessCode,
+        };
+      }
+
+      batch.set(
+        childRef,
+        {
+          'childType': 'trial',
+          'enrollmentType': 'trial',
+          'childStatus': 'trial',
+          'status': 'active',
+          'accountStatus': 'active',
+          'isActive': true,
+          'isTemporaryChild': false,
+          'isTrialChild': true,
+          'isTemporary': false,
+          'isBillable': false,
+          'excludeFromMonthlyInvoice': true,
+          'canReactivate': true,
+          'permanentDeleted': false,
+          'trialUsed': true,
+          'canStartNewTrial': false,
+          'trialDays': 3,
+          'trialIsFree': true,
+          'trialStartAt': Timestamp.fromDate(trialStartAt),
+          'trialEndAt': Timestamp.fromDate(trialEndAt),
+          'trialDecision': '',
+          'convertedFromChildType': 'temporary',
+          'temporaryConvertedToTrialAt': FieldValue.serverTimestamp(),
+          'groupId': groupDoc.id,
+          'groupName': _cleanText(groupData['groupName']),
+          'assignedStaffUid': _cleanText(groupData['assignedStaffUid']),
+          'assignedStaffName': _cleanText(groupData['assignedStaffName']),
+          'assignedStaffUsername':
+              _cleanText(groupData['assignedStaffUsername']),
+          ...accessFields,
+          'temporaryAccessStartAt': Timestamp.fromDate(trialStartAt),
+          'temporaryAccessEndAt': Timestamp.fromDate(trialEndAt),
+          'restoredAt': FieldValue.serverTimestamp(),
+          'reactivatedAt': FieldValue.serverTimestamp(),
+          'archiveReason': '',
+          'archivedAt': '',
+          'expiredAt': '',
+          'updatedByUid': adminUid,
+          'updatedByRole': 'admin',
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+
+      await batch.commit();
+      await _refreshGroupChildrenCount(groupDoc.id);
+
+      if (!mounted) return true;
+
+      setState(() {});
+
+      if (officialParent != null) {
+        await _showOfficialParentLinkedDialog(
+          childName: childName,
+          parentName: resolvedParentName,
+          childType: 'trial',
+        );
+      } else if (preparedCode != null) {
+        await _showTemporaryAccessCreatedDialog(
+          childName: childName,
+          accessCode: preparedCode.code,
+          accessEndAt: trialEndAt,
+        );
+      }
+
+      _showSnack('تمت استعادة الطفل وبدء تجربة مجانية لمدة 3 أيام');
+      return true;
+    } catch (e) {
+      if (!mounted) return false;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذر بدء تجربة الطفل: $e')),
+      );
+
+      return false;
+    }
   }
 
   Future<bool> _restoreTemporaryChildDirect({
@@ -2301,21 +2578,114 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
       final adminUid = FirebaseAuth.instance.currentUser?.uid ?? '';
       final groupData = groupDoc.data();
 
-      final preparedCode = await _prepareDirectTemporaryAccessCode(
-        batch: batch,
-        childRef: childRef,
-        childName: childName,
-        childType: 'temporary',
-        parentName: parentName,
+      final officialParent = await _findActiveOfficialParentAccount(
+        parentUid: _cleanText(child['parentUid']),
+        parentUsername: _cleanText(child['parentUsername']),
         parentPhone: parentPhone,
-        groupDoc: groupDoc,
-        start: start,
-        end: end,
-        sharedAccessCodeId: sharedAccessCodeId,
-        adminUid: adminUid,
       );
 
-      if (preparedCode == null) return false;
+      _PreparedTemporaryAccessCode? preparedCode;
+
+      if (officialParent != null) {
+        await _updateAccessCodesAfterChildRemoval(
+          batch: batch,
+          childId: childId,
+          childData: child,
+          archiveReason: 'restored_temporary_linked_to_official_parent',
+          automated: false,
+        );
+      } else {
+        preparedCode = await _prepareDirectTemporaryAccessCode(
+          batch: batch,
+          childRef: childRef,
+          childName: childName,
+          childType: 'temporary',
+          parentName: parentName,
+          parentPhone: parentPhone,
+          groupDoc: groupDoc,
+          start: start,
+          end: end,
+          sharedAccessCodeId: sharedAccessCodeId,
+          adminUid: adminUid,
+        );
+
+        if (preparedCode == null) return false;
+      }
+
+      final String resolvedParentName;
+      final String resolvedParentPhone;
+      final String resolvedParentUid;
+      final String resolvedParentUsername;
+      final Map<String, dynamic> childAccessFields;
+      final Map<String, dynamic> invoiceAccessFields;
+
+      if (officialParent != null) {
+        resolvedParentName = officialParent.name;
+        resolvedParentPhone =
+            officialParent.phone.isNotEmpty ? officialParent.phone : parentPhone;
+        resolvedParentUid = officialParent.uid;
+        resolvedParentUsername = officialParent.username;
+
+        childAccessFields = {
+          'parentUid': resolvedParentUid,
+          'parentUsername': resolvedParentUsername,
+          'parentName': resolvedParentName,
+          'parentPhone': resolvedParentPhone,
+          'temporaryParentName': '',
+          'temporaryParentPhone': '',
+          'accessMode': 'parent_account',
+          'usesTemporaryAccessCode': false,
+          'temporaryAccessCodeId': '',
+          'sharedAccessCodeId': '',
+          'usesSharedAccessCode': false,
+          'temporaryAccessCode': '',
+        };
+
+        invoiceAccessFields = {
+          'parentUid': resolvedParentUid,
+          'parentUsername': resolvedParentUsername,
+          'parentName': resolvedParentName,
+          'parentPhone': resolvedParentPhone,
+          'accessMode': 'parent_account',
+          'usesTemporaryAccessCode': false,
+        };
+      } else {
+        final code = preparedCode;
+        if (code == null) return false;
+
+        resolvedParentName = code.parentName;
+        resolvedParentPhone = code.parentPhone;
+        resolvedParentUid = '';
+        resolvedParentUsername = '';
+
+        childAccessFields = {
+          'parentUid': '',
+          'parentUsername': '',
+          'parentName': resolvedParentName,
+          'parentPhone': resolvedParentPhone,
+          'temporaryParentName': resolvedParentName,
+          'temporaryParentPhone': resolvedParentPhone,
+          'accessMode': 'temporary_code',
+          'usesTemporaryAccessCode': true,
+          'temporaryAccessCodeId': code.id,
+          'sharedAccessCodeId': code.id,
+          'usesSharedAccessCode': code.usesSharedAccessCode,
+          'temporaryAccessCode': code.code,
+        };
+
+        invoiceAccessFields = {
+          'parentUid': '',
+          'parentUsername': '',
+          'parentName': resolvedParentName,
+          'parentPhone': resolvedParentPhone,
+          'temporaryParentName': resolvedParentName,
+          'temporaryParentPhone': resolvedParentPhone,
+          'accessMode': 'temporary_code',
+          'usesTemporaryAccessCode': true,
+          'temporaryAccessCodeId': code.id,
+          'sharedAccessCodeId': code.id,
+        };
+      }
 
       batch.set(
         childRef,
@@ -2333,22 +2703,13 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
           'excludeFromMonthlyInvoice': true,
           'canReactivate': true,
           'permanentDeleted': false,
-          'parentUid': '',
-          'parentUsername': '',
-          'parentName': preparedCode.parentName,
-          'parentPhone': preparedCode.parentPhone,
-          'temporaryParentName': preparedCode.parentName,
-          'temporaryParentPhone': preparedCode.parentPhone,
+          ...childAccessFields,
           'groupId': groupDoc.id,
           'groupName': _cleanText(groupData['groupName']),
           'assignedStaffUid': _cleanText(groupData['assignedStaffUid']),
           'assignedStaffName': _cleanText(groupData['assignedStaffName']),
           'assignedStaffUsername':
               _cleanText(groupData['assignedStaffUsername']),
-          'temporaryAccessCodeId': preparedCode.id,
-          'sharedAccessCodeId': preparedCode.id,
-          'usesSharedAccessCode': preparedCode.usesSharedAccessCode,
-          'temporaryAccessCode': preparedCode.code,
           'temporaryAccessStartAt': Timestamp.fromDate(start),
           'temporaryAccessEndAt': Timestamp.fromDate(end),
           'temporaryStartDate': Timestamp.fromDate(start),
@@ -2362,9 +2723,9 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
           'temporaryRemainingAmount': remaining,
           'restoredAt': FieldValue.serverTimestamp(),
           'reactivatedAt': FieldValue.serverTimestamp(),
-          'archiveReason': FieldValue.delete(),
-          'archivedAt': FieldValue.delete(),
-          'expiredAt': FieldValue.delete(),
+          'archiveReason': '',
+          'archivedAt': '',
+          'expiredAt': '',
           'updatedByUid': adminUid,
           'updatedByRole': 'admin',
           'updatedAt': FieldValue.serverTimestamp(),
@@ -2385,16 +2746,9 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
         'childId': childRef.id,
         'childName': childName,
         'childType': 'temporary',
-        'parentUid': '',
-        'parentUsername': '',
-        'parentName': preparedCode.parentName,
-        'parentPhone': preparedCode.parentPhone,
-        'temporaryParentName': preparedCode.parentName,
-        'temporaryParentPhone': preparedCode.parentPhone,
+        ...invoiceAccessFields,
         'groupId': groupDoc.id,
         'groupName': _cleanText(groupData['groupName']),
-        'temporaryAccessCodeId': preparedCode.id,
-        'sharedAccessCodeId': preparedCode.id,
         'billingType': 'hourly',
         'billingTypeLabel': 'حسب الساعات',
         'hoursCount': hours,
@@ -2425,6 +2779,20 @@ if (currentChildType == 'temporary' || currentChildType == 'trial') ...[
       if (!mounted) return true;
 
       setState(() {});
+
+      if (officialParent != null) {
+        await _showOfficialParentLinkedDialog(
+          childName: childName,
+          parentName: resolvedParentName,
+          childType: 'temporary',
+        );
+      } else if (preparedCode != null) {
+        await _showTemporaryAccessCreatedDialog(
+          childName: childName,
+          accessCode: preparedCode.code,
+          accessEndAt: end,
+        );
+      }
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('تمت استعادة الطفل الزائر')),
@@ -2696,7 +3064,7 @@ String temporaryChildSummary(Map<String, dynamic> child) {
             child: AlertDialog(
               title: const Text('بدء تجربة للطفل الزائر'),
               content: const Text(
-                'سيبدأ الطفل فترة تجربة مجانية لمدة 3 أيام مع الاحتفاظ بكود الدخول الحالي وبيانات ولي الأمر المؤقتة. لا يتم ربطه بحساب رسمي إلا عند اعتماده بعد التجربة.',
+                'سيبدأ الطفل فترة تجربة مجانية لمدة 3 أيام. إذا كان الطفل مرتبطًا بحساب ولي أمر رسمي سيبقى داخل الحساب بدون كود، وإذا لم يكن مرتبطًا بحساب رسمي سيتم استخدام كود الدخول المؤقت أو كود الإخوة عند الحاجة.',
               ),
               actions: [
                 TextButton(
@@ -2767,37 +3135,101 @@ String temporaryChildSummary(Map<String, dynamic> child) {
       final batch = _firestore.batch();
       final adminUid = FirebaseAuth.instance.currentUser?.uid ?? '';
 
-      String sharedAccessCodeId = _cleanText(childData['sharedAccessCodeId']);
-      if (sharedAccessCodeId.isEmpty) {
-        sharedAccessCodeId = _cleanText(childData['temporaryAccessCodeId']);
-      }
-
-      if (sharedAccessCodeId.isNotEmpty) {
-        final codeDoc = await _firestore
-            .collection('temporary_access_codes')
-            .doc(sharedAccessCodeId)
-            .get();
-
-        if (!codeDoc.exists || codeDoc.data()?['isActive'] != true) {
-          sharedAccessCodeId = '';
-        }
-      }
-
-      final preparedCode = await _prepareDirectTemporaryAccessCode(
-        batch: batch,
-        childRef: childDoc.reference,
-        childName: childName,
-        childType: 'trial',
-        parentName: parentName,
+      final officialParent = await _findActiveOfficialParentAccount(
+        parentUid: _cleanText(childData['parentUid']),
+        parentUsername: _cleanText(childData['parentUsername']),
         parentPhone: parentPhone,
-        groupDoc: groupDoc,
-        start: trialStartAt,
-        end: trialEndAt,
-        sharedAccessCodeId: sharedAccessCodeId,
-        adminUid: adminUid,
       );
 
-      if (preparedCode == null) return false;
+      _PreparedTemporaryAccessCode? preparedCode;
+
+      if (officialParent != null) {
+        await _updateAccessCodesAfterChildRemoval(
+          batch: batch,
+          childId: childDoc.id,
+          childData: childData,
+          archiveReason: 'converted_to_trial_linked_to_official_parent',
+          automated: false,
+        );
+      } else {
+        String sharedAccessCodeId = _cleanText(childData['sharedAccessCodeId']);
+        if (sharedAccessCodeId.isEmpty) {
+          sharedAccessCodeId = _cleanText(childData['temporaryAccessCodeId']);
+        }
+
+        if (sharedAccessCodeId.isNotEmpty) {
+          final codeDoc = await _firestore
+              .collection('temporary_access_codes')
+              .doc(sharedAccessCodeId)
+              .get();
+
+          if (!codeDoc.exists || codeDoc.data()?['isActive'] != true) {
+            sharedAccessCodeId = '';
+          }
+        }
+
+        preparedCode = await _prepareDirectTemporaryAccessCode(
+          batch: batch,
+          childRef: childDoc.reference,
+          childName: childName,
+          childType: 'trial',
+          parentName: parentName,
+          parentPhone: parentPhone,
+          groupDoc: groupDoc,
+          start: trialStartAt,
+          end: trialEndAt,
+          sharedAccessCodeId: sharedAccessCodeId,
+          adminUid: adminUid,
+        );
+
+        if (preparedCode == null) return false;
+      }
+
+      final String resolvedParentName;
+      final String resolvedParentPhone;
+      final Map<String, dynamic> accessFields;
+
+      if (officialParent != null) {
+        resolvedParentName = officialParent.name;
+        resolvedParentPhone =
+            officialParent.phone.isNotEmpty ? officialParent.phone : parentPhone;
+
+        accessFields = {
+          'parentUid': officialParent.uid,
+          'parentUsername': officialParent.username,
+          'parentName': resolvedParentName,
+          'parentPhone': resolvedParentPhone,
+          'temporaryParentName': '',
+          'temporaryParentPhone': '',
+          'accessMode': 'parent_account',
+          'usesTemporaryAccessCode': false,
+          'temporaryAccessCodeId': '',
+          'sharedAccessCodeId': '',
+          'temporaryAccessCode': '',
+          'usesSharedAccessCode': false,
+        };
+      } else {
+        final code = preparedCode;
+        if (code == null) return false;
+
+        resolvedParentName = code.parentName;
+        resolvedParentPhone = code.parentPhone;
+
+        accessFields = {
+          'parentUid': '',
+          'parentUsername': '',
+          'parentName': resolvedParentName,
+          'parentPhone': resolvedParentPhone,
+          'temporaryParentName': resolvedParentName,
+          'temporaryParentPhone': resolvedParentPhone,
+          'accessMode': 'temporary_code',
+          'usesTemporaryAccessCode': true,
+          'temporaryAccessCodeId': code.id,
+          'sharedAccessCodeId': code.id,
+          'temporaryAccessCode': code.code,
+          'usesSharedAccessCode': code.usesSharedAccessCode,
+        };
+      }
 
       batch.set(
         childDoc.reference,
@@ -2821,24 +3253,15 @@ String temporaryChildSummary(Map<String, dynamic> child) {
           'trialIsFree': true,
           'trialStartAt': Timestamp.fromDate(trialStartAt),
           'trialEndAt': Timestamp.fromDate(trialEndAt),
-          'trialDecision': FieldValue.delete(),
+          'trialDecision': '',
           'convertedFromChildType': 'temporary',
           'temporaryConvertedToTrialAt': FieldValue.serverTimestamp(),
-          'parentUid': '',
-          'parentUsername': '',
-          'parentName': preparedCode.parentName,
-          'parentPhone': preparedCode.parentPhone,
-          'temporaryParentName': preparedCode.parentName,
-          'temporaryParentPhone': preparedCode.parentPhone,
-          'temporaryAccessCodeId': preparedCode.id,
-          'sharedAccessCodeId': preparedCode.id,
-          'temporaryAccessCode': preparedCode.code,
-          'usesSharedAccessCode': preparedCode.usesSharedAccessCode,
+          ...accessFields,
           'temporaryAccessStartAt': Timestamp.fromDate(trialStartAt),
           'temporaryAccessEndAt': Timestamp.fromDate(trialEndAt),
-          'archiveReason': FieldValue.delete(),
-          'archivedAt': FieldValue.delete(),
-          'expiredAt': FieldValue.delete(),
+          'archiveReason': '',
+          'archivedAt': '',
+          'expiredAt': '',
           'updatedByUid': adminUid,
           'updatedByRole': 'admin',
           'updatedAt': FieldValue.serverTimestamp(),
@@ -2855,6 +3278,21 @@ String temporaryChildSummary(Map<String, dynamic> child) {
       if (!mounted) return true;
 
       setState(() {});
+
+      if (officialParent != null) {
+        await _showOfficialParentLinkedDialog(
+          childName: childName,
+          parentName: resolvedParentName,
+          childType: 'trial',
+        );
+      } else if (preparedCode != null) {
+        await _showTemporaryAccessCreatedDialog(
+          childName: childName,
+          accessCode: preparedCode.code,
+          accessEndAt: trialEndAt,
+        );
+      }
+
       _showSnack('بدأت فترة التجربة المجانية للطفل لمدة 3 أيام');
       return true;
     } catch (e) {
@@ -3121,17 +3559,17 @@ String temporaryChildSummary(Map<String, dynamic> child) {
           'parentPhone': _parentPhone(parentData),
           if (previousAccessCodeId.isNotEmpty)
             'previousTemporaryAccessCodeId': previousAccessCodeId,
-          'temporaryParentName': FieldValue.delete(),
-          'temporaryParentPhone': FieldValue.delete(),
-          'temporaryAccessCodeId': FieldValue.delete(),
-          'sharedAccessCodeId': FieldValue.delete(),
-          'temporaryAccessCode': FieldValue.delete(),
-          'temporaryAccessStartAt': FieldValue.delete(),
-          'temporaryAccessEndAt': FieldValue.delete(),
+          'temporaryParentName': '',
+          'temporaryParentPhone': '',
+          'temporaryAccessCodeId': '',
+          'sharedAccessCodeId': '',
+          'temporaryAccessCode': '',
+          'temporaryAccessStartAt': '',
+          'temporaryAccessEndAt': '',
           'usesSharedAccessCode': false,
-          'archiveReason': FieldValue.delete(),
-          'archivedAt': FieldValue.delete(),
-          'expiredAt': FieldValue.delete(),
+          'archiveReason': '',
+          'archivedAt': '',
+          'expiredAt': '',
           'updatedByUid': adminUid,
           'updatedByRole': 'admin',
           'updatedAt': FieldValue.serverTimestamp(),
@@ -3777,6 +4215,39 @@ Wrap(
     );
   }
 
+  Future<void> _showOfficialParentLinkedDialog({
+    required String childName,
+    required String parentName,
+    required String childType,
+  }) async {
+    if (!mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: Text(
+            childType == 'trial'
+                ? 'تم ربط طفل التجربة بالحساب'
+                : 'تم ربط الطفل الزائر بالحساب',
+          ),
+          content: Text(
+            'الطفل: $childName\n'
+            'ولي الأمر: $parentName\n\n'
+            'تم العثور على حساب ولي أمر رسمي، لذلك سيظهر الطفل داخل حساب ولي الأمر بدون إنشاء كود دخول مؤقت.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('تم'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildNewChildProfileFields({
     required _NewChildProfileDraft profile,
     required StateSetter setSheetState,
@@ -4283,6 +4754,7 @@ Wrap(
   }) async {
     final groups = await _loadActiveGroups();
     final accessCodes = await _loadActiveTemporaryAccessCodes();
+    final officialParents = await _loadOfficialParents();
 
     if (!mounted) return;
 
@@ -4306,7 +4778,9 @@ Wrap(
     String selectedGroupId = '';
     String selectedGender = 'female';
     String selectedSharedAccessCodeId = '';
+    String selectedOfficialParentUid = '';
     bool linkWithSiblings = false;
+    bool linkToOfficialParent = false;
     bool isSaving = false;
     DateTime start = DateTime.now();
     DateTime end = DateTime.now().add(const Duration(days: 1));
@@ -4399,82 +4873,193 @@ Wrap(
                         ),
                       ),
                       const SizedBox(height: 12),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        value: linkWithSiblings,
-                        title: const Text('ربط بإخوة مسجلين بنفس الكود'),
-                        onChanged: (value) {
-                          setSheetState(() {
-                            linkWithSiblings = value;
-                            selectedSharedAccessCodeId = '';
-                            if (value) {
-                              parentNameCtrl.clear();
-                              parentPhoneCtrl.clear();
-                            }
-                          });
-                        },
-                      ),
-                      if (linkWithSiblings) ...[
-                        DropdownButtonFormField<String>(
-                          initialValue: selectedSharedAccessCodeId.isEmpty
-                              ? null
-                              : selectedSharedAccessCodeId,
-                          isExpanded: true,
-                          decoration: const InputDecoration(
-                            labelText: 'كود الإخوة',
-                            prefixIcon: Icon(Icons.family_restroom_rounded),
+                      if (officialParents.isNotEmpty) ...[
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          value: linkToOfficialParent,
+                          title: const Text('ربط بحساب ولي أمر رسمي'),
+                          subtitle: const Text(
+                            'اختاري هذا الخيار إذا كان لولي الأمر حساب رسمي داخل التطبيق',
                           ),
-                          items: accessCodes.map((doc) {
-                            final data = doc.data();
-                            final parent = _cleanText(
-                              data['parentName'] ??
-                                  data['temporaryParentName'],
-                            );
-                            final names = _readStringList(data['childNames']);
-                            return DropdownMenuItem<String>(
-                              value: doc.id,
-                              child: Text(
-                                '$parent • ${names.join('، ')}',
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            );
-                          }).toList(),
                           onChanged: (value) {
                             setSheetState(() {
-                              selectedSharedAccessCodeId = value ?? '';
-                              if (selectedSharedAccessCodeId.isNotEmpty) {
-                                final data = accessCodes
-                                    .firstWhere(
-                                      (doc) =>
-                                          doc.id == selectedSharedAccessCodeId,
-                                    )
-                                    .data();
-                                parentNameCtrl.text = _cleanText(
-                                  data['parentName'] ??
-                                      data['temporaryParentName'],
-                                );
-                                parentPhoneCtrl.text = _cleanText(
-                                  data['parentPhone'] ??
-                                      data['temporaryParentPhone'],
-                                );
+                              linkToOfficialParent = value;
+                              linkWithSiblings = false;
+                              selectedSharedAccessCodeId = '';
+
+                              if (!value) {
+                                selectedOfficialParentUid = '';
+                                parentNameCtrl.clear();
+                                parentPhoneCtrl.clear();
+                                return;
+                              }
+
+                              if (officialParents.isNotEmpty) {
+                                final parentDoc = officialParents.first;
+                                final parentData = parentDoc.data();
+
+                                selectedOfficialParentUid = parentDoc.id;
+                                parentNameCtrl.text =
+                                    _parentDisplayName(parentData);
+                                parentPhoneCtrl.text =
+                                    _normalizePhone(_parentPhone(parentData));
                               }
                             });
                           },
                         ),
-                        const SizedBox(height: 12),
+                        if (linkToOfficialParent) ...[
+                          DropdownButtonFormField<String>(
+                            initialValue: selectedOfficialParentUid.isEmpty
+                                ? null
+                                : selectedOfficialParentUid,
+                            isExpanded: true,
+                            decoration: const InputDecoration(
+                              labelText: 'حساب ولي الأمر الرسمي',
+                              prefixIcon: Icon(Icons.person_outline_rounded),
+                            ),
+                            items: officialParents.map((doc) {
+                              final data = doc.data();
+                              final name = _parentDisplayName(data);
+                              final username =
+                                  _cleanText(data['username']).toLowerCase();
+                              final phone = _normalizePhone(_parentPhone(data));
+
+                              return DropdownMenuItem<String>(
+                                value: doc.id,
+                                child: Text(
+                                  [
+                                    name,
+                                    if (username.isNotEmpty) '@$username',
+                                    if (phone.isNotEmpty) phone,
+                                  ].join(' • '),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              );
+                            }).toList(),
+                            onChanged: (value) {
+                              setSheetState(() {
+                                selectedOfficialParentUid = value ?? '';
+
+                                if (selectedOfficialParentUid.isEmpty) {
+                                  parentNameCtrl.clear();
+                                  parentPhoneCtrl.clear();
+                                  return;
+                                }
+
+                                final parentDoc = officialParents.firstWhere(
+                                  (doc) => doc.id == selectedOfficialParentUid,
+                                );
+
+                                final parentData = parentDoc.data();
+                                parentNameCtrl.text =
+                                    _parentDisplayName(parentData);
+                                parentPhoneCtrl.text =
+                                    _normalizePhone(_parentPhone(parentData));
+                              });
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withOpacity(0.07),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: AppColors.primary.withOpacity(0.16),
+                              ),
+                            ),
+                            child: const Text(
+                              'سيظهر الطفل داخل حساب ولي الأمر الرسمي بدون إنشاء كود دخول مؤقت.',
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+                      ],
+                      if (!linkToOfficialParent) ...[
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          value: linkWithSiblings,
+                          title: const Text('ربط بإخوة مسجلين بنفس الكود'),
+                          subtitle: const Text(
+                            'هذا الخيار للأطفال الزائرين الذين يدخل ولي أمرهم بالكود المؤقت فقط',
+                          ),
+                          onChanged: (value) {
+                            setSheetState(() {
+                              linkWithSiblings = value;
+                              selectedSharedAccessCodeId = '';
+                              if (value) {
+                                parentNameCtrl.clear();
+                                parentPhoneCtrl.clear();
+                              }
+                            });
+                          },
+                        ),
+                        if (linkWithSiblings) ...[
+                          DropdownButtonFormField<String>(
+                            initialValue: selectedSharedAccessCodeId.isEmpty
+                                ? null
+                                : selectedSharedAccessCodeId,
+                            isExpanded: true,
+                            decoration: const InputDecoration(
+                              labelText: 'كود الإخوة',
+                              prefixIcon: Icon(Icons.family_restroom_rounded),
+                            ),
+                            items: accessCodes.map((doc) {
+                              final data = doc.data();
+                              final parent = _cleanText(
+                                data['parentName'] ??
+                                    data['temporaryParentName'],
+                              );
+                              final names = _readStringList(data['childNames']);
+                              return DropdownMenuItem<String>(
+                                value: doc.id,
+                                child: Text(
+                                  '$parent • ${names.join('، ')}',
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              );
+                            }).toList(),
+                            onChanged: (value) {
+                              setSheetState(() {
+                                selectedSharedAccessCodeId = value ?? '';
+                                if (selectedSharedAccessCodeId.isNotEmpty) {
+                                  final data = accessCodes
+                                      .firstWhere(
+                                        (doc) =>
+                                            doc.id == selectedSharedAccessCodeId,
+                                      )
+                                      .data();
+                                  parentNameCtrl.text = _cleanText(
+                                    data['parentName'] ??
+                                        data['temporaryParentName'],
+                                  );
+                                  parentPhoneCtrl.text = _cleanText(
+                                    data['parentPhone'] ??
+                                        data['temporaryParentPhone'],
+                                  );
+                                }
+                              });
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                        ],
                       ],
                       TextField(
                         controller: parentNameCtrl,
-                        enabled: !linkWithSiblings,
-                        decoration: const InputDecoration(
-                          labelText: 'اسم ولي الأمر',
-                          prefixIcon: Icon(Icons.person_outline_rounded),
+                        enabled: !linkWithSiblings && !linkToOfficialParent,
+                        decoration: InputDecoration(
+                          labelText: linkToOfficialParent
+                              ? 'ولي الأمر الرسمي'
+                              : 'اسم ولي الأمر',
+                          prefixIcon:
+                              const Icon(Icons.person_outline_rounded),
                         ),
                       ),
                       const SizedBox(height: 12),
                       TextField(
                         controller: parentPhoneCtrl,
-                        enabled: !linkWithSiblings,
+                        enabled: !linkWithSiblings && !linkToOfficialParent,
                         keyboardType: TextInputType.phone,
                         decoration: const InputDecoration(
                           labelText: 'رقم ولي الأمر',
@@ -4637,9 +5222,42 @@ Wrap(
                               ? null
                               : () async {
                                   final childName = childNameCtrl.text.trim();
-                                  final parentName = parentNameCtrl.text.trim();
-                                  final parentPhone =
-                                      _normalizePhone(parentPhoneCtrl.text);
+
+                                  final selectedOfficialParentDoc =
+                                      selectedOfficialParentUid.isEmpty
+                                          ? null
+                                          : officialParents.firstWhere(
+                                              (doc) =>
+                                                  doc.id ==
+                                                  selectedOfficialParentUid,
+                                            );
+
+                                  final selectedOfficialParentData =
+                                      selectedOfficialParentDoc?.data();
+
+                                  final parentName = linkToOfficialParent &&
+                                          selectedOfficialParentData != null
+                                      ? _parentDisplayName(
+                                          selectedOfficialParentData,
+                                        )
+                                      : parentNameCtrl.text.trim();
+
+                                  final parentPhone = linkToOfficialParent &&
+                                          selectedOfficialParentData != null
+                                      ? _normalizePhone(
+                                          _parentPhone(
+                                            selectedOfficialParentData,
+                                          ),
+                                        )
+                                      : _normalizePhone(parentPhoneCtrl.text);
+
+                                  final selectedOfficialParentUsername =
+                                      selectedOfficialParentData == null
+                                          ? ''
+                                          : _cleanText(
+                                              selectedOfficialParentData[
+                                                  'username'],
+                                            ).toLowerCase();
 
                                   if (selectedGroupId.isEmpty) {
                                     await _showValidationError(
@@ -4655,15 +5273,27 @@ Wrap(
                                     return;
                                   }
 
-                                  if (parentName.isEmpty ||
-                                      !_isValidPalestinianMobile(parentPhone)) {
+                                  if (linkToOfficialParent &&
+                                      selectedOfficialParentUid.isEmpty) {
+                                    await _showValidationError(
+                                      'اختر حساب ولي الأمر الرسمي',
+                                    );
+                                    return;
+                                  }
+
+                                  if (!linkToOfficialParent &&
+                                      (parentName.isEmpty ||
+                                          !_isValidPalestinianMobile(
+                                            parentPhone,
+                                          ))) {
                                     await _showValidationError(
                                       'تأكد من اسم ولي الأمر ورقم الجوال',
                                     );
                                     return;
                                   }
 
-                                  if (linkWithSiblings &&
+                                  if (!linkToOfficialParent &&
+                                      linkWithSiblings &&
                                       selectedSharedAccessCodeId.isEmpty) {
                                     await _showValidationError(
                                       'اختر كود الإخوة',
@@ -4747,8 +5377,17 @@ Wrap(
                                     paid: paid,
                                     total: total,
                                     remaining: remaining,
-                                    sharedAccessCodeId:
-                                        selectedSharedAccessCodeId,
+                                    sharedAccessCodeId: linkToOfficialParent
+                                        ? ''
+                                        : selectedSharedAccessCodeId,
+                                    officialParentUid:
+                                        linkToOfficialParent
+                                            ? selectedOfficialParentUid
+                                            : '',
+                                    officialParentUsername:
+                                        linkToOfficialParent
+                                            ? selectedOfficialParentUsername
+                                            : '',
                                     groupDoc: groups.firstWhere(
                                       (doc) => doc.id == selectedGroupId,
                                     ),
@@ -4812,6 +5451,8 @@ Wrap(
     required num total,
     required num remaining,
     required String sharedAccessCodeId,
+    String officialParentUid = '',
+    String officialParentUsername = '',
     required QueryDocumentSnapshot<Map<String, dynamic>> groupDoc,
   }) async {
     try {
@@ -4866,21 +5507,100 @@ Wrap(
       final adminUid = FirebaseAuth.instance.currentUser?.uid ?? '';
       final groupData = groupDoc.data();
 
-      final preparedCode = await _prepareDirectTemporaryAccessCode(
-        batch: batch,
-        childRef: childRef,
-        childName: childName,
-        childType: childType,
-        parentName: parentName,
+      final officialParent = await _findActiveOfficialParentAccount(
+        parentUid: officialParentUid,
+        parentUsername: officialParentUsername,
         parentPhone: parentPhone,
-        groupDoc: groupDoc,
-        start: start,
-        end: end,
-        sharedAccessCodeId: sharedAccessCodeId,
-        adminUid: adminUid,
       );
 
-      if (preparedCode == null) return false;
+      _PreparedTemporaryAccessCode? preparedCode;
+
+      if (officialParent == null) {
+        preparedCode = await _prepareDirectTemporaryAccessCode(
+          batch: batch,
+          childRef: childRef,
+          childName: childName,
+          childType: childType,
+          parentName: parentName,
+          parentPhone: parentPhone,
+          groupDoc: groupDoc,
+          start: start,
+          end: end,
+          sharedAccessCodeId: sharedAccessCodeId,
+          adminUid: adminUid,
+        );
+
+        if (preparedCode == null) return false;
+      }
+
+      final String resolvedParentName;
+      final String resolvedParentPhone;
+      final Map<String, dynamic> childAccessFields;
+      final Map<String, dynamic> invoiceAccessFields;
+
+      if (officialParent != null) {
+        resolvedParentName = officialParent.name;
+        resolvedParentPhone =
+            officialParent.phone.isNotEmpty ? officialParent.phone : parentPhone;
+
+        childAccessFields = {
+          'parentUid': officialParent.uid,
+          'parentUsername': officialParent.username,
+          'parentName': resolvedParentName,
+          'parentPhone': resolvedParentPhone,
+          'temporaryParentName': '',
+          'temporaryParentPhone': '',
+          'accessMode': 'parent_account',
+          'usesTemporaryAccessCode': false,
+          'temporaryAccessCodeId': '',
+          'sharedAccessCodeId': '',
+          'usesSharedAccessCode': false,
+          'temporaryAccessCode': '',
+        };
+
+        invoiceAccessFields = {
+          'parentUid': officialParent.uid,
+          'parentUsername': officialParent.username,
+          'parentName': resolvedParentName,
+          'parentPhone': resolvedParentPhone,
+          'accessMode': 'parent_account',
+          'usesTemporaryAccessCode': false,
+        };
+      } else {
+        final code = preparedCode;
+        if (code == null) return false;
+
+        resolvedParentName = code.parentName;
+        resolvedParentPhone = code.parentPhone;
+
+        childAccessFields = {
+          'parentUid': '',
+          'parentUsername': '',
+          'parentName': resolvedParentName,
+          'parentPhone': resolvedParentPhone,
+          'temporaryParentName': resolvedParentName,
+          'temporaryParentPhone': resolvedParentPhone,
+          'accessMode': 'temporary_code',
+          'usesTemporaryAccessCode': true,
+          'temporaryAccessCodeId': code.id,
+          'sharedAccessCodeId': code.id,
+          'usesSharedAccessCode': code.usesSharedAccessCode,
+          'temporaryAccessCode': code.code,
+        };
+
+        invoiceAccessFields = {
+          'parentUid': '',
+          'parentUsername': '',
+          'parentName': resolvedParentName,
+          'parentPhone': resolvedParentPhone,
+          'temporaryParentName': resolvedParentName,
+          'temporaryParentPhone': resolvedParentPhone,
+          'accessMode': 'temporary_code',
+          'usesTemporaryAccessCode': true,
+          'temporaryAccessCodeId': code.id,
+          'sharedAccessCodeId': code.id,
+        };
+      }
 
       batch.set(childRef, {
         'id': childRef.id,
@@ -4902,24 +5622,15 @@ Wrap(
         'isTemporary': childType == 'temporary',
         'isBillable': !isTrial,
         'excludeFromMonthlyInvoice': true,
-        'canReactivate': !isTrial,
+        'canReactivate': true,
         'permanentDeleted': false,
-        'parentUid': '',
-        'parentUsername': '',
-        'parentName': preparedCode.parentName,
-        'parentPhone': preparedCode.parentPhone,
-        'temporaryParentName': preparedCode.parentName,
-        'temporaryParentPhone': preparedCode.parentPhone,
+        ...childAccessFields,
         'groupId': groupDoc.id,
         'groupName': _cleanText(groupData['groupName']),
         'assignedStaffUid': _cleanText(groupData['assignedStaffUid']),
         'assignedStaffName': _cleanText(groupData['assignedStaffName']),
         'assignedStaffUsername':
             _cleanText(groupData['assignedStaffUsername']),
-        'temporaryAccessCodeId': preparedCode.id,
-        'sharedAccessCodeId': preparedCode.id,
-        'usesSharedAccessCode': preparedCode.usesSharedAccessCode,
-        'temporaryAccessCode': preparedCode.code,
         'temporaryAccessStartAt': Timestamp.fromDate(start),
         'temporaryAccessEndAt': Timestamp.fromDate(end),
         if (isTrial) ...{
@@ -4963,16 +5674,9 @@ Wrap(
           'childId': childRef.id,
           'childName': childName,
           'childType': 'temporary',
-          'parentUid': '',
-          'parentUsername': '',
-          'parentName': preparedCode.parentName,
-          'parentPhone': preparedCode.parentPhone,
-          'temporaryParentName': preparedCode.parentName,
-          'temporaryParentPhone': preparedCode.parentPhone,
+          ...invoiceAccessFields,
           'groupId': groupDoc.id,
           'groupName': _cleanText(groupData['groupName']),
-          'temporaryAccessCodeId': preparedCode.id,
-          'sharedAccessCodeId': preparedCode.id,
           'billingType': 'hourly',
           'billingTypeLabel': 'حسب الساعات',
           'hoursCount': hours,
@@ -5000,11 +5704,19 @@ Wrap(
 
       setState(() {});
 
-      await _showTemporaryAccessCreatedDialog(
-        childName: childName,
-        accessCode: preparedCode.code,
-        accessEndAt: end,
-      );
+      if (officialParent != null) {
+        await _showOfficialParentLinkedDialog(
+          childName: childName,
+          parentName: resolvedParentName,
+          childType: childType,
+        );
+      } else if (preparedCode != null) {
+        await _showTemporaryAccessCreatedDialog(
+          childName: childName,
+          accessCode: preparedCode.code,
+          accessEndAt: end,
+        );
+      }
 
       return true;
     } catch (e) {
@@ -5092,7 +5804,11 @@ Wrap(
           _cleanText(data['accountType']) == 'temporary_parent' ||
           _cleanText(data['accountType']) == 'trial_parent';
 
-      return data['isActive'] != false && !isTemporaryOrTrial;
+      final accountStatus = _cleanText(data['accountStatus']).toLowerCase();
+
+      return data['isActive'] != false &&
+          accountStatus != 'archived' &&
+          !isTemporaryOrTrial;
     }).toList();
 
     parents.sort((a, b) {
@@ -5102,6 +5818,61 @@ Wrap(
     });
 
     return parents;
+  }
+
+  _OfficialParentAccount _officialParentFromDoc(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data();
+
+    return _OfficialParentAccount(
+      uid: doc.id,
+      username: _cleanText(data['username']).toLowerCase(),
+      name: _parentDisplayName(data),
+      phone: _normalizePhone(_parentPhone(data)),
+    );
+  }
+
+  Future<_OfficialParentAccount?> _findActiveOfficialParentAccount({
+    String parentUid = '',
+    String parentUsername = '',
+    String parentPhone = '',
+  }) async {
+    final cleanUid = _cleanText(parentUid);
+    final cleanUsername = _cleanText(parentUsername).toLowerCase();
+    final cleanPhone = _normalizePhone(parentPhone);
+
+    final parents = await _loadOfficialParents();
+
+    if (cleanUid.isNotEmpty) {
+      for (final doc in parents) {
+        if (doc.id == cleanUid) {
+          return _officialParentFromDoc(doc);
+        }
+      }
+    }
+
+    if (cleanUsername.isNotEmpty) {
+      for (final doc in parents) {
+        final username = _cleanText(doc.data()['username']).toLowerCase();
+
+        if (username == cleanUsername) {
+          return _officialParentFromDoc(doc);
+        }
+      }
+    }
+
+    if (cleanPhone.isNotEmpty) {
+      for (final doc in parents) {
+        final phone = _normalizePhone(_parentPhone(doc.data()));
+
+        if (phone == cleanPhone) {
+          return _officialParentFromDoc(doc);
+        }
+      }
+    }
+
+    return null;
   }
 
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
@@ -5247,6 +6018,20 @@ Wrap(
   }
 }
 
+
+class _OfficialParentAccount {
+  final String uid;
+  final String username;
+  final String name;
+  final String phone;
+
+  const _OfficialParentAccount({
+    required this.uid,
+    required this.username,
+    required this.name,
+    required this.phone,
+  });
+}
 
 class _PreparedTemporaryAccessCode {
   final String id;

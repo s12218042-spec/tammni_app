@@ -121,6 +121,9 @@ class ChildModel {
   final String temporaryParentPhone;
   final String temporaryParentProfileId;
 
+  final String accessMode;
+  final bool usesTemporaryAccessCode;
+
   final DateTime? birthDate;
 
   final bool isActive;
@@ -232,6 +235,8 @@ class ChildModel {
     this.temporaryParentName = '',
     this.temporaryParentPhone = '',
     this.temporaryParentProfileId = '',
+    this.accessMode = '',
+    this.usesTemporaryAccessCode = false,
     this.birthDate,
     this.isActive = true,
     this.accountStatus = 'active',
@@ -418,6 +423,41 @@ class ChildModel {
                 data['isActive'] == false ? 'archived' : 'active',
               ]);
 
+    final resolvedTemporaryAccessCodeId =
+        _string(data['temporaryAccessCodeId']);
+
+    final resolvedSharedAccessCodeId = _firstNonEmpty([
+      data['sharedAccessCodeId'],
+      data['temporaryAccessCodeId'],
+    ]);
+
+    final resolvedTemporaryAccessCode = _string(data['temporaryAccessCode']);
+
+    final hasTemporaryAccessCodeData =
+        resolvedTemporaryAccessCodeId.isNotEmpty ||
+            resolvedSharedAccessCodeId.isNotEmpty ||
+            resolvedTemporaryAccessCode.isNotEmpty;
+
+    final hasOfficialParentAccount =
+        _string(data['parentUid']).isNotEmpty ||
+            _string(data['parentUsername']).isNotEmpty;
+
+    final rawAccessMode = _string(data['accessMode']).toLowerCase();
+
+    final resolvedAccessMode = rawAccessMode.isNotEmpty
+        ? rawAccessMode
+        : hasTemporaryAccessCodeData
+            ? 'temporary_code'
+            : hasOfficialParentAccount
+                ? 'parent_account'
+                : '';
+
+    final resolvedUsesTemporaryAccessCode = _boolValue(
+      data['usesTemporaryAccessCode'],
+      defaultValue:
+          resolvedAccessMode == 'temporary_code' || hasTemporaryAccessCodeData,
+    );
+
     return ChildModel(
       id: _firstNonEmpty([
         data['id'],
@@ -474,6 +514,8 @@ class ChildModel {
         data['parentRecordId'],
         data['familyId'],
       ]),
+      accessMode: resolvedAccessMode,
+      usesTemporaryAccessCode: resolvedUsesTemporaryAccessCode,
       birthDate: _parseDate(data['birthDate']),
       isActive: _boolValue(data['isActive'], defaultValue: true),
       accountStatus: resolvedAccountStatus,
@@ -501,16 +543,13 @@ class ChildModel {
         data['temporaryNote'],
         data['temporaryNotes'],
       ]),
-      temporaryAccessCodeId: _string(data['temporaryAccessCodeId']),
-      sharedAccessCodeId: _firstNonEmpty([
-        data['sharedAccessCodeId'],
-        data['temporaryAccessCodeId'],
-      ]),
+      temporaryAccessCodeId: resolvedTemporaryAccessCodeId,
+      sharedAccessCodeId: resolvedSharedAccessCodeId,
       usesSharedAccessCode: _boolValue(
         data['usesSharedAccessCode'],
-        defaultValue: _string(data['sharedAccessCodeId']).isNotEmpty,
+        defaultValue: resolvedSharedAccessCodeId.isNotEmpty,
       ),
-      temporaryAccessCode: _string(data['temporaryAccessCode']),
+      temporaryAccessCode: resolvedTemporaryAccessCode,
       temporaryAccessStartAt: _parseDate(data['temporaryAccessStartAt']),
       temporaryAccessEndAt: _parseDate(data['temporaryAccessEndAt']),
       temporaryFee: _numValue(data['temporaryFee']),
@@ -648,6 +687,15 @@ class ChildModel {
       'temporaryParentName': temporaryParentName,
       'temporaryParentPhone': temporaryParentPhone,
       'temporaryParentProfileId': temporaryParentProfileId,
+      'accessMode': accessMode.trim().isNotEmpty
+          ? accessMode.trim()
+          : usesTemporaryAccessCode
+              ? 'temporary_code'
+              : parentUid.trim().isNotEmpty ||
+                      parentUsername.trim().isNotEmpty
+                  ? 'parent_account'
+                  : '',
+      'usesTemporaryAccessCode': usesTemporaryAccessCode,
       'isActive': isActive,
       'accountStatus': resolvedStatus == 'trial_pending_decision'
           ? 'archived'
@@ -851,19 +899,39 @@ class ChildModel {
     return isArchived || isTrialPendingDecision;
   }
 
+  bool get hasCodeBasedAccess {
+    if (accessMode.trim().toLowerCase() == 'parent_account') {
+      return false;
+    }
+
+    return usesTemporaryAccessCode ||
+        temporaryAccessCode.trim().isNotEmpty ||
+        temporaryAccessCodeId.trim().isNotEmpty ||
+        sharedAccessCodeId.trim().isNotEmpty;
+  }
+
+  bool get hasOfficialParentAccount {
+    return parentUid.trim().isNotEmpty ||
+        parentUsername.trim().isNotEmpty;
+  }
+
+  bool get usesParentAccountAccess {
+    final normalizedAccessMode = accessMode.trim().toLowerCase();
+
+    return normalizedAccessMode == 'parent_account' ||
+        (hasOfficialParentAccount && !hasCodeBasedAccess);
+  }
+
   bool get usesCodeBasedTrialAccess {
     if (!isTrial) return false;
 
-    return temporaryAccessCode.trim().isNotEmpty ||
-        temporaryAccessCodeId.trim().isNotEmpty ||
-        sharedAccessCodeId.trim().isNotEmpty;
+    return hasCodeBasedAccess;
   }
 
   bool get isOfficialParentTrial {
     if (!isTrial) return false;
 
-    return parentUid.trim().isNotEmpty &&
-        !usesCodeBasedTrialAccess;
+    return usesParentAccountAccess;
   }
 
   bool get hasSharedTemporaryAccessCode {
@@ -889,6 +957,13 @@ class ChildModel {
   }
 
   String get resolvedParentProfileId {
+    if (usesParentAccountAccess) {
+      return _firstNonEmpty([
+        parentProfileId,
+        temporaryParentProfileId,
+      ]);
+    }
+
     if (isTemporaryChild || isTrialChild) {
       return _firstNonEmpty([
         temporaryParentProfileId,
@@ -903,6 +978,13 @@ class ChildModel {
   }
 
   String get resolvedParentUid {
+    if (usesParentAccountAccess) {
+      return _firstNonEmpty([
+        parentUid,
+        temporaryParentUid,
+      ]);
+    }
+
     if (isTemporaryChild || isTrialChild) {
       return _firstNonEmpty([
         temporaryParentUid,
@@ -917,6 +999,13 @@ class ChildModel {
   }
 
   String get resolvedParentUsername {
+    if (usesParentAccountAccess) {
+      return _firstNonEmpty([
+        parentUsername,
+        temporaryParentUsername,
+      ]).toLowerCase();
+    }
+
     if (isTemporaryChild || isTrialChild) {
       return _firstNonEmpty([
         temporaryParentUsername,
@@ -931,6 +1020,14 @@ class ChildModel {
   }
 
   String get resolvedParentName {
+    if (usesParentAccountAccess) {
+      return _firstNonEmpty([
+        parentName,
+        temporaryParentName,
+        previousTemporaryParentName,
+      ]);
+    }
+
     if (isTemporaryChild || isTrialChild) {
       return _firstNonEmpty([
         temporaryParentName,
@@ -947,6 +1044,14 @@ class ChildModel {
   }
 
   String get resolvedParentPhone {
+    if (usesParentAccountAccess) {
+      return _firstNonEmpty([
+        parentPhone,
+        temporaryParentPhone,
+        previousTemporaryParentPhone,
+      ]);
+    }
+
     if (isTemporaryChild || isTrialChild) {
       return _firstNonEmpty([
         temporaryParentPhone,
@@ -1063,6 +1168,8 @@ class ChildModel {
     String? temporaryParentName,
     String? temporaryParentPhone,
     String? temporaryParentProfileId,
+    String? accessMode,
+    bool? usesTemporaryAccessCode,
     DateTime? birthDate,
     bool? isActive,
     String? accountStatus,
@@ -1156,6 +1263,9 @@ class ChildModel {
       temporaryParentPhone: temporaryParentPhone ?? this.temporaryParentPhone,
       temporaryParentProfileId:
           temporaryParentProfileId ?? this.temporaryParentProfileId,
+      accessMode: accessMode ?? this.accessMode,
+      usesTemporaryAccessCode:
+          usesTemporaryAccessCode ?? this.usesTemporaryAccessCode,
       birthDate: birthDate ?? this.birthDate,
       isActive: isActive ?? this.isActive,
       accountStatus: accountStatus ?? this.accountStatus,

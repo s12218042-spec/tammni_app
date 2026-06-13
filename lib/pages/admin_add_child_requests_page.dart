@@ -351,6 +351,163 @@ Future<void> _createParentNotification({
     return null;
   }
 
+  bool _isTemporaryChildData(Map<String, dynamic> data) {
+    final childType = _cleanText(data['childType']).toLowerCase();
+    final enrollmentType = _cleanText(data['enrollmentType']).toLowerCase();
+    final childStatus = _cleanText(data['childStatus']).toLowerCase();
+
+    return data['isTemporaryChild'] == true ||
+        childType == 'temporary' ||
+        enrollmentType == 'temporary' ||
+        childStatus == 'temporary';
+  }
+
+  bool _isTrialChildData(Map<String, dynamic> data) {
+    final childType = _cleanText(data['childType']).toLowerCase();
+    final enrollmentType = _cleanText(data['enrollmentType']).toLowerCase();
+    final childStatus = _cleanText(data['childStatus']).toLowerCase();
+
+    return data['isTrialChild'] == true ||
+        childType == 'trial' ||
+        enrollmentType == 'trial' ||
+        childStatus == 'trial' ||
+        childStatus == 'trial_pending_decision';
+  }
+
+  bool _isPermanentChildData(Map<String, dynamic> data) {
+    final childType = _cleanText(data['childType']).toLowerCase();
+    final enrollmentType = _cleanText(data['enrollmentType']).toLowerCase();
+    final childStatus = _cleanText(data['childStatus']).toLowerCase();
+
+    if (_isTemporaryChildData(data) || _isTrialChildData(data)) {
+      return false;
+    }
+
+    return childType == 'permanent' ||
+        enrollmentType == 'permanent' ||
+        childStatus == 'active' ||
+        childStatus == 'permanent';
+  }
+
+  List<String> _readStringList(dynamic value) {
+    if (value is! Iterable) return <String>[];
+
+    return value
+        .map(_cleanText)
+        .where((item) => item.isNotEmpty)
+        .toSet()
+        .toList();
+  }
+
+  Future<void> _deactivateTemporaryAccessForChild(String childId) async {
+    if (childId.trim().isEmpty) return;
+
+    try {
+      final childDoc = await _firestore.collection('children').doc(childId).get();
+      final childData = childDoc.data() ?? <String, dynamic>{};
+
+      final codeIds = <String>{
+        _cleanText(childData['temporaryAccessCodeId']),
+        _cleanText(childData['sharedAccessCodeId']),
+      }..removeWhere((value) => value.isEmpty);
+
+      final legacySnapshot = await _firestore
+          .collection('temporary_access_codes')
+          .where('childId', isEqualTo: childId)
+          .get();
+
+      for (final doc in legacySnapshot.docs) {
+        codeIds.add(doc.id);
+      }
+
+      try {
+        final sharedSnapshot = await _firestore
+            .collection('temporary_access_codes')
+            .where('childIds', arrayContains: childId)
+            .get();
+
+        for (final doc in sharedSnapshot.docs) {
+          codeIds.add(doc.id);
+        }
+      } catch (_) {
+      }
+
+      if (codeIds.isEmpty) return;
+
+      final batch = _firestore.batch();
+
+      for (final codeId in codeIds) {
+        final codeRef = _firestore.collection('temporary_access_codes').doc(codeId);
+        final codeDoc = await codeRef.get();
+
+        if (!codeDoc.exists) continue;
+
+        final codeData = codeDoc.data() ?? <String, dynamic>{};
+
+        final remainingChildIds = <String>{
+          ..._readStringList(codeData['childIds']),
+          _cleanText(codeData['childId']),
+        }..removeWhere((value) => value.isEmpty || value == childId);
+
+        if (remainingChildIds.isEmpty) {
+          batch.set(
+            codeRef,
+            {
+              'childIds': <String>[],
+              'childNames': <String>[],
+              'childTypes': <String>[],
+              'hasMultipleChildren': false,
+              'usesSharedAccessCode': false,
+              'isActive': false,
+              'status': 'archived',
+              'accountStatus': 'archived',
+              'archiveReason': 'linked_to_official_parent_account',
+              'archivedAt': FieldValue.serverTimestamp(),
+              'updatedAt': FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true),
+          );
+        } else {
+          batch.set(
+            codeRef,
+            {
+              'childIds': remainingChildIds.toList(),
+              'hasMultipleChildren': remainingChildIds.length > 1,
+              'usesSharedAccessCode': remainingChildIds.length > 1,
+              'updatedAt': FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true),
+          );
+        }
+      }
+
+      final devicesSnapshot = await _firestore
+          .collection('temporary_parent_devices')
+          .where('childId', isEqualTo: childId)
+          .get();
+
+      for (final deviceDoc in devicesSnapshot.docs) {
+        batch.set(
+          deviceDoc.reference,
+          {
+            'isActive': false,
+            'accountStatus': 'archived',
+            'archiveReason': 'linked_to_official_parent_account',
+            'archivedAt': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      }
+
+      await batch.commit();
+    } catch (e) {
+      debugPrint(
+        'AdminAddChildRequestsPage: تعذر تعطيل كود الدخول المؤقت للطفل $childId: $e',
+      );
+    }
+  }
+
   Future<void> _approveRequest(Map<String, dynamic> item) async {
     if (isProcessing) return;
 
@@ -446,18 +603,33 @@ Future<void> _createParentNotification({
         identityNumber: childIdentityNumber,
       );
 
-      if (existingChildDoc != null) {
-        _showSnack(
-          'يوجد سجل سابق لهذا الطفل في النظام. استخدم نفس السجل من إدارة الأطفال بدل إنشاء تجربة جديدة.',
-        );
-        return;
+      final isReusingExistingChild = existingChildDoc != null;
+
+      if (isReusingExistingChild) {
+        final existingData = existingChildDoc.data() ?? <String, dynamic>{};
+
+        if (_isPermanentChildData(existingData)) {
+          _showSnack(
+            'لهذا الطفل سجل رسمي سابق. استخدم إدارة الأطفال لاستعادته أو تعديل حالته بدل إنشاء تجربة جديدة.',
+          );
+          return;
+        }
+
+        if (_isTrialChildData(existingData) &&
+            existingData['trialUsed'] == true) {
+          _showSnack(
+            'هذا الطفل استخدم فترة التجربة سابقًا. يمكن اعتماده رسميًا من إدارة الأطفال عند الحاجة.',
+          );
+          return;
+        }
       }
 
       final adminInfo = await _getCurrentAdminInfo();
       final adminUid = adminInfo['uid'] ?? '';
       final adminName = adminInfo['name'] ?? 'admin';
 
-      final childDocRef = _firestore.collection('children').doc();
+      final childDocRef =
+          existingChildDoc?.reference ?? _firestore.collection('children').doc();
       final requestRef =
           _firestore.collection('add_child_requests').doc(requestId);
 
@@ -483,7 +655,7 @@ Future<void> _createParentNotification({
           throw StateError('request_already_processed');
         }
 
-        transaction.set(childDocRef, {
+        final childPayload = <String, dynamic>{
           'id': childDocRef.id,
           'name': childName,
           'fullName': childName,
@@ -502,6 +674,7 @@ Future<void> _createParentNotification({
           'childStatus': 'trial',
           'isTemporaryChild': false,
           'isTrialChild': true,
+          'isTemporary': false,
           'isBillable': false,
           'excludeFromMonthlyInvoice': true,
           'trialStartAt': Timestamp.fromDate(trialStartAt),
@@ -537,14 +710,43 @@ Future<void> _createParentNotification({
           'parentName': parentName,
           if (_cleanText(item['parentPhone']).isNotEmpty)
             'parentPhone': _cleanText(item['parentPhone']),
-          'createdAt': FieldValue.serverTimestamp(),
+          'accessMode': 'parent_account',
+          'usesTemporaryAccessCode': false,
+          'usesSharedAccessCode': false,
+          'temporaryParentName': '',
+          'temporaryParentPhone': '',
+          'temporaryParentUid': '',
+          'temporaryParentUsername': '',
+          if (isReusingExistingChild) ...{
+            'temporaryAccessCodeId': FieldValue.delete(),
+            'sharedAccessCodeId': FieldValue.delete(),
+            'temporaryAccessCode': FieldValue.delete(),
+            'temporaryAccessStartAt': FieldValue.delete(),
+            'temporaryAccessEndAt': FieldValue.delete(),
+            'archiveReason': FieldValue.delete(),
+            'archivedAt': FieldValue.delete(),
+            'expiredAt': FieldValue.delete(),
+          } else ...{
+            'temporaryAccessCodeId': '',
+            'sharedAccessCodeId': '',
+            'temporaryAccessCode': '',
+          },
+          if (!isReusingExistingChild) 'createdAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
           'createdByUid': adminUid,
           'createdByName': adminName,
           'createdByRole': 'admin',
           'createdFromRequestId': requestId,
+          'restoredAt': FieldValue.serverTimestamp(),
+          'reactivatedAt': FieldValue.serverTimestamp(),
           'history': [],
-        });
+        };
+
+        transaction.set(
+          childDocRef,
+          childPayload,
+          SetOptions(merge: isReusingExistingChild),
+        );
 
         transaction.update(requestRef, {
           'status': 'approved',
@@ -556,6 +758,7 @@ Future<void> _createParentNotification({
           'createdChildId': childDocRef.id,
           'approvalSection': 'Nursery',
           'approvalChildType': 'trial',
+          'reusedExistingChildRecord': isReusingExistingChild,
           'trialStartAt': Timestamp.fromDate(trialStartAt),
           'trialEndAt': Timestamp.fromDate(trialEndAt),
           'trialDays': 3,
@@ -565,13 +768,18 @@ Future<void> _createParentNotification({
         });
       });
 
+      if (isReusingExistingChild) {
+        await _deactivateTemporaryAccessForChild(childDocRef.id);
+      }
+
       await _createParentNotification(
         parentUid: parentUid,
         parentUsername: parentUsername,
         parentName: parentName,
         title: 'تمت الموافقة وبدء فترة التجربة',
-        body:
-            'تمت إضافة الطفل $childName إلى حسابك وبدأت فترة التجربة المجانية لمدة 3 أيام.',
+        body: isReusingExistingChild
+            ? 'تم ربط سجل الطفل $childName بحسابك وبدأت فترة التجربة المجانية لمدة 3 أيام.'
+            : 'تمت إضافة الطفل $childName إلى حسابك وبدأت فترة التجربة المجانية لمدة 3 أيام.',
         requestId: requestId,
         childName: childName,
         status: 'approved',
@@ -590,7 +798,11 @@ Future<void> _createParentNotification({
 
       if (!mounted) return;
 
-      _showSnack('تمت الموافقة وبدء فترة التجربة المجانية لمدة 3 أيام');
+      _showSnack(
+        isReusingExistingChild
+            ? 'تمت الموافقة وربط السجل السابق وبدء التجربة لمدة 3 أيام'
+            : 'تمت الموافقة وبدء فترة التجربة المجانية لمدة 3 أيام',
+      );
       setState(() {});
     } catch (e) {
       if (e.toString().contains('request_already_processed')) {

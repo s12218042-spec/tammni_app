@@ -678,7 +678,17 @@ void initState() {
   }
 
   String _normalizePhone(String value) {
-    return value.replaceAll(RegExp(r'[^0-9]'), '').trim();
+    final digits = value.replaceAll(RegExp(r'[^0-9]'), '').trim();
+
+    if (digits.startsWith('00970') && digits.length == 15) {
+      return '0${digits.substring(5)}';
+    }
+
+    if (digits.startsWith('970') && digits.length == 12) {
+      return '0${digits.substring(3)}';
+    }
+
+    return digits;
   }
 
   bool _isValidPalestinianMobile(String phone) {
@@ -1078,6 +1088,88 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
     return username.isEmpty ? 'ولي أمر بدون اسم' : username;
   }
 
+  String _officialParentPhone(Map<String, dynamic> data) {
+    final phone = _cleanText(data['phone']);
+    if (phone.isNotEmpty) return _normalizePhone(phone);
+
+    final parentPhone = _cleanText(data['parentPhone']);
+    if (parentPhone.isNotEmpty) return _normalizePhone(parentPhone);
+
+    final mobile = _cleanText(data['mobile']);
+    if (mobile.isNotEmpty) return _normalizePhone(mobile);
+
+    final phoneNumber = _cleanText(data['phoneNumber']);
+    if (phoneNumber.isNotEmpty) return _normalizePhone(phoneNumber);
+
+    return '';
+  }
+
+  bool _isActiveOfficialParentData(Map<String, dynamic> data) {
+    final role = _cleanText(data['role']).toLowerCase();
+    final accountStatus = _cleanText(data['accountStatus']).toLowerCase();
+
+    return role == 'parent' &&
+        data['isActive'] != false &&
+        accountStatus != 'archived';
+  }
+
+  _OfficialParentAccount _officialParentAccountFromDoc(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data();
+
+    return _OfficialParentAccount(
+      uid: doc.id,
+      username: _cleanText(data['username']).toLowerCase(),
+      name: _officialParentName(data),
+      phone: _officialParentPhone(data),
+    );
+  }
+
+  Future<_OfficialParentAccount?> _findActiveOfficialParentAccount({
+    String parentUid = '',
+    String parentUsername = '',
+    String parentPhone = '',
+  }) async {
+    final normalizedUid = _cleanText(parentUid);
+    final normalizedUsername = _cleanText(parentUsername).toLowerCase();
+    final normalizedPhone = _normalizePhone(parentPhone);
+    final parentDocs = await _loadActiveParentAccounts();
+
+    if (normalizedUid.isNotEmpty) {
+      for (final doc in parentDocs) {
+        if (doc.id == normalizedUid && _isActiveOfficialParentData(doc.data())) {
+          return _officialParentAccountFromDoc(doc);
+        }
+      }
+    }
+
+    if (normalizedUsername.isNotEmpty) {
+      for (final doc in parentDocs) {
+        final data = doc.data();
+        final username = _cleanText(data['username']).toLowerCase();
+
+        if (username == normalizedUsername &&
+            _isActiveOfficialParentData(data)) {
+          return _officialParentAccountFromDoc(doc);
+        }
+      }
+    }
+
+    if (normalizedPhone.isNotEmpty) {
+      for (final doc in parentDocs) {
+        final data = doc.data();
+
+        if (_officialParentPhone(data) == normalizedPhone &&
+            _isActiveOfficialParentData(data)) {
+          return _officialParentAccountFromDoc(doc);
+        }
+      }
+    }
+
+    return null;
+  }
+
   Future<void> _openApproveTrialChildSheet({
     required DocumentSnapshot<Map<String, dynamic>> childDoc,
   }) async {
@@ -1284,14 +1376,14 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
           'usesSharedAccessCode': false,
           if (previousAccessCodeId.isNotEmpty)
             'previousTemporaryAccessCodeId': previousAccessCodeId,
-          'temporaryAccessCodeId': FieldValue.delete(),
-          'sharedAccessCodeId': FieldValue.delete(),
-          'temporaryAccessCode': FieldValue.delete(),
-          'temporaryAccessStartAt': FieldValue.delete(),
-          'temporaryAccessEndAt': FieldValue.delete(),
-          'archiveReason': FieldValue.delete(),
-          'archivedAt': FieldValue.delete(),
-          'expiredAt': FieldValue.delete(),
+          'temporaryAccessCodeId': '',
+          'sharedAccessCodeId': '',
+          'temporaryAccessCode': '',
+          'temporaryAccessStartAt': '',
+          'temporaryAccessEndAt': '',
+          'archiveReason': '',
+          'archivedAt': '',
+          'expiredAt': '',
           'updatedByUid': adminUid,
           'updatedByRole': 'admin',
           'updatedAt': FieldValue.serverTimestamp(),
@@ -1346,7 +1438,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
             child: AlertDialog(
               title: const Text('بدء تجربة للطفل الزائر'),
               content: const Text(
-                'سيبدأ الطفل فترة تجربة مجانية لمدة 3 أيام مع الاحتفاظ بكود الدخول الحالي وبيانات ولي الأمر المؤقتة. يتم اختيار الحساب الرسمي فقط عند اعتماده بعد انتهاء التجربة.',
+                'سيبدأ الطفل فترة تجربة مجانية لمدة 3 أيام. إذا كان مرتبطًا بحساب ولي أمر رسمي سيظهر داخل الحساب بدون كود، وإذا لم يكن لديه حساب رسمي سيتم استخدام كود الدخول المؤقت أو كود الإخوة عند الحاجة.',
               ),
               actions: [
                 TextButton(
@@ -1367,7 +1459,6 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
 
     await _convertTemporaryChildToTrial(childDoc: childDoc);
   }
-
   Future<bool> _convertTemporaryChildToTrial({
     required DocumentSnapshot<Map<String, dynamic>> childDoc,
   }) async {
@@ -1404,43 +1495,64 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
       final trialEndDate = _trialEndFromStart(trialStartDate);
       final batch = _firestore.batch();
 
-      String sharedAccessCodeId = _cleanText(childData['sharedAccessCodeId']);
-      if (sharedAccessCodeId.isEmpty) {
-        sharedAccessCodeId = _cleanText(childData['temporaryAccessCodeId']);
-      }
-
-      if (sharedAccessCodeId.isNotEmpty) {
-        final codeDoc = await _firestore
-            .collection('temporary_access_codes')
-            .doc(sharedAccessCodeId)
-            .get();
-
-        if (!codeDoc.exists || codeDoc.data()?['isActive'] != true) {
-          sharedAccessCodeId = '';
-        }
-      }
-
-      if (sharedAccessCodeId.isEmpty) {
-        sharedAccessCodeId = await _resolveActiveSiblingAccessCodeId(
-          childId: childDoc.id,
-          childData: childData,
-        );
-      }
-
-      final preparedCode = await _prepareAccessCode(
-        sharedAccessCodeId: sharedAccessCodeId,
-        childRef: childDoc.reference,
-        childName: childName,
-        childType: 'trial',
-        parentName: parentName,
-        cleanParentPhone: parentPhone,
-        accessStartDate: trialStartDate,
-        accessEndDate: trialEndDate,
-        adminUid: adminUid,
-        batch: batch,
+      final officialParent = await _findActiveOfficialParentAccount(
+        parentUid: _cleanText(childData['parentUid']),
+        parentUsername: _cleanText(childData['parentUsername']),
+        parentPhone: parentPhone,
       );
 
-      if (preparedCode == null) return false;
+      _PreparedAccessCode? preparedCode;
+
+      if (officialParent != null) {
+        await _deactivateOldTemporaryAccess(
+          childId: childDoc.id,
+          batch: batch,
+        );
+      } else {
+        String sharedAccessCodeId = _cleanText(childData['sharedAccessCodeId']);
+        if (sharedAccessCodeId.isEmpty) {
+          sharedAccessCodeId = _cleanText(childData['temporaryAccessCodeId']);
+        }
+
+        if (sharedAccessCodeId.isNotEmpty) {
+          final codeDoc = await _firestore
+              .collection('temporary_access_codes')
+              .doc(sharedAccessCodeId)
+              .get();
+
+          if (!codeDoc.exists || codeDoc.data()?['isActive'] != true) {
+            sharedAccessCodeId = '';
+          }
+        }
+
+        if (sharedAccessCodeId.isEmpty) {
+          sharedAccessCodeId = await _resolveActiveSiblingAccessCodeId(
+            childId: childDoc.id,
+            childData: childData,
+          );
+        }
+
+        preparedCode = await _prepareAccessCode(
+          sharedAccessCodeId: sharedAccessCodeId,
+          childRef: childDoc.reference,
+          childName: childName,
+          childType: 'trial',
+          parentName: parentName,
+          cleanParentPhone: parentPhone,
+          accessStartDate: trialStartDate,
+          accessEndDate: trialEndDate,
+          adminUid: adminUid,
+          batch: batch,
+        );
+
+        if (preparedCode == null) return false;
+      }
+
+      final resolvedParentName =
+          officialParent != null ? officialParent.name : preparedCode?.parentName ?? parentName;
+      final resolvedParentPhone = officialParent != null
+          ? (officialParent.phone.isNotEmpty ? officialParent.phone : parentPhone)
+          : preparedCode?.parentPhone ?? parentPhone;
 
       batch.set(
         childDoc.reference,
@@ -1461,28 +1573,47 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
           'canStartNewTrial': false,
           'trialIsFree': true,
           'trialDays': 3,
-          'trialDecision': FieldValue.delete(),
+          'trialDecision': '',
           'trialStartAt': Timestamp.fromDate(trialStartDate),
           'trialEndAt': Timestamp.fromDate(trialEndDate),
           'convertedFromChildType': 'temporary',
           'temporaryConvertedToTrialAt': FieldValue.serverTimestamp(),
-          'parentUid': '',
-          'parentUsername': '',
-          'parentName': preparedCode.parentName,
-          'parentPhone': preparedCode.parentPhone,
-          'temporaryParentUid': '',
-          'temporaryParentUsername': '',
-          'temporaryParentName': preparedCode.parentName,
-          'temporaryParentPhone': preparedCode.parentPhone,
-          'temporaryAccessCodeId': preparedCode.reference.id,
-          'sharedAccessCodeId': preparedCode.reference.id,
-          'temporaryAccessCode': preparedCode.accessCode,
-          'usesSharedAccessCode': preparedCode.usesSharedAccessCode,
+          if (officialParent != null) ...{
+            'parentUid': officialParent.uid,
+            'parentUsername': officialParent.username,
+            'parentName': resolvedParentName,
+            'parentPhone': resolvedParentPhone,
+            'temporaryParentUid': '',
+            'temporaryParentUsername': '',
+            'temporaryParentName': '',
+            'temporaryParentPhone': '',
+            'accessMode': 'parent_account',
+            'usesTemporaryAccessCode': false,
+            'temporaryAccessCodeId': '',
+            'sharedAccessCodeId': '',
+            'temporaryAccessCode': '',
+            'usesSharedAccessCode': false,
+          } else ...{
+            'parentUid': '',
+            'parentUsername': '',
+            'parentName': resolvedParentName,
+            'parentPhone': resolvedParentPhone,
+            'temporaryParentUid': '',
+            'temporaryParentUsername': '',
+            'temporaryParentName': resolvedParentName,
+            'temporaryParentPhone': resolvedParentPhone,
+            'accessMode': 'temporary_code',
+            'usesTemporaryAccessCode': true,
+            'temporaryAccessCodeId': preparedCode?.reference.id ?? '',
+            'sharedAccessCodeId': preparedCode?.reference.id ?? '',
+            'temporaryAccessCode': preparedCode?.accessCode ?? '',
+            'usesSharedAccessCode': preparedCode?.usesSharedAccessCode ?? false,
+          },
           'temporaryAccessStartAt': Timestamp.fromDate(trialStartDate),
           'temporaryAccessEndAt': Timestamp.fromDate(trialEndDate),
-          'archiveReason': FieldValue.delete(),
-          'archivedAt': FieldValue.delete(),
-          'expiredAt': FieldValue.delete(),
+          'archiveReason': '',
+          'archivedAt': '',
+          'expiredAt': '',
           'updatedByUid': adminUid,
           'updatedByRole': 'admin',
           'updatedAt': FieldValue.serverTimestamp(),
@@ -1730,6 +1861,106 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
     }
 
     return options.first.id;
+  }
+
+  Widget _buildOfficialParentLinkFields({
+    required bool linkWithOfficialParent,
+    required String selectedOfficialParentUid,
+    required Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+        officialParentsFuture,
+    required ValueChanged<bool> onToggle,
+    required ValueChanged<QueryDocumentSnapshot<Map<String, dynamic>>?>
+        onSelected,
+  }) {
+    return FutureBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+      future: officialParentsFuture,
+      builder: (context, snapshot) {
+        final parentDocs = snapshot.data ??
+            <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+
+        QueryDocumentSnapshot<Map<String, dynamic>>? selectedParentDoc;
+
+        if (selectedOfficialParentUid.isNotEmpty) {
+          final matchingDocs = parentDocs.where(
+            (doc) => doc.id == selectedOfficialParentUid,
+          );
+
+          if (matchingDocs.isNotEmpty) {
+            selectedParentDoc = matchingDocs.first;
+          }
+        }
+
+        return Column(
+          children: [
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: linkWithOfficialParent,
+              title: const Text('ربط بحساب ولي أمر رسمي'),
+              subtitle: const Text(
+                'استخدمي هذا الخيار إذا كان ولي الأمر يملك حسابًا رسميًا في التطبيق.',
+              ),
+              onChanged: snapshot.connectionState == ConnectionState.waiting
+                  ? null
+                  : onToggle,
+            ),
+            if (snapshot.connectionState == ConnectionState.waiting &&
+                linkWithOfficialParent)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: LinearProgressIndicator(),
+              ),
+            if (linkWithOfficialParent && parentDocs.isEmpty)
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Text(
+                    'لا يوجد حسابات أولياء أمور رسمية مفعّلة حاليًا.',
+                  ),
+                ),
+              ),
+            if (linkWithOfficialParent && parentDocs.isNotEmpty) ...[
+              DropdownButtonFormField<String>(
+                initialValue: selectedParentDoc?.id,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'حساب ولي الأمر الرسمي',
+                  prefixIcon: Icon(Icons.person_outline_rounded),
+                ),
+                items: parentDocs.map((doc) {
+                  final data = doc.data();
+                  final name = _officialParentName(data);
+                  final username = _cleanText(data['username']);
+                  final phone = _officialParentPhone(data);
+
+                  final labelParts = <String>[
+                    name,
+                    if (username.isNotEmpty) '@$username',
+                    if (phone.isNotEmpty) phone,
+                  ];
+
+                  return DropdownMenuItem<String>(
+                    value: doc.id,
+                    child: Text(
+                      labelParts.join(' • '),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  );
+                }).toList(),
+                onChanged: (value) {
+                  final selectedId = value ?? '';
+                  final matches = parentDocs.where(
+                    (doc) => doc.id == selectedId,
+                  );
+
+                  onSelected(matches.isEmpty ? null : matches.first);
+                },
+              ),
+              const SizedBox(height: 12),
+            ],
+          ],
+        );
+      },
+    );
   }
 
   Widget _buildSiblingAccessCodeFields({
@@ -2351,13 +2582,16 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
     final paidAmountCtrl = TextEditingController(text: '0');
     final profile = _TemporaryChildProfileDraft();
     final siblingCodesFuture = _loadSiblingAccessCodeOptions();
+    final officialParentsFuture = _loadActiveParentAccounts();
 
     DateTime accessStart = DateTime.now();
     DateTime accessEnd = DateTime.now().add(const Duration(days: 1));
 
     const billingType = 'hourly';
     bool linkWithSiblings = false;
+    bool linkWithOfficialParent = false;
     String selectedSharedAccessCodeId = '';
+    String selectedOfficialParentUid = '';
     bool isSaving = false;
 
     num calculateFinalAmount() {
@@ -2482,7 +2716,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                       const SizedBox(height: 12),
                       TextField(
                         controller: parentNameCtrl,
-                        enabled: !linkWithSiblings,
+                        enabled: !linkWithSiblings && !linkWithOfficialParent,
                         decoration: const InputDecoration(
                           labelText: 'اسم ولي الأمر',
                           prefixIcon: Icon(Icons.person_outline_rounded),
@@ -2491,13 +2725,47 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                       const SizedBox(height: 12),
                       TextField(
                         controller: parentPhoneCtrl,
-                        enabled: !linkWithSiblings,
+                        enabled: !linkWithSiblings && !linkWithOfficialParent,
                         keyboardType: TextInputType.phone,
                         decoration: const InputDecoration(
                           labelText: 'رقم ولي الأمر',
                           prefixIcon: Icon(Icons.phone_outlined),
                         ),
                       ),
+                      _buildOfficialParentLinkFields(
+                        linkWithOfficialParent: linkWithOfficialParent,
+                        selectedOfficialParentUid: selectedOfficialParentUid,
+                        officialParentsFuture: officialParentsFuture,
+                        onToggle: (value) {
+                          setSheetState(() {
+                            linkWithOfficialParent = value;
+                            selectedOfficialParentUid = '';
+
+                            if (value) {
+                              linkWithSiblings = false;
+                              selectedSharedAccessCodeId = '';
+                              parentNameCtrl.clear();
+                              parentPhoneCtrl.clear();
+                            }
+                          });
+                        },
+                        onSelected: (parentDoc) {
+                          setSheetState(() {
+                            selectedOfficialParentUid = parentDoc?.id ?? '';
+
+                            if (parentDoc == null) {
+                              parentNameCtrl.clear();
+                              parentPhoneCtrl.clear();
+                              return;
+                            }
+
+                            final data = parentDoc.data();
+                            parentNameCtrl.text = _officialParentName(data);
+                            parentPhoneCtrl.text = _officialParentPhone(data);
+                          });
+                        },
+                      ),
+                      if (!linkWithOfficialParent)
                       _buildSiblingAccessCodeFields(
                         linkWithSiblings: linkWithSiblings,
                         selectedSharedAccessCodeId: selectedSharedAccessCodeId,
@@ -2507,6 +2775,8 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                             linkWithSiblings = value;
                             selectedSharedAccessCodeId = '';
                             if (value) {
+                              linkWithOfficialParent = false;
+                              selectedOfficialParentUid = '';
                               parentNameCtrl.clear();
                               parentPhoneCtrl.clear();
                             }
@@ -2605,7 +2875,17 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                                     return;
                                   }
 
-                                  if (parentName.isEmpty) {
+                                  if (linkWithOfficialParent &&
+                                      selectedOfficialParentUid.isEmpty) {
+                                    await _showSheetValidationError(
+                                      sheetContext,
+                                      'اختر حساب ولي الأمر الرسمي',
+                                    );
+                                    return;
+                                  }
+
+                                  if (!linkWithOfficialParent &&
+                                      parentName.isEmpty) {
                                     await _showSheetValidationError(
                                       sheetContext,
                                       'اكتب اسم ولي الأمر',
@@ -2613,7 +2893,8 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                                     return;
                                   }
 
-                                  if (parentPhone.isEmpty) {
+                                  if (!linkWithOfficialParent &&
+                                      parentPhone.isEmpty) {
                                     await _showSheetValidationError(
                                       sheetContext,
                                       'اكتب رقم ولي الأمر',
@@ -2621,7 +2902,8 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                                     return;
                                   }
 
-                                  if (!_isValidPalestinianMobile(parentPhone)) {
+                                  if (!linkWithOfficialParent &&
+                                      !_isValidPalestinianMobile(parentPhone)) {
                                     await _showSheetValidationError(
                                       sheetContext,
                                       'رقم ولي الأمر يجب أن يكون 10 أرقام ويبدأ بـ 059 أو 056 أو 052',
@@ -2629,7 +2911,8 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                                     return;
                                   }
 
-                                  if (linkWithSiblings &&
+                                  if (!linkWithOfficialParent &&
+                                      linkWithSiblings &&
                                       selectedSharedAccessCodeId.isEmpty) {
                                     await _showSheetValidationError(
                                       sheetContext,
@@ -2679,9 +2962,14 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                                     paymentMethod: 'cash',
                                     notes: '',
                                     profileFields: profile.toChildFields(),
-                                    sharedAccessCodeId: linkWithSiblings
-                                        ? selectedSharedAccessCodeId
+                                    officialParentUid: linkWithOfficialParent
+                                        ? selectedOfficialParentUid
                                         : '',
+                                    sharedAccessCodeId: linkWithOfficialParent
+                                        ? ''
+                                        : linkWithSiblings
+                                            ? selectedSharedAccessCodeId
+                                            : '',
                                   );
 
                                   if (!sheetContext.mounted) return;
@@ -2689,13 +2977,20 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
 
                                   if (!mounted || result == null) return;
 
-                                  await _showTemporaryAccessDialog(
-                                    code: result.accessCode,
-                                    childName: childName,
-                                    accessEnd: accessEnd,
-                                    usesSharedAccessCode:
-                                        result.usesSharedAccessCode,
-                                  );
+                                  if (result.linkedToOfficialParentAccount) {
+                                    await _showOfficialParentLinkedDialog(
+                                      childName: childName,
+                                      parentName: result.officialParentName,
+                                    );
+                                  } else {
+                                    await _showTemporaryAccessDialog(
+                                      code: result.accessCode,
+                                      childName: childName,
+                                      accessEnd: accessEnd,
+                                      usesSharedAccessCode:
+                                          result.usesSharedAccessCode,
+                                    );
+                                  }
                                 },
                           icon: isSaving
                               ? const SizedBox(
@@ -2721,7 +3016,6 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
 
     profile.dispose();
   }
-
   Future<_TemporaryChildResult?> _saveTemporaryChild({
     required String childName,
     required String parentName,
@@ -2740,19 +3034,42 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
     required String paymentMethod,
     required String notes,
     required Map<String, dynamic> profileFields,
+    String officialParentUid = '',
     required String sharedAccessCodeId,
   }) async {
     try {
       final cleanParentPhone = _normalizePhone(parentPhone);
 
-      final existingChildrenSnapshot = await _firestore
-          .collection('children')
-          .where('parentPhone', isEqualTo: cleanParentPhone)
-          .get();
+      final possibleExistingChildren =
+          <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+
+      if (cleanParentPhone.isNotEmpty) {
+        final byPhoneSnapshot = await _firestore
+            .collection('children')
+            .where('parentPhone', isEqualTo: cleanParentPhone)
+            .get();
+
+        for (final doc in byPhoneSnapshot.docs) {
+          possibleExistingChildren[doc.id] = doc;
+        }
+      }
+
+      final cleanOfficialParentUid = officialParentUid.trim();
+
+      if (cleanOfficialParentUid.isNotEmpty) {
+        final byParentUidSnapshot = await _firestore
+            .collection('children')
+            .where('parentUid', isEqualTo: cleanOfficialParentUid)
+            .get();
+
+        for (final doc in byParentUidSnapshot.docs) {
+          possibleExistingChildren[doc.id] = doc;
+        }
+      }
 
       QueryDocumentSnapshot<Map<String, dynamic>>? existingChildDoc;
 
-      for (final doc in existingChildrenSnapshot.docs) {
+      for (final doc in possibleExistingChildren.values) {
         final data = doc.data();
         final existingName = _normalizeName(
           _cleanText(data['name']).isNotEmpty
@@ -2780,6 +3097,9 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
         return null;
       }
 
+      final existingChildData =
+          existingChildDoc?.data() ?? <String, dynamic>{};
+
       final childRef = existingChildDoc?.reference ??
           _firestore.collection('children').doc();
       final invoiceRef = _firestore.collection('invoices').doc();
@@ -2803,23 +3123,47 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
         paidAmount: paidAmount,
       );
       final batch = _firestore.batch();
-      final preparedCode = await _prepareAccessCode(
-        sharedAccessCodeId: sharedAccessCodeId,
-        childRef: childRef,
-        childName: childName,
-        childType: 'temporary',
-        parentName: parentName,
-        cleanParentPhone: cleanParentPhone,
-        accessStartDate: accessStartDate,
-        accessEndDate: accessEndDate,
-        adminUid: adminUid,
-        batch: batch,
+
+      final officialParent = await _findActiveOfficialParentAccount(
+        parentUid: officialParentUid.trim().isNotEmpty
+            ? officialParentUid.trim()
+            : _cleanText(existingChildData['parentUid']),
+        parentUsername: _cleanText(existingChildData['parentUsername']),
+        parentPhone: cleanParentPhone,
       );
 
-      if (preparedCode == null) return null;
+      _PreparedAccessCode? preparedCode;
 
-      final resolvedParentName = preparedCode.parentName;
-      final resolvedParentPhone = preparedCode.parentPhone;
+      if (officialParent != null) {
+        if (existingChildDoc != null) {
+          await _deactivateOldTemporaryAccess(
+            childId: childRef.id,
+            batch: batch,
+          );
+        }
+      } else {
+        preparedCode = await _prepareAccessCode(
+          sharedAccessCodeId: sharedAccessCodeId,
+          childRef: childRef,
+          childName: childName,
+          childType: 'temporary',
+          parentName: parentName,
+          cleanParentPhone: cleanParentPhone,
+          accessStartDate: accessStartDate,
+          accessEndDate: accessEndDate,
+          adminUid: adminUid,
+          batch: batch,
+        );
+
+        if (preparedCode == null) return null;
+      }
+
+      final resolvedParentName =
+          officialParent != null ? officialParent.name : preparedCode?.parentName ?? parentName;
+      final resolvedParentPhone = officialParent != null
+          ? (officialParent.phone.isNotEmpty ? officialParent.phone : cleanParentPhone)
+          : preparedCode?.parentPhone ?? parentPhone;
+
       final childData = <String, dynamic>{
         'id': childRef.id,
         'childId': childRef.id,
@@ -2838,14 +3182,37 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
         'permanentDeleted': false,
         'isBillable': true,
         'excludeFromMonthlyInvoice': true,
-        'parentUid': '',
-        'parentUsername': '',
-        'parentName': resolvedParentName,
-        'parentPhone': resolvedParentPhone,
-        'temporaryParentUid': '',
-        'temporaryParentUsername': '',
-        'temporaryParentName': resolvedParentName,
-        'temporaryParentPhone': resolvedParentPhone,
+        if (officialParent != null) ...{
+          'parentUid': officialParent.uid,
+          'parentUsername': officialParent.username,
+          'parentName': resolvedParentName,
+          'parentPhone': resolvedParentPhone,
+          'temporaryParentUid': '',
+          'temporaryParentUsername': '',
+          'temporaryParentName': '',
+          'temporaryParentPhone': '',
+          'accessMode': 'parent_account',
+          'usesTemporaryAccessCode': false,
+          'temporaryAccessCodeId': '',
+          'sharedAccessCodeId': '',
+          'temporaryAccessCode': '',
+          'usesSharedAccessCode': false,
+        } else ...{
+          'parentUid': '',
+          'parentUsername': '',
+          'parentName': resolvedParentName,
+          'parentPhone': resolvedParentPhone,
+          'temporaryParentUid': '',
+          'temporaryParentUsername': '',
+          'temporaryParentName': resolvedParentName,
+          'temporaryParentPhone': resolvedParentPhone,
+          'accessMode': 'temporary_code',
+          'usesTemporaryAccessCode': true,
+          'temporaryAccessCodeId': preparedCode?.reference.id ?? '',
+          'sharedAccessCodeId': preparedCode?.reference.id ?? '',
+          'usesSharedAccessCode': preparedCode?.usesSharedAccessCode ?? false,
+          'temporaryAccessCode': preparedCode?.accessCode ?? '',
+        },
         'groupId': widget.groupId,
         'groupName': widget.groupName,
         'assignedStaffUid': widget.assignedStaffUid,
@@ -2863,18 +3230,14 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
         'hasConsultation': false,
         'consultationId': '',
         'consultationStatus': 'none',
-        'temporaryAccessCodeId': preparedCode.reference.id,
-        'sharedAccessCodeId': preparedCode.reference.id,
-        'usesSharedAccessCode': preparedCode.usesSharedAccessCode,
-        'temporaryAccessCode': preparedCode.accessCode,
         'temporaryAccessStartAt': Timestamp.fromDate(accessStartDate),
         'temporaryAccessEndAt': Timestamp.fromDate(accessEndDate),
         'updatedByUid': adminUid,
         'updatedByRole': 'admin',
         'updatedAt': FieldValue.serverTimestamp(),
         'reactivatedAt': FieldValue.serverTimestamp(),
-        'archiveReason': FieldValue.delete(),
-        'archivedAt': FieldValue.delete(),
+        'archiveReason': '',
+        'archivedAt': '',
       };
 
       if (existingChildDoc == null) {
@@ -2891,16 +3254,23 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
         'childId': childRef.id,
         'childName': childName,
         'childType': 'temporary',
-        'parentUid': '',
-        'parentUsername': '',
+        'parentUid': officialParent?.uid ?? '',
+        'parentUsername': officialParent?.username ?? '',
         'parentName': resolvedParentName,
         'parentPhone': resolvedParentPhone,
-        'temporaryParentName': resolvedParentName,
-        'temporaryParentPhone': resolvedParentPhone,
+        'temporaryParentName': officialParent == null ? resolvedParentName : '',
+        'temporaryParentPhone': officialParent == null ? resolvedParentPhone : '',
         'groupId': widget.groupId,
         'groupName': widget.groupName,
-        'temporaryAccessCodeId': preparedCode.reference.id,
-        'sharedAccessCodeId': preparedCode.reference.id,
+        if (officialParent != null) ...{
+          'accessMode': 'parent_account',
+          'usesTemporaryAccessCode': false,
+        } else ...{
+          'accessMode': 'temporary_code',
+          'usesTemporaryAccessCode': true,
+          'temporaryAccessCodeId': preparedCode?.reference.id ?? '',
+          'sharedAccessCodeId': preparedCode?.reference.id ?? '',
+        },
         'billingType': billingType,
         'billingTypeLabel': _billingTypeLabel(billingType),
         'hoursCount': billingType == 'hourly' ? hoursCount : 0,
@@ -2930,8 +3300,11 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
       await _updateGroupCount();
 
       return _TemporaryChildResult(
-        accessCode: preparedCode.accessCode,
-        usesSharedAccessCode: preparedCode.usesSharedAccessCode,
+        accessCode: officialParent != null ? '' : preparedCode?.accessCode ?? '',
+        usesSharedAccessCode:
+            officialParent != null ? false : preparedCode?.usesSharedAccessCode ?? false,
+        linkedToOfficialParentAccount: officialParent != null,
+        officialParentName: officialParent?.name ?? '',
       );
     } catch (e) {
       if (!mounted) return null;
@@ -2942,25 +3315,47 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
       return null;
     }
   }
-
   Future<_TemporaryChildResult?> _saveTrialChild({
     required String childName,
     required String parentName,
     required String parentPhone,
     required DateTime trialStart,
     required Map<String, dynamic> profileFields,
+    String officialParentUid = '',
     required String sharedAccessCodeId,
   }) async {
     try {
       final cleanParentPhone = _normalizePhone(parentPhone);
-      final existingChildrenSnapshot = await _firestore
-          .collection('children')
-          .where('parentPhone', isEqualTo: cleanParentPhone)
-          .get();
+      final possibleExistingChildren =
+          <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+
+      if (cleanParentPhone.isNotEmpty) {
+        final byPhoneSnapshot = await _firestore
+            .collection('children')
+            .where('parentPhone', isEqualTo: cleanParentPhone)
+            .get();
+
+        for (final doc in byPhoneSnapshot.docs) {
+          possibleExistingChildren[doc.id] = doc;
+        }
+      }
+
+      final cleanOfficialParentUid = officialParentUid.trim();
+
+      if (cleanOfficialParentUid.isNotEmpty) {
+        final byParentUidSnapshot = await _firestore
+            .collection('children')
+            .where('parentUid', isEqualTo: cleanOfficialParentUid)
+            .get();
+
+        for (final doc in byParentUidSnapshot.docs) {
+          possibleExistingChildren[doc.id] = doc;
+        }
+      }
 
       QueryDocumentSnapshot<Map<String, dynamic>>? existingChildDoc;
 
-      for (final doc in existingChildrenSnapshot.docs) {
+      for (final doc in possibleExistingChildren.values) {
         final data = doc.data();
         final existingName = _normalizeName(
           _cleanText(data['name']).isNotEmpty
@@ -3010,6 +3405,9 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
         }
       }
 
+      final existingChildData =
+          existingChildDoc?.data() ?? <String, dynamic>{};
+
       final childRef = existingChildDoc?.reference ??
           _firestore.collection('children').doc();
       final trialStartDate = DateTime(
@@ -3021,45 +3419,67 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
       final adminUid = FirebaseAuth.instance.currentUser?.uid ?? '';
       final batch = _firestore.batch();
 
-      String resolvedSharedAccessCodeId = sharedAccessCodeId.trim();
-
-      if (resolvedSharedAccessCodeId.isEmpty && existingChildDoc != null) {
-        final existingData = existingChildDoc.data();
-        final existingCodeId = _cleanText(
-          existingData['sharedAccessCodeId'] ??
-              existingData['temporaryAccessCodeId'],
-        );
-
-        if (existingCodeId.isNotEmpty) {
-          final existingCodeDoc = await _firestore
-              .collection('temporary_access_codes')
-              .doc(existingCodeId)
-              .get();
-
-          if (existingCodeDoc.exists &&
-              existingCodeDoc.data()?['isActive'] == true) {
-            resolvedSharedAccessCodeId = existingCodeId;
-          }
-        }
-      }
-
-      final preparedCode = await _prepareAccessCode(
-        sharedAccessCodeId: resolvedSharedAccessCodeId,
-        childRef: childRef,
-        childName: childName,
-        childType: 'trial',
-        parentName: parentName,
-        cleanParentPhone: cleanParentPhone,
-        accessStartDate: trialStartDate,
-        accessEndDate: trialEndDate,
-        adminUid: adminUid,
-        batch: batch,
+      final officialParent = await _findActiveOfficialParentAccount(
+        parentUid: officialParentUid.trim().isNotEmpty
+            ? officialParentUid.trim()
+            : _cleanText(existingChildData['parentUid']),
+        parentUsername: _cleanText(existingChildData['parentUsername']),
+        parentPhone: cleanParentPhone,
       );
 
-      if (preparedCode == null) return null;
+      _PreparedAccessCode? preparedCode;
 
-      final resolvedParentName = preparedCode.parentName;
-      final resolvedParentPhone = preparedCode.parentPhone;
+      if (officialParent != null) {
+        if (existingChildDoc != null) {
+          await _deactivateOldTemporaryAccess(
+            childId: childRef.id,
+            batch: batch,
+          );
+        }
+      } else {
+        String resolvedSharedAccessCodeId = sharedAccessCodeId.trim();
+
+        if (resolvedSharedAccessCodeId.isEmpty && existingChildDoc != null) {
+          final existingData = existingChildDoc.data();
+          final existingCodeId = _cleanText(
+            existingData['sharedAccessCodeId'] ??
+                existingData['temporaryAccessCodeId'],
+          );
+
+          if (existingCodeId.isNotEmpty) {
+            final existingCodeDoc = await _firestore
+                .collection('temporary_access_codes')
+                .doc(existingCodeId)
+                .get();
+
+            if (existingCodeDoc.exists &&
+                existingCodeDoc.data()?['isActive'] == true) {
+              resolvedSharedAccessCodeId = existingCodeId;
+            }
+          }
+        }
+
+        preparedCode = await _prepareAccessCode(
+          sharedAccessCodeId: resolvedSharedAccessCodeId,
+          childRef: childRef,
+          childName: childName,
+          childType: 'trial',
+          parentName: parentName,
+          cleanParentPhone: cleanParentPhone,
+          accessStartDate: trialStartDate,
+          accessEndDate: trialEndDate,
+          adminUid: adminUid,
+          batch: batch,
+        );
+
+        if (preparedCode == null) return null;
+      }
+
+      final resolvedParentName =
+          officialParent != null ? officialParent.name : preparedCode?.parentName ?? parentName;
+      final resolvedParentPhone =
+          officialParent != null ? officialParent.phone : preparedCode?.parentPhone ?? parentPhone;
+
       final childData = <String, dynamic>{
         'id': childRef.id,
         'childId': childRef.id,
@@ -3082,14 +3502,37 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
         'trialDays': 3,
         'trialUsed': true,
         'canStartNewTrial': false,
-        'parentUid': '',
-        'parentUsername': '',
-        'parentName': resolvedParentName,
-        'parentPhone': resolvedParentPhone,
-        'temporaryParentUid': '',
-        'temporaryParentUsername': '',
-        'temporaryParentName': resolvedParentName,
-        'temporaryParentPhone': resolvedParentPhone,
+        if (officialParent != null) ...{
+          'parentUid': officialParent.uid,
+          'parentUsername': officialParent.username,
+          'parentName': resolvedParentName,
+          'parentPhone': resolvedParentPhone,
+          'temporaryParentUid': '',
+          'temporaryParentUsername': '',
+          'temporaryParentName': '',
+          'temporaryParentPhone': '',
+          'accessMode': 'parent_account',
+          'usesTemporaryAccessCode': false,
+          'temporaryAccessCodeId': '',
+          'sharedAccessCodeId': '',
+          'temporaryAccessCode': '',
+          'usesSharedAccessCode': false,
+        } else ...{
+          'parentUid': '',
+          'parentUsername': '',
+          'parentName': resolvedParentName,
+          'parentPhone': resolvedParentPhone,
+          'temporaryParentUid': '',
+          'temporaryParentUsername': '',
+          'temporaryParentName': resolvedParentName,
+          'temporaryParentPhone': resolvedParentPhone,
+          'accessMode': 'temporary_code',
+          'usesTemporaryAccessCode': true,
+          'temporaryAccessCodeId': preparedCode?.reference.id ?? '',
+          'sharedAccessCodeId': preparedCode?.reference.id ?? '',
+          'usesSharedAccessCode': preparedCode?.usesSharedAccessCode ?? false,
+          'temporaryAccessCode': preparedCode?.accessCode ?? '',
+        },
         'groupId': widget.groupId,
         'groupName': widget.groupName,
         'assignedStaffUid': widget.assignedStaffUid,
@@ -3097,10 +3540,6 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
         'assignedStaffUsername': widget.assignedStaffUsername,
         'trialStartAt': Timestamp.fromDate(trialStartDate),
         'trialEndAt': Timestamp.fromDate(trialEndDate),
-        'temporaryAccessCodeId': preparedCode.reference.id,
-        'sharedAccessCodeId': preparedCode.reference.id,
-        'usesSharedAccessCode': preparedCode.usesSharedAccessCode,
-        'temporaryAccessCode': preparedCode.accessCode,
         'temporaryAccessStartAt': Timestamp.fromDate(trialStartDate),
         'temporaryAccessEndAt': Timestamp.fromDate(trialEndDate),
         'hasConsultation': false,
@@ -3110,8 +3549,8 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
         'updatedByRole': 'admin',
         'updatedAt': FieldValue.serverTimestamp(),
         'reactivatedAt': FieldValue.serverTimestamp(),
-        'archiveReason': FieldValue.delete(),
-        'archivedAt': FieldValue.delete(),
+        'archiveReason': '',
+        'archivedAt': '',
       };
 
       if (existingChildDoc == null) {
@@ -3125,8 +3564,11 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
       await _updateGroupCount();
 
       return _TemporaryChildResult(
-        accessCode: preparedCode.accessCode,
-        usesSharedAccessCode: preparedCode.usesSharedAccessCode,
+        accessCode: officialParent != null ? '' : preparedCode?.accessCode ?? '',
+        usesSharedAccessCode:
+            officialParent != null ? false : preparedCode?.usesSharedAccessCode ?? false,
+        linkedToOfficialParentAccount: officialParent != null,
+        officialParentName: officialParent?.name ?? '',
       );
     } catch (e) {
       if (!mounted) return null;
@@ -3144,10 +3586,13 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
     final parentPhoneCtrl = TextEditingController();
     final profile = _TemporaryChildProfileDraft();
     final siblingCodesFuture = _loadSiblingAccessCodeOptions();
+    final officialParentsFuture = _loadActiveParentAccounts();
 
     DateTime trialStart = DateTime.now();
     bool linkWithSiblings = false;
+    bool linkWithOfficialParent = false;
     String selectedSharedAccessCodeId = '';
+    String selectedOfficialParentUid = '';
     bool isSaving = false;
 
     await showModalBottomSheet<void>(
@@ -3216,7 +3661,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                       const SizedBox(height: 12),
                       TextField(
                         controller: parentNameCtrl,
-                        enabled: !linkWithSiblings,
+                        enabled: !linkWithSiblings && !linkWithOfficialParent,
                         decoration: const InputDecoration(
                           labelText: 'اسم ولي الأمر',
                           prefixIcon: Icon(Icons.person_outline_rounded),
@@ -3225,13 +3670,47 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                       const SizedBox(height: 12),
                       TextField(
                         controller: parentPhoneCtrl,
-                        enabled: !linkWithSiblings,
+                        enabled: !linkWithSiblings && !linkWithOfficialParent,
                         keyboardType: TextInputType.phone,
                         decoration: const InputDecoration(
                           labelText: 'رقم ولي الأمر',
                           prefixIcon: Icon(Icons.phone_outlined),
                         ),
                       ),
+                      _buildOfficialParentLinkFields(
+                        linkWithOfficialParent: linkWithOfficialParent,
+                        selectedOfficialParentUid: selectedOfficialParentUid,
+                        officialParentsFuture: officialParentsFuture,
+                        onToggle: (value) {
+                          setSheetState(() {
+                            linkWithOfficialParent = value;
+                            selectedOfficialParentUid = '';
+
+                            if (value) {
+                              linkWithSiblings = false;
+                              selectedSharedAccessCodeId = '';
+                              parentNameCtrl.clear();
+                              parentPhoneCtrl.clear();
+                            }
+                          });
+                        },
+                        onSelected: (parentDoc) {
+                          setSheetState(() {
+                            selectedOfficialParentUid = parentDoc?.id ?? '';
+
+                            if (parentDoc == null) {
+                              parentNameCtrl.clear();
+                              parentPhoneCtrl.clear();
+                              return;
+                            }
+
+                            final data = parentDoc.data();
+                            parentNameCtrl.text = _officialParentName(data);
+                            parentPhoneCtrl.text = _officialParentPhone(data);
+                          });
+                        },
+                      ),
+                      if (!linkWithOfficialParent)
                       _buildSiblingAccessCodeFields(
                         linkWithSiblings: linkWithSiblings,
                         selectedSharedAccessCodeId: selectedSharedAccessCodeId,
@@ -3241,6 +3720,8 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                             linkWithSiblings = value;
                             selectedSharedAccessCodeId = '';
                             if (value) {
+                              linkWithOfficialParent = false;
+                              selectedOfficialParentUid = '';
                               parentNameCtrl.clear();
                               parentPhoneCtrl.clear();
                             }
@@ -3298,7 +3779,17 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                                     return;
                                   }
 
-                                  if (parentName.isEmpty) {
+                                  if (linkWithOfficialParent &&
+                                      selectedOfficialParentUid.isEmpty) {
+                                    await _showSheetValidationError(
+                                      sheetContext,
+                                      'اختر حساب ولي الأمر الرسمي',
+                                    );
+                                    return;
+                                  }
+
+                                  if (!linkWithOfficialParent &&
+                                      parentName.isEmpty) {
                                     await _showSheetValidationError(
                                       sheetContext,
                                       'اكتب اسم ولي الأمر',
@@ -3306,7 +3797,8 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                                     return;
                                   }
 
-                                  if (parentPhone.isEmpty) {
+                                  if (!linkWithOfficialParent &&
+                                      parentPhone.isEmpty) {
                                     await _showSheetValidationError(
                                       sheetContext,
                                       'اكتب رقم ولي الأمر',
@@ -3314,7 +3806,8 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                                     return;
                                   }
 
-                                  if (!_isValidPalestinianMobile(parentPhone)) {
+                                  if (!linkWithOfficialParent &&
+                                      !_isValidPalestinianMobile(parentPhone)) {
                                     await _showSheetValidationError(
                                       sheetContext,
                                       'رقم ولي الأمر يجب أن يكون 10 أرقام ويبدأ بـ 059 أو 056 أو 052',
@@ -3322,7 +3815,8 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                                     return;
                                   }
 
-                                  if (linkWithSiblings &&
+                                  if (!linkWithOfficialParent &&
+                                      linkWithSiblings &&
                                       selectedSharedAccessCodeId.isEmpty) {
                                     await _showSheetValidationError(
                                       sheetContext,
@@ -3352,9 +3846,14 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                                     parentPhone: parentPhone,
                                     trialStart: trialStart,
                                     profileFields: profile.toChildFields(),
-                                    sharedAccessCodeId: linkWithSiblings
-                                        ? selectedSharedAccessCodeId
+                                    officialParentUid: linkWithOfficialParent
+                                        ? selectedOfficialParentUid
                                         : '',
+                                    sharedAccessCodeId: linkWithOfficialParent
+                                        ? ''
+                                        : linkWithSiblings
+                                            ? selectedSharedAccessCodeId
+                                            : '',
                                   );
 
                                   if (!sheetContext.mounted) return;
@@ -3364,13 +3863,20 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
 
                                   final trialEnd = _trialEndFromStart(trialStart);
 
-                                  await _showTemporaryAccessDialog(
-                                    code: result.accessCode,
-                                    childName: childName,
-                                    accessEnd: trialEnd,
-                                    usesSharedAccessCode:
-                                        result.usesSharedAccessCode,
-                                  );
+                                  if (result.linkedToOfficialParentAccount) {
+                                    await _showOfficialParentLinkedDialog(
+                                      childName: childName,
+                                      parentName: result.officialParentName,
+                                    );
+                                  } else {
+                                    await _showTemporaryAccessDialog(
+                                      code: result.accessCode,
+                                      childName: childName,
+                                      accessEnd: trialEnd,
+                                      usesSharedAccessCode:
+                                          result.usesSharedAccessCode,
+                                    );
+                                  }
                                 },
                           icon: isSaving
                               ? const SizedBox(
@@ -3412,10 +3918,36 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
             title: Text(
               usesSharedAccessCode
                   ? 'تم ربط الطفل بكود الإخوة'
-                  : 'تم إنشاء الوصول كزائر',
+                  : 'تم إنشاء كود الدخول',
             ),
             content: SelectableText(
               'الطفل: $childName\nالكود: $code\nالصلاحية: ${_formatDate(accessEnd)}',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('تم'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showOfficialParentLinkedDialog({
+    required String childName,
+    required String parentName,
+  }) async {
+    await showDialog<void>(
+      context: context,
+      builder: (_) {
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: const Text('تم الربط بحساب ولي الأمر'),
+            content: Text(
+              'الطفل: $childName\nولي الأمر: $parentName\nلن يتم إنشاء كود دخول مؤقت لأن ولي الأمر لديه حساب رسمي.',
             ),
             actions: [
               TextButton(
@@ -3454,11 +3986,11 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
     if (confirm != true) return;
 
     await _firestore.collection('children').doc(childId).update({
-      'groupId': FieldValue.delete(),
-      'groupName': FieldValue.delete(),
-      'assignedStaffUid': FieldValue.delete(),
-      'assignedStaffName': FieldValue.delete(),
-      'assignedStaffUsername': FieldValue.delete(),
+      'groupId': '',
+      'groupName': '',
+      'assignedStaffUid': '',
+      'assignedStaffName': '',
+      'assignedStaffUsername': '',
       'updatedAt': FieldValue.serverTimestamp(),
     });
 
@@ -3776,16 +4308,25 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
         _cleanText(childData['sharedAccessCodeId']).isNotEmpty
             ? _cleanText(childData['sharedAccessCodeId'])
             : _cleanText(childData['temporaryAccessCodeId']);
-    final siblingCodeOptions = await _loadSiblingAccessCodeOptions(
-      parentName: _parentName(childData),
+
+    final officialParent = await _findActiveOfficialParentAccount(
+      parentUid: _cleanText(childData['parentUid']),
+      parentUsername: _cleanText(childData['parentUsername']),
       parentPhone: temporaryParentPhone,
-      excludedChildId: childDoc.id,
     );
+
+    final siblingCodeOptions = officialParent != null
+        ? <_SiblingAccessCodeOption>[]
+        : await _loadSiblingAccessCodeOptions(
+            parentName: _parentName(childData),
+            parentPhone: temporaryParentPhone,
+            excludedChildId: childDoc.id,
+          );
 
     final siblingCodesFuture =
         Future<List<_SiblingAccessCodeOption>>.value(siblingCodeOptions);
 
-    bool linkWithSiblings = siblingCodeOptions.isNotEmpty;
+    bool linkWithSiblings = officialParent == null && siblingCodeOptions.isNotEmpty;
     String selectedSharedAccessCodeId = '';
 
     if (siblingCodeOptions.any(
@@ -3907,6 +4448,23 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                             ?.copyWith(fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 18),
+                      if (officialParent != null) ...[
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withValues(alpha: 0.07),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: AppColors.primary.withValues(alpha: 0.16),
+                            ),
+                          ),
+                          child: Text(
+                            'سيتم ربط الطفل بحساب ولي الأمر الرسمي (${officialParent.name}) بدون إنشاء كود دخول مؤقت.',
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
                       if (siblingCodeOptions.isNotEmpty) ...[
                         Container(
                           width: double.infinity,
@@ -4081,13 +4639,20 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
 
                                   Navigator.pop(sheetContext);
 
-                                  await _showTemporaryAccessDialog(
-                                    code: result.accessCode,
-                                    childName: _childName(childData),
-                                    accessEnd: accessEnd,
-                                    usesSharedAccessCode:
-                                        result.usesSharedAccessCode,
-                                  );
+                                  if (result.linkedToOfficialParentAccount) {
+                                    await _showOfficialParentLinkedDialog(
+                                      childName: _childName(childData),
+                                      parentName: result.officialParentName,
+                                    );
+                                  } else {
+                                    await _showTemporaryAccessDialog(
+                                      code: result.accessCode,
+                                      childName: _childName(childData),
+                                      accessEnd: accessEnd,
+                                      usesSharedAccessCode:
+                                          result.usesSharedAccessCode,
+                                    );
+                                  }
                                 },
                           icon: isSaving
                               ? const SizedBox(
@@ -4117,7 +4682,6 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
     hourlyRateCtrl.dispose();
     paidAmountCtrl.dispose();
   }
-
   Future<_TemporaryChildResult?> _saveReactivatedTemporaryChild({
     required DocumentSnapshot<Map<String, dynamic>> childDoc,
     required DateTime accessStart,
@@ -4166,29 +4730,46 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
 
       final batch = _firestore.batch();
 
-      await _deactivateOldTemporaryAccess(
-        childId: childDoc.id,
-        batch: batch,
-        excludedAccessCodeId: sharedAccessCodeId,
+      final officialParent = await _findActiveOfficialParentAccount(
+        parentUid: _cleanText(childData['parentUid']),
+        parentUsername: _cleanText(childData['parentUsername']),
+        parentPhone: parentPhone,
       );
 
-      final preparedCode = await _prepareAccessCode(
-        sharedAccessCodeId: sharedAccessCodeId,
-        childRef: childDoc.reference,
-        childName: childName,
-        childType: 'temporary',
-        parentName: parentName,
-        cleanParentPhone: parentPhone,
-        accessStartDate: accessStartDate,
-        accessEndDate: accessEndDate,
-        adminUid: adminUid,
-        batch: batch,
-      );
+      _PreparedAccessCode? preparedCode;
 
-      if (preparedCode == null) return null;
+      if (officialParent != null) {
+        await _deactivateOldTemporaryAccess(
+          childId: childDoc.id,
+          batch: batch,
+        );
+      } else {
+        await _deactivateOldTemporaryAccess(
+          childId: childDoc.id,
+          batch: batch,
+          excludedAccessCodeId: sharedAccessCodeId,
+        );
 
-      final resolvedParentName = preparedCode.parentName;
-      final resolvedParentPhone = preparedCode.parentPhone;
+        preparedCode = await _prepareAccessCode(
+          sharedAccessCodeId: sharedAccessCodeId,
+          childRef: childDoc.reference,
+          childName: childName,
+          childType: 'temporary',
+          parentName: parentName,
+          cleanParentPhone: parentPhone,
+          accessStartDate: accessStartDate,
+          accessEndDate: accessEndDate,
+          adminUid: adminUid,
+          batch: batch,
+        );
+
+        if (preparedCode == null) return null;
+      }
+
+      final resolvedParentName =
+          officialParent != null ? officialParent.name : preparedCode?.parentName ?? parentName;
+      final resolvedParentPhone =
+          officialParent != null ? officialParent.phone : preparedCode?.parentPhone ?? parentPhone;
 
       batch.set(
         childDoc.reference,
@@ -4205,10 +4786,37 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
           'permanentDeleted': false,
           'isBillable': true,
           'excludeFromMonthlyInvoice': true,
-          'parentName': resolvedParentName,
-          'parentPhone': resolvedParentPhone,
-          'temporaryParentName': resolvedParentName,
-          'temporaryParentPhone': resolvedParentPhone,
+          if (officialParent != null) ...{
+            'parentUid': officialParent.uid,
+            'parentUsername': officialParent.username,
+            'parentName': resolvedParentName,
+            'parentPhone': resolvedParentPhone,
+            'temporaryParentUid': '',
+            'temporaryParentUsername': '',
+            'temporaryParentName': '',
+            'temporaryParentPhone': '',
+            'accessMode': 'parent_account',
+            'usesTemporaryAccessCode': false,
+            'temporaryAccessCodeId': '',
+            'sharedAccessCodeId': '',
+            'temporaryAccessCode': '',
+            'usesSharedAccessCode': false,
+          } else ...{
+            'parentUid': '',
+            'parentUsername': '',
+            'parentName': resolvedParentName,
+            'parentPhone': resolvedParentPhone,
+            'temporaryParentUid': '',
+            'temporaryParentUsername': '',
+            'temporaryParentName': resolvedParentName,
+            'temporaryParentPhone': resolvedParentPhone,
+            'accessMode': 'temporary_code',
+            'usesTemporaryAccessCode': true,
+            'temporaryAccessCodeId': preparedCode?.reference.id ?? '',
+            'sharedAccessCodeId': preparedCode?.reference.id ?? '',
+            'usesSharedAccessCode': preparedCode?.usesSharedAccessCode ?? false,
+            'temporaryAccessCode': preparedCode?.accessCode ?? '',
+          },
           'groupId': widget.groupId,
           'groupName': widget.groupName,
           'assignedStaffUid': widget.assignedStaffUid,
@@ -4227,14 +4835,10 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
           'temporaryFee': finalAmount,
           'temporaryPaidAmount': paidAmount,
           'temporaryRemainingAmount': remainingAmount,
-          'temporaryAccessCodeId': preparedCode.reference.id,
-          'sharedAccessCodeId': preparedCode.reference.id,
-          'usesSharedAccessCode': preparedCode.usesSharedAccessCode,
-          'temporaryAccessCode': preparedCode.accessCode,
           'temporaryAccessStartAt': Timestamp.fromDate(accessStartDate),
           'temporaryAccessEndAt': Timestamp.fromDate(accessEndDate),
-          'archiveReason': FieldValue.delete(),
-          'archivedAt': FieldValue.delete(),
+          'archiveReason': '',
+          'archivedAt': '',
           'reactivatedAt': FieldValue.serverTimestamp(),
           'updatedByUid': adminUid,
           'updatedByRole': 'admin',
@@ -4250,8 +4854,12 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
               'finalAmount': finalAmount,
               'paidAmount': paidAmount,
               'remainingAmount': remainingAmount,
-              'sharedAccessCodeId': preparedCode.reference.id,
-              'usesSharedAccessCode': preparedCode.usesSharedAccessCode,
+              'sharedAccessCodeId':
+                  officialParent != null ? '' : preparedCode?.reference.id ?? '',
+              'usesSharedAccessCode':
+                  officialParent != null ? false : preparedCode?.usesSharedAccessCode ?? false,
+              'accessMode':
+                  officialParent != null ? 'parent_account' : 'temporary_code',
               'createdAt': Timestamp.now(),
             },
           ]),
@@ -4266,16 +4874,23 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
         'childId': childDoc.id,
         'childName': childName,
         'childType': 'temporary',
-        'parentUid': '',
-        'parentUsername': '',
+        'parentUid': officialParent?.uid ?? '',
+        'parentUsername': officialParent?.username ?? '',
         'parentName': resolvedParentName,
         'parentPhone': resolvedParentPhone,
-        'temporaryParentName': resolvedParentName,
-        'temporaryParentPhone': resolvedParentPhone,
+        'temporaryParentName': officialParent == null ? resolvedParentName : '',
+        'temporaryParentPhone': officialParent == null ? resolvedParentPhone : '',
         'groupId': widget.groupId,
         'groupName': widget.groupName,
-        'temporaryAccessCodeId': preparedCode.reference.id,
-        'sharedAccessCodeId': preparedCode.reference.id,
+        if (officialParent != null) ...{
+          'accessMode': 'parent_account',
+          'usesTemporaryAccessCode': false,
+        } else ...{
+          'accessMode': 'temporary_code',
+          'usesTemporaryAccessCode': true,
+          'temporaryAccessCodeId': preparedCode?.reference.id ?? '',
+          'sharedAccessCodeId': preparedCode?.reference.id ?? '',
+        },
         'billingType': 'hourly',
         'billingTypeLabel': _billingTypeLabel('hourly'),
         'hoursCount': hoursCount,
@@ -4303,8 +4918,11 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
       await _updateGroupCount();
 
       return _TemporaryChildResult(
-        accessCode: preparedCode.accessCode,
-        usesSharedAccessCode: preparedCode.usesSharedAccessCode,
+        accessCode: officialParent != null ? '' : preparedCode?.accessCode ?? '',
+        usesSharedAccessCode:
+            officialParent != null ? false : preparedCode?.usesSharedAccessCode ?? false,
+        linkedToOfficialParentAccount: officialParent != null,
+        officialParentName: officialParent?.name ?? '',
       );
     } catch (e) {
       if (!mounted) return null;
@@ -4833,8 +5451,11 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
         isTemporary &&
         !isTrial &&
         data['canReactivate'] != false;
-    final canConvertTemporary =
-        isTemporary && !isTrial && data['permanentDeleted'] != true;
+    final canConvertTemporary = isTemporary &&
+        !isTrial &&
+        data['permanentDeleted'] != true &&
+        data['trialUsed'] != true &&
+        data['canStartNewTrial'] != false;
     final childStatus = _cleanText(data['childStatus']).toLowerCase();
     final canRestoreTrial = isArchived &&
         isTrial &&
@@ -4920,7 +5541,7 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                       ] else if (isTemporary) ...[
                         const PopupMenuItem(
                           value: 'convert_temporary',
-                          child: Text('بدء تجربة رسمية'),
+                          child: Text('بدء تجربة 3 أيام'),
                         ),
                         const PopupMenuItem(
                           value: 'archive',
@@ -4939,17 +5560,17 @@ bool _isPermanentChildData(Map<String, dynamic> data) {
                     ] else if (canReactivateTemporary) ...[
                       const PopupMenuItem(
                         value: 'reactivate',
-                        child: Text('إعادة تفعيل'),
+                        child: Text('استعادة كطفل زائر'),
                       ),
                       if (canConvertTemporary)
                         const PopupMenuItem(
                           value: 'convert_temporary',
-                          child: Text('بدء تجربة رسمية'),
+                          child: Text('استعادة وبدء تجربة 3 أيام'),
                         ),
                     ] else if (canConvertTemporary) ...[
                       const PopupMenuItem(
                         value: 'convert_temporary',
-                        child: Text('بدء تجربة رسمية'),
+                        child: Text('استعادة وبدء تجربة 3 أيام'),
                       ),
                     ],
                   ];
@@ -5150,10 +5771,28 @@ class _TemporaryPickupDraft {
 class _TemporaryChildResult {
   final String accessCode;
   final bool usesSharedAccessCode;
+  final bool linkedToOfficialParentAccount;
+  final String officialParentName;
 
   const _TemporaryChildResult({
     required this.accessCode,
     this.usesSharedAccessCode = false,
+    this.linkedToOfficialParentAccount = false,
+    this.officialParentName = '',
+  });
+}
+
+class _OfficialParentAccount {
+  final String uid;
+  final String username;
+  final String name;
+  final String phone;
+
+  const _OfficialParentAccount({
+    required this.uid,
+    required this.username,
+    required this.name,
+    required this.phone,
   });
 }
 

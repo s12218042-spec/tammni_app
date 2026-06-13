@@ -24,6 +24,31 @@ class ChildProfilePage extends StatefulWidget {
 class _ChildProfilePageState extends State<ChildProfilePage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
+  String _cleanText(dynamic value) {
+    if (value == null) return '';
+    return value.toString().trim();
+  }
+
+  DateTime? _dateFromDynamic(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+
+    final raw = _cleanText(value);
+    if (raw.isEmpty) return null;
+
+    return DateTime.tryParse(raw);
+  }
+
+  String _formatDate(DateTime? date) {
+    if (date == null) return 'غير محدد';
+
+    final y = date.year.toString();
+    final m = date.month.toString().padLeft(2, '0');
+    final d = date.day.toString().padLeft(2, '0');
+
+    return '$y/$m/$d';
+  }
+
   String childAgeText(DateTime? birthDate) {
     if (birthDate == null) return 'غير محدد';
 
@@ -56,76 +81,149 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
 
     if (!doc.exists) return null;
 
-    final data = doc.data()!;
-
     return {
       'id': doc.id,
-      'name': data['name'] ?? widget.child.name,
-      'birthDate': data['birthDate'] ??
-          (widget.child.birthDate != null
-              ? Timestamp.fromDate(widget.child.birthDate!)
-              : null),
-      'isActive': data['isActive'] ?? true,
-      'status': data['status'] ?? 'active',
+      ...doc.data()!,
     };
   }
 
-  void openUpdatesPage() {
+  ChildModel _resolveChild(Map<String, dynamic>? currentData) {
+    if (currentData == null) return widget.child;
+
+    return ChildModel.fromMap(
+      currentData,
+      docId: widget.child.id,
+    );
+  }
+
+  String _childTypeText(ChildModel child) {
+    if (child.isTrialPendingDecision) return 'بانتظار قرار التجربة';
+    if (child.isTrial) return 'طفل تجربة';
+    if (child.isTemporaryChild) return 'طفل زائر';
+    return '';
+  }
+
+  Color _childTypeColor(ChildModel child) {
+    if (child.isTrialPendingDecision) return Colors.deepOrange;
+    if (child.isTrial) return Colors.orange;
+    if (child.isTemporaryChild) return Colors.deepPurple;
+    return AppColors.primary;
+  }
+
+  DateTime? _periodStart({
+    required ChildModel child,
+    required Map<String, dynamic>? data,
+  }) {
+    if (child.isTrial) {
+      return _dateFromDynamic(data?['trialStartAt']) ??
+          child.trialStartAt ??
+          _dateFromDynamic(data?['temporaryAccessStartAt']) ??
+          child.temporaryAccessStartAt;
+    }
+
+    if (child.isTemporaryChild) {
+      return _dateFromDynamic(data?['temporaryAccessStartAt']) ??
+          child.temporaryAccessStartAt ??
+          _dateFromDynamic(data?['temporaryStartDate']) ??
+          _dateFromDynamic(data?['temporaryStartAt']) ??
+          child.temporaryStartAt;
+    }
+
+    return null;
+  }
+
+  DateTime? _periodEnd({
+    required ChildModel child,
+    required Map<String, dynamic>? data,
+  }) {
+    if (child.isTrial) {
+      return _dateFromDynamic(data?['trialEndAt']) ??
+          child.trialEndAt ??
+          _dateFromDynamic(data?['temporaryAccessEndAt']) ??
+          child.temporaryAccessEndAt;
+    }
+
+    if (child.isTemporaryChild) {
+      return _dateFromDynamic(data?['temporaryAccessEndAt']) ??
+          child.temporaryAccessEndAt ??
+          _dateFromDynamic(data?['temporaryEndDate']) ??
+          _dateFromDynamic(data?['temporaryEndAt']) ??
+          child.temporaryEndAt;
+    }
+
+    return null;
+  }
+
+  void openUpdatesPage(ChildModel child) {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => ParentUpdatesPage(child: widget.child),
+        builder: (_) => ParentUpdatesPage(child: child),
       ),
     );
   }
 
-  void openIncidentReportsPage() {
+  void openIncidentReportsPage(ChildModel child) {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => ParentIncidentReportsPage(child: widget.child),
+        builder: (_) => ParentIncidentReportsPage(child: child),
       ),
     );
   }
 
-  void openHandoffLogPage() {
+  void openHandoffLogPage(ChildModel child) {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => ParentHandoffLogPage(child: widget.child),
+        builder: (_) => ParentHandoffLogPage(child: child),
       ),
     );
   }
 
-  void openGalleryPage() {
+  void openGalleryPage(ChildModel child) {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => GalleryPage(child: widget.child),
+        builder: (_) => GalleryPage(child: child),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final child = widget.child;
-
     return AppPageScaffold(
       title: 'ملف الطفل',
       child: FutureBuilder<Map<String, dynamic>?>(
         future: fetchChildDetails(),
         builder: (context, childSnapshot) {
           final currentData = childSnapshot.data;
+          final child = _resolveChild(currentData);
 
-          final currentName = (currentData?['name'] ?? child.name).toString();
+          final currentName = child.displayName.trim().isEmpty
+              ? widget.child.name
+              : child.displayName;
 
-          final birthDateRaw = currentData?['birthDate'];
-          final currentBirthDate = birthDateRaw is Timestamp
-              ? birthDateRaw.toDate()
-              : child.birthDate;
+          final currentBirthDate = child.birthDate;
+          final childTypeText = _childTypeText(child);
+          final childTypeColor = _childTypeColor(child);
+          final periodStart = _periodStart(
+            child: child,
+            data: currentData,
+          );
+
+          final periodEnd = _periodEnd(
+            child: child,
+            data: currentData,
+          );
 
           return ListView(
             children: [
+              if (childSnapshot.connectionState == ConnectionState.waiting)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 12),
+                  child: LinearProgressIndicator(),
+                ),
               Container(
                 padding: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
@@ -153,13 +251,45 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
                     ),
                     const SizedBox(width: 14),
                     Expanded(
-                      child: Text(
-                        currentName,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 20,
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            currentName,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 20,
+                            ),
+                          ),
+                          if (childTypeText.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 5,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.22),
+                                  borderRadius: BorderRadius.circular(999),
+                                  border: Border.all(
+                                    color: Colors.white.withValues(alpha: 0.35),
+                                  ),
+                                ),
+                                child: Text(
+                                  childTypeText,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12.5,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
                   ],
@@ -181,6 +311,33 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
                         title: 'العمر',
                         value: childAgeText(currentBirthDate),
                       ),
+                      const SizedBox(height: 10),
+                      _ProfileInfoBox(
+                        icon: Icons.groups_2_outlined,
+                        title: 'المجموعة',
+                        value: child.displayGroup,
+                      ),
+                      if (childTypeText.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        _ProfileInfoBox(
+                          icon: Icons.flag_outlined,
+                          title: 'نوع التسجيل',
+                          value: childTypeText,
+                          iconColor: childTypeColor,
+                        ),
+                      ],
+                      if (periodStart != null || periodEnd != null) ...[
+                        const SizedBox(height: 10),
+                        _ProfileInfoBox(
+                          icon: Icons.event_available_outlined,
+                          title: child.isTrial
+                              ? 'فترة تجربة مجانية لمدة 3 أيام'
+                              : 'فترة الزيارة',
+                          value:
+                              '${_formatDate(periodStart)} - ${_formatDate(periodEnd)}',
+                          iconColor: child.isTrial ? Colors.orange : null,
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -190,27 +347,27 @@ class _ChildProfilePageState extends State<ChildProfilePage> {
                 title: 'متابعة الطفل',
                 subtitle: '',
                 icon: Icons.notifications_none_outlined,
-                onTap: openUpdatesPage,
+                onTap: () => openUpdatesPage(child),
               ),
               const SizedBox(height: 12),
               _ProfileNavigationCard(
                 title: 'تقارير المتابعة',
                 subtitle: '',
                 icon: Icons.report_problem_outlined,
-                onTap: openIncidentReportsPage,
+                onTap: () => openIncidentReportsPage(child),
               ),
               const SizedBox(height: 12),
               _ProfileNavigationCard(
                 title: 'الاستلام والتسليم',
                 subtitle: '',
                 icon: Icons.how_to_reg_outlined,
-                onTap: openHandoffLogPage,
+                onTap: () => openHandoffLogPage(child),
               ),
               const SizedBox(height: 16),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
-                  onPressed: openGalleryPage,
+                  onPressed: () => openGalleryPage(child),
                   icon: const Icon(Icons.photo_library_outlined),
                   label: const Text('فتح معرض الصور'),
                 ),
@@ -259,15 +416,19 @@ class _ProfileInfoBox extends StatelessWidget {
   final IconData icon;
   final String title;
   final String value;
+  final Color? iconColor;
 
   const _ProfileInfoBox({
     required this.icon,
     required this.title,
     required this.value,
+    this.iconColor,
   });
 
   @override
   Widget build(BuildContext context) {
+    final resolvedIconColor = iconColor ?? AppColors.primary;
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(14),
@@ -278,10 +439,10 @@ class _ProfileInfoBox extends StatelessWidget {
       child: Column(
         children: [
           CircleAvatar(
-            backgroundColor: AppColors.primary.withValues(alpha: 0.12),
+            backgroundColor: resolvedIconColor.withValues(alpha: 0.12),
             child: Icon(
               icon,
-              color: AppColors.primary,
+              color: resolvedIconColor,
             ),
           ),
           const SizedBox(height: 8),
@@ -295,7 +456,7 @@ class _ProfileInfoBox extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            value,
+            value.trim().isEmpty ? 'غير محدد' : value,
             textAlign: TextAlign.center,
             style: const TextStyle(
               fontWeight: FontWeight.bold,
@@ -365,15 +526,17 @@ class _ProfileNavigationCard extends StatelessWidget {
                       fontSize: 15,
                     ),
                   ),
-                  const SizedBox(height: 5),
-                  Text(
-                    subtitle,
-                    style: const TextStyle(
-                      color: AppColors.textLight,
-                      fontSize: 13,
-                      height: 1.35,
+                  if (subtitle.trim().isNotEmpty) ...[
+                    const SizedBox(height: 5),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        color: AppColors.textLight,
+                        fontSize: 13,
+                        height: 1.35,
+                      ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),

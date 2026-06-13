@@ -107,16 +107,7 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
     return entries;
   }
 
-  String sectionLabel(String section) {
-    if (section.trim() == 'Nursery') return 'حضانة';
-    return section.trim().isEmpty ? 'حضانة' : section;
-  }
-
-  Color sectionColor(String section) {
-    return const Color(0xFFEFA7C8);
-  }
-
-  String senderLabel(String byRole) {
+String senderLabel(String byRole) {
     final role = byRole.trim().toLowerCase();
 
     if (role == 'nursery' ||
@@ -209,32 +200,144 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
     return name.trim().substring(0, 1);
   }
 
-  String childAgeText(DateTime? birthDate) {
-    if (birthDate == null) return 'غير محدد';
+Future<ChildModel> fetchFreshChild() async {
+    try {
+      final doc =
+          await _firestore.collection('children').doc(widget.child.id).get();
 
-    final now = DateTime.now();
+      if (!doc.exists) return widget.child;
 
-    int years = now.year - birthDate.year;
-    int months = now.month - birthDate.month;
+      return ChildModel.fromMap(
+        doc.data() ?? <String, dynamic>{},
+        docId: doc.id,
+      );
+    } catch (_) {
+      return widget.child;
+    }
+  }
 
-    if (now.day < birthDate.day) {
-      months--;
+  Future<_ParentUpdatesData> _loadPageData() async {
+    final child = await fetchFreshChild();
+    final updates = await fetchUpdates();
+
+    return _ParentUpdatesData(
+      child: child,
+      updates: updates,
+    );
+  }
+
+  String _childTypeText(ChildModel child) {
+    if (child.isTrialPendingDecision) return 'بانتظار قرار التجربة';
+    if (child.isTrial) return 'طفل تجربة';
+    if (child.isTemporaryChild) return 'طفل زائر';
+    return '';
+  }
+
+  Color _childTypeColor(ChildModel child) {
+    if (child.isTrialPendingDecision) return Colors.deepOrange;
+    if (child.isTrial) return Colors.orange;
+    if (child.isTemporaryChild) return Colors.deepPurple;
+    return AppColors.primary;
+  }
+
+  String _childSubInfo(ChildModel child) {
+    final items = <String>[];
+
+    final group = child.displayGroup.trim();
+    if (group.isNotEmpty && group != 'بدون مجموعة') {
+      items.add(group);
     }
 
-    if (months < 0) {
-      years--;
-      months += 12;
+    final type = _childTypeText(child);
+    if (type.isNotEmpty) {
+      items.add(type);
     }
 
-    if (years <= 0) {
-      return '$months شهر';
+    return items.join(' • ');
+  }
+
+  bool _isIncidentUpdate(Map<String, dynamic> data) {
+    final type = (data['type'] ?? '').toString().trim().toLowerCase();
+    final updateType =
+        (data['updateType'] ?? '').toString().trim().toLowerCase();
+    final category =
+        (data['category'] ?? '').toString().trim().toLowerCase();
+    final reportType =
+        (data['reportType'] ?? '').toString().trim().toLowerCase();
+
+    return type == 'incident' ||
+        type == 'incident_report' ||
+        type == 'accident' ||
+        type == 'accident_report' ||
+        updateType == 'incident' ||
+        updateType == 'incident_report' ||
+        category == 'incident' ||
+        category == 'incident_report' ||
+        reportType == 'incident' ||
+        reportType == 'incident_report';
+  }
+
+  String _periodText(ChildModel child) {
+    DateTime? start;
+    DateTime? end;
+
+    if (child.isTrial) {
+      start = child.trialStartAt ?? child.temporaryAccessStartAt;
+      end = child.trialEndAt ?? child.temporaryAccessEndAt;
+    } else if (child.isTemporaryChild) {
+      start = child.temporaryAccessStartAt ?? child.temporaryStartAt;
+      end = child.temporaryAccessEndAt ?? child.temporaryEndAt;
     }
 
-    if (months == 0) {
-      return '$years سنة';
+    if (start == null && end == null) return '';
+
+    final periodRange = '${start == null ? 'غير محدد' : _dateTitle(start)} - ${end == null ? 'غير محدد' : _dateTitle(end)}';
+
+    if (child.isTrial) {
+      return 'فترة تجربة مجانية لمدة 3 أيام: $periodRange';
     }
 
-    return '$years سنة و $months شهر';
+    return 'فترة الزيارة: $periodRange';
+  }
+
+  Widget _headerBadge({
+    required String text,
+    required Color color,
+    IconData? icon,
+  }) {
+    if (text.trim().isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.22),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: color.withOpacity(0.36),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(
+              icon,
+              size: 14,
+              color: Colors.white,
+            ),
+            const SizedBox(width: 4),
+          ],
+          Text(
+            text,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   String _firstNonEmpty(List<dynamic> values) {
@@ -459,7 +562,9 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
         .where('childId', isEqualTo: widget.child.id)
         .get();
 
-    final items = snapshot.docs.map((doc) {
+    final items = snapshot.docs.where((doc) {
+      return !_isIncidentUpdate(doc.data());
+    }).map((doc) {
       final data = doc.data();
 
       final mediaUrl = _resolveMediaUrl(data);
@@ -517,13 +622,12 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
 
   @override
   Widget build(BuildContext context) {
-    final child = widget.child;
     return AppPageScaffold(
       title: 'سجلات المتابعة اليومية',
       child: RefreshIndicator(
         onRefresh: _refreshPage,
-        child: FutureBuilder<List<Map<String, dynamic>>>(
-          future: fetchUpdates(),
+        child: FutureBuilder<_ParentUpdatesData>(
+          future: _loadPageData(),
           builder: (context, updatesSnapshot) {
             if (updatesSnapshot.connectionState == ConnectionState.waiting) {
               return const Center(
@@ -546,7 +650,12 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
               );
             }
 
-            final updates = updatesSnapshot.data ?? [];
+            final pageData = updatesSnapshot.data;
+            final child = pageData?.child ?? widget.child;
+            final updates = pageData?.updates ?? <Map<String, dynamic>>[];
+            final childTypeText = _childTypeText(child);
+            final periodText = _periodText(child);
+            final childSubInfo = _childSubInfo(child);
             final visibleUpdates = _selectedDate == null
                 ? updates
                 : updates.where((update) {
@@ -579,7 +688,7 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
                         radius: 30,
                         backgroundColor: Colors.white.withOpacity(0.18),
                         child: Text(
-                          firstLetter(child.name),
+                          firstLetter(child.displayName.trim().isEmpty ? child.name : child.displayName),
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 24,
@@ -589,13 +698,53 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
                       ),
                       const SizedBox(width: 14),
                       Expanded(
-                        child: Text(
-                          child.name,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 20,
-                          ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              child.displayName.trim().isEmpty
+                                  ? child.name
+                                  : child.displayName,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 20,
+                              ),
+                            ),
+                            if (childSubInfo.isNotEmpty) ...[
+                              const SizedBox(height: 6),
+                              Text(
+                                childSubInfo,
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.92),
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
+                            if (childTypeText.isNotEmpty ||
+                                periodText.isNotEmpty) ...[
+                              const SizedBox(height: 10),
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 6,
+                                children: [
+                                  if (childTypeText.isNotEmpty)
+                                    _headerBadge(
+                                      text: childTypeText,
+                                      color: _childTypeColor(child),
+                                      icon: Icons.flag_outlined,
+                                    ),
+                                  if (periodText.isNotEmpty)
+                                    _headerBadge(
+                                      text: periodText,
+                                      color: AppColors.secondary,
+                                      icon: Icons.event_available_outlined,
+                                    ),
+                                ],
+                              ),
+                            ],
+                          ],
                         ),
                       ),
                     ],
@@ -743,6 +892,17 @@ class _ParentUpdatesPageState extends State<ParentUpdatesPage> {
       ),
     );
   }
+}
+
+
+class _ParentUpdatesData {
+  final ChildModel child;
+  final List<Map<String, dynamic>> updates;
+
+  const _ParentUpdatesData({
+    required this.child,
+    required this.updates,
+  });
 }
 
 class _UpdateCard extends StatelessWidget {
@@ -925,6 +1085,25 @@ class _UpdateCard extends StatelessWidget {
                           ),
                         ),
                       ),
+                      if (dateTextValue.trim().isNotEmpty &&
+                          dateTextValue != '--/--/----')
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.background,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            dateTextValue,
+                            style: const TextStyle(
+                              color: AppColors.textLight,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
                       if (hasMedia)
                         Container(
                           padding: const EdgeInsets.symmetric(

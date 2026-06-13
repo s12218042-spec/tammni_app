@@ -106,8 +106,25 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
     }
   }
 
-  String paymentMethodLabel() {
-    return 'كاش';
+  String paymentMethodLabel(Map<String, dynamic> data) {
+    final method = _firstNonEmpty([
+      data['paymentMethod'],
+      data['method'],
+      data['paymentType'],
+    ]).trim().toLowerCase();
+
+    switch (method) {
+      case 'visa':
+      case 'card':
+      case 'credit_card':
+        return 'فيزا';
+      case 'bank':
+      case 'bank_transfer':
+        return 'تحويل بنكي';
+      case 'cash':
+      default:
+        return 'كاش';
+    }
   }
 
   String formatDate(dynamic raw) {
@@ -171,6 +188,73 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
       data['childName'],
       data['studentName'],
     ]);
+  }
+
+  String normalizeInvoiceChildType(Map<String, dynamic> data) {
+    final childType = _firstNonEmpty([
+      data['childType'],
+      data['enrollmentType'],
+      data['childStatus'],
+      data['invoiceChildType'],
+    ]).trim().toLowerCase();
+
+    if (data['isTrialChild'] == true) return 'trial';
+    if (data['isTemporaryChild'] == true) return 'temporary';
+
+    switch (childType) {
+      case 'trial':
+      case 'طفل تجربة':
+      case 'تجربة':
+        return 'trial';
+      case 'temporary':
+      case 'temp':
+      case 'temporary_child':
+      case 'visitor':
+      case 'طفل زائر':
+      case 'زائر':
+        return 'temporary';
+      case 'permanent':
+      case 'active':
+      case 'regular':
+      default:
+        return childType.isEmpty ? 'permanent' : childType;
+    }
+  }
+
+  bool isTrialInvoice(Map<String, dynamic> data) {
+    final type = normalizeInvoiceChildType(data);
+    final invoiceType = _firstNonEmpty([
+      data['invoiceType'],
+      data['billingType'],
+      data['type'],
+    ]).trim().toLowerCase();
+
+    return type == 'trial' ||
+        invoiceType == 'trial' ||
+        data['trialIsFree'] == true;
+  }
+
+  bool isTemporaryInvoice(Map<String, dynamic> data) {
+    final type = normalizeInvoiceChildType(data);
+
+    return type == 'temporary' ||
+        _firstNonEmpty([
+          data['temporaryAccessCodeId'],
+          data['sharedAccessCodeId'],
+          data['temporaryAccessCode'],
+        ]).isNotEmpty;
+  }
+
+  String invoiceChildTypeLabel(Map<String, dynamic> data) {
+    if (isTrialInvoice(data)) return 'طفل تجربة';
+    if (isTemporaryInvoice(data)) return 'طفل زائر';
+    return '';
+  }
+
+  Color invoiceChildTypeColor(Map<String, dynamic> data) {
+    if (isTrialInvoice(data)) return Colors.orange;
+    if (isTemporaryInvoice(data)) return Colors.deepPurple;
+    return AppColors.primary;
   }
 
   String resolveBillingType(Map<String, dynamic> data) {
@@ -432,12 +516,14 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
   }
 
   bool isHiddenInvoice(Map<String, dynamic> data) {
-  final status = resolveStatus(data);
+    if (isTrialInvoice(data)) return true;
 
-  final invoiceStatus =
-      (data['invoiceStatus'] ?? '').toString().trim().toLowerCase();
-  final paymentStatus =
-      (data['paymentStatus'] ?? '').toString().trim().toLowerCase();
+    final status = resolveStatus(data);
+
+    final invoiceStatus =
+        (data['invoiceStatus'] ?? '').toString().trim().toLowerCase();
+    final paymentStatus =
+        (data['paymentStatus'] ?? '').toString().trim().toLowerCase();
 
     const hiddenStatuses = {
       'draft',
@@ -447,10 +533,46 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
       'archived',
     };
 
-  return hiddenStatuses.contains(status) ||
-      hiddenStatuses.contains(invoiceStatus) ||
-      hiddenStatuses.contains(paymentStatus);
-}
+    return hiddenStatuses.contains(status) ||
+        hiddenStatuses.contains(invoiceStatus) ||
+        hiddenStatuses.contains(paymentStatus);
+  }
+
+  Future<Set<String>> _fetchOfficialParentChildIds({
+    required String currentUid,
+    required String cleanUsername,
+  }) async {
+    final childIds = <String>{};
+
+    Future<void> collect(Query<Map<String, dynamic>> query) async {
+      try {
+        final snapshot = await query.get();
+
+        for (final doc in snapshot.docs) {
+          childIds.add(doc.id);
+        }
+      } catch (_) {
+      }
+    }
+
+    if (currentUid.trim().isNotEmpty) {
+      await collect(
+        _firestore
+            .collection('children')
+            .where('parentUid', isEqualTo: currentUid.trim()),
+      );
+    }
+
+    if (cleanUsername.trim().isNotEmpty) {
+      await collect(
+        _firestore
+            .collection('children')
+            .where('parentUsername', isEqualTo: cleanUsername.trim()),
+      );
+    }
+
+    return childIds;
+  }
 
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
       _fetchInvoices() async {
@@ -483,6 +605,27 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
         if (!isHiddenInvoice(doc.data())) {
           docsById[doc.id] = doc;
         }
+      }
+    }
+
+    final childIds = await _fetchOfficialParentChildIds(
+      currentUid: currentUid,
+      cleanUsername: cleanUsername,
+    );
+
+    for (final childId in childIds) {
+      try {
+        final byChild = await _firestore
+            .collection('invoices')
+            .where('childId', isEqualTo: childId)
+            .get();
+
+        for (final doc in byChild.docs) {
+          if (!isHiddenInvoice(doc.data())) {
+            docsById[doc.id] = doc;
+          }
+        }
+      } catch (_) {
       }
     }
 
@@ -673,6 +816,9 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
     final childName = resolveChildName(data);
     final description = resolveDescription(data);
 
+    final childTypeLabel = invoiceChildTypeLabel(data);
+    final childTypeColor = invoiceChildTypeColor(data);
+
     final subtotalAmount = resolveSubtotalAmount(data);
     final totalAmount = resolveTotalAmount(data);
     final paidAmount = resolvePaidAmount(data);
@@ -692,7 +838,7 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
     final showExtraHours = hasExtraHours(data);
     final showConsultations = hasConsultations(data);
 
-    final paymentMethod = paymentMethodLabel();
+    final paymentMethod = paymentMethodLabel(data);
 
     final hourlyInvoice = isHourlyInvoice(data);
     final hoursCount = resolveHoursCount(data);
@@ -765,9 +911,18 @@ class _ParentInvoicesPageState extends State<ParentInvoicesPage> {
               ],
             ),
             const SizedBox(height: 12),
+            if (childTypeLabel.trim().isNotEmpty) ...[
+              _InvoiceInfoRow(
+                icon: Icons.flag_outlined,
+                label: 'نوع التسجيل',
+                value: childTypeLabel,
+                iconColor: childTypeColor,
+              ),
+              const SizedBox(height: 6),
+            ],
             _InvoiceInfoRow(
               icon: Icons.payments_outlined,
-              label: 'تكلفة الحضانة',
+              label: isTemporaryInvoice(data) ? 'تكلفة الزيارة' : 'تكلفة الحضانة',
               value: '${formatMoney(subtotalAmount)} شيكل',
             ),
             if (hourlyInvoice && hoursCount > 0) ...[
@@ -1029,12 +1184,14 @@ class _InvoiceInfoRow extends StatelessWidget {
   final String label;
   final String value;
   final bool isStrong;
+  final Color? iconColor;
 
   const _InvoiceInfoRow({
     required this.icon,
     required this.label,
     required this.value,
     this.isStrong = false,
+    this.iconColor,
   });
 
   @override
@@ -1053,7 +1210,7 @@ class _InvoiceInfoRow extends StatelessWidget {
           Icon(
             icon,
             size: 18,
-            color: isStrong ? AppColors.primary : AppColors.textLight,
+            color: iconColor ?? (isStrong ? AppColors.primary : AppColors.textLight),
           ),
           const SizedBox(width: 8),
           Text(

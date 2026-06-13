@@ -100,35 +100,51 @@ class _ParentHomePageState extends State<ParentHomePage> {
   }
 
   Future<List<ChildModel>> fetchChildren() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final currentUser = FirebaseAuth.instance.currentUser;
+    final uid = currentUser?.uid.trim() ?? '';
     final cleanParentUsername = widget.parentUsername.trim().toLowerCase();
 
-    QuerySnapshot<Map<String, dynamic>> snapshot;
+    final docsById = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
 
-    if (uid != null) {
-      snapshot = await _firestore
-          .collection('children')
-          .where('parentUid', isEqualTo: uid)
-          .where('isActive', isEqualTo: true)
-          .get();
+    Future<void> collect(Query<Map<String, dynamic>> query) async {
+      final snapshot = await query.where('isActive', isEqualTo: true).get();
 
-      if (snapshot.docs.isNotEmpty) {
-        final children = snapshot.docs.map((doc) {
-          return ChildModel.fromMap(doc.data(), docId: doc.id);
-        }).toList();
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final childStatus =
+            (data['childStatus'] ?? '').toString().trim().toLowerCase();
+        final accountStatus =
+            (data['accountStatus'] ?? '').toString().trim().toLowerCase();
+        final status = (data['status'] ?? '').toString().trim().toLowerCase();
 
-        children.sort((a, b) => a.name.compareTo(b.name));
-        return children;
+        if (childStatus == 'archived' ||
+            accountStatus == 'archived' ||
+            status == 'archived' ||
+            childStatus == 'rejected_after_trial') {
+          continue;
+        }
+
+        docsById[doc.id] = doc;
       }
     }
 
-    snapshot = await _firestore
-        .collection('children')
-        .where('parentUsername', isEqualTo: cleanParentUsername)
-        .where('isActive', isEqualTo: true)
-        .get();
+    if (uid.isNotEmpty) {
+      await collect(
+        _firestore
+            .collection('children')
+            .where('parentUid', isEqualTo: uid),
+      );
+    }
 
-    final children = snapshot.docs.map((doc) {
+    if (cleanParentUsername.isNotEmpty) {
+      await collect(
+        _firestore
+            .collection('children')
+            .where('parentUsername', isEqualTo: cleanParentUsername),
+      );
+    }
+
+    final children = docsById.values.map((doc) {
       return ChildModel.fromMap(doc.data(), docId: doc.id);
     }).toList();
 
